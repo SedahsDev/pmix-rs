@@ -8,5 +8,8 @@ license = "BSD"
 [build-dependencies]
 bindgen = "0.72.1"
 
+[dependencies]
+cstring-array = "0.1"
+
 [dependencies.bitflags]
-version = "2.6.0"
+version = "2.11.0"
