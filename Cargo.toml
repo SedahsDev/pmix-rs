@@ -1,5 +1,5 @@
 [package]
-name = "pmix-sys"
+name = "pmix"
 version = "0.1.0"
 edition = "2024"
 description = "Low level Rust bindings"
