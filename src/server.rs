@@ -2263,3 +2263,242 @@ pub fn server_iof_deliver(
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_collect_inventory
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `server_collect_inventory`.
+///
+/// Implement this trait to receive the result of an asynchronous
+/// inventory collection request. The `on_complete` method is called
+/// exactly once when the operation finishes, with the status and
+/// collected inventory info array.
+pub trait CollectInventoryCallback: Send + 'static {
+    /// Called when the inventory collection completes.
+    ///
+    /// - `status`: The result status (success or error).
+    /// - `inventory`: The collected inventory info entries (owned, freed on drop).
+    fn on_complete(&self, status: PmixStatus, inventory: CollectInventoryResults);
+}
+
+/// Results from a `server_collect_inventory` call.
+///
+/// Contains the collected inventory as an array of info entries.
+/// The underlying C memory is automatically freed when this value
+/// is dropped.
+#[derive(Debug)]
+pub struct CollectInventoryResults {
+    handle: *mut ffi::pmix_info_t,
+    len: usize,
+}
+
+impl CollectInventoryResults {
+    /// Number of info entries in the inventory result set.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// `true` if the inventory result set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl Drop for CollectInventoryResults {
+    fn drop(&mut self) {
+        if !self.handle.is_null() && self.len > 0 {
+            unsafe {
+                // SAFETY: handle was returned by PMIx as an allocated
+                // pmix_info_t array. PMIx_Info_free releases it.
+                ffi::PMIx_Info_free(self.handle, self.len);
+                self.handle = ptr::null_mut();
+                self.len = 0;
+            }
+        }
+    }
+}
+
+/// Monotonically increasing collect-inventory request ID counter.
+static COLLECT_INVENTORY_SEQ: LazyLock<Mutex<usize>> =
+    LazyLock::new(|| Mutex::new(0));
+
+/// Global registry of pending collect-inventory callbacks.
+///
+/// Maps request ID -> callback. Entries are removed when the callback fires.
+static COLLECT_INVENTORY_REGISTRY: LazyLock<
+    Mutex<std::collections::HashMap<usize, Box<dyn CollectInventoryCallback>>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// C bridge for `pmix_info_cbfunc_t` (collect inventory completion).
+///
+/// Called by PMIx when the inventory collection request completes.
+/// The `cbdata` parameter encodes the request ID. We look up the
+/// registered Rust callback and invoke it with the result status
+/// and the collected inventory info array.
+extern "C" fn collect_inventory_callback_bridge(
+    status: ffi::pmix_status_t,
+    info: *mut ffi::pmix_info_t,
+    ninfo: usize,
+    _release_cbdata: *mut c_void,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+    let cb = match cb {
+        Some(cb) => cb,
+        None => {
+            // Callback already consumed — free the info array to avoid leak.
+            if !info.is_null() && ninfo > 0 {
+                unsafe {
+                    ffi::PMIx_Info_free(info, ninfo);
+                }
+            }
+            return;
+        }
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    let inventory = CollectInventoryResults { handle: info, len: ninfo };
+    cb.on_complete(pmix_status, inventory);
+    // release_fn is unused — we manage our own memory via CollectInventoryResults Drop.
+    let _ = release_fn;
+}
+
+/// Collect hardware and software inventory from the local system (non-blocking).
+///
+/// Request the PMIx server to collect inventory information about the local
+/// system (CPU, memory, network, GPU, etc.) from the configured inventory
+/// plugins. The `callback` closure is invoked once the collection completes,
+/// receiving both the status and the collected inventory as an info array.
+///
+/// The function returns immediately:
+/// - `Ok(())` if the request was accepted for asynchronous processing.
+///   The actual result will be delivered via `callback`.
+/// - `Err(status)` if the request was rejected immediately (e.g., invalid
+///   parameters or PMIx not initialized as server). The callback will
+///   NOT be called.
+///
+/// # Parameters
+///
+/// * `directives` — optional info entries that specify collection directives
+///   (e.g., which plugins to query, filtering criteria). Pass an empty slice
+///   to use default collection behavior.
+/// * `callback` — invoked when inventory collection completes, receiving
+///   the status and the collected inventory info array.
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback`.
+/// * `Err(status)` — request rejected immediately. The callback
+///   will NOT be called.
+///
+/// # Error conditions
+///
+/// * `PMIX_ERR_INIT` — PMIx server library has not been initialized.
+/// * `PMIX_ERR_NOMEM` — insufficient memory to process the request.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_collect_inventory(pmix_info_t directives[],
+///                                             size_t ndirs,
+///                                             pmix_info_cbfunc_t cbfunc,
+///                                             void *cbdata);
+/// ```
+///
+/// # Example
+///
+/// ```no_run
+/// use pmix::server::{server_collect_inventory, CollectInventoryCallback, CollectInventoryResults};
+/// use pmix::{Info, PmixStatus};
+///
+/// struct MyInventoryCallback;
+/// impl CollectInventoryCallback for MyInventoryCallback {
+///     fn on_complete(&self, status: PmixStatus, inventory: CollectInventoryResults) {
+///         if status.is_success() {
+///             println!("Collected {} inventory items", inventory.len());
+///         } else {
+///             eprintln!("Inventory collection failed: {:?}", status);
+///         }
+///     }
+/// }
+///
+/// let directives = Info::default();
+/// server_collect_inventory(
+///     &directives,
+///     Box::new(MyInventoryCallback),
+/// ).expect("collect_inventory rejected");
+/// ```
+pub fn server_collect_inventory(
+    directives: &Info,
+    callback: Box<dyn CollectInventoryCallback>,
+) -> Result<(), PmixStatus> {
+    // Assign a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+
+    // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
+    // is never null (req_id starts at 1, so shifted value >= 4).
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    {
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Convert the directives Info slice to C pointers.
+    let (directives_ptr, ndirs) = if directives.len > 0 {
+        (directives.handle, directives.len)
+    } else {
+        (ptr::null_mut(), 0)
+    };
+
+    let status = unsafe {
+        // SAFETY:
+        // - directives_ptr is either null or points to a valid array of
+        //   pmix_info_t objects from the Info handle that remains alive
+        //   for the duration of this call (PMIx copies the pointer).
+        // - ndirs matches the length of the directives array.
+        // - collect_inventory_callback_bridge is a valid extern "C" function
+        //   matching the pmix_info_cbfunc_t signature.
+        // - cbdata encodes the request ID and is guaranteed non-null.
+        // - The callback registered in COLLECT_INVENTORY_REGISTRY outlives
+        //   this call and will be removed when the callback fires.
+        // - The PMIx library validates parameters internally and returns
+        //   PMIX_ERR_INIT if not initialized as server, PMIX_ERR_NOMEM on OOM.
+        ffi::PMIx_server_collect_inventory(
+            directives_ptr,
+            ndirs,
+            Some(collect_inventory_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Request was rejected — remove the callback so it doesn't leak.
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
