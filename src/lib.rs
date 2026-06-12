@@ -1065,6 +1065,106 @@ impl std::fmt::Display for PmixPersistence {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixDataRange — pmix_data_range_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Range for data published by PMIx — where the data is visible.
+///
+/// Maps to `pmix_data_range_t` (`uint8_t`) in the C API. Defines the
+/// range across which published data is accessible, used by
+/// `PMIx_Publish`, `PMIx_Lookup`, `PMIx_Unpublish`, and notification
+/// event delivery.
+///
+/// # C API
+/// `typedef uint8_t pmix_data_range_t`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[non_exhaustive]
+pub enum PmixDataRange {
+    /// `PMIX_RANGE_UNDEF` (0) — undefined range.
+    Undef = 0,
+
+    /// `PMIX_RANGE_RM` (1) — data is intended for the host resource manager.
+    Rm = 1,
+
+    /// `PMIX_RANGE_LOCAL` (2) — available on local node only.
+    Local = 2,
+
+    /// `PMIX_RANGE_NAMESPACE` (3) — data is available to procs in the same
+    /// namespace only.
+    Namespace = 3,
+
+    /// `PMIX_RANGE_SESSION` (4) — data available to all procs in the session.
+    Session = 4,
+
+    /// `PMIX_RANGE_GLOBAL` (5) — data available to all procs.
+    Global = 5,
+
+    /// `PMIX_RANGE_CUSTOM` (6) — range is specified in a `pmix_info_t`.
+    Custom = 6,
+
+    /// `PMIX_RANGE_PROC_LOCAL` (7) — restrict range to the local process.
+    ProcLocal = 7,
+
+    /// `PMIX_RANGE_INVALID` (255) — invalid range value.
+    Invalid = 255,
+
+    /// An unrecognised or future range value.
+    Unknown(u8),
+}
+
+impl PmixDataRange {
+    /// Convert a raw `pmix_data_range_t` (`u8`) into a `PmixDataRange`.
+    pub fn from_raw(range: u8) -> Self {
+        match range {
+            0   => Self::Undef,
+            1   => Self::Rm,
+            2   => Self::Local,
+            3   => Self::Namespace,
+            4   => Self::Session,
+            5   => Self::Global,
+            6   => Self::Custom,
+            7   => Self::ProcLocal,
+            255 => Self::Invalid,
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// Return the raw `u8` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::Unknown(v) => v,
+            Self::Undef     => 0,
+            Self::Rm        => 1,
+            Self::Local     => 2,
+            Self::Namespace => 3,
+            Self::Session   => 4,
+            Self::Global    => 5,
+            Self::Custom    => 6,
+            Self::ProcLocal => 7,
+            Self::Invalid   => 255,
+        }
+    }
+}
+
+impl std::fmt::Display for PmixDataRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Undef     => write!(f, "UNDEFINED"),
+            Self::Rm        => write!(f, "RM"),
+            Self::Local     => write!(f, "LOCAL"),
+            Self::Namespace => write!(f, "NAMESPACE"),
+            Self::Session   => write!(f, "SESSION"),
+            Self::Global    => write!(f, "GLOBAL"),
+            Self::Custom    => write!(f, "CUSTOM"),
+            Self::ProcLocal => write!(f, "PROC LOCAL"),
+            Self::Invalid   => write!(f, "INVALID"),
+            Self::Unknown(v) => write!(f, "UNKNOWN RANGE ({v})"),
+        }
+    }
+}
+
 /// All errors the builder can produce.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BuilderError {

@@ -1,9 +1,9 @@
-//! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`, `PMIx_Scope_string`, and related helpers.
+//! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`, `PMIx_Scope_string`, `PMIx_Persistence_string`, `PMIx_Data_range_string`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use crate::{ffi, PmixDataRange, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -207,6 +207,51 @@ pub fn persistence_string(persist: PmixPersistence) -> Result<String, PmixStatus
     let c_ptr = unsafe { ffi::PMIx_Persistence_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_persistence_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Data_range_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of a PMIx data range value.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Data_range_string(pmix_data_range_t range)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the data range.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_data_range_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::data_range_string, PmixDataRange};
+///
+/// let range = PmixDataRange::Global;
+/// let desc = data_range_string(range).expect("valid range");
+/// assert_eq!(desc, "GLOBAL");
+/// ```
+pub fn data_range_string(range: PmixDataRange) -> Result<String, PmixStatus> {
+    let raw = range.to_raw();
+    // SAFETY: PMIx_Data_range_string takes a single pmix_data_range_t (u8)
+    // and returns a pointer to a static, null-terminated string owned by
+    // the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points
+    // to read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Data_range_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_data_range_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
@@ -662,5 +707,185 @@ mod tests {
         assert_eq!(format!("{}", Global), "GLOBAL");
         assert_eq!(format!("{}", Internal), "INTERNAL");
         assert_eq!(format!("{}", Unknown(99)), "UNKNOWN SCOPE (99)");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Data_range_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `data_range_string` returns `Ok(String)` for all known range values.
+    ///
+    /// PMIx_Data_range_string is documented to always return a valid,
+    /// non-null, null-terminated string for any pmix_data_range_t value.
+    /// This test calls into the real PMIx library.
+    #[test]
+    fn test_data_range_string_all_known() {
+        use crate::PmixDataRange::*;
+
+        let ranges = [Undef, Rm, Local, Namespace, Session, Global, Custom, ProcLocal, Invalid];
+        for range in ranges {
+            let result = data_range_string(range);
+            assert!(
+                result.is_ok(),
+                "data_range_string({:?}) should return Ok, got {:?}",
+                range,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "data_range_string({:?}) should not return empty string",
+                range
+            );
+        }
+    }
+
+    /// `data_range_string` returns the expected strings for key ranges.
+    #[test]
+    fn test_data_range_string_expected_values() {
+        use crate::PmixDataRange::*;
+
+        let local = data_range_string(Local).unwrap();
+        let namespace = data_range_string(Namespace).unwrap();
+        let session = data_range_string(Session).unwrap();
+        let global = data_range_string(Global).unwrap();
+
+        assert!(local.to_lowercase().contains("local"), "Local range string should contain 'local', got '{}'", local);
+        assert!(namespace.to_lowercase().contains("namespace"), "Namespace range string should contain 'namespace', got '{}'", namespace);
+        assert!(session.to_lowercase().contains("session"), "Session range string should contain 'session', got '{}'", session);
+        assert!(global.to_lowercase().contains("global"), "Global range string should contain 'global', got '{}'", global);
+    }
+
+    /// `data_range_string` is deterministic — the same range always returns
+    /// the same string.
+    #[test]
+    fn test_data_range_string_deterministic() {
+        use crate::PmixDataRange::Session;
+        let first = data_range_string(Session).unwrap();
+        let second = data_range_string(Session).unwrap();
+        assert_eq!(
+            first, second,
+            "data_range_string must be deterministic for the same input"
+        );
+    }
+
+    /// `data_range_string` returns different strings for different ranges.
+    #[test]
+    fn test_data_range_string_distinct() {
+        use crate::PmixDataRange::*;
+        let local = data_range_string(Local).unwrap();
+        let global = data_range_string(Global).unwrap();
+        assert_ne!(
+            local, global,
+            "data_range_string(Local) and data_range_string(Global) must differ"
+        );
+    }
+
+    /// `data_range_string` handles the Unknown variant (raw value not in
+    /// the standard enum).
+    #[test]
+    fn test_data_range_string_unknown() {
+        use crate::PmixDataRange::Unknown;
+        let range = Unknown(99);
+        let result = data_range_string(range);
+        assert!(
+            result.is_ok(),
+            "data_range_string(Unknown(99)) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "data_range_string for unknown range should return non-empty string"
+        );
+    }
+
+    /// `data_range_string` handles the Invalid variant (255).
+    #[test]
+    fn test_data_range_string_invalid() {
+        use crate::PmixDataRange::Invalid;
+        let result = data_range_string(Invalid);
+        assert!(
+            result.is_ok(),
+            "data_range_string(Invalid) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "data_range_string(Invalid) should return non-empty string"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixDataRange enum tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `PmixDataRange::from_raw` and `to_raw` are inverses for known values.
+    #[test]
+    fn test_data_range_from_raw_to_raw_roundtrip() {
+        use crate::PmixDataRange::*;
+
+        let ranges = [Undef, Rm, Local, Namespace, Session, Global, Custom, ProcLocal, Invalid];
+        for range in ranges {
+            let raw = range.to_raw();
+            let recovered = PmixDataRange::from_raw(raw);
+            assert_eq!(
+                range, recovered,
+                "from_raw(to_raw({:?})) should round-trip",
+                range
+            );
+        }
+    }
+
+    /// `PmixDataRange::from_raw` maps known raw values correctly.
+    #[test]
+    fn test_data_range_from_raw_known() {
+        use crate::PmixDataRange::*;
+
+        assert_eq!(PmixDataRange::from_raw(0), Undef);
+        assert_eq!(PmixDataRange::from_raw(1), Rm);
+        assert_eq!(PmixDataRange::from_raw(2), Local);
+        assert_eq!(PmixDataRange::from_raw(3), Namespace);
+        assert_eq!(PmixDataRange::from_raw(4), Session);
+        assert_eq!(PmixDataRange::from_raw(5), Global);
+        assert_eq!(PmixDataRange::from_raw(6), Custom);
+        assert_eq!(PmixDataRange::from_raw(7), ProcLocal);
+        assert_eq!(PmixDataRange::from_raw(255), Invalid);
+        assert!(matches!(PmixDataRange::from_raw(200), Unknown(200)));
+    }
+
+    /// `PmixDataRange::to_raw` returns the expected raw values.
+    #[test]
+    fn test_data_range_to_raw() {
+        use crate::PmixDataRange::*;
+
+        assert_eq!(Undef.to_raw(), 0);
+        assert_eq!(Rm.to_raw(), 1);
+        assert_eq!(Local.to_raw(), 2);
+        assert_eq!(Namespace.to_raw(), 3);
+        assert_eq!(Session.to_raw(), 4);
+        assert_eq!(Global.to_raw(), 5);
+        assert_eq!(Custom.to_raw(), 6);
+        assert_eq!(ProcLocal.to_raw(), 7);
+        assert_eq!(Invalid.to_raw(), 255);
+        assert_eq!(Unknown(42).to_raw(), 42);
+    }
+
+    /// `PmixDataRange` implements Display.
+    #[test]
+    fn test_data_range_display() {
+        use crate::PmixDataRange::*;
+
+        assert_eq!(format!("{}", Undef), "UNDEFINED");
+        assert_eq!(format!("{}", Rm), "RM");
+        assert_eq!(format!("{}", Local), "LOCAL");
+        assert_eq!(format!("{}", Namespace), "NAMESPACE");
+        assert_eq!(format!("{}", Session), "SESSION");
+        assert_eq!(format!("{}", Global), "GLOBAL");
+        assert_eq!(format!("{}", Custom), "CUSTOM");
+        assert_eq!(format!("{}", ProcLocal), "PROC LOCAL");
+        assert_eq!(format!("{}", Invalid), "INVALID");
+        assert_eq!(format!("{}", Unknown(99)), "UNKNOWN RANGE (99)");
     }
 }
