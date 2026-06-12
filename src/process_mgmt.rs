@@ -1,5 +1,6 @@
 //! Process management — `PMIx_Abort`, `PMIx_Spawn`, `PMIx_Spawn_nb`,
-//! `PMIx_Connect`, `PMIx_Connect_nb`, `PMIx_Disconnect`, `PMIx_Disconnect_nb`.
+//! `PMIx_Connect`, `PMIx_Connect_nb`, `PMIx_Disconnect`, `PMIx_Disconnect_nb`,
+//! `PMIx_Resolve_peers`.
 //!
 //! This module provides safe Rust wrappers around the PMIx process
 //! management APIs:
@@ -1080,23 +1081,128 @@ pub fn connect_nb(
          // - PMIx_Disconnect_nb returns immediately; the callback is invoked
          //   asynchronously by the PMIx library at a later time.
          let raw_status = unsafe {
-             ffi::PMIx_Disconnect_nb(
-                 procs_ptr,
-                 procs.len(),
-                 info_ptr,
-                 ninfo,
-                 Some(disconnect_callback_bridge),
-                 cb_box as *mut c_void,
-             )
+              ffi::PMIx_Disconnect_nb(
+                  procs_ptr,
+                  procs.len(),
+                  info_ptr,
+                  ninfo,
+                  Some(disconnect_callback_bridge),
+                  cb_box as *mut c_void,
+              )
+          };
+
+          let pmix_status = PmixStatus::from_raw(raw_status);
+          if pmix_status.is_success() {
+              Ok(())
+          } else {
+              // On synchronous failure, PMIx may or may not call the callback.
+              // To be safe, reclaim the box to avoid a memory leak.
+              unsafe { drop(Box::from_raw(cb_box)) }
+              Err(pmix_status)
+          }
+         }
+
+         // ─────────────────────────────────────────────────────────────────────────────
+         // PMIx_Resolve_peers
+         // ─────────────────────────────────────────────────────────────────────────────
+
+         /// Resolve the array of processes within a specified namespace executing
+         /// on a given node.
+         ///
+         /// Given a node name, return the array of processes within the specified
+         /// namespace that are executing on that node.
+         ///
+         /// * If `nspace` is `None`, all processes on the node (across all known
+         ///   namespaces) will be returned.
+         /// * If `nodename` is `None`, the current local node is used.
+         /// * If the specified node does not currently host any processes from the
+         ///   given namespace, the returned vector will be empty.
+         ///
+         /// The caller owns the returned `Vec<Proc>` — no explicit free is needed.
+         ///
+         /// # Returns
+         /// * `Ok(Vec<Proc>)` — list of processes on the specified node/namespace.
+         ///   May be empty if no processes match.
+         /// * `Err(PmixStatus::Known(PmixError::ErrInit))` — PMIx has not been
+         ///   initialized via `PMIx_Init`.
+         /// * `Err(PmixStatus::Known(PmixError::ErrNotFound))` — `nspace` was
+         ///   provided but no such namespace is known.
+         /// * `Err(PmixStatus)` — another error in the request.
+         ///
+         /// # Thread Safety
+         /// The caller is responsible for ensuring thread safety when calling
+         /// this from multiple threads simultaneously.
+         ///
+         /// # C API
+         /// ```c
+         /// pmix_status_t PMIx_Resolve_peers(const char *nodename,
+         ///                                  const pmix_nspace_t nspace,
+         ///                                  pmix_proc_t **procs, size_t *nprocs);
+         /// ```
+         pub fn resolve_peers(nodename: Option<&str>, nspace: Option<&str>) -> Result<Vec<Proc>, PmixStatus> {
+         // Convert nodename to C string if provided.
+         let (nodename_ptr, _nodename_cstring) = match nodename {
+          Some(n) => {
+              let cs = CString::new(n).expect(
+                  "nodename must not contain interior NUL bytes",
+              );
+              (cs.as_ptr(), Some(cs))
+          }
+          None => (ptr::null::<c_char>(), None),
+         };
+
+         // Convert nspace to C string if provided.
+         let (nspace_ptr, _nspace_cstring) = match nspace {
+          Some(ns) => {
+              let cs = CString::new(ns).expect(
+                  "nspace must not contain interior NUL bytes",
+              );
+              (cs.as_ptr(), Some(cs))
+          }
+          None => (ptr::null::<c_char>(), None),
+         };
+
+         let mut procs: *mut ffi::pmix_proc_t = ptr::null_mut();
+         let mut nprocs: usize = 0;
+
+         // SAFETY: FFI call into PMIx library.
+         // - `nodename_ptr` is either null (use local node) or a valid C string.
+         // - `nspace_ptr` is either null (all namespaces) or a valid C string.
+         // - `procs` and `nprocs` are valid mutable references for output.
+         // - On success, PMIx allocates a `pmix_proc_t` array that the caller
+         //   owns and must free via PMIX_PROC_FREE (which calls pmix_free).
+         let raw_status = unsafe {
+          ffi::PMIx_Resolve_peers(nodename_ptr, nspace_ptr, &mut procs, &mut nprocs)
          };
 
          let pmix_status = PmixStatus::from_raw(raw_status);
-         if pmix_status.is_success() {
-             Ok(())
-         } else {
-             // On synchronous failure, PMIx may or may not call the callback.
-             // To be safe, reclaim the box to avoid a memory leak.
-             unsafe { drop(Box::from_raw(cb_box)) }
-             Err(pmix_status)
+         if !pmix_status.is_success() {
+          return Err(pmix_status);
          }
-        }
+
+         // Convert the C array to a Rust Vec<Proc>.
+         // SAFETY: On success, PMIx_Resolve_peers allocates an array of nprocs
+         // pmix_proc_t elements. We read each element, then free the C array.
+         let rust_procs: Vec<Proc> = unsafe {
+          if procs.is_null() || nprocs == 0 {
+              // No processes found — return empty vec.
+              Vec::new()
+          } else {
+              // Read each proc from the C array.
+              let mut rust_vec = Vec::with_capacity(nprocs as usize);
+              for i in 0..nprocs {
+                  let c_proc = std::ptr::read_unaligned(procs.add(i));
+                  let proc = Proc {
+                      handle: c_proc,
+                      len: 1,
+                  };
+                  rust_vec.push(proc);
+              }
+              // Free the C-allocated array. PMIX_PROC_FREE macro calls pmix_free.
+               ffi::free(procs as *mut std::ffi::c_void);
+              rust_vec
+          }
+         };
+
+         Ok(rust_procs)
+         }
