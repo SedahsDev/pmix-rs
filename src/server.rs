@@ -666,3 +666,173 @@ pub fn is_server_initialized() -> bool {
     // internal atomic flag. No pointers are dereferenced.
     unsafe { ffi::PMIx_Initialized() != 0 }
 }
+
+// PMIx_server_deregister_nspace — deregister a job nspace and purge its data
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_deregister_nspace` (non-blocking mode).
+///
+/// Implement this trait to receive the result of a non-blocking nspace
+/// deregistration. The `on_complete` method receives the `PmixStatus` result.
+pub trait DeregisterNspaceCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending deregister_nspace callbacks.
+type DeregisterNspaceRegistry = std::collections::HashMap<usize, Box<dyn DeregisterNspaceCallback>>;
+static DEREGISTER_NS_SPACE_REGISTRY: LazyLock<Mutex<DeregisterNspaceRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing deregister_nspace request ID counter.
+static DEREGISTER_NS_SPACE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (deregister_nspace completion).
+///
+/// Called by PMIx when the non-blocking nspace deregistration completes.
+/// The `cbdata` parameter is a raw pointer encoding the request ID.
+/// We look up the registered closure and invoke it with the result status.
+extern "C" fn deregister_nspace_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Deregister an nspace (job namespace) and purge all related data.
+///
+/// This function tells the PMIx server library to delete all client
+/// information for the specified namespace, including any published
+/// data, process records, and other objects associated with that job.
+///
+/// This is intended to support persistent PMIx servers by providing
+/// an opportunity for the host resource manager (RM) to tell the PMIx
+/// server library to release all memory for a completed job.
+///
+/// This is a non-blocking call — the result is delivered asynchronously
+/// via the provided `callback`. If you need blocking behavior, pass
+/// `None` for the callback (the C API accepts a NULL callback for
+/// blocking execution).
+///
+/// # Parameters
+///
+/// * `nspace` — the job namespace identifier to deregister.
+/// * `callback` — invoked when deregistration completes. Pass `None`
+///   for blocking behavior (not recommended in async contexts).
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback` (if provided).
+/// * `Err(status)` — request rejected immediately. The callback
+///   will NOT be called.
+///
+/// # C API
+/// ```c
+/// void PMIx_server_deregister_nspace(const pmix_nspace_t nspace,
+///                                    pmix_op_cbfunc_t cbfunc,
+///                                    void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_deregister_nspace, DeregisterNspaceCallback};
+/// use pmix::PmixStatus;
+///
+/// struct MyDeregisterCallback;
+/// impl DeregisterNspaceCallback for MyDeregisterCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///         println!("deregister_nspace completed: {:?}", status);
+///     }
+/// }
+///
+/// // Deregister a completed job's namespace
+/// server_deregister_nspace("myjob.12345", Some(Box::new(MyDeregisterCallback)));
+/// ```
+pub fn server_deregister_nspace(
+    nspace: &str,
+    callback: Option<Box<dyn DeregisterNspaceCallback>>,
+) {
+    // Convert nspace to CString for FFI.
+    let nspace_c = match CString::new(nspace) {
+        Ok(cs) => cs,
+        Err(_) => {
+            // NUL byte in nspace — cannot proceed.
+            // Since the C API returns void, we can't report this
+            // through a return value. If a callback was provided,
+            // invoke it with an error status immediately.
+            if let Some(cb) = callback {
+                cb.on_complete(PmixStatus::from_raw(-1)); // PMIX_ERROR
+            }
+            return;
+        }
+    };
+
+    match callback {
+        Some(cb) => {
+            // Non-blocking mode: register callback and pass bridge to FFI.
+            let req_id = {
+                let mut seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
+                *seq += 1;
+                *seq
+            };
+            {
+                let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+                registry.insert(req_id, cb);
+            }
+
+            // Encode the request ID as a non-null pointer for cbdata.
+            let cbdata = (req_id << 2) as *mut c_void;
+
+            // SAFETY: PMIx_server_deregister_nspace is a non-blocking server API.
+            // - nspace_c.as_ptr() is a valid null-terminated string for the
+            //   duration of this call (PMIx copies it internally).
+            // - The callback bridge has C linkage and properly handles cbdata.
+            // - cbdata is an opaque pointer that we control and decode in the bridge.
+            // - The C function returns void; no return value to check.
+            unsafe {
+                ffi::PMIx_server_deregister_nspace(
+                    nspace_c.as_ptr(),
+                    Some(deregister_nspace_callback_bridge),
+                    cbdata,
+                );
+            }
+        }
+        None => {
+            // Blocking mode: pass NULL callback. The C API documents
+            // that a NULL cbfunc means the function executes as a
+            // blocking operation.
+            //
+            // SAFETY: nspace_c.as_ptr() is a valid null-terminated string.
+            // NULL callback means blocking execution.
+            unsafe {
+                ffi::PMIx_server_deregister_nspace(
+                    nspace_c.as_ptr(),
+                    None,
+                    std::ptr::null_mut(),
+                );
+            }
+        }
+    }
+}
