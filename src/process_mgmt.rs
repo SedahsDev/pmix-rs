@@ -1,5 +1,5 @@
 //! Process management — `PMIx_Abort`, `PMIx_Spawn`, `PMIx_Spawn_nb`,
-//! `PMIx_Connect`, `PMIx_Connect_nb`.
+//! `PMIx_Connect`, `PMIx_Connect_nb`, `PMIx_Disconnect`, `PMIx_Disconnect_nb`.
 //!
 //! This module provides safe Rust wrappers around the PMIx process
 //! management APIs:
@@ -11,11 +11,13 @@
 //! * **Connect** — record a set of processes as "connected", enabling
 //!   cross-namespace notification and job-level info sharing.
 //! * **Connect_nb** — non-blocking variant of connect with a callback.
+//! * **Disconnect** — disconnect a previously connected set of processes.
+//! * **Disconnect_nb** — non-blocking variant of disconnect with a callback.
 //!
 //! # Example
 //!
 //! ```no_run
-//! use pmix::process_mgmt::{abort, spawn, connect, PmixApp};
+//! use pmix::process_mgmt::{abort, spawn, connect, disconnect, PmixApp};
 //! use pmix::{PmixError, PmixStatus, Proc};
 //!
 //! // Abort all processes in the caller's namespace
@@ -38,6 +40,9 @@
 //! // Connect to a namespace
 //! let proc = Proc::new("target_namespace", pmix::PMIX_RANK_WILDCARD);
 //! let result = connect(&[proc], &[]);
+//!
+//! // Disconnect from a previously connected set
+//! let result = disconnect(&[proc], &[]);
 //! ```
 
 use crate::ffi;
@@ -866,8 +871,232 @@ pub fn connect_nb(
         Ok(())
     } else {
         // On synchronous failure, PMIx may or may not call the callback.
-        // To be safe, reclaim the box to avoid a memory leak.
-        unsafe { drop(Box::from_raw(cb_box)) };
-        Err(pmix_status)
-    }
-}
+             // To be safe, reclaim the box to avoid a memory leak.
+             unsafe { drop(Box::from_raw(cb_box)) }
+             Err(pmix_status)
+         }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // PMIx_Disconnect
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        /// Disconnect a previously connected set of processes.
+        ///
+        /// Instructs the PMIx server to disconnect the specified processes that
+        /// were previously connected via [`connect`] or [`connect_nb`]. When
+        /// processes are disconnected:
+        ///
+        /// * The resource manager no longer treats the failure of any process in
+        ///   the group as a reportable event.
+        /// * Processes no longer receive job-level info for the other namespaces
+        ///   that were part of the connected group.
+        /// * Processes in the group no longer receive notification of errors from
+        ///   other members of the disconnected group.
+        ///
+        /// This is a **blocking** call: it does not return until all
+        /// participating processes have called `disconnect` with the same
+        /// set of processes, and the host environment has completed any
+        /// required supporting operations.
+        ///
+        /// # Constraints
+        /// * A process can only engage in *one* disconnect operation involving
+        ///   the identical procs array at a time.
+        /// * A process *can* be simultaneously engaged in multiple disconnect
+        ///   operations, each involving a different procs array.
+        /// * Processes must provide the **identical** procs array (same ordering,
+        ///   same identification method) as was used in the corresponding connect.
+        /// * A process cannot reconnect to a set of procs that has not fully
+        ///   completed disconnect — you have to fully disconnect before you can
+        ///   reconnect to the same group.
+        /// * An error is returned if the specified set of procs was not previously
+        ///   connected via a call to `PMIx_Connect` or its non-blocking form.
+        /// * The `info` array can pass directives regarding the collective
+        ///   algorithm, timeout constraints, and other options.
+        ///
+        /// # Returns
+        /// * `Ok(())` — all participating processes have disconnected.
+        /// * `Err(PmixStatus::Known(PmixError::ErrInvalidOperation))` — the
+        ///   specified set of procs was not previously connected.
+        /// * `Err(PmixStatus)` — another error in the request.
+        ///
+        /// # Thread Safety
+        /// The caller is responsible for ensuring thread safety when calling
+        /// this from multiple threads simultaneously.
+        ///
+        /// # C API
+        /// ```c
+        /// pmix_status_t PMIx_Disconnect(const pmix_proc_t procs[], size_t nprocs,
+        ///                               const pmix_info_t info[], size_t ninfo);
+        /// ```
+        pub fn disconnect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
+         if procs.is_empty() {
+             return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
+         }
+
+         // Convert proc slice to a raw pointer.
+         // SAFETY: `procs` is a non-empty slice of `Proc` values, each
+         // containing a `pmix_proc_t` handle as its first field. We take
+         // the address of the first element's handle and cast it to the
+         // FFI type. The slice remains valid for the duration of this call.
+         let procs_ptr = unsafe {
+             std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
+         };
+
+         // Convert info slice to a raw pointer.
+         let (info_ptr, ninfo) = if info.is_empty() {
+             (ptr::null(), 0)
+         } else {
+             (
+                 unsafe {
+                     std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
+                 },
+                 info.len(),
+             )
+         };
+
+         // SAFETY: FFI call into PMIx library.
+         // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles
+         //   that remain valid for the duration of this call. PMIx does
+         //   not retain these pointers after return.
+         // - `info_ptr` is either null or points to a valid slice of
+         //   `pmix_info_t` pointers. PMIx reads but does not retain.
+         // - `nprocs` and `ninfo` are the correct lengths of their arrays.
+         // - This is a blocking call: it does not return until all
+         //   participating processes have completed the disconnect operation.
+         let raw_status = unsafe {
+             ffi::PMIx_Disconnect(procs_ptr, procs.len(), info_ptr, ninfo)
+         };
+
+         let pmix_status = PmixStatus::from_raw(raw_status);
+         if pmix_status.is_success() {
+             Ok(())
+         } else {
+             Err(pmix_status)
+         }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // DisconnectCallbackWrapper — Rust closure → FFI callback bridge
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        /// Non-blocking disconnect callback wrapper.
+        ///
+        /// Wraps a Rust closure so it can be called from the C FFI callback.
+        /// The closure receives `PmixStatus` — the result of the disconnect
+        /// operation (`PMIX_SUCCESS` or an error code).
+        pub struct DisconnectCallbackWrapper {
+         /// The user's Rust closure.
+         callback: Box<dyn Fn(PmixStatus) + Send + 'static>,
+        }
+
+        impl DisconnectCallbackWrapper {
+         /// Create a new wrapper around a Rust closure.
+         pub fn new<F>(f: F) -> Self
+         where
+             F: Fn(PmixStatus) + Send + 'static,
+         {
+             Self {
+                 callback: Box::new(f),
+             }
+         }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // PMIx_Disconnect_nb
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        /// Non-blocking disconnect with a Rust closure callback.
+        ///
+        /// Disconnects a previously connected set of processes without blocking.
+        /// The provided callback is invoked when the operation completes.
+        ///
+        /// * The callback receives `PmixStatus`:
+        ///   - `PMIX_SUCCESS` — all participating processes have disconnected.
+        ///   - Error code — the disconnect operation failed.
+        /// * The `callback` closure must be `Send + 'static` because it may
+        ///   be invoked from a different thread by the PMIx library.
+        ///
+        /// # Returns
+        /// * `Ok(())` — the disconnect request was accepted (async, result in callback).
+        /// * `Err(PmixStatus)` — the disconnect request itself failed synchronously.
+        ///
+        /// # C API
+        /// ```c
+        /// pmix_status_t PMIx_Disconnect_nb(const pmix_proc_t procs[], size_t nprocs,
+        ///                                  const pmix_info_t info[], size_t ninfo,
+        ///                                  pmix_op_cbfunc_t cbfunc, void *cbdata);
+        /// ```
+        pub fn disconnect_nb(
+         procs: &[Proc],
+         info: &[Info],
+         callback: DisconnectCallbackWrapper,
+        ) -> Result<(), PmixStatus> {
+         if procs.is_empty() {
+             return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
+         }
+
+         // Box the callback wrapper so it lives on the heap and outlives
+         // the FFI call. We pass it as cbdata and recover it in the C
+         // callback via Box::from_raw.
+         let cb_box: *mut DisconnectCallbackWrapper = Box::into_raw(Box::new(callback));
+
+         // The C bridge function that PMIx calls back into.
+         // SAFETY: This extern "C" function is only called by PMIx with
+         // the cbdata pointer we provided (Box<DisconnectCallbackWrapper>).
+         // It takes ownership of the box via Box::from_raw.
+         extern "C" fn disconnect_callback_bridge(status: i32, cbdata: *mut c_void) {
+             let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut DisconnectCallbackWrapper) };
+             let pmix_status = PmixStatus::from_raw(status);
+             (cb_wrapper.callback)(pmix_status);
+             // The box is dropped here.
+         }
+
+         // Convert proc slice to a raw pointer.
+         // SAFETY: `procs` is a non-empty slice of `Proc` values.
+         let procs_ptr = unsafe {
+             std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
+         };
+
+         // Convert info slice to a raw pointer.
+         let (info_ptr, ninfo) = if info.is_empty() {
+             (ptr::null(), 0)
+         } else {
+             (
+                 unsafe {
+                     std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
+                 },
+                 info.len(),
+             )
+         };
+
+         // SAFETY: FFI call into PMIx library.
+         // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles.
+         // - `info_ptr` is either null or points to a valid slice of
+         //   `pmix_info_t` pointers.
+         // - `disconnect_callback_bridge` is a valid extern "C" callback.
+         // - `cb_box` is a valid heap-allocated DisconnectCallbackWrapper
+         //   that will be recovered in the callback via Box::from_raw.
+         // - PMIx_Disconnect_nb returns immediately; the callback is invoked
+         //   asynchronously by the PMIx library at a later time.
+         let raw_status = unsafe {
+             ffi::PMIx_Disconnect_nb(
+                 procs_ptr,
+                 procs.len(),
+                 info_ptr,
+                 ninfo,
+                 Some(disconnect_callback_bridge),
+                 cb_box as *mut c_void,
+             )
+         };
+
+         let pmix_status = PmixStatus::from_raw(raw_status);
+         if pmix_status.is_success() {
+             Ok(())
+         } else {
+             // On synchronous failure, PMIx may or may not call the callback.
+             // To be safe, reclaim the box to avoid a memory leak.
+             unsafe { drop(Box::from_raw(cb_box)) }
+             Err(pmix_status)
+         }
+        }
