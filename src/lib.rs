@@ -987,6 +987,123 @@ impl std::fmt::Display for PmixScope {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PmixJobState — pmix_job_state_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe Rust representation of `pmix_job_state_t` (PMIx v4.0+).
+///
+/// `pmix_job_state_t` is a `uint8_t` that encodes the lifecycle state
+/// of a job managed by the PMIx resource manager.  Values are grouped
+/// into logical ranges:
+///
+/// * `0`        — undefined
+/// * `1–5`      — pre-launch and active states
+/// * `15`       — unterminated (still alive boundary)
+/// * `20`       — cleanly terminated
+/// * `50+`      — error / abnormal termination states
+///
+/// All values defined in `pmix_common.h §Job State Definitions` are
+/// represented.  Unknown raw values from future library versions are
+/// captured in the [`Unknown`][PmixJobState::Unknown] variant.
+///
+/// # C API
+/// `typedef uint8_t pmix_job_state_t;`
+///
+/// See also [`crate::utility::job_state_string`] for the human-readable
+/// string representation of each state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[non_exhaustive]
+pub enum PmixJobState {
+    /// `PMIX_JOB_STATE_UNDEF` (0) — undefined job state.
+    Undef               = 0,
+
+    /// `PMIX_JOB_STATE_AWAITING_ALLOC` (1) — job is waiting for resources
+    /// to be allocated to it.
+    AwaitingAlloc       = 1,
+
+    /// `PMIX_JOB_STATE_LAUNCH_UNDERWAY` (2) — job launch is underway.
+    LaunchUnderway      = 2,
+
+    /// `PMIX_JOB_STATE_RUNNING` (3) — all processes have been spawned.
+    Running             = 3,
+
+    /// `PMIX_JOB_STATE_SUSPENDED` (4) — job has been suspended.
+    Suspended           = 4,
+
+    /// `PMIX_JOB_STATE_CONNECTED` (5) — all processes have connected to
+    /// their PMIx server.
+    Connected           = 5,
+
+    /// `PMIX_JOB_STATE_UNTERMINATED` (15) — boundary value; any state less
+    /// than this means the job has not terminated.
+    Unterminated        = 15,
+
+    /// `PMIX_JOB_STATE_TERMINATED` (20) — job has terminated and is no
+    /// longer running, typically accompanied by the job exit status.
+    Terminated          = 20,
+
+    /// `PMIX_JOB_STATE_TERMINATED_WITH_ERROR` (50) — job has terminated
+    /// and is no longer running, typically accompanied by a job-related
+    /// error code.
+    TerminatedWithError = 50,
+
+    /// An unrecognised or future job state value.
+    Unknown(u8),
+}
+
+impl PmixJobState {
+    /// Convert a raw `pmix_job_state_t` (`u8`) into a `PmixJobState`.
+    pub fn from_raw(state: u8) -> Self {
+        match state {
+            0  => Self::Undef,
+            1  => Self::AwaitingAlloc,
+            2  => Self::LaunchUnderway,
+            3  => Self::Running,
+            4  => Self::Suspended,
+            5  => Self::Connected,
+            15 => Self::Unterminated,
+            20 => Self::Terminated,
+            50 => Self::TerminatedWithError,
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// Return the raw `u8` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::Unknown(v) => v,
+            Self::Undef               => 0,
+            Self::AwaitingAlloc       => 1,
+            Self::LaunchUnderway      => 2,
+            Self::Running             => 3,
+            Self::Suspended           => 4,
+            Self::Connected           => 5,
+            Self::Unterminated        => 15,
+            Self::Terminated          => 20,
+            Self::TerminatedWithError => 50,
+        }
+    }
+}
+
+impl std::fmt::Display for PmixJobState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Undef               => write!(f, "UNDEF"),
+            Self::AwaitingAlloc       => write!(f, "AWAITING_ALLOC"),
+            Self::LaunchUnderway      => write!(f, "LAUNCH_UNDERWAY"),
+            Self::Running             => write!(f, "RUNNING"),
+            Self::Suspended           => write!(f, "SUSPENDED"),
+            Self::Connected           => write!(f, "CONNECTED"),
+            Self::Unterminated        => write!(f, "UNTERMINATED"),
+            Self::Terminated          => write!(f, "TERMINATED"),
+            Self::TerminatedWithError => write!(f, "TERMINATED_WITH_ERROR"),
+            Self::Unknown(v) => write!(f, "UNKNOWN JOB STATE ({v})"),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PmixPersistence — pmix_persistence_t
 // ─────────────────────────────────────────────────────────────────────────────
 

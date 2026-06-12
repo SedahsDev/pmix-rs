@@ -6,7 +6,7 @@
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixJobState, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -456,6 +456,51 @@ pub fn iof_channel_string(channel: IOFChannelFlags) -> Result<String, PmixStatus
     let c_ptr = unsafe { ffi::PMIx_IOF_channel_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_iof_channel_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Job_state_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of a PMIx job state code.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Job_state_string(pmix_job_state_t state)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the job state.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_job_state_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::job_state_string, PmixJobState};
+///
+/// let state = PmixJobState::Running;
+/// let desc = job_state_string(state).expect("valid state");
+/// assert_eq!(desc, "JOB RUNNING");
+/// ```
+pub fn job_state_string(state: PmixJobState) -> Result<String, PmixStatus> {
+    let raw = state.to_raw();
+    // SAFETY: PMIx_Job_state_string takes a single pmix_job_state_t (u8)
+    // and returns a pointer to a static, null-terminated string owned by
+    // the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points
+    // to read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Job_state_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_job_state_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
@@ -1443,5 +1488,172 @@ mod tests {
         assert!(flags.contains(IOFChannelFlags::STDOUT));
         assert!(flags.contains(IOFChannelFlags::STDERR));
         assert_eq!(flags.raw(), 0x0007);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PMIx_Job_state_string tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// `job_state_string` returns `Ok(String)` for all known job states.
+    #[test]
+    fn test_job_state_string_all_known() {
+        use crate::PmixJobState::*;
+
+        let states = [
+            Undef,
+            AwaitingAlloc,
+            LaunchUnderway,
+            Running,
+            Suspended,
+            Connected,
+            Unterminated,
+            Terminated,
+            TerminatedWithError,
+        ];
+        for state in states {
+            let result = job_state_string(state);
+            assert!(
+                result.is_ok(),
+                "job_state_string({:?}) should return Ok, got {:?}",
+                state,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "job_state_string({:?}) should not return an empty string",
+                state
+            );
+        }
+    }
+
+    /// `job_state_string` returns expected strings for key lifecycle states.
+    #[test]
+    fn test_job_state_string_key_states() {
+        use crate::PmixJobState::*;
+
+        let undef = job_state_string(Undef).unwrap();
+        let running = job_state_string(Running).unwrap();
+        let terminated = job_state_string(Terminated).unwrap();
+        let terminated_with_error = job_state_string(TerminatedWithError).unwrap();
+
+        assert!(
+            !undef.is_empty(),
+            "Undef state string should not be empty, got '{}'",
+            undef
+        );
+        assert!(
+            running.to_lowercase().contains("run"),
+            "Running state string should contain 'run', got '{}'",
+            running
+        );
+        assert!(
+            terminated.to_lowercase().contains("terminat"),
+            "Terminated state string should contain 'terminat', got '{}'",
+            terminated
+        );
+        assert!(
+            terminated_with_error.to_lowercase().contains("error"),
+            "TerminatedWithError state string should contain 'error', got '{}'",
+            terminated_with_error
+        );
+    }
+
+    /// `job_state_string` is deterministic — the same state always returns
+    /// the same string.
+    #[test]
+    fn test_job_state_string_deterministic() {
+        use crate::PmixJobState::Running;
+
+        let first = job_state_string(Running).unwrap();
+        let second = job_state_string(Running).unwrap();
+        assert_eq!(
+            first, second,
+            "job_state_string(Running) should be deterministic: '{}' != '{}'",
+            first, second
+        );
+    }
+
+    /// `PmixJobState::from_raw` round-trips correctly for all known states.
+    #[test]
+    fn test_job_state_from_raw_to_raw_roundtrip() {
+        use crate::PmixJobState::*;
+
+        let states = [
+            Undef,
+            AwaitingAlloc,
+            LaunchUnderway,
+            Running,
+            Suspended,
+            Connected,
+            Unterminated,
+            Terminated,
+            TerminatedWithError,
+        ];
+        for state in states {
+            let raw = state.to_raw();
+            let recovered = PmixJobState::from_raw(raw);
+            assert_eq!(
+                state, recovered,
+                "Round-trip failed for {:?}: raw={}, recovered={:?}",
+                state, raw, recovered
+            );
+        }
+    }
+
+    /// `PmixJobState::from_raw` maps unknown values to `Unknown(n)`.
+    #[test]
+    fn test_job_state_from_raw_unknown() {
+        use crate::PmixJobState;
+
+        let unknown = PmixJobState::from_raw(99);
+        assert!(
+            matches!(unknown, PmixJobState::Unknown(99)),
+            "from_raw(99) should be Unknown(99), got {:?}",
+            unknown
+        );
+    }
+
+    /// `PmixJobState` Display returns a non-empty string for all variants.
+    #[test]
+    fn test_job_state_display() {
+        use crate::PmixJobState::*;
+
+        let states = [
+            Undef,
+            AwaitingAlloc,
+            LaunchUnderway,
+            Running,
+            Suspended,
+            Connected,
+            Unterminated,
+            Terminated,
+            TerminatedWithError,
+            Unknown(99),
+        ];
+        for state in states {
+            let display = format!("{}", state);
+            assert!(
+                !display.is_empty(),
+                "Display for {:?} should not be empty",
+                state
+            );
+        }
+    }
+
+    /// `PmixJobState` raw values match the C header definitions.
+    #[test]
+    fn test_job_state_raw_values() {
+        use crate::PmixJobState::*;
+
+        assert_eq!(Undef.to_raw(), 0);
+        assert_eq!(AwaitingAlloc.to_raw(), 1);
+        assert_eq!(LaunchUnderway.to_raw(), 2);
+        assert_eq!(Running.to_raw(), 3);
+        assert_eq!(Suspended.to_raw(), 4);
+        assert_eq!(Connected.to_raw(), 5);
+        assert_eq!(Unterminated.to_raw(), 15);
+        assert_eq!(Terminated.to_raw(), 20);
+        assert_eq!(TerminatedWithError.to_raw(), 50);
     }
 }
