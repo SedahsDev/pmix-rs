@@ -1,9 +1,9 @@
-//! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`, and related helpers.
+//! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`, `PMIx_Scope_string`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, PmixProcState, PmixStatus};
+use crate::{ffi, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -117,6 +117,51 @@ pub fn proc_state_string(state: PmixProcState) -> Result<String, PmixStatus> {
     let c_ptr = unsafe { ffi::PMIx_Proc_state_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_proc_state_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Scope_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of a PMIx scope value.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Scope_string(pmix_scope_t scope)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the scope.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_scope_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::scope_string, PmixScope};
+///
+/// let scope = PmixScope::Global;
+/// let desc = scope_string(scope).expect("valid scope");
+/// assert_eq!(desc, "GLOBAL");
+/// ```
+pub fn scope_string(scope: PmixScope) -> Result<String, PmixStatus> {
+    let raw = scope.to_raw();
+    // SAFETY: PMIx_Scope_string takes a single pmix_scope_t (u8) and returns
+    // a pointer to a static, null-terminated string owned by the library.
+    // No memory is allocated or freed by this call. The returned pointer
+    // is valid for the lifetime of the process (it points to read-only
+    // data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Scope_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_scope_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
@@ -423,5 +468,154 @@ mod tests {
         assert!(KilledByCmd.is_terminated());
         assert!(!Terminated.is_alive());
         assert!(!Aborted.is_alive());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Scope_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `scope_string` returns `Ok(String)` for all known scope values.
+    ///
+    /// PMIx_Scope_string is documented to always return a valid,
+    /// non-null, null-terminated string for any pmix_scope_t value.
+    /// This test calls into the real PMIx library.
+    #[test]
+    fn test_scope_string_all_known() {
+        use crate::PmixScope::*;
+
+        let scopes = [Undef, Local, Remote, Global, Internal];
+        for scope in scopes {
+            let result = scope_string(scope);
+            assert!(
+                result.is_ok(),
+                "scope_string({:?}) should return Ok, got {:?}",
+                scope,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "scope_string({:?}) should not return empty string",
+                scope
+            );
+        }
+    }
+
+    /// `scope_string` returns the expected strings for key scopes.
+    #[test]
+    fn test_scope_string_expected_values() {
+        use crate::PmixScope::*;
+
+        let local = scope_string(Local).unwrap();
+        let remote = scope_string(Remote).unwrap();
+        let global = scope_string(Global).unwrap();
+
+        assert!(local.to_lowercase().contains("local"), "Local scope string should contain 'local', got '{}'", local);
+        assert!(remote.to_lowercase().contains("remote"), "Remote scope string should contain 'remote', got '{}'", remote);
+        assert!(global.to_lowercase().contains("global"), "Global scope string should contain 'global', got '{}'", global);
+    }
+
+    /// `scope_string` is deterministic — the same scope always returns
+    /// the same string.
+    #[test]
+    fn test_scope_string_deterministic() {
+        use crate::PmixScope::Global;
+        let first = scope_string(Global).unwrap();
+        let second = scope_string(Global).unwrap();
+        assert_eq!(
+            first, second,
+            "scope_string must be deterministic for the same input"
+        );
+    }
+
+    /// `scope_string` returns different strings for different scopes.
+    #[test]
+    fn test_scope_string_distinct() {
+        use crate::PmixScope::*;
+        let local = scope_string(Local).unwrap();
+        let global = scope_string(Global).unwrap();
+        assert_ne!(
+            local, global,
+            "scope_string(Local) and scope_string(Global) must differ"
+        );
+    }
+
+    /// `scope_string` handles the Unknown variant (raw value not in
+    /// the standard enum).
+    #[test]
+    fn test_scope_string_unknown() {
+        use crate::PmixScope::Unknown;
+        let scope = Unknown(99);
+        let result = scope_string(scope);
+        assert!(
+            result.is_ok(),
+            "scope_string(Unknown(99)) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "scope_string for unknown scope should return non-empty string"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixScope enum tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `PmixScope::from_raw` and `to_raw` are inverses for known values.
+    #[test]
+    fn test_scope_from_raw_to_raw_roundtrip() {
+        use crate::PmixScope::*;
+
+        let scopes = [Undef, Local, Remote, Global, Internal];
+        for scope in scopes {
+            let raw = scope.to_raw();
+            let recovered = PmixScope::from_raw(raw);
+            assert_eq!(
+                scope, recovered,
+                "from_raw(to_raw({:?})) should round-trip",
+                scope
+            );
+        }
+    }
+
+    /// `PmixScope::from_raw` maps known raw values correctly.
+    #[test]
+    fn test_scope_from_raw_known() {
+        use crate::PmixScope::*;
+
+        assert_eq!(PmixScope::from_raw(0), Undef);
+        assert_eq!(PmixScope::from_raw(1), Local);
+        assert_eq!(PmixScope::from_raw(2), Remote);
+        assert_eq!(PmixScope::from_raw(3), Global);
+        assert_eq!(PmixScope::from_raw(4), Internal);
+        assert!(matches!(PmixScope::from_raw(255), Unknown(255)));
+    }
+
+    /// `PmixScope::to_raw` returns the expected raw values.
+    #[test]
+    fn test_scope_to_raw() {
+        use crate::PmixScope::*;
+
+        assert_eq!(Undef.to_raw(), 0);
+        assert_eq!(Local.to_raw(), 1);
+        assert_eq!(Remote.to_raw(), 2);
+        assert_eq!(Global.to_raw(), 3);
+        assert_eq!(Internal.to_raw(), 4);
+        assert_eq!(Unknown(42).to_raw(), 42);
+    }
+
+    /// `PmixScope` implements Display.
+    #[test]
+    fn test_scope_display() {
+        use crate::PmixScope::*;
+
+        assert_eq!(format!("{}", Undef), "UNDEFINED");
+        assert_eq!(format!("{}", Local), "LOCAL");
+        assert_eq!(format!("{}", Remote), "REMOTE");
+        assert_eq!(format!("{}", Global), "GLOBAL");
+        assert_eq!(format!("{}", Internal), "INTERNAL");
+        assert_eq!(format!("{}", Unknown(99)), "UNKNOWN SCOPE (99)");
     }
 }

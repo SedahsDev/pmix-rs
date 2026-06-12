@@ -885,6 +885,81 @@ impl std::fmt::Display for PmixProcState {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixScope — safe Rust wrapper around `pmix_scope_t`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe Rust representation of `pmix_scope_t` (PMIx 5.0).
+///
+/// `pmix_scope_t` defines the visibility scope for data stored via `PMIx_Put`.
+/// It is a `uint8_t` with the following values defined in `pmix_common.h`:
+///
+/// * `0` — Undefined scope
+/// * `1` — Local (same node only)
+/// * `2` — Remote (remote nodes only)
+/// * `3` — Global (all nodes)
+/// * `4` — Internal (library-internal storage)
+///
+/// Use [`PmixScope::from_raw`] to convert a `pmix_scope_t` received from C
+/// and [`PmixScope::to_raw`] to convert back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[non_exhaustive]
+pub enum PmixScope {
+    /// `PMIX_SCOPE_UNDEF` (0) — undefined scope.
+    Undef     = 0,
+
+    /// `PMIX_LOCAL` (1) — share with processes also on this node.
+    Local     = 1,
+
+    /// `PMIX_REMOTE` (2) — share with processes not on this node.
+    Remote    = 2,
+
+    /// `PMIX_GLOBAL` (3) — share with all processes (local + remote).
+    Global    = 3,
+
+    /// `PMIX_INTERNAL` (4) — store data in the internal tables only.
+    Internal  = 4,
+
+    /// An unrecognised or future scope value.
+    Unknown(u8),
+}
+
+impl PmixScope {
+    /// Convert a raw `pmix_scope_t` (`u8`) into a `PmixScope`.
+    pub fn from_raw(scope: u8) -> Self {
+        match scope {
+            0 => Self::Undef,
+            1 => Self::Local,
+            2 => Self::Remote,
+            3 => Self::Global,
+            4 => Self::Internal,
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// Return the raw `u8` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::Unknown(v) => v,
+            _ => self as u8,
+        }
+    }
+}
+
+impl std::fmt::Display for PmixScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Undef    => write!(f, "UNDEFINED"),
+            Self::Local    => write!(f, "LOCAL"),
+            Self::Remote   => write!(f, "REMOTE"),
+            Self::Global   => write!(f, "GLOBAL"),
+            Self::Internal => write!(f, "INTERNAL"),
+            Self::Unknown(v) => write!(f, "UNKNOWN SCOPE ({v})"),
+        }
+    }
+}
+
 /// All errors the builder can produce.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BuilderError {
