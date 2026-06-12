@@ -549,6 +549,17 @@ pub struct ValidationResults {
 }
 
 impl ValidationResults {
+    /// Create an empty `ValidationResults` with no info entries.
+    ///
+    /// Useful for testing and as a default value when validation
+    /// has not yet been performed.
+    pub fn empty() -> Self {
+        Self {
+            handle: ptr::null_mut(),
+            len: 0,
+        }
+    }
+
     /// Number of info entries in this result set.
     pub fn len(&self) -> usize {
         self.len
