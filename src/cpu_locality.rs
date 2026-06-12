@@ -6,9 +6,9 @@
 
 use std::ffi::CString;
 
-use crate::ffi;
-use crate::fabric::PmixCpuset;
 use crate::PmixStatus;
+use crate::fabric::PmixCpuset;
+use crate::ffi;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // parse_cpuset_string
@@ -50,10 +50,7 @@ use crate::PmixStatus;
 /// # Spec
 ///
 /// PMIx Standard v4.1, Section 11.4.3.
-pub fn parse_cpuset_string(
-    cpuset_string: &str,
-    cpuset: &mut PmixCpuset,
-) -> Result<(), PmixStatus> {
+pub fn parse_cpuset_string(cpuset_string: &str, cpuset: &mut PmixCpuset) -> Result<(), PmixStatus> {
     let c_str = CString::new(cpuset_string).map_err(|_| PmixStatus::from_raw(-1))?;
     let cpuset_ptr = cpuset.as_mut_ptr();
 
@@ -144,7 +141,10 @@ mod tests {
     #[test]
     fn test_parse_cpuset_string_long_string() {
         let mut cpuset = PmixCpuset::new();
-        let long_cpu_list = (0..256).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+        let long_cpu_list = (0..256)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         let result = parse_cpuset_string(&long_cpu_list, &mut cpuset);
         let _ = result;
     }

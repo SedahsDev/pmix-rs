@@ -63,7 +63,10 @@ fn test_parse_empty_string() {
 #[test]
 fn test_parse_long_cpu_list() {
     let mut cpuset = PmixCpuset::new();
-    let long_list = (0..256).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let long_list = (0..256)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let result = parse_cpuset_string(&long_list, &mut cpuset);
     let _ = result;
 }
@@ -166,7 +169,10 @@ fn test_parse_in_pmix_session() {
     // where PMIx_Init has been called first.
     let mut cpuset = PmixCpuset::new();
     let result = parse_cpuset_string("0-3", &mut cpuset);
-    assert!(result.is_ok(), "parse_cpuset_string should succeed in a PMIx session");
+    assert!(
+        result.is_ok(),
+        "parse_cpuset_string should succeed in a PMIx session"
+    );
 }
 
 /// Test round-trip: parse a cpuset string, then verify the result.
@@ -210,7 +216,9 @@ fn test_parse_invalid_format() {
 #[test]
 fn test_parse_many_ranges() {
     let mut cpuset = PmixCpuset::new();
-    let ranges: Vec<String> = (0..100).map(|i| format!("{}-{}", i * 10, i * 10 + 9)).collect();
+    let ranges: Vec<String> = (0..100)
+        .map(|i| format!("{}-{}", i * 10, i * 10 + 9))
+        .collect();
     let result = parse_cpuset_string(&ranges.join(","), &mut cpuset);
     let _ = result;
 }
