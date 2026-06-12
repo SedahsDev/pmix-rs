@@ -20,7 +20,7 @@ fn main() {
         // badness without the flag which tells bindgen to repeat that
         // trick with the rust enums
         .rustified_enum(".*")
-        .clang_arg("-I/usr/include/")
+        .clang_arg("-I/usr/lib/x86_64-linux-gnu/pmix2/include/")
         //.clang_arg("-I../../")
         //.clang_arg("-I../../src/")
         // Annotate ucs_status_t and ucs_status_ptr_t as #[must_use]

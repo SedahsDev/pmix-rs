@@ -1,0 +1,218 @@
+{
+  "library": "pmix",
+  "version": "4.1.1",
+  "source_repo": "/tmp/pmix-source",
+  "spec_text": "/tmp/pmix-spec.txt",
+  "total_functions": 121,
+  "existing_coverage": {
+    "safe_wrappers": [
+      "PMIx_Commit",
+      "PMIx_Fence",
+      "PMIx_Finalize",
+      "PMIx_Get",
+      "PMIx_Get_version",
+      "PMIx_Init",
+      "PMIx_Progress",
+      "PMIx_Put"
+    ],
+    "ffi_stubs": []
+  },
+  "categories": {
+    "utility": {
+      "count": 22,
+      "functions": [
+        "PMIx_Initialized",
+        "PMIx_Error_string",
+        "PMIx_Proc_state_string",
+        "PMIx_Scope_string",
+        "PMIx_Persistence_string",
+        "PMIx_Data_range_string",
+        "PMIx_Info_directives_string",
+        "PMIx_Data_type_string",
+        "PMIx_Alloc_directive_string",
+        "PMIx_IOF_channel_string",
+        "PMIx_Job_state_string",
+        "PMIx_Get_attribute_string",
+        "PMIx_Get_attribute_name",
+        "PMIx_Link_state_string",
+        "PMIx_Device_type_string",
+        "PMIx_Get_version",
+        "PMIx_generate_regex",
+        "PMIx_generate_ppn",
+        "PMIx_Register_attributes",
+        "PMIx_IOF_pull",
+        "PMIx_IOF_deregister",
+        "PMIx_IOF_push"
+      ]
+    },
+    "lifecycle": {
+      "count": 3,
+      "functions": [
+        "PMIx_Init",
+        "PMIx_Finalize",
+        "PMIx_Progress"
+      ]
+    },
+    "data_ops": {
+      "count": 13,
+      "functions": [
+        "PMIx_Put",
+        "PMIx_Commit",
+        "PMIx_Fence",
+        "PMIx_Fence_nb",
+        "PMIx_Get",
+        "PMIx_Get_nb",
+        "PMIx_Publish",
+        "PMIx_Publish_nb",
+        "PMIx_Lookup",
+        "PMIx_Lookup_nb",
+        "PMIx_Unpublish",
+        "PMIx_Unpublish_nb",
+        "PMIx_Store_internal"
+      ]
+    },
+    "events": {
+      "count": 3,
+      "functions": [
+        "PMIx_Register_event_handler",
+        "PMIx_Deregister_event_handler",
+        "PMIx_Notify_event"
+      ]
+    },
+    "process_mgmt": {
+      "count": 9,
+      "functions": [
+        "PMIx_Abort",
+        "PMIx_Spawn",
+        "PMIx_Spawn_nb",
+        "PMIx_Connect",
+        "PMIx_Connect_nb",
+        "PMIx_Disconnect",
+        "PMIx_Disconnect_nb",
+        "PMIx_Resolve_peers",
+        "PMIx_Resolve_nodes"
+      ]
+    },
+    "query_log": {
+      "count": 4,
+      "functions": [
+        "PMIx_Query_info",
+        "PMIx_Query_info_nb",
+        "PMIx_Log",
+        "PMIx_Log_nb"
+      ]
+    },
+    "allocation": {
+      "count": 4,
+      "functions": [
+        "PMIx_Allocation_request",
+        "PMIx_Allocation_request_nb",
+        "PMIx_Job_control",
+        "PMIx_Job_control_nb"
+      ]
+    },
+    "monitoring": {
+      "count": 2,
+      "functions": [
+        "PMIx_Process_monitor",
+        "PMIx_Process_monitor_nb"
+      ]
+    },
+    "security": {
+      "count": 4,
+      "functions": [
+        "PMIx_Get_credential",
+        "PMIx_Get_credential_nb",
+        "PMIx_Validate_credential",
+        "PMIx_Validate_credential_nb"
+      ]
+    },
+    "groups": {
+      "count": 10,
+      "functions": [
+        "PMIx_Group_construct",
+        "PMIx_Group_construct_nb",
+        "PMIx_Group_invite",
+        "PMIx_Group_invite_nb",
+        "PMIx_Group_join",
+        "PMIx_Group_join_nb",
+        "PMIx_Group_leave",
+        "PMIx_Group_leave_nb",
+        "PMIx_Group_destruct",
+        "PMIx_Group_destruct_nb"
+      ]
+    },
+    "fabric": {
+      "count": 9,
+      "functions": [
+        "PMIx_Fabric_register",
+        "PMIx_Fabric_register_nb",
+        "PMIx_Fabric_update",
+        "PMIx_Fabric_update_nb",
+        "PMIx_Fabric_deregister",
+        "PMIx_Fabric_deregister_nb",
+        "PMIx_Compute_distances",
+        "PMIx_Compute_distances_nb",
+        "PMIx_Load_topology"
+      ]
+    },
+    "cpu_locality": {
+      "count": 3,
+      "functions": [
+        "PMIx_Parse_cpuset_string",
+        "PMIx_Get_cpuset",
+        "PMIx_Get_relative_locality"
+      ]
+    },
+    "data_serialization": {
+      "count": 10,
+      "functions": [
+        "PMIx_Data_pack",
+        "PMIx_Data_unpack",
+        "PMIx_Data_copy",
+        "PMIx_Data_print",
+        "PMIx_Data_copy_payload",
+        "PMIx_Data_unload",
+        "PMIx_Data_load",
+        "PMIx_Data_embed",
+        "PMIx_Data_compress",
+        "PMIx_Data_decompress"
+      ]
+    },
+    "server": {
+      "count": 19,
+      "functions": [
+        "PMIx_server_init",
+        "PMIx_server_finalize",
+        "PMIx_server_register_nspace",
+        "PMIx_server_deregister_nspace",
+        "PMIx_server_register_client",
+        "PMIx_server_deregister_client",
+        "PMIx_server_setup_fork",
+        "PMIx_server_dmodex_request",
+        "PMIx_server_setup_application",
+        "PMIx_server_setup_local_support",
+        "PMIx_server_IOF_deliver",
+        "PMIx_server_collect_inventory",
+        "PMIx_server_deliver_inventory",
+        "PMIx_server_generate_locality_string",
+        "PMIx_server_generate_cpuset_string",
+        "PMIx_server_define_process_set",
+        "PMIx_server_delete_process_set",
+        "PMIx_server_register_resources",
+        "PMIx_server_deregister_resources"
+      ]
+    },
+    "tool": {
+      "count": 6,
+      "functions": [
+        "PMIx_tool_init",
+        "PMIx_tool_finalize",
+        "PMIx_tool_attach_to_server",
+        "PMIx_tool_disconnect",
+        "PMIx_tool_get_servers",
+        "PMIx_tool_set_server"
+      ]
+    }
+  }
+}

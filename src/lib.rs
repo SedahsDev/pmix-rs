@@ -3,7 +3,7 @@
 use std::fmt::Debug;
 mod ffi;
 mod info;
-mod utility;
+pub mod utility;
 
 use std::ffi::{CStr, CString, NulError};
 use std::mem::zeroed;
@@ -813,7 +813,29 @@ impl PmixProcState {
     pub fn to_raw(self) -> u8 {
         match self {
             Self::Unknown(v) => v,
-            _ => self as u8,
+            Self::Undef                       => 0,
+            Self::Prepped                     => 1,
+            Self::LaunchUnderway              => 2,
+            Self::Restart                     => 3,
+            Self::Terminate                   => 4,
+            Self::Running                     => 5,
+            Self::Connected                   => 6,
+            Self::Unterminated                => 15,
+            Self::Terminated                  => 20,
+            Self::Error                       => 50,
+            Self::KilledByCmd                 => 51,
+            Self::Aborted                     => 52,
+            Self::FailedToStart               => 53,
+            Self::AbortedBySig                => 54,
+            Self::TermWoSync                  => 55,
+            Self::CommFailed                  => 56,
+            Self::SensorBoundExceeded         => 57,
+            Self::CalledAbort                 => 58,
+            Self::HeartbeatFailed             => 59,
+            Self::Migrating                   => 60,
+            Self::CannotRestart               => 61,
+            Self::TermNonZero                 => 62,
+            Self::FailedToLaunch              => 63,
         }
     }
 
@@ -942,7 +964,11 @@ impl PmixScope {
     pub fn to_raw(self) -> u8 {
         match self {
             Self::Unknown(v) => v,
-            _ => self as u8,
+            Self::Undef    => 0,
+            Self::Local    => 1,
+            Self::Remote   => 2,
+            Self::Global   => 3,
+            Self::Internal => 4,
         }
     }
 }
@@ -956,6 +982,85 @@ impl std::fmt::Display for PmixScope {
             Self::Global   => write!(f, "GLOBAL"),
             Self::Internal => write!(f, "INTERNAL"),
             Self::Unknown(v) => write!(f, "UNKNOWN SCOPE ({v})"),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixPersistence — pmix_persistence_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Persistence of a published data item — how long the server should retain
+/// the value before automatically discarding it.
+///
+/// Maps to `pmix_persistence_t` (`uint8_t`) in the C API.
+///
+/// # C API
+/// `typedef uint8_t pmix_persistence_t`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(usize)]
+#[non_exhaustive]
+pub enum PmixPersistence {
+    /// `PMIX_PERSIST_INDEF` (0) — retain until specifically deleted.
+    Indefinite = 0,
+
+    /// `PMIX_PERSIST_FIRST_READ` (1) — delete upon first access.
+    FirstRead = 1,
+
+    /// `PMIX_PERSIST_PROC` (2) — retain until publishing process terminates.
+    Process = 2,
+
+    /// `PMIX_PERSIST_APP` (3) — retain until application terminates.
+    Application = 3,
+
+    /// `PMIX_PERSIST_SESSION` (4) — retain until session/allocation terminates.
+    Session = 4,
+
+    /// `PMIX_PERSIST_INVALID` (255) — invalid persistence value.
+    Invalid = 255,
+
+    /// An unrecognised or future persistence value.
+    Unknown(u8),
+}
+
+impl PmixPersistence {
+    /// Convert a raw `pmix_persistence_t` (`u8`) into a `PmixPersistence`.
+    pub fn from_raw(persist: u8) -> Self {
+        match persist {
+            0   => Self::Indefinite,
+            1   => Self::FirstRead,
+            2   => Self::Process,
+            3   => Self::Application,
+            4   => Self::Session,
+            255 => Self::Invalid,
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// Return the raw `u8` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::Unknown(v) => v,
+            Self::Indefinite  => 0,
+            Self::FirstRead   => 1,
+            Self::Process     => 2,
+            Self::Application => 3,
+            Self::Session     => 4,
+            Self::Invalid     => 255,
+        }
+    }
+}
+
+impl std::fmt::Display for PmixPersistence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Indefinite  => write!(f, "INDEFINITE"),
+            Self::FirstRead   => write!(f, "DELETE ON FIRST ACCESS"),
+            Self::Process     => write!(f, "RETAIN UNTIL PUBLISHING PROCESS TERMINATES"),
+            Self::Application => write!(f, "RETAIN UNTIL APPLICATION OF PUBLISHING PROCESS TERMINATES"),
+            Self::Session     => write!(f, "RETAIN UNTIL ALLOCATION OF PUBLISHING PROCESS TERMINATES"),
+            Self::Invalid     => write!(f, "INVALID"),
+            Self::Unknown(v)  => write!(f, "UNKNOWN PERSISTENCE ({v})"),
         }
     }
 }

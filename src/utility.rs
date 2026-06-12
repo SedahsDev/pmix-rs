@@ -3,7 +3,7 @@
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, PmixProcState, PmixScope, PmixStatus};
+use crate::{ffi, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -162,6 +162,51 @@ pub fn scope_string(scope: PmixScope) -> Result<String, PmixStatus> {
     let c_ptr = unsafe { ffi::PMIx_Scope_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_scope_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Persistence_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of a PMIx persistence value.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Persistence_string(pmix_persistence_t persist)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the persistence value.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_persistence_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::persistence_string, PmixPersistence};
+///
+/// let persist = PmixPersistence::Indefinite;
+/// let desc = persistence_string(persist).expect("valid persistence");
+/// assert_eq!(desc, "INDEFINITE");
+/// ```
+pub fn persistence_string(persist: PmixPersistence) -> Result<String, PmixStatus> {
+    let raw = persist.to_raw();
+    // SAFETY: PMIx_Persistence_string takes a single pmix_persistence_t (u8)
+    // and returns a pointer to a static, null-terminated string owned by
+    // the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points
+    // to read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Persistence_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_persistence_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
