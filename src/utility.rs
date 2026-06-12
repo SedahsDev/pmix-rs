@@ -1,9 +1,11 @@
-//! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`, `PMIx_Scope_string`, `PMIx_Persistence_string`, `PMIx_Data_range_string`, and related helpers.
+//! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`,
+//! `PMIx_Scope_string`, `PMIx_Persistence_string`, `PMIx_Data_range_string`,
+//! `PMIx_Info_directives_string`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, PmixDataRange, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use crate::{ffi, InfoFlags, PmixDataRange, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -252,6 +254,59 @@ pub fn data_range_string(range: PmixDataRange) -> Result<String, PmixStatus> {
     let c_ptr = unsafe { ffi::PMIx_Data_range_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_data_range_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Info_directives_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of PMIx info directives flags.
+///
+/// The `pmix_info_directives_t` is a bitmask that controls how `pmix_info_t`
+/// entries are processed. Common flags include:
+///
+/// * `PMIX_INFO_REQD` (1) — the info entry is required; fail if unsupported.
+/// * `PMIX_INFO_ARRAY_END` (2) — marks the end of a variadic info array.
+/// * `PMIX_INFO_REQD_PROCESSED` (4) — set by the library after processing.
+/// * `PMIX_INFO_DIR_RESERVED` (0xFFFF0000) — bits reserved for implementers.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Info_directives_string(pmix_info_directives_t directives)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the directives bitmask.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_info_directives_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::info_directives_string, InfoFlags};
+///
+/// let flags = InfoFlags::REQD;
+/// let desc = info_directives_string(flags).expect("valid directives");
+/// assert!(!desc.is_empty());
+/// ```
+pub fn info_directives_string(directives: InfoFlags) -> Result<String, PmixStatus> {
+    let raw = directives.raw();
+    // SAFETY: PMIx_Info_directives_string takes a single pmix_info_directives_t
+    // (u32 bitmask) and returns a pointer to a static, null-terminated string
+    // owned by the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points to
+    // read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Info_directives_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_info_directives_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
@@ -887,5 +942,165 @@ mod tests {
         assert_eq!(format!("{}", ProcLocal), "PROC LOCAL");
         assert_eq!(format!("{}", Invalid), "INVALID");
         assert_eq!(format!("{}", Unknown(99)), "UNKNOWN RANGE (99)");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Info_directives_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `info_directives_string` returns `Ok(String)` for the REQD flag.
+    ///
+    /// PMIx_Info_directives_string is documented to always return a valid,
+    /// non-null, null-terminated string for any pmix_info_directives_t value.
+    /// This test calls into the real PMIx library.
+    #[test]
+    fn test_info_directives_string_reqd() {
+        let flags = crate::InfoFlags::REQD;
+        let result = info_directives_string(flags);
+        assert!(
+            result.is_ok(),
+            "info_directives_string(REQD) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "info_directives_string should not return an empty string"
+        );
+    }
+
+    /// `info_directives_string` returns `Ok(String)` for all known flag values.
+    #[test]
+    fn test_info_directives_string_all_known() {
+        use crate::InfoFlags::*;
+
+        let flags = [REQD, QUALIFIER, PERSISTENT, REQD_PROCESSED];
+        for flag in flags {
+            let result = info_directives_string(flag);
+            assert!(
+                result.is_ok(),
+                "info_directives_string({:?}) should return Ok, got {:?}",
+                flag,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "info_directives_string({:?}) should not return empty string",
+                flag
+            );
+        }
+    }
+
+    /// `info_directives_string` handles combined flags (bitwise OR).
+    #[test]
+    fn test_info_directives_string_combined() {
+        use crate::InfoFlags;
+        let combined = InfoFlags::REQD | InfoFlags::PERSISTENT;
+        let result = info_directives_string(combined);
+        assert!(
+            result.is_ok(),
+            "info_directives_string(combined) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "info_directives_string for combined flags should return non-empty string"
+        );
+    }
+
+    /// `info_directives_string` handles zero flags (no directives set).
+    #[test]
+    fn test_info_directives_string_empty() {
+        use crate::InfoFlags;
+        let empty = InfoFlags::default();
+        assert!(empty.is_empty(), "default InfoFlags should be empty");
+        let result = info_directives_string(empty);
+        assert!(
+            result.is_ok(),
+            "info_directives_string(empty) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "info_directives_string for empty flags should return non-empty string"
+        );
+    }
+
+    /// `info_directives_string` is deterministic — the same flags always return
+    /// the same string.
+    #[test]
+    fn test_info_directives_string_deterministic() {
+        use crate::InfoFlags;
+        let flags = InfoFlags::REQD | InfoFlags::REQD_PROCESSED;
+        let first = info_directives_string(flags).unwrap();
+        let second = info_directives_string(flags).unwrap();
+        assert_eq!(
+            first, second,
+            "info_directives_string must be deterministic for the same input"
+        );
+    }
+
+    /// `info_directives_string` returns different strings for different flags.
+    #[test]
+    fn test_info_directives_string_distinct() {
+        use crate::InfoFlags;
+        let reqd = info_directives_string(InfoFlags::REQD).unwrap();
+        let persistent = info_directives_string(InfoFlags::PERSISTENT).unwrap();
+        assert_ne!(
+            reqd, persistent,
+            "info_directives_string(REQD) and info_directives_string(PERSISTENT) must differ"
+        );
+    }
+
+    /// `info_directives_string` handles unknown/reserved flag values.
+    #[test]
+    fn test_info_directives_string_reserved() {
+        use crate::InfoFlags;
+        // PMIX_INFO_DIR_RESERVED = 0xFFFF0000
+        let reserved = InfoFlags(0xFFFF0000);
+        let result = info_directives_string(reserved);
+        assert!(
+            result.is_ok(),
+            "info_directives_string(reserved) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "info_directives_string for reserved flags should return non-empty string"
+        );
+    }
+
+    /// `InfoFlags::raw` and construction round-trip correctly.
+    #[test]
+    fn test_info_flags_raw_roundtrip() {
+        use crate::InfoFlags;
+        let flags = InfoFlags::REQD | InfoFlags::PERSISTENT | InfoFlags::REQD_PROCESSED;
+        let raw = flags.raw();
+        let recovered = InfoFlags(raw);
+        assert_eq!(flags, recovered, "InfoFlags(raw(flags)) should round-trip");
+        assert_eq!(raw, 1 | 8 | 4, "combined flags should have correct raw value");
+    }
+
+    /// `InfoFlags::contains` checks individual bits correctly.
+    #[test]
+    fn test_info_flags_contains() {
+        use crate::InfoFlags;
+        let combined = InfoFlags::REQD | InfoFlags::PERSISTENT;
+        assert!(combined.contains(InfoFlags::REQD));
+        assert!(combined.contains(InfoFlags::PERSISTENT));
+        assert!(!combined.contains(InfoFlags::REQD_PROCESSED));
+    }
+
+    /// `InfoFlags::is_empty` works for zero and non-zero values.
+    #[test]
+    fn test_info_flags_is_empty() {
+        use crate::InfoFlags;
+        assert!(InfoFlags::default().is_empty());
+        assert!(!InfoFlags::REQD.is_empty());
+        assert!(!InfoFlags::REQD.is_empty());
     }
 }
