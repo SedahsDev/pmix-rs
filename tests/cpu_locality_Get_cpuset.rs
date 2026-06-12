@@ -4,8 +4,8 @@
 //! `PMIx_Get_cpuset`, which retrieves the CPU set for the calling
 //! process or thread as determined by the PMIx framework.
 
-use pmix::cpu_locality::get_cpuset;
 use pmix::cpu_locality::PmixBindEnvelope;
+use pmix::cpu_locality::get_cpuset;
 use pmix::fabric::PmixCpuset;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -227,7 +227,10 @@ fn test_get_cpuset_initialized_session() {
     // 5. Call PMIx_Finalize
     let mut cpuset = PmixCpuset::new();
     let result = get_cpuset(&mut cpuset, PmixBindEnvelope::Process);
-    assert!(result.is_ok(), "get_cpuset should succeed in an initialized session");
+    assert!(
+        result.is_ok(),
+        "get_cpuset should succeed in an initialized session"
+    );
 }
 
 /// Test that get_cpuset with different envelopes returns different results.

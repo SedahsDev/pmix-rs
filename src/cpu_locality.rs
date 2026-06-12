@@ -80,10 +80,7 @@ impl PmixBindEnvelope {
 /// # Spec
 ///
 /// PMIx Standard v4.1, Section 11.4.3.
-pub fn get_cpuset(
-    cpuset: &mut PmixCpuset,
-    ref_: PmixBindEnvelope,
-) -> Result<(), PmixStatus> {
+pub fn get_cpuset(cpuset: &mut PmixCpuset, ref_: PmixBindEnvelope) -> Result<(), PmixStatus> {
     let cpuset_ptr = cpuset.as_mut_ptr();
     let raw_ref = ref_.to_raw();
 
@@ -292,7 +289,11 @@ mod tests {
         let r1 = get_cpuset(&mut cpuset, PmixBindEnvelope::Process);
         let r2 = get_cpuset(&mut cpuset, PmixBindEnvelope::Process);
         // Both calls should return the same result (likely PMIX_ERR_INIT).
-        assert_eq!(r1.is_ok(), r2.is_ok(), "repeated calls should be consistent");
+        assert_eq!(
+            r1.is_ok(),
+            r2.is_ok(),
+            "repeated calls should be consistent"
+        );
     }
 
     /// Test PmixBindEnvelope to_raw conversion.
