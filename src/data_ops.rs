@@ -747,3 +747,256 @@ pub fn lookup_nb(
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Unpublish — unpublish data posted by this process
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_Unpublish_nb`.
+///
+/// Implement this trait to receive the result of a non-blocking unpublish.
+/// The `on_complete` method receives the `PmixStatus` result.
+pub trait UnpublishCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending unpublish callbacks.
+type UnpublishRegistry = std::collections::HashMap<usize, Box<dyn UnpublishCallback>>;
+static UNPUBLISH_REGISTRY: LazyLock<Mutex<UnpublishRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing unpublish request ID counter.
+static UNPUBLISH_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (unpublish completion).
+///
+/// Called by PMIx when the non-blocking unpublish completes. The `cbdata`
+/// parameter is a raw pointer encoding the request ID. We look up the
+/// registered closure and invoke it with the result status.
+extern "C" fn unpublish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Unpublish data posted by this process using the given keys.
+///
+/// The blocking form of this call will block until the data has been
+/// removed by the server (i.e., it is safe to publish that key again
+/// within the specified range).
+///
+/// A value of `None` for `keys` instructs the server to remove ALL data
+/// published by this process.
+///
+/// By default, the range is assumed to be `PMIX_RANGE_SESSION`. Changes
+/// to the range, and any additional directives, can be provided in the
+/// `info` array (e.g., `PMIX_TIMEOUT`, `PMIX_RANGE`).
+///
+/// # Parameters
+///
+/// - `keys`: Keys to unpublish (NULL-terminated in C, passed as a slice here).
+///   Pass `None` to remove all data published by this process.
+/// - `info`: Optional directives (e.g., `PMIX_TIMEOUT`, `PMIX_RANGE`).
+///
+/// # Returns
+///
+/// - `Ok(())` if the data was successfully unpublished.
+/// - `Err(status)` on failure (e.g., not initialized, timeout).
+///
+/// # C API
+/// `pmix_status_t PMIx_Unpublish(char **keys, const pmix_info_t info[], size_t ninfo)`
+pub fn unpublish(
+    keys: Option<&[&str]>,
+    info: Option<&Info>,
+) -> Result<(), PmixStatus> {
+    // Handle the None case — unpublish all data for this process.
+    let keys_ptr = match keys {
+        Some(keys_slice) if !keys_slice.is_empty() => {
+            // Convert keys to NULL-terminated C string array.
+            let mut key_ptrs: Vec<*mut std::os::raw::c_char> =
+                Vec::with_capacity(keys_slice.len() + 1);
+            let mut cstrings: Vec<CString> = Vec::with_capacity(keys_slice.len());
+
+            for &key in keys_slice {
+                match CString::new(key) {
+                    Ok(c) => {
+                        cstrings.push(c);
+                    }
+                    Err(_) => {
+                        // Key contains NUL — return error.
+                        return Err(PmixStatus::Known(PmixError::Error));
+                    }
+                }
+            }
+            for c in &cstrings {
+                key_ptrs.push(c.as_ptr() as *mut std::os::raw::c_char);
+            }
+            // NULL terminator.
+            key_ptrs.push(ptr::null_mut());
+
+            // SAFETY: key_ptrs and cstrings stay alive for the duration
+            // of the FFI call below. We cast to get the right type
+            // for the FFI signature (*mut *mut c_char).
+            key_ptrs.as_mut_ptr() as *mut *mut std::os::raw::c_char
+        }
+        _ => ptr::null_mut(),
+    };
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = match info {
+        Some(info) if info.len > 0 => (info.handle as *const ffi::pmix_info_t, info.len),
+        _ => (ptr::null(), 0),
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_Unpublish is a synchronous PMIx API call. The keys_ptr
+        // (if non-null) is a valid NULL-terminated array of C strings borrowed
+        // from the cstrings vector above, which lives long enough. The info
+        // pointer (if non-null) is borrowed from the Info parameter. PMIx does
+        // not retain any pointers after this call returns.
+        ffi::PMIx_Unpublish(keys_ptr, info_ptr, ninfo)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
+
+/// Non-blocking unpublish of data posted by this process.
+///
+/// Submit an asynchronous request to unpublish the data associated with
+/// the given `keys`. The `callback` closure is invoked once the operation
+/// completes.
+///
+/// A value of `None` for `keys` instructs the server to remove ALL data
+/// published by this process.
+///
+/// The function returns immediately:
+/// - `Ok(())` if the request was accepted for asynchronous processing.
+///   The actual result will be delivered via `callback`.
+/// - `Err(status)` if the request was rejected immediately (e.g., invalid
+///   parameters or PMIx not initialized). The callback will NOT be called.
+///
+/// # Callback behavior
+///
+/// The callback receives `PmixStatus`:
+/// - On success: `PmixStatus::Known(PmixError::Success)`
+/// - On timeout: `PmixStatus::Known(PmixError::ErrTimeout)`
+/// - On other error: corresponding `PmixStatus`
+///
+/// # Parameters
+///
+/// - `keys`: Keys to unpublish. Pass `None` to remove all data.
+/// - `info`: Optional directives (e.g., `PMIX_TIMEOUT`, `PMIX_RANGE`).
+/// - `callback`: Closure invoked on completion.
+///
+/// # C API
+/// `pmix_status_t PMIx_Unpublish_nb(char **keys, const pmix_info_t info[],`
+/// `  size_t ninfo, pmix_op_cbfunc_t cbfunc, void *cbdata)`
+pub fn unpublish_nb(
+    keys: Option<&[&str]>,
+    info: Option<&Info>,
+    callback: Box<dyn UnpublishCallback>,
+) -> Result<(), PmixStatus> {
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Handle the None case — unpublish all data for this process.
+    let keys_ptr = match keys {
+        Some(keys_slice) if !keys_slice.is_empty() => {
+            // Convert keys to NULL-terminated C string array.
+            let mut key_ptrs: Vec<*mut std::os::raw::c_char> =
+                Vec::with_capacity(keys_slice.len() + 1);
+            let mut cstrings: Vec<CString> = Vec::with_capacity(keys_slice.len());
+
+            for &key in keys_slice {
+                match CString::new(key) {
+                    Ok(c) => {
+                        cstrings.push(c);
+                    }
+                    Err(_) => {
+                        // Key contains NUL — clean up and return error.
+                        let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+                        registry.remove(&req_id);
+                        return Err(PmixStatus::Known(PmixError::Error));
+                    }
+                }
+            }
+            for c in &cstrings {
+                key_ptrs.push(c.as_ptr() as *mut std::os::raw::c_char);
+            }
+            // NULL terminator.
+            key_ptrs.push(ptr::null_mut());
+
+            // SAFETY: key_ptrs and cstrings stay alive for the duration
+            // of the FFI call below.
+            key_ptrs.as_mut_ptr() as *mut *mut std::os::raw::c_char
+        }
+        _ => ptr::null_mut(),
+    };
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = match info {
+        Some(info) if info.len > 0 => (info.handle as *const ffi::pmix_info_t, info.len),
+        _ => (ptr::null(), 0),
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_Unpublish_nb is a non-blocking PMIx API call. The
+        // keys_ptr (if non-null) is a valid NULL-terminated array of C strings
+        // borrowed from the cstrings vector above, which lives long enough.
+        // The info pointer (if non-null) is borrowed from the Info parameter.
+        // The callback bridge function has C linkage and properly handles the
+        // raw pointer cbdata parameter. PMIx does not retain keys_ptr or info
+        // after this call returns.
+        ffi::PMIx_Unpublish_nb(keys_ptr, info_ptr, ninfo, Some(unpublish_callback_bridge), cbdata)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
