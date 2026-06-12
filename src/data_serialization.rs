@@ -144,6 +144,32 @@ impl Default for PmixByteObject {
     }
 }
 
+impl From<Vec<u8>> for PmixByteObject {
+    fn from(bytes: Vec<u8>) -> Self {
+        let size = bytes.len();
+        if size == 0 {
+            return Self::new();
+        }
+        // SAFETY: We allocate a C-compatible buffer and copy the Rust bytes
+        // into it, then set up the byte_object_t with the correct pointer
+        // and size. The Drop impl will call PMIx_Byte_object_destruct to free it.
+        let layout = std::alloc::Layout::from_size_align(size, 1).expect("valid layout");
+        let c_ptr = unsafe { std::alloc::alloc(layout) };
+        if c_ptr.is_null() {
+            panic!("alloc failed in PmixByteObject::from(Vec<u8>)");
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), c_ptr, size);
+        }
+        Self {
+            inner: ffi::pmix_byte_object_t {
+                bytes: c_ptr as *mut std::os::raw::c_char,
+                size,
+            },
+        }
+    }
+}
+
 impl Drop for PmixByteObject {
     fn drop(&mut self) {
         // Destroy the underlying byte object to free internal memory.
@@ -210,6 +236,17 @@ impl PmixDataBuffer {
         }
         // SAFETY: We hold a valid pointer to a live buffer.
         unsafe { (*self.ptr).bytes_used }
+    }
+
+    /// Create a `PmixDataBuffer` from a raw C pointer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure `ptr` is a valid, allocated `pmix_data_buffer_t`
+    /// or null. The resulting `PmixDataBuffer` takes ownership and will call
+    /// `PMIx_Data_buffer_release` on drop.
+    pub unsafe fn from_raw(ptr: *mut ffi::pmix_data_buffer_t) -> Self {
+        Self { ptr }
     }
 }
 
