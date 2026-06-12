@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 
 use std::fmt::Debug;
+pub mod allocation;
 pub mod data_ops;
 pub mod events;
 mod ffi;
