@@ -1357,3 +1357,201 @@ unsafe fn pmix_argv_free(env: *mut *mut std::os::raw::c_char) {
         libc::free(env as *mut std::os::raw::c_void);
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_dmodex_request — request modex data for a remote process
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_dmodex_request`.
+///
+/// Implement this trait to receive the result of a direct modex request.
+/// The `on_complete` method receives:
+///
+/// * `status` — the PMIx status of the request (success or error code).
+/// * `blob` — the serialized modex data blob (owned by the caller after
+///   the callback returns; the PMIx library frees it upon callback return).
+///
+/// The `blob` is a serialized byte array containing the modex data for the
+/// requested process. The host server is responsible for sending this blob
+/// back to the original remote requestor. The PMIx library **frees** the
+/// `data` buffer immediately after the callback returns, so the caller must
+/// copy the data if it needs to retain it beyond the callback.
+pub trait DmodexRequestCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus, blob: Vec<u8>);
+}
+
+/// Global registry mapping request IDs to pending dmodex_request callbacks.
+type DmodexRequestRegistry = std::collections::HashMap<usize, Box<dyn DmodexRequestCallback>>;
+static DMODEX_REQUEST_REGISTRY: LazyLock<Mutex<DmodexRequestRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing dmodex_request ID counter.
+static DMODEX_REQUEST_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_dmodex_response_fn_t` (dmodex_request completion).
+///
+/// Called by PMIx when the direct modex request completes. The `data`
+/// parameter is a C-allocated buffer containing the serialized modex blob.
+/// The PMIx library frees this buffer upon return from this function, so
+/// we must copy the data before returning.
+///
+/// The `cbdata` parameter encodes the request ID as a raw pointer.
+/// We look up the registered Rust callback and invoke it with the result.
+extern "C" fn dmodex_request_callback_bridge(
+    status: ffi::pmix_status_t,
+    data: *mut std::os::raw::c_char,
+    sz: usize,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Copy the data blob before the PMIx library frees it.
+    // The PMIx docs state: "The PMIx server will free the data blob
+    // upon return from the response fn."
+    let blob: Vec<u8> = if !data.is_null() && sz > 0 {
+        // SAFETY: data points to a valid buffer of sz bytes allocated by PMIx.
+        // We copy the data into a Vec before returning so we own it.
+        unsafe { std::slice::from_raw_parts(data as *const u8, sz) }.to_vec()
+    } else {
+        Vec::new()
+    };
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback with the copied data.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status, blob);
+}
+
+/// Request modex data for a specific process (direct modex operation).
+///
+/// This function is used by the host server to obtain a serialized blob
+/// of modex data for a specific process. It is part of the "direct modex"
+/// (dmodex) mechanism, where modex data is cached locally on each PMIx
+/// server for its own local clients and obtained on-demand for remote
+/// requests.
+///
+/// When a remote server needs modex data for a process managed by this
+/// local PMIx server, the host server receives the request and calls
+/// `PMIx_server_dmodex_request`. The PMIx library assembles the modex
+/// data into a serialized blob and returns it via the callback. The host
+/// server is then responsible for sending the blob back to the original
+/// remote requestor.
+///
+/// **Important:** The data buffer passed to the callback is owned by the
+/// PMIx library and is freed immediately upon callback return. The safe
+/// Rust wrapper copies the data into a `Vec<u8>` so the caller owns it.
+///
+/// # Parameters
+///
+/// * `proc` — the process whose modex data is being requested.
+/// * `callback` — invoked when the modex data is available (or an error
+///   occurs). The callback receives the status and the serialized blob.
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback`.
+/// * `Err(status)` — request rejected immediately (e.g., invalid proc,
+///   NULL callback, or PMIx not initialized as server). The callback
+///   will NOT be called.
+///
+/// # Error conditions
+///
+/// * `PMIX_ERR_INIT` — PMIx server library has not been initialized.
+/// * `PMIX_ERR_BAD_PARAM` — `proc` is null or `callback` is null.
+/// * `PMIX_ERR_NOMEM` — insufficient memory to process the request.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_dmodex_request(const pmix_proc_t *proc,
+///                                          pmix_dmodex_response_fn_t cbfunc,
+///                                          void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_dmodex_request, DmodexRequestCallback};
+/// use pmix::{PmixStatus, Proc};
+///
+/// struct MyDmodexCallback;
+/// impl DmodexRequestCallback for MyDmodexCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus, blob: Vec<u8>) {
+///         if status.is_success() {
+///             println!("Received modex blob of {} bytes", blob.len());
+///             // Send blob to the remote requestor...
+///         } else {
+///             eprintln!("dmodex request failed: {:?}", status);
+///         }
+///     }
+/// }
+///
+/// let proc = Proc::new("remote.job.12345", 0).expect("invalid nspace");
+/// server_dmodex_request(&proc, Box::new(MyDmodexCallback))
+///     .expect("dmodex_request rejected");
+/// ```
+pub fn server_dmodex_request(
+    proc: &Proc,
+    callback: Box<dyn DmodexRequestCallback>,
+) -> Result<(), PmixStatus> {
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = DMODEX_REQUEST_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    // We shift left by 2 to ensure the pointer is properly aligned
+    // and non-null (req_id starts from 1, so req_id << 2 >= 4).
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Get a pointer to the proc's internal pmix_proc_t for FFI.
+    let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_server_dmodex_request is a non-blocking server API.
+        // - proc_ptr is a valid reference to the Proc's internal pmix_proc_t
+        //   that remains alive for the duration of this call (PMIx copies it).
+        // - The callback bridge has C linkage and properly handles cbdata.
+        //   It copies the data blob before the PMIx library frees it.
+        // - cbdata is an opaque pointer that we control and decode in the bridge.
+        // - The PMIx library validates proc and cbfunc internally and returns
+        //   PMIX_ERR_BAD_PARAM if either is null.
+        ffi::PMIx_server_dmodex_request(proc_ptr, Some(dmodex_request_callback_bridge), cbdata)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
