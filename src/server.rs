@@ -1839,3 +1839,204 @@ pub fn server_setup_application(
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_setup_local_support — setup local support for an nspace
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_setup_local_support` (non-blocking mode).
+///
+/// Implement this trait to receive the result of a non-blocking local
+/// support setup operation. The `on_complete` method receives the
+/// `PmixStatus` result — success means the PMIx server has completed
+/// any application-specific operations prior to spawning local clients.
+pub trait SetupLocalSupportCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending setup_local_support callbacks.
+type SetupLocalSupportRegistry =
+    std::collections::HashMap<usize, Box<dyn SetupLocalSupportCallback>>;
+static SETUP_LOCAL_SUPPORT_REGISTRY: LazyLock<Mutex<SetupLocalSupportRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing setup_local_support request ID counter.
+static SETUP_LOCAL_SUPPORT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (setup_local_support completion).
+///
+/// Called by PMIx when the non-blocking setup_local_support operation completes.
+/// The `cbdata` parameter is a raw pointer encoding the request ID.
+/// We look up the registered Rust callback and invoke it with the result status.
+extern "C" fn setup_local_support_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Setup local support for a given namespace before spawning local clients.
+///
+/// This function allows the local PMIx server to perform any application-specific
+/// operations prior to spawning local clients of a given application. The host
+/// resource manager (RM) calls this to inform the PMIx server about the local
+/// processes that will be spawned, allowing it to prepare internal data
+/// structures and perform any necessary setup.
+///
+/// This is a non-blocking call — the result is delivered asynchronously
+/// via the provided `callback`.
+///
+/// # Parameters
+///
+/// * `nspace` — the namespace identifier for the job whose local support
+///   is being set up.
+/// * `info` — optional per-process info keys that describe the local
+///   processes (e.g., node info, process counts, resource allocations).
+/// * `callback` — invoked when setup completes. The callback receives
+///   the status of the operation.
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback`.
+/// * `Err(PmixStatus::OperationSucceeded)` — the request was immediately
+///   processed and returned success. The callback will NOT be called.
+/// * `Err(status)` — request rejected immediately (e.g., invalid nspace,
+///   PMIx not initialized as server). The callback will NOT be called.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_setup_local_support(const pmix_nspace_t nspace,
+///                                               pmix_info_t info[], size_t ninfo,
+///                                               pmix_op_cbfunc_t cbfunc,
+///                                               void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_setup_local_support, SetupLocalSupportCallback};
+/// use pmix::{Info, PmixStatus};
+///
+/// struct MySetupLocalCallback;
+/// impl SetupLocalSupportCallback for MySetupLocalCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///         match status {
+///             ok if ok.is_success() => println!("Local support setup complete"),
+///             err => eprintln!("Setup failed: {:?}", err),
+///         }
+///     }
+/// }
+///
+/// // Setup local support for a namespace
+/// server_setup_local_support(
+///     "myapp.12345",
+///     &Info::default(),
+///     Box::new(MySetupLocalCallback),
+/// )
+/// .expect("setup_local_support rejected");
+/// ```
+pub fn server_setup_local_support(
+    nspace: &str,
+    info: &Info,
+    callback: Box<dyn SetupLocalSupportCallback>,
+) -> Result<(), PmixStatus> {
+    // Convert nspace to CString for FFI.
+    let nspace_c = match CString::new(nspace) {
+        Ok(cs) => cs,
+        Err(_) => {
+            // NUL byte in nspace — cannot proceed.
+            callback.on_complete(PmixStatus::from_raw(-1));
+            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+        }
+    };
+
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = SETUP_LOCAL_SUPPORT_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    // We shift left by 2 to ensure the pointer is properly aligned
+    // and non-null (req_id starts from 1, so req_id << 2 >= 4).
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = if info.len > 0 {
+        (info.handle, info.len)
+    } else {
+        (ptr::null_mut(), 0)
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_server_setup_local_support is a non-blocking server API.
+        // - nspace_c.as_ptr() is a valid null-terminated string for the
+        //   duration of this call (PMIx copies it internally).
+        // - info_ptr is either a valid array of pmix_info_t (from Info.handle)
+        //   or null (PMIx accepts null info with ninfo=0).
+        // - ninfo is the number of entries matching info_ptr.
+        // - The callback bridge has C linkage and properly handles cbdata.
+        // - cbdata is an opaque pointer that we control and decode in the bridge.
+        // - The PMIx library validates parameters internally and returns
+        //   PMIX_ERR_INIT if not initialized as server, PMIX_ERR_NOMEM on OOM.
+        ffi::PMIx_server_setup_local_support(
+            nspace_c.as_ptr(),
+            info_ptr,
+            ninfo,
+            Some(setup_local_support_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // PMIX_SUCCESS — request accepted, callback will be invoked asynchronously.
+        // PMIX_OPERATION_SUCCEEDED (-157) — immediately processed and succeeded,
+        // callback will NOT be called.
+        if pmix_status.to_raw() == -157 {
+            // PMIX_OPERATION_SUCCEEDED — callback not called, so remove it.
+            let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+            registry.remove(&req_id);
+            // Return success — the operation completed immediately.
+            Ok(())
+        } else {
+            // PMIX_SUCCESS — callback will be invoked asynchronously.
+            Ok(())
+        }
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
