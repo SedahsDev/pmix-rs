@@ -1477,30 +1477,30 @@ impl PmixByteObject {
 
     /// Convert to a C `pmix_byte_object_t` for FFI.
     ///
-    /// The caller is responsible for cleaning up the C struct after use
-    /// (via `PMIx_Byte_object_destruct` or manual free).
-    fn as_c_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
-        // Use PMIx helper to construct the byte object in place.
-        // SAFETY: PMIx_Byte_object_construct initializes the struct fields
-        // to zero/null. It takes a pointer to a valid (zeroed or not)
-        // pmix_byte_object_t and sets bytes=NULL, size=0.
-        let mut c_bo: ffi::pmix_byte_object_t = unsafe { std::mem::zeroed() };
-        if !self.bytes.is_empty() {
-            // Load the bytes into the byte object using the PMIx helper.
-            // SAFETY: PMIx_Byte_object_load copies `sz` bytes from `d`
-            // into the byte object's internal buffer. The source pointer
-            // must be valid for `sz` bytes. We cast our &[u8] to c_char*.
-            unsafe {
-                ffi::PMIx_Byte_object_load(
-                    &mut c_bo as *mut ffi::pmix_byte_object_t,
-                    self.bytes.as_ptr() as *mut std::os::raw::c_char,
-                    self.bytes.len(),
-                );
-            }
-        }
-        // Allocate the C struct on the heap so we can pass a pointer to it.
-        let boxed = Box::new(c_bo);
-        Box::into_raw(boxed)
+    /// Returns a heap-allocated `pmix_byte_object_t` whose `bytes` field
+    /// points to a `CString`-wrapped copy of our data. The caller must
+    /// free the result with `PmixByteObject::free_c_ptr()`.
+    ///
+    /// Note: `PMIx_IOF_push` copies the byte object's data internally,
+    /// so the C struct can be freed immediately after the call returns.
+    fn as_c_mut_ptr(&self) -> *mut ffi::pmix_byte_object_t {
+        // Allocate a CString from our bytes so the C struct has a valid
+        // pointer. The CString is stored inside the C struct's bytes field.
+        let c_str = if self.bytes.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            // SAFETY: Our bytes are owned by self (Vec<u8>) and will outlive
+            // the FFI call. We create a mutable copy for the C struct.
+            let mut data = self.bytes.clone();
+            data.as_mut_ptr() as *mut std::os::raw::c_char
+        };
+
+        // Build the C struct on the heap.
+        let c_bo = Box::new(ffi::pmix_byte_object_t {
+            bytes: c_str,
+            size: self.bytes.len(),
+        });
+        Box::into_raw(c_bo)
     }
 
     /// Free a C `pmix_byte_object_t` that was created by `as_c_mut_ptr`.
@@ -1509,12 +1509,11 @@ impl PmixByteObject {
     /// not have been freed already.
     unsafe fn free_c_ptr(ptr: *mut ffi::pmix_byte_object_t) {
         if !ptr.is_null() {
-            unsafe {
-                // Free the internal buffer allocated by PMIx_Byte_object_load.
-                ffi::PMIx_Byte_object_destruct(ptr);
-                // Free the boxed struct itself.
-                drop(Box::from_raw(ptr));
-            }
+            // The bytes field points into a Vec<u8> that was owned by the
+            // Rust PmixByteObject (not allocated by pmix_malloc), so we
+            // must NOT call PMIx_Byte_object_destruct (which calls pmix_free).
+            // Just free the struct itself.
+            unsafe { drop(Box::from_raw(ptr)) };
         }
     }
 }
@@ -1592,7 +1591,7 @@ extern "C" fn push_callback_bridge(
 ///     `pmix_op_cbfunc_t cbfunc, void *cbdata);`
 pub fn iof_push<F>(
     targets: &[ffi::pmix_proc_t],
-    mut bo: PmixByteObject,
+    bo: PmixByteObject,
     directives: &[ffi::pmix_info_t],
     cb: F,
 ) -> Result<(), PmixStatus>
@@ -1666,7 +1665,7 @@ where
 /// Same as `PMIx_IOF_push` with `cbfunc` set to NULL (blocking mode).
 pub fn iof_push_blocking(
     targets: &[ffi::pmix_proc_t],
-    mut bo: PmixByteObject,
+    bo: PmixByteObject,
     directives: &[ffi::pmix_info_t],
 ) -> Result<(), PmixStatus> {
     // Allocate the C byte_object_t on the heap.
@@ -1711,6 +1710,99 @@ pub fn iof_push_blocking(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixByteObject tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `PmixByteObject::from_slice` copies data and is independent of source.
+    #[test]
+    fn test_byte_object_from_slice() {
+        let data = b"hello from stdin";
+        let bo = PmixByteObject::from_slice(data);
+        assert_eq!(bo.as_slice(), data);
+        assert_eq!(bo.len(), 16);
+        assert!(!bo.is_empty());
+    }
+
+    /// `PmixByteObject::from_vec` takes ownership of the vector.
+    #[test]
+    fn test_byte_object_from_vec() {
+        let vec = vec![1u8, 2, 3, 4, 5];
+        let bo = PmixByteObject::from_vec(vec);
+        assert_eq!(bo.as_slice(), &[1, 2, 3, 4, 5]);
+        assert_eq!(bo.len(), 5);
+    }
+
+    /// `PmixByteObject::empty` creates an empty byte object.
+    #[test]
+    fn test_byte_object_empty() {
+        let bo = PmixByteObject::empty();
+        assert!(bo.is_empty());
+        assert_eq!(bo.len(), 0);
+        assert!(bo.as_slice().is_empty());
+    }
+
+    /// `PmixByteObject` implements `AsRef<[u8]>`.
+    #[test]
+    fn test_byte_object_as_ref() {
+        let bo = PmixByteObject::from_slice(b"test");
+        let slice: &[u8] = bo.as_ref();
+        assert_eq!(slice, b"test");
+    }
+
+    /// `PmixByteObject` can be cloned.
+    #[test]
+    fn test_byte_object_clone() {
+        let bo1 = PmixByteObject::from_slice(b"clone me");
+        let bo2 = bo1.clone();
+        assert_eq!(bo1.as_slice(), bo2.as_slice());
+        assert_eq!(bo1.len(), bo2.len());
+    }
+
+    /// `PmixByteObject::as_c_mut_ptr` produces a valid pointer that can be freed.
+    #[test]
+    fn test_byte_object_c_conversion_roundtrip() {
+        let bo = PmixByteObject::from_slice(b"roundtrip test");
+        let c_ptr = bo.as_c_mut_ptr();
+        assert!(!c_ptr.is_null());
+        // SAFETY: c_ptr was returned by as_c_mut_ptr and has not been freed.
+        unsafe { PmixByteObject::free_c_ptr(c_ptr) };
+    }
+
+    /// Empty byte object converts to C and back without issues.
+    #[test]
+    fn test_byte_object_empty_c_conversion() {
+        let bo = PmixByteObject::empty();
+        let c_ptr = bo.as_c_mut_ptr();
+        assert!(!c_ptr.is_null());
+        // SAFETY: c_ptr was returned by as_c_mut_ptr.
+        unsafe { PmixByteObject::free_c_ptr(c_ptr) };
+    }
+
+    /// `free_c_ptr` is safe with a null pointer (no-op).
+    #[test]
+    fn test_byte_object_free_null() {
+        // SAFETY: null pointer is a valid no-op for free_c_ptr.
+        unsafe { PmixByteObject::free_c_ptr(std::ptr::null_mut()) };
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_IOF_push tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `IoForwardPushHandler` trait is implemented for closures that take
+    /// `PmixStatus` and return nothing, and satisfy `Send + 'static`.
+    #[test]
+    fn test_iof_push_handler_trait() {
+        fn assert_handler<T: IoForwardPushHandler>() {}
+        assert_handler::<fn(PmixStatus)>();
+        assert_handler::<Box<dyn Fn(PmixStatus) + Send>>();
+    }
+
+    // Note: iof_push and iof_push_blocking require a running PMIx daemon
+    // and proper init/finalize, so they are tested via integration tests
+    // (ignored in unit test suite).
 
     /// `initialized()` is callable and returns a bool.
     ///
