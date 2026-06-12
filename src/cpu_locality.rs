@@ -5,8 +5,11 @@
 //!
 //! - [`get_cpuset`] — retrieve the CPU set for the calling process/thread.
 //! - [`parse_cpuset_string`] — parse a cpuset string into a [`PmixCpuset`].
+//! - [`get_relative_locality`] — compute relative locality of two processes.
 
 use std::ffi::CString;
+
+use bitflags::bitflags;
 
 use crate::PmixStatus;
 use crate::fabric::PmixCpuset;
@@ -156,6 +159,146 @@ pub fn parse_cpuset_string(cpuset_string: &str, cpuset: &mut PmixCpuset) -> Resu
     }
 
     Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixLocality — relative locality bitmask
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Relative locality bitmask for two processes on a node.
+///
+/// Returned by [`get_relative_locality`] to describe how two processes are
+/// positioned relative to each other on the hardware topology. Each bit
+/// corresponds to a level of shared hardware resource.
+///
+/// # C API
+///
+/// ```c
+/// typedef uint16_t pmix_locality_t;
+/// #define PMIX_LOCALITY_UNKNOWN           0x0000
+/// #define PMIX_LOCALITY_NONLOCAL          0x8000
+/// #define PMIX_LOCALITY_SHARE_HWTHREAD    0x0001
+/// #define PMIX_LOCALITY_SHARE_CORE        0x0002
+/// #define PMIX_LOCALITY_SHARE_L1CACHE     0x0004
+/// #define PMIX_LOCALITY_SHARE_L2CACHE     0x0008
+/// #define PMIX_LOCALITY_SHARE_L3CACHE     0x0010
+/// #define PMIX_LOCALITY_SHARE_PACKAGE     0x0020
+/// #define PMIX_LOCALITY_SHARE_NUMA        0x0040
+/// #define PMIX_LOCALITY_SHARE_NODE        0x4000
+/// ```
+///
+/// # Spec
+///
+/// PMIx Standard v4.1, Section 11.4.2.3.
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+    #[repr(transparent)]
+    pub struct PmixLocality: u16 {
+        /// All bits are set to zero, indicating that the relative locality
+        /// of the two processes is unknown.
+        const UNKNOWN           = 0x0000;
+
+        /// The two processes do not share any common locations.
+        const NONLOCAL          = 0x8000;
+
+        /// The two processes share at least one hardware thread.
+        const SHARE_HWTHREAD    = 0x0001;
+
+        /// The two processes share at least one core.
+        const SHARE_CORE        = 0x0002;
+
+        /// The two processes share at least an L1 cache.
+        const SHARE_L1CACHE     = 0x0004;
+
+        /// The two processes share at least an L2 cache.
+        const SHARE_L2CACHE     = 0x0008;
+
+        /// The two processes share at least an L3 cache.
+        const SHARE_L3CACHE     = 0x0010;
+
+        /// The two processes share at least a package.
+        const SHARE_PACKAGE     = 0x0020;
+
+        /// The two processes share at least one Non-Uniform Memory Access
+        /// (NUMA) region.
+        const SHARE_NUMA        = 0x0040;
+
+        /// The two processes are executing on the same node.
+        const SHARE_NODE        = 0x4000;
+    }
+}
+
+impl PmixLocality {
+    /// Convert from a raw C `pmix_locality_t` value.
+    pub fn from_raw(raw: u16) -> Self {
+        Self::from_bits_truncate(raw)
+    }
+
+    /// Convert to the raw C `pmix_locality_t` value.
+    pub fn to_raw(self) -> u16 {
+        self.bits()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// get_relative_locality
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Get the relative locality of two processes given their locality strings.
+///
+/// Parses the locality strings of two processes (as returned by `PMIx_Get`
+/// using the `PMIX_LOCALITY_STRING` key) and sets the appropriate
+/// [`PmixLocality`] bitmask bits describing how the two processes are
+/// positioned relative to each other on the hardware topology.
+///
+/// # Parameters
+///
+/// * `locality1` — Locality string for the first process, as returned by
+///   `PMIx_server_generate_locality_string` or obtained via `PMIx_Get`
+///   with the `PMIX_LOCALITY_STRING` key.
+/// * `locality2` — Locality string for the second process, in the same
+///   format as `locality1`.
+///
+/// # Returns
+///
+/// * `Ok(PmixLocality)` — The relative locality bitmask describing the
+///   hardware relationship between the two processes.
+/// * `Err(PmixStatus)` — An appropriate PMIx error constant on failure,
+///   e.g. `PMIX_ERR_INIT` if PMIx has not been initialized,
+///   `PMIX_ERR_BAD_PARAM` if either locality string is invalid, or
+///   `PMIX_ERR_NOT_SUPPORTED` if the runtime does not support locality
+///   queries.
+///
+/// # C API
+///
+/// ```c
+/// pmix_status_t PMIx_Get_relative_locality(const char *locality1,
+///                                           const char *locality2,
+///                                           pmix_locality_t *locality);
+/// ```
+///
+/// # Spec
+///
+/// PMIx Standard v4.1, Section 11.4.2.
+pub fn get_relative_locality(locality1: &str, locality2: &str) -> Result<PmixLocality, PmixStatus> {
+    let c_locality1 = CString::new(locality1).map_err(|_| PmixStatus::from_raw(-1))?;
+    let c_locality2 = CString::new(locality2).map_err(|_| PmixStatus::from_raw(-1))?;
+
+    let mut locality: ffi::pmix_locality_t = 0;
+    let status = unsafe {
+        // SAFETY: `c_locality1` and `c_locality2` are valid null-terminated
+        // C strings for the duration of this call. `&mut locality` is a
+        // valid mutable pointer to a `pmix_locality_t` (u16) that the
+        // PMIx library will write to on success.
+        ffi::PMIx_Get_relative_locality(c_locality1.as_ptr(), c_locality2.as_ptr(), &mut locality)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if !pmix_status.is_success() {
+        return Err(pmix_status);
+    }
+
+    Ok(PmixLocality::from_raw(locality))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
