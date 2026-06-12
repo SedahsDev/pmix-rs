@@ -670,6 +670,221 @@ impl PmixError {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixProcState
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe Rust representation of `pmix_proc_state_t` (PMIx v4.0+).
+///
+/// `pmix_proc_state_t` is a `uint8_t` that encodes the lifecycle state
+/// of a process managed by the PMIx resource manager.  Values are grouped
+/// into logical ranges:
+///
+/// * `0`        — undefined
+/// * `1–6`      — pre-launch and active states
+/// * `15`       — unterminated (still alive)
+/// * `20`       — cleanly terminated
+/// * `50+`      — error / abnormal termination states
+///
+/// All values defined in `pmix_common.h §Process State Definitions` are
+/// represented.  Unknown raw values from future library versions are
+/// captured in the [`Unknown`][PmixProcState::Unknown] variant.
+///
+/// # C API
+/// `typedef uint8_t pmix_proc_state_t;`
+///
+/// See also [`crate::utility::proc_state_string`] for the human-readable
+/// string representation of each state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[non_exhaustive]
+pub enum PmixProcState {
+    /// `PMIX_PROC_STATE_UNDEF` (0) — undefined process state.
+    Undef                       =    0,
+
+    /// `PMIX_PROC_STATE_PREPPED` (1) — process is ready to be launched.
+    Prepped                     =    1,
+
+    /// `PMIX_PROC_STATE_LAUNCH_UNDERWAY` (2) — launch process underway.
+    LaunchUnderway              =    2,
+
+    /// `PMIX_PROC_STATE_RESTART` (3) — the proc is ready for restart.
+    Restart                     =    3,
+
+    /// `PMIX_PROC_STATE_TERMINATE` (4) — process is marked for termination.
+    Terminate                   =    4,
+
+    /// `PMIX_PROC_STATE_RUNNING` (5) — daemon has locally forked process.
+    Running                     =    5,
+
+    /// `PMIX_PROC_STATE_CONNECTED` (6) — proc connected to PMIx server.
+    Connected                   =    6,
+
+    /// `PMIX_PROC_STATE_UNTERMINATED` (15) — process has not yet terminated.
+    Unterminated                =   15,
+
+    /// `PMIX_PROC_STATE_TERMINATED` (20) — process has terminated cleanly.
+    Terminated                  =   20,
+
+    /// `PMIX_PROC_STATE_ERROR` (50) — generic process error.
+    Error                       =   50,
+
+    /// `PMIX_PROC_STATE_KILLED_BY_CMD` (51) — process was killed by command.
+    KilledByCmd                 =   51,
+
+    /// `PMIX_PROC_STATE_ABORTED` (52) — process aborted abnormally.
+    Aborted                     =   52,
+
+    /// `PMIX_PROC_STATE_FAILED_TO_START` (53) — process failed to start.
+    FailedToStart               =   53,
+
+    /// `PMIX_PROC_STATE_ABORTED_BY_SIG` (54) — process aborted by signal.
+    AbortedBySig                =   54,
+
+    /// `PMIX_PROC_STATE_TERM_WO_SYNC` (55) — process exited without calling
+    /// `PMIx_Finalize`.
+    TermWoSync                  =   55,
+
+    /// `PMIX_PROC_STATE_COMM_FAILED` (56) — process communication has failed.
+    CommFailed                  =   56,
+
+    /// `PMIX_PROC_STATE_SENSOR_BOUND_EXCEEDED` (57) — process exceeded a
+    /// sensor limit.
+    SensorBoundExceeded         =   57,
+
+    /// `PMIX_PROC_STATE_CALLED_ABORT` (58) — process called `PMIx_Abort`.
+    CalledAbort                 =   58,
+
+    /// `PMIX_PROC_STATE_HEARTBEAT_FAILED` (59) — process failed to send
+    /// heartbeat within time limit.
+    HeartbeatFailed             =   59,
+
+    /// `PMIX_PROC_STATE_MIGRATING` (60) — process failed and is waiting for
+    /// resources before restarting.
+    Migrating                   =   60,
+
+    /// `PMIX_PROC_STATE_CANNOT_RESTART` (61) — process failed and cannot be
+    /// restarted.
+    CannotRestart               =   61,
+
+    /// `PMIX_PROC_STATE_TERM_NON_ZERO` (62) — process exited with a
+    /// non-zero status, indicating abnormal termination.
+    TermNonZero                 =   62,
+
+    /// `PMIX_PROC_STATE_FAILED_TO_LAUNCH` (63) — unable to launch process.
+    FailedToLaunch              =   63,
+
+    /// An unrecognised or future process state value.
+    Unknown(u8),
+}
+
+impl PmixProcState {
+    /// Convert a raw `pmix_proc_state_t` (`u8`) into a `PmixProcState`.
+    pub fn from_raw(state: u8) -> Self {
+        match state {
+            0  => Self::Undef,
+            1  => Self::Prepped,
+            2  => Self::LaunchUnderway,
+            3  => Self::Restart,
+            4  => Self::Terminate,
+            5  => Self::Running,
+            6  => Self::Connected,
+            15 => Self::Unterminated,
+            20 => Self::Terminated,
+            50 => Self::Error,
+            51 => Self::KilledByCmd,
+            52 => Self::Aborted,
+            53 => Self::FailedToStart,
+            54 => Self::AbortedBySig,
+            55 => Self::TermWoSync,
+            56 => Self::CommFailed,
+            57 => Self::SensorBoundExceeded,
+            58 => Self::CalledAbort,
+            59 => Self::HeartbeatFailed,
+            60 => Self::Migrating,
+            61 => Self::CannotRestart,
+            62 => Self::TermNonZero,
+            63 => Self::FailedToLaunch,
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// Return the raw `u8` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::Unknown(v) => v,
+            _ => self as u8,
+        }
+    }
+
+    /// `true` if the state indicates the process is still alive (running,
+    /// connected, or in a transitional pre-launch state).
+    pub fn is_alive(self) -> bool {
+        matches!(
+            self,
+            Self::Prepped
+                | Self::LaunchUnderway
+                | Self::Restart
+                | Self::Running
+                | Self::Connected
+                | Self::Unterminated
+                | Self::Migrating
+        )
+    }
+
+    /// `true` if the state indicates the process has terminated (cleanly or
+    /// not).
+    pub fn is_terminated(self) -> bool {
+        matches!(
+            self,
+            Self::Terminated
+                | Self::KilledByCmd
+                | Self::Aborted
+                | Self::FailedToStart
+                | Self::AbortedBySig
+                | Self::TermWoSync
+                | Self::CommFailed
+                | Self::SensorBoundExceeded
+                | Self::CalledAbort
+                | Self::HeartbeatFailed
+                | Self::CannotRestart
+                | Self::TermNonZero
+                | Self::FailedToLaunch
+        )
+    }
+}
+
+impl std::fmt::Display for PmixProcState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Undef               => write!(f, "UNDEFINED"),
+            Self::Prepped             => write!(f, "PREPPED FOR LAUNCH"),
+            Self::LaunchUnderway      => write!(f, "LAUNCH UNDERWAY"),
+            Self::Restart             => write!(f, "PROC READY FOR RESTART"),
+            Self::Terminate           => write!(f, "PROC MARKED FOR TERMINATION"),
+            Self::Running             => write!(f, "PROC EXECUTING"),
+            Self::Connected           => write!(f, "PROC HAS CONNECTED TO LOCAL PMIX SERVER"),
+            Self::Unterminated        => write!(f, "PROC HAS NOT TERMINATED"),
+            Self::Terminated          => write!(f, "PROC HAS TERMINATED"),
+            Self::Error               => write!(f, "PROC ERROR"),
+            Self::KilledByCmd         => write!(f, "PROC KILLED BY CMD"),
+            Self::Aborted             => write!(f, "PROC ABNORMALLY ABORTED"),
+            Self::FailedToStart       => write!(f, "PROC FAILED TO START"),
+            Self::AbortedBySig        => write!(f, "PROC ABORTED BY SIGNAL"),
+            Self::TermWoSync          => write!(f, "PROC TERMINATED WITHOUT CALLING PMIx_Finalize"),
+            Self::CommFailed          => write!(f, "PROC LOST COMMUNICATION"),
+            Self::SensorBoundExceeded => write!(f, "PROC SENSOR BOUND EXCEEDED"),
+            Self::CalledAbort         => write!(f, "PROC CALLED PMIx_Abort"),
+            Self::HeartbeatFailed     => write!(f, "PROC FAILED TO REPORT HEARTBEAT"),
+            Self::Migrating           => write!(f, "PROC WAITING TO MIGRATE"),
+            Self::CannotRestart       => write!(f, "PROC CANNOT BE RESTARTED"),
+            Self::TermNonZero         => write!(f, "PROC TERMINATED WITH NON-ZERO STATUS"),
+            Self::FailedToLaunch      => write!(f, "PROC FAILED TO LAUNCH"),
+            Self::Unknown(v)          => write!(f, "UNKNOWN STATE ({v})"),
+        }
+    }
+}
+
 /// All errors the builder can produce.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BuilderError {

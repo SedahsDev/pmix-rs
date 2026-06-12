@@ -1,9 +1,9 @@
-//! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, and related helpers.
+//! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, PmixStatus};
+use crate::{ffi, PmixProcState, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -73,6 +73,51 @@ pub fn error_string(status: PmixStatus) -> Result<String, PmixStatus> {
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_status_t, but guard anyway.
         return Err(PmixStatus::from_raw(raw));
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Proc_state_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of a PMIx process state code.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Proc_state_string(pmix_proc_state_t state)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the process state.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_proc_state_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::proc_state_string, PmixProcState};
+///
+/// let state = PmixProcState::Running;
+/// let desc = proc_state_string(state).expect("valid state");
+/// assert_eq!(desc, "PROC EXECUTING");
+/// ```
+pub fn proc_state_string(state: PmixProcState) -> Result<String, PmixStatus> {
+    let raw = state.to_raw();
+    // SAFETY: PMIx_Proc_state_string takes a single pmix_proc_state_t (u8)
+    // and returns a pointer to a static, null-terminated string owned by
+    // the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points
+    // to read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Proc_state_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_proc_state_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
     // C string owned by the PMIx library (static lifetime).
@@ -218,5 +263,165 @@ mod tests {
             success, error,
             "error_string(SUCCESS) and error_string(ERROR) must differ"
         );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Proc_state_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `proc_state_string` returns `Ok(String)` for known process states.
+    ///
+    /// PMIx_Proc_state_string is documented to always return a valid,
+    /// non-null, null-terminated string for any pmix_proc_state_t value.
+    /// This test calls into the real PMIx library.
+    #[test]
+    fn test_proc_state_string_running() {
+        let state = PmixProcState::Running;
+        let result = proc_state_string(state);
+        assert!(
+            result.is_ok(),
+            "proc_state_string(Running) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(!desc.is_empty(), "proc_state_string should not return an empty string");
+    }
+
+    /// `proc_state_string` returns the expected string for key lifecycle states.
+    #[test]
+    fn test_proc_state_string_key_states() {
+        use crate::PmixProcState::*;
+
+        let states = [
+            Undef,
+            Prepped,
+            LaunchUnderway,
+            Running,
+            Connected,
+            Terminated,
+            Error,
+            Aborted,
+        ];
+        for state in states {
+            let result = proc_state_string(state);
+            assert!(
+                result.is_ok(),
+                "proc_state_string({:?}) should return Ok, got {:?}",
+                state,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "proc_state_string({:?}) should not return empty string",
+                state
+            );
+        }
+    }
+
+    /// `proc_state_string` is deterministic — the same state always returns
+    /// the same string.
+    #[test]
+    fn test_proc_state_string_deterministic() {
+        let state = PmixProcState::Terminated;
+        let first = proc_state_string(state).unwrap();
+        let second = proc_state_string(state).unwrap();
+        assert_eq!(
+            first, second,
+            "proc_state_string must be deterministic for the same input"
+        );
+    }
+
+    /// `proc_state_string` returns different strings for different states.
+    #[test]
+    fn test_proc_state_string_distinct() {
+        let running = proc_state_string(PmixProcState::Running).unwrap();
+        let terminated = proc_state_string(PmixProcState::Terminated).unwrap();
+        assert_ne!(
+            running, terminated,
+            "proc_state_string(Running) and proc_state_string(Terminated) must differ"
+        );
+    }
+
+    /// `proc_state_string` handles all error-range states (50–63).
+    #[test]
+    fn test_proc_state_string_error_range() {
+        use crate::PmixProcState::*;
+
+        let error_states = [
+            Error, KilledByCmd, Aborted, FailedToStart, AbortedBySig,
+            TermWoSync, CommFailed, SensorBoundExceeded, CalledAbort,
+            HeartbeatFailed, Migrating, CannotRestart, TermNonZero,
+            FailedToLaunch,
+        ];
+        for state in error_states {
+            let result = proc_state_string(state);
+            assert!(
+                result.is_ok(),
+                "proc_state_string({:?}) should return Ok, got {:?}",
+                state,
+                result
+            );
+        }
+    }
+
+    /// `proc_state_string` handles the Unknown variant (raw value not in
+    /// the standard enum).
+    #[test]
+    fn test_proc_state_string_unknown() {
+        let state = PmixProcState::Unknown(99);
+        let result = proc_state_string(state);
+        assert!(
+            result.is_ok(),
+            "proc_state_string(Unknown(99)) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        // The C library returns "UNKNOWN STATE" for unrecognized values.
+        assert!(
+            !desc.is_empty(),
+            "proc_state_string for unknown state should return non-empty string"
+        );
+    }
+
+    /// `PmixProcState::from_raw` and `to_raw` are inverses for known values.
+    #[test]
+    fn test_proc_state_from_raw_to_raw_roundtrip() {
+        use crate::PmixProcState::*;
+
+        let states = [
+            Undef, Prepped, LaunchUnderway, Restart, Terminate,
+            Running, Connected, Unterminated, Terminated, Error,
+            KilledByCmd, Aborted, FailedToStart, AbortedBySig,
+            TermWoSync, CommFailed, SensorBoundExceeded, CalledAbort,
+            HeartbeatFailed, Migrating, CannotRestart, TermNonZero,
+            FailedToLaunch,
+        ];
+        for state in states {
+            let raw = state.to_raw();
+            let recovered = PmixProcState::from_raw(raw);
+            assert_eq!(
+                state, recovered,
+                "from_raw(to_raw({:?})) should round-trip",
+                state
+            );
+        }
+    }
+
+    /// `PmixProcState::is_alive` and `is_terminated` classify states correctly.
+    #[test]
+    fn test_proc_state_classification() {
+        use crate::PmixProcState::*;
+
+        assert!(Running.is_alive());
+        assert!(Connected.is_alive());
+        assert!(Prepped.is_alive());
+        assert!(!Running.is_terminated());
+
+        assert!(Terminated.is_terminated());
+        assert!(Aborted.is_terminated());
+        assert!(KilledByCmd.is_terminated());
+        assert!(!Terminated.is_alive());
+        assert!(!Aborted.is_alive());
     }
 }
