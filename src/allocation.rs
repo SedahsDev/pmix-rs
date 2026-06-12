@@ -1,10 +1,12 @@
-//! Safe Rust wrappers for PMIx Allocation APIs.
+//! Safe Rust wrappers for PMIx Allocation and Job Control APIs.
 //!
 //! This module provides safe, idiomatic Rust bindings for the PMIx
-//! allocation request functions:
+//! allocation request and job control functions:
 //!
 //! - [`allocation_request`] — blocking allocation request
 //! - [`allocation_request_nb`] — non-blocking allocation request
+//! - [`job_control`] — blocking job control action (pause, resume, kill, etc.)
+//! - [`job_control_nb`] — non-blocking job control action
 //!
 //! # C API
 //! ```text
@@ -45,13 +47,14 @@
 //! }
 //! ```
 
+use std::ffi::c_int;
 use std::ptr;
 use std::sync::Mutex;
 
 use std::sync::LazyLock;
 
 use crate::ffi;
-use crate::{Info, PmixStatus};
+use crate::{Info, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixAllocDirective — allocation directive enum
@@ -416,6 +419,384 @@ pub fn allocation_request_nb(
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
         let mut registry = ALLOCATION_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Job_control — job control APIs
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Job control action directive.
+///
+/// Corresponds to the directives passed via `pmix_info_t` keys to
+/// `PMIx_Job_control` / `PMIx_Job_control_nb`. This enum represents
+/// the set of required attributes defined by the PMIx spec.
+///
+/// # Spec Reference
+/// PMIx Standard v4.1, Section 12.2 (Job Control)
+///
+/// # Required Attributes
+/// - [`Pause`] — pause the specified processes.
+/// - [`Resume`] — resume (un-pause) the specified processes.
+/// - [`Kill`] — forcibly terminate the specified processes.
+/// - [`Signal`] — send a signal to the specified processes.
+/// - [`Terminate`] — politely terminate the specified processes.
+///
+/// # Optional Attributes
+/// - [`Cancel`] — cancel a previous job control request by ID.
+/// - [`Restart`] — restart processes using a given checkpoint ID.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PmixJobCtrlAction {
+    /// `PMIX_JOB_CTRL_PAUSE` — pause the specified processes.
+    Pause,
+    /// `PMIX_JOB_CTRL_RESUME` — resume (un-pause) the specified processes.
+    Resume,
+    /// `PMIX_JOB_CTRL_KILL` — forcibly terminate the specified processes and cleanup.
+    Kill,
+    /// `PMIX_JOB_CTRL_SIGNAL` — send the given signal to the specified processes.
+    Signal(c_int),
+    /// `PMIX_JOB_CTRL_TERMINATE` — politely terminate the specified processes.
+    Terminate,
+    /// `PMIX_JOB_CTRL_CANCEL` — cancel a previous job control request by ID.
+    Cancel(String),
+    /// `PMIX_JOB_CTRL_RESTART` — restart processes using the given checkpoint ID.
+    Restart(String),
+}
+
+impl PmixJobCtrlAction {
+    /// The PMIx info key for this action.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::Pause => "pmix.jctrl.pause",
+            Self::Resume => "pmix.jctrl.resume",
+            Self::Kill => "pmix.jctrl.kill",
+            Self::Signal(_) => "pmix.jctrl.sig",
+            Self::Terminate => "pmix.jctrl.term",
+            Self::Cancel(_) => "pmix.jctrl.cancel",
+            Self::Restart(_) => "pmix.jctrl.restart",
+        }
+    }
+}
+
+impl std::fmt::Display for PmixJobCtrlAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pause => write!(f, "PAUSE"),
+            Self::Resume => write!(f, "RESUME"),
+            Self::Kill => write!(f, "KILL"),
+            Self::Signal(sig) => write!(f, "SIGNAL({sig})"),
+            Self::Terminate => write!(f, "TERMINATE"),
+            Self::Cancel(id) => write!(f, "CANCEL({id})"),
+            Self::Restart(id) => write!(f, "RESTART({id})"),
+        }
+    }
+}
+
+/// Owned wrapper around the `pmix_info_t` array returned by
+/// `PMIx_Job_control`. Automatically frees the array via
+/// `PMIx_Info_free` on drop.
+///
+/// The results contain information about the job control outcome,
+/// such as confirmation of the action taken or error details.
+#[derive(Debug)]
+pub struct JobControlResults {
+    handle: *mut ffi::pmix_info_t,
+    len: usize,
+}
+
+impl JobControlResults {
+    /// Number of info entries in this result set.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// `true` if the result set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Create an empty `JobControlResults`.
+    ///
+    /// Useful for testing and for constructing a no-op result.
+    pub fn new_empty() -> Self {
+        Self {
+            handle: ptr::null_mut(),
+            len: 0,
+        }
+    }
+}
+
+impl Drop for JobControlResults {
+    fn drop(&mut self) {
+        if !self.handle.is_null() && self.len > 0 {
+            unsafe {
+                // SAFETY: handle was returned by PMIx_Job_control as an
+                // allocated pmix_info_t array. PMIx_Info_free releases it.
+                ffi::PMIx_Info_free(self.handle, self.len);
+                self.handle = ptr::null_mut();
+                self.len = 0;
+            }
+        }
+    }
+}
+
+/// Request a job control action on target processes (blocking).
+///
+/// This function sends a job control directive to the PMIx server / host
+/// resource manager and blocks until the request is processed. Supported
+/// actions include pause, resume, kill, signal, terminate, cancel, and
+/// restart.
+///
+/// The `targets` array specifies which processes the action should apply to.
+/// Pass an empty slice to apply to the caller's own job.
+///
+/// The `directives` parameter carries the job control action(s) plus optional
+/// attributes such as `PMIX_JOB_CTRL_ID` (request identifier), cleanup
+/// registration (`PMIX_REGISTER_CLEANUP`), and checkpoint methods.
+///
+/// On success, returns [`JobControlResults`] containing the response info
+/// array with details about the result.
+///
+/// # Parameters
+/// - `targets`: Processes to which the job control action applies.
+/// - `directives`: Array of [`Info`] entries specifying the action and options.
+///
+/// # Returns
+/// - `Ok(JobControlResults)` with the response info array on success.
+/// - `Err(PmixStatus)` on failure:
+///   - `PMIX_ERR_INIT` — PMIx has not been initialized.
+///   - `PMIX_ERR_NOT_SUPPORTED` — the host RM does not support this function.
+///   - `PMIX_ERR_BAD_PARAM` — invalid targets or directives.
+///
+/// # C API
+/// `pmix_status_t PMIx_Job_control(const pmix_proc_t targets[], size_t ntargets,`
+/// `  const pmix_info_t directives[], size_t ndirs,`
+/// `  pmix_info_t **results, size_t *nresults);`
+pub fn job_control(
+    targets: &[Proc],
+    directives: &[Info],
+) -> Result<JobControlResults, PmixStatus> {
+    let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
+    let mut nresults: usize = 0;
+
+    // Convert targets slice to C pointer.
+    let targets_ptr = if targets.is_empty() {
+        ptr::null_mut()
+    } else {
+        // SAFETY: targets is a non-empty slice of Proc objects whose handle
+        // fields are valid pmix_proc_t structs that remain alive for this call.
+        unsafe {
+            std::ptr::addr_of!((*(&targets[0] as *const Proc)).handle) as *mut ffi::pmix_proc_t
+        }
+    };
+
+    // Convert directives slice to C pointer.
+    let directives_ptr = if directives.is_empty() {
+        ptr::null_mut()
+    } else {
+        // SAFETY: directives is a non-empty slice of Info objects whose handles
+        // are valid pmix_info_t pointers that remain alive for this call.
+        unsafe {
+            std::ptr::addr_of!((*(&directives[0] as *const Info)).handle) as *mut ffi::pmix_info_t
+        }
+    };
+
+    let status = unsafe {
+        // SAFETY:
+        // - targets_ptr is either null or points to a valid array of pmix_proc_t.
+        // - directives_ptr is either null or points to a valid array of pmix_info_t.
+        // - results and nresults are valid mutable references that PMIx will write.
+        // - PMIx_Job_control is a thread-safe blocking call per the spec.
+        ffi::PMIx_Job_control(
+            targets_ptr as *const ffi::pmix_proc_t,
+            targets.len(),
+            directives_ptr as *const ffi::pmix_info_t,
+            directives.len(),
+            &mut results,
+            &mut nresults,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if !pmix_status.is_success() {
+        return Err(pmix_status);
+    }
+
+    Ok(JobControlResults { handle: results, len: nresults })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Callback trait & registry for non-blocking job control
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for non-blocking job control requests.
+///
+/// Implement this trait to receive the result of an asynchronous
+/// job control request. The `on_complete` method is called exactly once
+/// when the operation finishes, with the status and results.
+pub trait JobControlCallback: Send + 'static {
+    /// Called when the job control request completes.
+    ///
+    /// - `status`: The result status (success or error).
+    /// - `results`: The job control results (owned, freed on drop).
+    fn on_complete(&self, status: PmixStatus, results: JobControlResults);
+}
+
+/// Monotonically increasing job control request ID counter.
+static JOB_CTRL_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// Global registry of pending job control callbacks.
+///
+/// Maps request ID -> callback. Entries are removed when the callback fires.
+static JOB_CTRL_REGISTRY: LazyLock<Mutex<std::collections::HashMap<usize, Box<dyn JobControlCallback>>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// C bridge for `pmix_info_cbfunc_t` (job control completion).
+///
+/// Called by PMIx when the non-blocking job control request completes.
+/// The `cbdata` parameter encodes the request ID. We look up the
+/// registered closure and invoke it with the result status and info array.
+extern "C" fn job_control_callback_bridge(
+    status: ffi::pmix_status_t,
+    info: *mut ffi::pmix_info_t,
+    ninfo: usize,
+    _release_cbdata: *mut std::ffi::c_void,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    cbdata: *mut std::ffi::c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+    let cb = match cb {
+        Some(cb) => cb,
+        None => {
+            // Callback already consumed — free the info array to avoid leak.
+            if !info.is_null() && ninfo > 0 {
+                unsafe {
+                    ffi::PMIx_Info_free(info, ninfo);
+                }
+            }
+            return;
+        }
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    let results = JobControlResults {
+        handle: info,
+        len: ninfo,
+    };
+    cb.on_complete(pmix_status, results);
+    // release_fn is unused — we manage our own memory via JobControlResults Drop.
+    let _ = release_fn;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// job_control_nb — non-blocking
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Request a job control action on target processes (non-blocking).
+///
+/// Submit an asynchronous job control request. The `callback` closure is
+/// invoked once the operation completes, receiving both the status and
+/// the results.
+///
+/// The function returns immediately:
+/// - `Ok(())` if the request was accepted for asynchronous processing.
+///   The actual result will be delivered via `callback`.
+/// - `Err(status)` if the request was rejected immediately (e.g., invalid
+///   parameters or PMIx not initialized). The callback will NOT be called.
+///
+/// # Parameters
+/// - `targets`: Processes to which the job control action applies.
+/// - `directives`: Array of [`Info`] entries specifying the action and options.
+/// - `callback`: A boxed callback that will be invoked on completion.
+///
+/// # C API
+/// `pmix_status_t PMIx_Job_control_nb(const pmix_proc_t targets[], size_t ntargets,`
+/// `  const pmix_info_t directives[], size_t ndirs,`
+/// `  pmix_info_cbfunc_t cbfunc, void *cbdata);`
+pub fn job_control_nb(
+    targets: &[Proc],
+    directives: &[Info],
+    callback: Box<dyn JobControlCallback>,
+) -> Result<(), PmixStatus> {
+    // Assign a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = JOB_CTRL_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+
+    // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
+    // is never null (req_id starts at 1, so shifted value >= 4).
+    let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+
+    {
+        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Convert targets slice to C pointer.
+    let targets_ptr = if targets.is_empty() {
+        ptr::null_mut()
+    } else {
+        // SAFETY: targets is a non-empty slice of Proc objects whose handle
+        // fields are valid pmix_proc_t structs that remain alive for this call.
+        unsafe {
+            std::ptr::addr_of!((*(&targets[0] as *const Proc)).handle) as *mut ffi::pmix_proc_t
+        }
+    };
+
+    // Convert directives slice to C pointer.
+    let directives_ptr = if directives.is_empty() {
+        ptr::null_mut()
+    } else {
+        // SAFETY: directives is a non-empty slice of Info objects whose handles
+        // are valid pmix_info_t pointers that remain alive for this call.
+        unsafe {
+            std::ptr::addr_of!((*(&directives[0] as *const Info)).handle) as *mut ffi::pmix_info_t
+        }
+    };
+
+    let status = unsafe {
+        // SAFETY:
+        // - targets_ptr is either null or points to a valid array of pmix_proc_t.
+        // - directives_ptr is either null or points to a valid array of pmix_info_t.
+        // - job_control_callback_bridge is a valid extern "C" function matching
+        //   the pmix_info_cbfunc_t signature.
+        // - cbdata encodes the request ID and is guaranteed non-null.
+        // - The callback registered in JOB_CTRL_REGISTRY outlives this call
+        //   and will be removed when the callback fires.
+        ffi::PMIx_Job_control_nb(
+            targets_ptr as *const ffi::pmix_proc_t,
+            targets.len(),
+            directives_ptr as *const ffi::pmix_info_t,
+            directives.len(),
+            Some(job_control_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        // Request was rejected — remove the callback so it doesn't leak.
+        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
         registry.remove(&req_id);
         Err(pmix_status)
     }
