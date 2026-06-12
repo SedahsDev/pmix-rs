@@ -2,7 +2,8 @@
 //! `PMIx_Scope_string`, `PMIx_Persistence_string`, `PMIx_Data_range_string`,
 //! `PMIx_Info_directives_string`, `PMIx_Data_type_string`, `PMIx_Alloc_directive_string`,
 //! `PMIx_IOF_channel_string`, `PMIx_Job_state_string`, `PMIx_Get_attribute_string`,
-//! `PMIx_Get_attribute_name`, `PMIx_Link_state_string`, and related helpers.
+//! `PMIx_Get_attribute_name`, `PMIx_Link_state_string`, `PMIx_Device_type_string`,
+//! `PMIx_generate_regex`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
@@ -704,6 +705,78 @@ pub fn device_type_string(ty: PmixDeviceType) -> Result<String, PmixStatus> {
     // C string owned by the PMIx library (static lifetime).
     let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
     Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_generate_regex
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Given a comma-separated list of node names, generate a compact regular
+/// expression representation suitable for passing to
+/// [`PMIx_server_register_nspace`][crate::lifecycle::server_register_nspace].
+///
+/// The `input` is a comma-separated list of host / node names — e.g.
+/// `"node001,node002,node003,node010,node011"`.  The function returns a
+/// compressed representation (e.g. `"pmix:node[001-003,010-011]"`) that
+/// preserves the order of the input values.
+///
+/// The returned string is **owned by the caller** — the PMIx library
+/// allocates it with `malloc`.  This wrapper takes ownership via
+/// [`CString::from_raw`][std::ffi::CString::from_raw] and returns a Rust
+/// [`String`], so the caller does not need to worry about freeing the
+/// underlying C allocation.
+///
+/// # C API
+/// `pmix_status_t PMIx_generate_regex(const char *input, char **regex)`
+///
+/// # Returns
+/// * `Ok(String)` — the generated regular expression (caller-owned).
+/// * `Err(PmixStatus)` — if the input is `None` or empty, or if the C
+///   function returned a non-success status.
+///
+/// # Examples
+/// ```no_run
+/// use pmix::utility::generate_regex;
+///
+/// let nodes = "odin001,odin002,odin003,odin010,odin011,odin075";
+/// let regex = generate_regex(nodes).expect("valid node list");
+/// assert!(!regex.is_empty());
+/// assert!(regex.starts_with("pmix:") || regex.starts_with("blob:"));
+/// ```
+pub fn generate_regex(input: &str) -> Result<String, PmixStatus> {
+    // Convert Rust string to C string for the FFI call.
+    let input_cstr = std::ffi::CString::new(input)
+        .map_err(|_| PmixStatus::from_raw(-27))?; // PMIX_ERR_BAD_PARAM
+
+    let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+
+    // SAFETY: PMIx_generate_regex takes a const char* input and a double
+    // pointer for the output. The input_cstr is valid for the duration of
+    // this call (it lives until the end of this scope). The output pointer
+    // is written by the PMIx library and points to malloc'd memory that
+    // the caller owns. We check the return status before touching the
+    // output pointer.
+    let status = unsafe { ffi::PMIx_generate_regex(input_cstr.as_ptr(), &mut regex_ptr) };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if !pmix_status.is_success() {
+        return Err(pmix_status);
+    }
+
+    // SAFETY: On success, regex_ptr is non-null and points to malloc'd
+    // memory owned by the caller. We take ownership via CString::from_raw
+    // so it will be freed when the CString is dropped (and the String
+    // extracted from it is independently owned).
+    let owned = unsafe {
+        if regex_ptr.is_null() {
+            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+        }
+        std::ffi::CString::from_raw(regex_ptr)
+    };
+
+    // Extract the string content (copies into a Rust-owned String).
+    // CString is dropped here, freeing the original C allocation.
+    Ok(owned.into_string().unwrap_or_default())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
