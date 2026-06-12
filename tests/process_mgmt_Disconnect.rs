@@ -275,7 +275,7 @@ fn disconnect_same_proc_as_connect_without_init_fails() {
     let proc = Proc::new("test_namespace", u32::MAX).expect("create proc");
     // Both should fail without init, but the key is that the same
     // proc structure works with both functions.
-    let _connect_result = pmix::process_mgmt::connect(&[proc.clone()], &[]);
+    let _connect_result = pmix::process_mgmt::connect(std::slice::from_ref(&proc), &[]);
     let disconnect_result = disconnect(&[proc], &[]);
     assert!(
         disconnect_result.is_err(),
