@@ -1,11 +1,11 @@
 //! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`,
 //! `PMIx_Scope_string`, `PMIx_Persistence_string`, `PMIx_Data_range_string`,
-//! `PMIx_Info_directives_string`, and related helpers.
+//! `PMIx_Info_directives_string`, `PMIx_Data_type_string`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, InfoFlags, PmixDataRange, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use crate::{ffi, InfoFlags, PmixDataRange, PmixDataType, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -307,6 +307,51 @@ pub fn info_directives_string(directives: InfoFlags) -> Result<String, PmixStatu
     let c_ptr = unsafe { ffi::PMIx_Info_directives_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_info_directives_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Data_type_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of a PMIx data type value.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Data_type_string(pmix_data_type_t type)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the data type.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_data_type_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::data_type_string, PmixDataType};
+///
+/// let ty = PmixDataType::String;
+/// let desc = data_type_string(ty).expect("valid data type");
+/// assert!(!desc.is_empty());
+/// ```
+pub fn data_type_string(ty: PmixDataType) -> Result<String, PmixStatus> {
+    let raw = ty.to_raw();
+    // SAFETY: PMIx_Data_type_string takes a single pmix_data_type_t (u16)
+    // and returns a pointer to a static, null-terminated string owned by
+    // the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points
+    // to read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Data_type_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_data_type_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated

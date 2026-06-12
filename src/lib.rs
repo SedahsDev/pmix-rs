@@ -1165,6 +1165,456 @@ impl std::fmt::Display for PmixDataRange {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixDataType — pmix_data_type_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// PMIx data type identifier — maps to `pmix_data_type_t` (`uint16_t`).
+///
+/// Used by the serialization / deserialization APIs (`PMIx_Data_pack`,
+/// `PMIx_Data_unpack`, `PMIx_Data_load`, `PMIx_Data_unload`, etc.) to
+/// describe the type of a value being transferred.
+///
+/// # C API
+/// `typedef uint16_t pmix_data_type_t`
+///
+/// Values 0–69 are defined by the PMIx v4.1 standard. Values 70–499 are
+/// reserved for implementation extensions. Values ≥ 500 (`PMIX_DATA_TYPE_MAX`)
+/// are invalid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u16)]
+#[non_exhaustive]
+pub enum PmixDataType {
+    /// `PMIX_UNDEF` (0) — undefined type.
+    Undef = 0,
+
+    /// `PMIX_BOOL` (1) — boolean, packed as `uint8_t`.
+    Bool = 1,
+
+    /// `PMIX_BYTE` (2) — a single byte of data.
+    Byte = 2,
+
+    /// `PMIX_STRING` (3) — NULL-terminated string.
+    String = 3,
+
+    /// `PMIX_SIZE` (4) — `size_t`.
+    Size = 4,
+
+    /// `PMIX_PID` (5) — OS process ID.
+    Pid = 5,
+
+    /// `PMIX_INT` (6) — C `int`.
+    Int = 6,
+
+    /// `PMIX_INT8` (7) — signed 8-bit integer.
+    Int8 = 7,
+
+    /// `PMIX_INT16` (8) — signed 16-bit integer.
+    Int16 = 8,
+
+    /// `PMIX_INT32` (9) — signed 32-bit integer.
+    Int32 = 9,
+
+    /// `PMIX_INT64` (10) — signed 64-bit integer.
+    Int64 = 10,
+
+    /// `PMIX_UINT` (11) — C `unsigned int`.
+    Uint = 11,
+
+    /// `PMIX_UINT8` (12) — unsigned 8-bit integer.
+    Uint8 = 12,
+
+    /// `PMIX_UINT16` (13) — unsigned 16-bit integer.
+    Uint16 = 13,
+
+    /// `PMIX_UINT32` (14) — unsigned 32-bit integer.
+    Uint32 = 14,
+
+    /// `PMIX_UINT64` (15) — unsigned 64-bit integer.
+    Uint64 = 15,
+
+    /// `PMIX_FLOAT` (16) — 32-bit floating point.
+    Float = 16,
+
+    /// `PMIX_DOUBLE` (17) — 64-bit floating point.
+    Double = 17,
+
+    /// `PMIX_TIMEVAL` (18) — `struct timeval` (seconds + microseconds).
+    Timeval = 18,
+
+    /// `PMIX_TIME` (19) — `time_t`.
+    Time = 19,
+
+    /// `PMIX_STATUS` (20) — PMIx status code.
+    Status = 20,
+
+    /// `PMIX_VALUE` (21) — `pmix_value_t` container.
+    Value = 21,
+
+    /// `PMIX_PROC` (22) — `pmix_proc_t` (namespace + rank).
+    Proc = 22,
+
+    /// `PMIX_APP` (23) — `pmix_app_t` application descriptor.
+    App = 23,
+
+    /// `PMIX_INFO` (24) — `pmix_info_t` key-value triple.
+    Info = 24,
+
+    /// `PMIX_PDATA` (25) — `pmix_pdata_t` (proc + key + value).
+    Pdata = 25,
+
+    /// `PMIX_BYTE_OBJECT` (27) — opaque byte array with length.
+    ByteObject = 27,
+
+    /// `PMIX_KVAL` (28) — key-value list container.
+    Kval = 28,
+
+    /// `PMIX_PERSIST` (30) — persistence enum value.
+    Persist = 30,
+
+    /// `PMIX_POINTER` (31) — raw pointer (not portable across processes).
+    Pointer = 31,
+
+    /// `PMIX_SCOPE` (32) — scope enum value.
+    Scope = 32,
+
+    /// `PMIX_DATA_RANGE` (33) — data range enum value.
+    DataRange = 33,
+
+    /// `PMIX_COMMAND` (34) — command string identifier.
+    Command = 34,
+
+    /// `PMIX_INFO_DIRECTIVES` (35) — info directives bitmask.
+    InfoDirectives = 35,
+
+    /// `PMIX_DATA_TYPE` (36) — recursive data type identifier.
+    DataType = 36,
+
+    /// `PMIX_PROC_STATE` (37) — process state enum value.
+    ProcState = 37,
+
+    /// `PMIX_PROC_INFO` (38) — `pmix_proc_info_t` process info.
+    ProcInfo = 38,
+
+    /// `PMIX_DATA_ARRAY` (39) — `pmix_data_array_t` typed array.
+    DataArray = 39,
+
+    /// `PMIX_PROC_RANK` (40) — process rank within a namespace.
+    ProcRank = 40,
+
+    /// `PMIX_QUERY` (41) — `pmix_query_t` query descriptor.
+    Query = 41,
+
+    /// `PMIX_COMPRESSED_STRING` (42) — zlib-compressed string.
+    CompressedString = 42,
+
+    /// `PMIX_ALLOC_DIRECTIVE` (43) — allocation directive enum.
+    AllocDirective = 43,
+
+    /// `PMIX_IOF_CHANNEL` (45) — I/O forwarding channel enum.
+    IofChannel = 45,
+
+    /// `PMIX_ENVAR` (46) — environment variable (name + value + separator).
+    Envar = 46,
+
+    /// `PMIX_COORD` (47) — fabric coordinates.
+    Coord = 47,
+
+    /// `PMIX_REGATTR` (48) — registered attribute descriptor.
+    Regattr = 48,
+
+    /// `PMIX_REGEX` (49) — regex object.
+    Regex = 49,
+
+    /// `PMIX_JOB_STATE` (50) — job state enum value.
+    JobState = 50,
+
+    /// `PMIX_LINK_STATE` (51) — link state enum value.
+    LinkState = 51,
+
+    /// `PMIX_PROC_CPUSET` (52) — process CPU set.
+    ProcCpuset = 52,
+
+    /// `PMIX_GEOMETRY` (53) — fabric geometry descriptor.
+    Geometry = 53,
+
+    /// `PMIX_DEVICE_DIST` (54) — device distance matrix entry.
+    DeviceDist = 54,
+
+    /// `PMIX_ENDPOINT` (55) — fabric endpoint descriptor.
+    Endpoint = 55,
+
+    /// `PMIX_TOPO` (56) — topology descriptor.
+    Topo = 56,
+
+    /// `PMIX_DEVTYPE` (57) — device type identifier.
+    Devtype = 57,
+
+    /// `PMIX_LOCTYPE` (58) — locality type identifier.
+    LocType = 58,
+
+    /// `PMIX_COMPRESSED_BYTE_OBJECT` (59) — zlib-compressed byte object.
+    CompressedByteObject = 59,
+
+    /// `PMIX_PROC_NSPACE` (60) — process namespace string.
+    ProcNspace = 60,
+
+    /// `PMIX_PROC_STATS` (61) — process statistics.
+    ProcStats = 61,
+
+    /// `PMIX_DISK_STATS` (62) — disk I/O statistics.
+    DiskStats = 62,
+
+    /// `PMIX_NET_STATS` (63) — network I/O statistics.
+    NetStats = 63,
+
+    /// `PMIX_NODE_STATS` (64) — node-level aggregate statistics.
+    NodeStats = 64,
+
+    /// `PMIX_DATA_BUFFER` (65) — `pmix_data_buffer_t` buffer object.
+    DataBuffer = 65,
+
+    /// `PMIX_STOR_MEDIUM` (66) — storage medium type.
+    StorMedium = 66,
+
+    /// `PMIX_STOR_ACCESS` (67) — storage access descriptor.
+    StorAccess = 67,
+
+    /// `PMIX_STOR_PERSIST` (68) — storage persistence type.
+    StorPersist = 68,
+
+    /// `PMIX_STOR_ACCESS_TYPE` (69) — storage access type.
+    StorAccessType = 69,
+
+    /// An unrecognised or future data type value (70–499).
+    Unknown,
+}
+
+impl PmixDataType {
+    /// Convert a raw `pmix_data_type_t` (`u16`) into a `PmixDataType`.
+    pub fn from_raw(ty: u16) -> Self {
+        match ty {
+            0  => Self::Undef,
+            1  => Self::Bool,
+            2  => Self::Byte,
+            3  => Self::String,
+            4  => Self::Size,
+            5  => Self::Pid,
+            6  => Self::Int,
+            7  => Self::Int8,
+            8  => Self::Int16,
+            9  => Self::Int32,
+            10 => Self::Int64,
+            11 => Self::Uint,
+            12 => Self::Uint8,
+            13 => Self::Uint16,
+            14 => Self::Uint32,
+            15 => Self::Uint64,
+            16 => Self::Float,
+            17 => Self::Double,
+            18 => Self::Timeval,
+            19 => Self::Time,
+            20 => Self::Status,
+            21 => Self::Value,
+            22 => Self::Proc,
+            23 => Self::App,
+            24 => Self::Info,
+            25 => Self::Pdata,
+            27 => Self::ByteObject,
+            28 => Self::Kval,
+            30 => Self::Persist,
+            31 => Self::Pointer,
+            32 => Self::Scope,
+            33 => Self::DataRange,
+            34 => Self::Command,
+            35 => Self::InfoDirectives,
+            36 => Self::DataType,
+            37 => Self::ProcState,
+            38 => Self::ProcInfo,
+            39 => Self::DataArray,
+            40 => Self::ProcRank,
+            41 => Self::Query,
+            42 => Self::CompressedString,
+            43 => Self::AllocDirective,
+            45 => Self::IofChannel,
+            46 => Self::Envar,
+            47 => Self::Coord,
+            48 => Self::Regattr,
+            49 => Self::Regex,
+            50 => Self::JobState,
+            51 => Self::LinkState,
+            52 => Self::ProcCpuset,
+            53 => Self::Geometry,
+            54 => Self::DeviceDist,
+            55 => Self::Endpoint,
+            56 => Self::Topo,
+            57 => Self::Devtype,
+            58 => Self::LocType,
+            59 => Self::CompressedByteObject,
+            60 => Self::ProcNspace,
+            61 => Self::ProcStats,
+            62 => Self::DiskStats,
+            63 => Self::NetStats,
+            64 => Self::NodeStats,
+            65 => Self::DataBuffer,
+            66 => Self::StorMedium,
+            67 => Self::StorAccess,
+            68 => Self::StorPersist,
+            69 => Self::StorAccessType,
+            _  => Self::Unknown,
+        }
+    }
+
+    /// Return the raw `u16` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u16 {
+        match self {
+            Self::Undef              => 0,
+            Self::Bool               => 1,
+            Self::Byte               => 2,
+            Self::String             => 3,
+            Self::Size               => 4,
+            Self::Pid                => 5,
+            Self::Int                => 6,
+            Self::Int8               => 7,
+            Self::Int16              => 8,
+            Self::Int32              => 9,
+            Self::Int64              => 10,
+            Self::Uint               => 11,
+            Self::Uint8              => 12,
+            Self::Uint16             => 13,
+            Self::Uint32             => 14,
+            Self::Uint64             => 15,
+            Self::Float              => 16,
+            Self::Double             => 17,
+            Self::Timeval            => 18,
+            Self::Time               => 19,
+            Self::Status             => 20,
+            Self::Value              => 21,
+            Self::Proc               => 22,
+            Self::App                => 23,
+            Self::Info               => 24,
+            Self::Pdata              => 25,
+            Self::ByteObject         => 27,
+            Self::Kval               => 28,
+            Self::Persist            => 30,
+            Self::Pointer            => 31,
+            Self::Scope              => 32,
+            Self::DataRange          => 33,
+            Self::Command            => 34,
+            Self::InfoDirectives     => 35,
+            Self::DataType           => 36,
+            Self::ProcState          => 37,
+            Self::ProcInfo           => 38,
+            Self::DataArray          => 39,
+            Self::ProcRank           => 40,
+            Self::Query              => 41,
+            Self::CompressedString   => 42,
+            Self::AllocDirective     => 43,
+            Self::IofChannel         => 45,
+            Self::Envar              => 46,
+            Self::Coord              => 47,
+            Self::Regattr            => 48,
+            Self::Regex              => 49,
+            Self::JobState           => 50,
+            Self::LinkState          => 51,
+            Self::ProcCpuset         => 52,
+            Self::Geometry           => 53,
+            Self::DeviceDist         => 54,
+            Self::Endpoint           => 55,
+            Self::Topo               => 56,
+            Self::Devtype            => 57,
+            Self::LocType            => 58,
+            Self::CompressedByteObject => 59,
+            Self::ProcNspace         => 60,
+            Self::ProcStats          => 61,
+            Self::DiskStats          => 62,
+            Self::NetStats           => 63,
+            Self::NodeStats          => 64,
+            Self::DataBuffer         => 65,
+            Self::StorMedium         => 66,
+            Self::StorAccess         => 67,
+            Self::StorPersist        => 68,
+            Self::StorAccessType     => 69,
+            Self::Unknown            => 70,
+        }
+    }
+}
+
+impl std::fmt::Display for PmixDataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Undef              => write!(f, "UNDEF"),
+            Self::Bool               => write!(f, "BOOL"),
+            Self::Byte               => write!(f, "BYTE"),
+            Self::String             => write!(f, "STRING"),
+            Self::Size               => write!(f, "SIZE"),
+            Self::Pid                => write!(f, "PID"),
+            Self::Int                => write!(f, "INT"),
+            Self::Int8               => write!(f, "INT8"),
+            Self::Int16              => write!(f, "INT16"),
+            Self::Int32              => write!(f, "INT32"),
+            Self::Int64              => write!(f, "INT64"),
+            Self::Uint               => write!(f, "UINT"),
+            Self::Uint8              => write!(f, "UINT8"),
+            Self::Uint16             => write!(f, "UINT16"),
+            Self::Uint32             => write!(f, "UINT32"),
+            Self::Uint64             => write!(f, "UINT64"),
+            Self::Float              => write!(f, "FLOAT"),
+            Self::Double             => write!(f, "DOUBLE"),
+            Self::Timeval            => write!(f, "TIMEVAL"),
+            Self::Time               => write!(f, "TIME"),
+            Self::Status             => write!(f, "STATUS"),
+            Self::Value              => write!(f, "VALUE"),
+            Self::Proc               => write!(f, "PROC"),
+            Self::App                => write!(f, "APP"),
+            Self::Info               => write!(f, "INFO"),
+            Self::Pdata              => write!(f, "PDATA"),
+            Self::ByteObject         => write!(f, "BYTE_OBJECT"),
+            Self::Kval               => write!(f, "KVAL"),
+            Self::Persist            => write!(f, "PERSIST"),
+            Self::Pointer            => write!(f, "POINTER"),
+            Self::Scope              => write!(f, "SCOPE"),
+            Self::DataRange          => write!(f, "DATA_RANGE"),
+            Self::Command            => write!(f, "COMMAND"),
+            Self::InfoDirectives     => write!(f, "INFO_DIRECTIVES"),
+            Self::DataType           => write!(f, "DATA_TYPE"),
+            Self::ProcState          => write!(f, "PROC_STATE"),
+            Self::ProcInfo           => write!(f, "PROC_INFO"),
+            Self::DataArray          => write!(f, "DATA_ARRAY"),
+            Self::ProcRank           => write!(f, "PROC_RANK"),
+            Self::Query              => write!(f, "QUERY"),
+            Self::CompressedString   => write!(f, "COMPRESSED_STRING"),
+            Self::AllocDirective     => write!(f, "ALLOC_DIRECTIVE"),
+            Self::IofChannel         => write!(f, "IOF_CHANNEL"),
+            Self::Envar              => write!(f, "ENVAR"),
+            Self::Coord              => write!(f, "COORD"),
+            Self::Regattr            => write!(f, "REGATTR"),
+            Self::Regex              => write!(f, "REGEX"),
+            Self::JobState           => write!(f, "JOB_STATE"),
+            Self::LinkState          => write!(f, "LINK_STATE"),
+            Self::ProcCpuset         => write!(f, "PROC_CPUSET"),
+            Self::Geometry           => write!(f, "GEOMETRY"),
+            Self::DeviceDist         => write!(f, "DEVICE_DIST"),
+            Self::Endpoint           => write!(f, "ENDPOINT"),
+            Self::Topo               => write!(f, "TOPO"),
+            Self::Devtype            => write!(f, "DEVTYPE"),
+            Self::LocType            => write!(f, "LOCTYPE"),
+            Self::CompressedByteObject => write!(f, "COMPRESSED_BYTE_OBJECT"),
+            Self::ProcNspace         => write!(f, "PROC_NSPACE"),
+            Self::ProcStats          => write!(f, "PROC_STATS"),
+            Self::DiskStats          => write!(f, "DISK_STATS"),
+            Self::NetStats           => write!(f, "NET_STATS"),
+            Self::NodeStats          => write!(f, "NODE_STATS"),
+            Self::DataBuffer         => write!(f, "DATA_BUFFER"),
+            Self::StorMedium         => write!(f, "STOR_MEDIUM"),
+            Self::StorAccess         => write!(f, "STOR_ACCESS"),
+            Self::StorPersist        => write!(f, "STOR_PERSIST"),
+            Self::StorAccessType     => write!(f, "STOR_ACCESS_TYPE"),
+            Self::Unknown            => write!(f, "UNKNOWN"),
+        }
+    }
+}
+
 /// All errors the builder can produce.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BuilderError {
