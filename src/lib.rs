@@ -1615,6 +1615,61 @@ impl std::fmt::Display for PmixDataType {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixAllocDirective — pmix_alloc_directive_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Allocation directive — controls the behavior of `PMIx_Allocation_request`.
+///
+/// Maps to `pmix_alloc_directive_t` (`uint8_t`) in the C API. Currently only
+/// one value is defined by the standard: `PMIX_ALLOC_DIRECTIVE` (43), which
+/// indicates a hard allocation request. Future versions may add soft requests
+/// or other variants.
+///
+/// # C API
+/// `typedef uint8_t pmix_alloc_directive_t`
+/// `#define PMIX_ALLOC_DIRECTIVE 43`
+///
+/// Use [`PmixAllocDirective::from_raw`] to convert a `pmix_alloc_directive_t`
+/// received from C and [`PmixAllocDirective::to_raw`] to convert back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[non_exhaustive]
+pub enum PmixAllocDirective {
+    /// `PMIX_ALLOC_DIRECTIVE` (43) — hard allocation request.
+    AllocDirective = 43,
+
+    /// An unrecognised or future directive value.
+    Unknown(u8),
+}
+
+impl PmixAllocDirective {
+    /// Convert a raw `pmix_alloc_directive_t` (`u8`) into a `PmixAllocDirective`.
+    pub fn from_raw(directive: u8) -> Self {
+        match directive {
+            43 => Self::AllocDirective,
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// Return the raw `u8` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::AllocDirective => 43,
+            Self::Unknown(v) => v,
+        }
+    }
+}
+
+impl std::fmt::Display for PmixAllocDirective {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AllocDirective => write!(f, "ALLOC_DIRECTIVE"),
+            Self::Unknown(v) => write!(f, "UNKNOWN DIRECTIVE ({v})"),
+        }
+    }
+}
+
 /// All errors the builder can produce.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BuilderError {
