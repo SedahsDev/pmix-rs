@@ -1670,6 +1670,72 @@ impl std::fmt::Display for PmixAllocDirective {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IOFChannelFlags — type-safe bitmask over pmix_iof_channel_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Newtype over the raw `pmix_iof_channel_t` (u16 bitmask).
+///
+/// The `pmix_iof_channel_t` defines bit-mask flags for specifying IO
+/// forwarding channels. These can be bitwise OR'd together to reference
+/// multiple channels.
+///
+/// * `PMIX_FWD_NO_CHANNELS`   (0x0000) — forward no channels.
+/// * `PMIX_FWD_STDIN_CHANNEL` (0x0001) — forward stdin.
+/// * `PMIX_FWD_STDOUT_CHANNEL`(0x0002) — forward stdout.
+/// * `PMIX_FWD_STDERR_CHANNEL`(0x0004) — forward stderr.
+/// * `PMIX_FWD_STDDIAG_CHANNEL`(0x0008) — forward stddiag, if available.
+/// * `PMIX_FWD_ALL_CHANNELS`  (0x00FF) — forward all available channels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct IOFChannelFlags(pub pmix_iof_channel_t);
+
+impl IOFChannelFlags {
+    /// `PMIX_FWD_NO_CHANNELS` (0x0000) — forward no channels.
+    pub const NO_CHANNELS: Self = Self(PMIX_FWD_NO_CHANNELS as pmix_iof_channel_t);
+    /// `PMIX_FWD_STDIN_CHANNEL` (0x0001) — forward stdin.
+    pub const STDIN: Self = Self(PMIX_FWD_STDIN_CHANNEL as pmix_iof_channel_t);
+    /// `PMIX_FWD_STDOUT_CHANNEL` (0x0002) — forward stdout.
+    pub const STDOUT: Self = Self(PMIX_FWD_STDOUT_CHANNEL as pmix_iof_channel_t);
+    /// `PMIX_FWD_STDERR_CHANNEL` (0x0004) — forward stderr.
+    pub const STDERR: Self = Self(PMIX_FWD_STDERR_CHANNEL as pmix_iof_channel_t);
+    /// `PMIX_FWD_STDDIAG_CHANNEL` (0x0008) — forward stddiag, if available.
+    pub const STDDIAG: Self = Self(PMIX_FWD_STDDIAG_CHANNEL as pmix_iof_channel_t);
+    /// `PMIX_FWD_ALL_CHANNELS` (0x00FF) — forward all available channels.
+    pub const ALL_CHANNELS: Self = Self(PMIX_FWD_ALL_CHANNELS as pmix_iof_channel_t);
+
+    /// Check if no channels are set.
+    pub fn is_empty(self) -> bool { self.0 == 0 }
+    /// Check if a specific channel flag is set.
+    pub fn contains(self, flag: Self) -> bool { (self.0 & flag.0) == flag.0 }
+    /// Return the raw `pmix_iof_channel_t` value.
+    pub fn raw(self) -> pmix_iof_channel_t { self.0 }
+}
+
+impl std::ops::BitOr for IOFChannelFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self { Self(self.0 | rhs.0) }
+}
+
+impl std::ops::BitOrAssign for IOFChannelFlags {
+    fn bitor_assign(&mut self, rhs: Self) { self.0 |= rhs.0; }
+}
+
+impl std::fmt::Display for IOFChannelFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parts = Vec::new();
+        if self.contains(Self::STDIN)   { parts.push("STDIN"); }
+        if self.contains(Self::STDOUT)  { parts.push("STDOUT"); }
+        if self.contains(Self::STDERR)  { parts.push("STDERR"); }
+        if self.contains(Self::STDDIAG) { parts.push("STDDIAG"); }
+        if parts.is_empty() {
+            if self.is_empty() { write!(f, "NO_CHANNELS") }
+            else { write!(f, "0x{:04X}", self.0) }
+        } else {
+            write!(f, "{}", parts.join("|"))
+        }
+    }
+}
+
 /// All errors the builder can produce.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BuilderError {

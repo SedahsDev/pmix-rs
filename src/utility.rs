@@ -1,12 +1,12 @@
 //! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`,
 //! `PMIx_Scope_string`, `PMIx_Persistence_string`, `PMIx_Data_range_string`,
 //! `PMIx_Info_directives_string`, `PMIx_Data_type_string`, `PMIx_Alloc_directive_string`,
-//! and related helpers.
+//! `PMIx_IOF_channel_string`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -402,6 +402,60 @@ pub fn alloc_directive_string(directive: PmixAllocDirective) -> Result<String, P
     let c_ptr = unsafe { ffi::PMIx_Alloc_directive_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_alloc_directive_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_IOF_channel_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of a PMIx I/O forwarding channel.
+///
+/// The `pmix_iof_channel_t` is a bitmask that specifies which standard
+/// I/O channels are being forwarded. Common values include:
+///
+/// * `PMIX_FWD_STDIN_CHANNEL`   (0x0001) — standard input.
+/// * `PMIX_FWD_STDOUT_CHANNEL`  (0x0002) — standard output.
+/// * `PMIX_FWD_STDERR_CHANNEL`  (0x0004) — standard error.
+/// * `PMIX_FWD_STDDIAG_CHANNEL` (0x0008) — diagnostic channel.
+/// * `PMIX_FWD_ALL_CHANNELS`    (0x00FF) — all channels.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_IOF_channel_string(pmix_iof_channel_t channel)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the channel bitmask.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_iof_channel_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::iof_channel_string, IOFChannelFlags};
+///
+/// let channel = IOFChannelFlags::STDOUT;
+/// let desc = iof_channel_string(channel).expect("valid channel");
+/// assert!(!desc.is_empty());
+/// ```
+pub fn iof_channel_string(channel: IOFChannelFlags) -> Result<String, PmixStatus> {
+    let raw = channel.raw();
+    // SAFETY: PMIx_IOF_channel_string takes a single pmix_iof_channel_t
+    // (u16 bitmask) and returns a pointer to a static, null-terminated string
+    // owned by the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points to
+    // read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_IOF_channel_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_iof_channel_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
@@ -1197,5 +1251,197 @@ mod tests {
         assert!(InfoFlags::default().is_empty());
         assert!(!InfoFlags::REQD.is_empty());
         assert!(!InfoFlags::REQD.is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_IOF_channel_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `iof_channel_string` returns `Ok(String)` for all known channel values.
+    ///
+    /// PMIx_IOF_channel_string is documented to always return a valid,
+    /// non-null, null-terminated string for any pmix_iof_channel_t value.
+    /// This test calls into the real PMIx library.
+    #[test]
+    fn test_iof_channel_string_all_known() {
+        use crate::IOFChannelFlags;
+
+        let channels = [
+            IOFChannelFlags::NO_CHANNELS,
+            IOFChannelFlags::STDIN,
+            IOFChannelFlags::STDOUT,
+            IOFChannelFlags::STDERR,
+            IOFChannelFlags::STDDIAG,
+            IOFChannelFlags::ALL_CHANNELS,
+        ];
+        for channel in channels {
+            let result = iof_channel_string(channel);
+            assert!(
+                result.is_ok(),
+                "iof_channel_string({:?}) should return Ok, got {:?}",
+                channel,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "iof_channel_string({:?}) should not return empty string",
+                channel
+            );
+        }
+    }
+
+    /// `iof_channel_string` returns the expected strings for key channels.
+    #[test]
+    fn test_iof_channel_string_expected_values() {
+        use crate::IOFChannelFlags;
+
+        let stdin = iof_channel_string(IOFChannelFlags::STDIN).unwrap();
+        let stdout = iof_channel_string(IOFChannelFlags::STDOUT).unwrap();
+        let stderr = iof_channel_string(IOFChannelFlags::STDERR).unwrap();
+
+        assert!(
+            stdin.to_lowercase().contains("stdin"),
+            "STDIN channel string should contain 'stdin', got '{}'",
+            stdin
+        );
+        assert!(
+            stdout.to_lowercase().contains("stdout"),
+            "STDOUT channel string should contain 'stdout', got '{}'",
+            stdout
+        );
+        assert!(
+            stderr.to_lowercase().contains("stderr"),
+            "STDERR channel string should contain 'stderr', got '{}'",
+            stderr
+        );
+    }
+
+    /// `iof_channel_string` is deterministic — the same channel always returns
+    /// the same string.
+    #[test]
+    fn test_iof_channel_string_deterministic() {
+        use crate::IOFChannelFlags;
+        let first = iof_channel_string(IOFChannelFlags::STDOUT).unwrap();
+        let second = iof_channel_string(IOFChannelFlags::STDOUT).unwrap();
+        assert_eq!(
+            first, second,
+            "iof_channel_string must be deterministic for the same input"
+        );
+    }
+
+    /// `iof_channel_string` returns different strings for different channels.
+    #[test]
+    fn test_iof_channel_string_distinct() {
+        use crate::IOFChannelFlags;
+        let stdin = iof_channel_string(IOFChannelFlags::STDIN).unwrap();
+        let stdout = iof_channel_string(IOFChannelFlags::STDOUT).unwrap();
+        assert_ne!(
+            stdin, stdout,
+            "iof_channel_string(STDIN) and iof_channel_string(STDOUT) must differ"
+        );
+    }
+
+    /// `iof_channel_string` handles combined channel flags (bitmask OR).
+    #[test]
+    fn test_iof_channel_string_combined() {
+        use crate::IOFChannelFlags;
+        let combined = IOFChannelFlags::STDOUT | IOFChannelFlags::STDERR;
+        let result = iof_channel_string(combined);
+        assert!(
+            result.is_ok(),
+            "iof_channel_string(STDOUT|STDERR) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "iof_channel_string for combined channels should return non-empty string"
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // IOFChannelFlags enum tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `IOFChannelFlags::raw()` returns the expected raw values.
+    #[test]
+    fn test_iof_channel_flags_raw() {
+        use crate::IOFChannelFlags;
+
+        assert_eq!(IOFChannelFlags::NO_CHANNELS.raw(), 0x0000);
+        assert_eq!(IOFChannelFlags::STDIN.raw(), 0x0001);
+        assert_eq!(IOFChannelFlags::STDOUT.raw(), 0x0002);
+        assert_eq!(IOFChannelFlags::STDERR.raw(), 0x0004);
+        assert_eq!(IOFChannelFlags::STDDIAG.raw(), 0x0008);
+        assert_eq!(IOFChannelFlags::ALL_CHANNELS.raw(), 0x00FF);
+    }
+
+    /// `IOFChannelFlags` bitwise OR works correctly.
+    #[test]
+    fn test_iof_channel_flags_bitor() {
+        use crate::IOFChannelFlags;
+
+        let combined = IOFChannelFlags::STDIN | IOFChannelFlags::STDOUT;
+        assert_eq!(combined.raw(), 0x0003);
+        assert!(combined.contains(IOFChannelFlags::STDIN));
+        assert!(combined.contains(IOFChannelFlags::STDOUT));
+        assert!(!combined.contains(IOFChannelFlags::STDERR));
+    }
+
+    /// `IOFChannelFlags::contains` checks individual bits correctly.
+    #[test]
+    fn test_iof_channel_flags_contains() {
+        use crate::IOFChannelFlags;
+
+        let combined = IOFChannelFlags::STDOUT | IOFChannelFlags::STDERR;
+        assert!(combined.contains(IOFChannelFlags::STDOUT));
+        assert!(combined.contains(IOFChannelFlags::STDERR));
+        assert!(!combined.contains(IOFChannelFlags::STDIN));
+    }
+
+    /// `IOFChannelFlags::is_empty` works for zero and non-zero values.
+    #[test]
+    fn test_iof_channel_flags_is_empty() {
+        use crate::IOFChannelFlags;
+
+        assert!(IOFChannelFlags::NO_CHANNELS.is_empty());
+        assert!(IOFChannelFlags::default().is_empty());
+        assert!(!IOFChannelFlags::STDIN.is_empty());
+        assert!(!IOFChannelFlags::ALL_CHANNELS.is_empty());
+    }
+
+    /// `IOFChannelFlags` implements Display.
+    #[test]
+    fn test_iof_channel_flags_display() {
+        use crate::IOFChannelFlags;
+
+        let stdin = format!("{}", IOFChannelFlags::STDIN);
+        assert!(stdin.contains("STDIN"), "Display for STDIN should contain 'STDIN', got '{}'", stdin);
+
+        let stdout = format!("{}", IOFChannelFlags::STDOUT);
+        assert!(stdout.contains("STDOUT"), "Display for STDOUT should contain 'STDOUT', got '{}'", stdout);
+
+        let no_channels = format!("{}", IOFChannelFlags::NO_CHANNELS);
+        assert!(no_channels.contains("NO_CHANNELS"), "Display for NO_CHANNELS should contain 'NO_CHANNELS', got '{}'", no_channels);
+
+        let combined = format!("{}", (IOFChannelFlags::STDOUT | IOFChannelFlags::STDERR));
+        assert!(combined.contains("STDOUT"), "Display for combined should contain 'STDOUT', got '{}'", combined);
+        assert!(combined.contains("STDERR"), "Display for combined should contain 'STDERR', got '{}'", combined);
+    }
+
+    /// `IOFChannelFlags` BitOrAssign works correctly.
+    #[test]
+    fn test_iof_channel_flags_bitor_assign() {
+        use crate::IOFChannelFlags;
+
+        let mut flags = IOFChannelFlags::STDIN;
+        flags |= IOFChannelFlags::STDOUT;
+        flags |= IOFChannelFlags::STDERR;
+
+        assert!(flags.contains(IOFChannelFlags::STDIN));
+        assert!(flags.contains(IOFChannelFlags::STDOUT));
+        assert!(flags.contains(IOFChannelFlags::STDERR));
+        assert_eq!(flags.raw(), 0x0007);
     }
 }
