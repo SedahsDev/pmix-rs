@@ -1,7 +1,8 @@
 //! Utility functions — `PMIx_Initialized`, `PMIx_Error_string`, `PMIx_Proc_state_string`,
 //! `PMIx_Scope_string`, `PMIx_Persistence_string`, `PMIx_Data_range_string`,
 //! `PMIx_Info_directives_string`, `PMIx_Data_type_string`, `PMIx_Alloc_directive_string`,
-//! `PMIx_IOF_channel_string`, and related helpers.
+//! `PMIx_IOF_channel_string`, `PMIx_Job_state_string`, `PMIx_Get_attribute_string`,
+//! `PMIx_Get_attribute_name`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
@@ -501,6 +502,113 @@ pub fn job_state_string(state: PmixJobState) -> Result<String, PmixStatus> {
     let c_ptr = unsafe { ffi::PMIx_Job_state_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_job_state_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Get_attribute_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns the canonical string representation of a PMIx attribute key.
+///
+/// Given an attribute key (e.g., `"pmix.host"`, `"pmix.nprocs"`), this function
+/// performs a case-insensitive lookup in the PMIx library's registered attribute
+/// table and returns the canonical/canonicalized name. If the attribute is not
+/// found or the library has not been initialized, the input string is returned
+/// unchanged.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Get_attribute_string(const char *attribute)`
+///
+/// # Returns
+/// * `Ok(String)` — the canonical attribute string (never null from the C side,
+///   but we guard against it anyway).
+/// * `Err(PmixStatus)` — if the attribute string contains a NUL byte
+///   (would be `NulError` in a stricter API, but we return `PmixStatus`
+///   for consistency with other utility functions).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::utility::get_attribute_string;
+///
+/// let canonical = get_attribute_string("pmix.host").expect("valid attribute");
+/// assert!(!canonical.is_empty());
+/// ```
+pub fn get_attribute_string(attribute: &str) -> Result<String, PmixStatus> {
+    // Convert the attribute string to a C string for the FFI call.
+    // If the string contains a NUL byte, this is an invalid attribute key.
+    let attr_c = std::ffi::CString::new(attribute).map_err(|_| PmixStatus::from_raw(-1))?;
+    // SAFETY: PMIx_Get_attribute_string takes a const char* attribute key and
+    // returns a pointer to a static, null-terminated string owned by the library.
+    // The returned pointer is never null — if the attribute is not found or the
+    // library is not initialized, it returns the input string unchanged.
+    // No memory is allocated or freed by this call. The returned pointer is
+    // valid for the lifetime of the process (it points to read-only data inside
+    // the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Get_attribute_string(attr_c.as_ptr()) };
+    if c_ptr.is_null() {
+        // Should not happen — the C implementation always returns a non-null
+        // pointer (either the canonical name or the input unchanged).
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Get_attribute_name
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns the attribute key name for a given canonical attribute string.
+///
+/// This is the inverse of [`get_attribute_string`]. Given the canonical string
+/// representation of an attribute (e.g., `"host name"`), it performs a
+/// case-insensitive reverse lookup and returns the corresponding attribute key
+/// (e.g., `"pmix.host"`). If the string is not found or the library has not
+/// been initialized, the input string is returned unchanged.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Get_attribute_name(const char *attrstring)`
+///
+/// # Returns
+/// * `Ok(String)` — the attribute key name (never null from the C side).
+/// * `Err(PmixStatus)` — if the attribute string contains a NUL byte.
+///
+/// # Examples
+/// ```no_run
+/// use pmix::utility::get_attribute_name;
+///
+/// let name = get_attribute_name("host name").expect("valid attribute string");
+/// assert!(!name.is_empty());
+/// ```
+pub fn get_attribute_name(attribute: &str) -> Result<String, PmixStatus> {
+    let attr_c = std::ffi::CString::new(attribute).map_err(|_| PmixStatus::from_raw(-1))?;
+    // SAFETY: PMIx_Get_attribute_name takes a const char* attribute string and
+    // returns a pointer to a static, null-terminated string owned by the library.
+    // The returned pointer is never null — if the attribute is not found or the
+    // library is not initialized, it returns the input string unchanged.
+    // No memory is allocated or freed by this call. The returned pointer is
+    // valid for the lifetime of the process (it points to read-only data inside
+    // the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Get_attribute_name(attr_c.as_ptr()) };
+    if c_ptr.is_null() {
+        // Should not happen — the C implementation always returns a non-null
+        // pointer (either the canonical name or the input unchanged).
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
