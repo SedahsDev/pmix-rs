@@ -4,7 +4,7 @@
 //! PMIx daemon — `PMIx_Data_type_string` only looks up a static string table
 //! inside the library.
 
-use pmix::{utility::data_type_string, PmixDataType, PmixStatus};
+use pmix::{PmixDataType, PmixStatus, utility::data_type_string};
 
 /// `data_type_string` returns `Ok(String)` for basic scalar types.
 #[test]
@@ -214,7 +214,13 @@ fn data_type_from_raw_roundtrip() {
     for (raw, expected) in &types {
         let ty = PmixDataType::from_raw(*raw);
         assert_eq!(ty, *expected, "from_raw({}) should be {:?}", raw, expected);
-        assert_eq!(ty.to_raw(), *raw, "to_raw({:?}) should be {}", expected, raw);
+        assert_eq!(
+            ty.to_raw(),
+            *raw,
+            "to_raw({:?}) should be {}",
+            expected,
+            raw
+        );
     }
 }
 
@@ -225,5 +231,8 @@ fn data_type_from_raw_unknown() {
     assert!(matches!(PmixDataType::from_raw(100), PmixDataType::Unknown));
     assert!(matches!(PmixDataType::from_raw(499), PmixDataType::Unknown));
     assert!(matches!(PmixDataType::from_raw(500), PmixDataType::Unknown));
-    assert!(matches!(PmixDataType::from_raw(u16::MAX), PmixDataType::Unknown));
+    assert!(matches!(
+        PmixDataType::from_raw(u16::MAX),
+        PmixDataType::Unknown
+    ));
 }

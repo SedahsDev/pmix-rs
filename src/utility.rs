@@ -9,7 +9,10 @@
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType, PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use crate::{
+    IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType,
+    PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus, ffi,
+};
 use std::ffi::CStr;
 use std::ptr;
 
@@ -748,8 +751,7 @@ pub fn device_type_string(ty: PmixDeviceType) -> Result<String, PmixStatus> {
 /// ```
 pub fn generate_regex(input: &str) -> Result<String, PmixStatus> {
     // Convert Rust string to C string for the FFI call.
-    let input_cstr = std::ffi::CString::new(input)
-        .map_err(|_| PmixStatus::from_raw(-27))?; // PMIX_ERR_BAD_PARAM
+    let input_cstr = std::ffi::CString::new(input).map_err(|_| PmixStatus::from_raw(-27))?; // PMIX_ERR_BAD_PARAM
 
     let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
 
@@ -821,8 +823,7 @@ pub fn generate_regex(input: &str) -> Result<String, PmixStatus> {
 /// ```
 pub fn generate_ppn(input: &str) -> Result<String, PmixStatus> {
     // Convert Rust string to C string for the FFI call.
-    let input_cstr = std::ffi::CString::new(input)
-        .map_err(|_| PmixStatus::from_raw(-27))?; // PMIX_ERR_BAD_PARAM
+    let input_cstr = std::ffi::CString::new(input).map_err(|_| PmixStatus::from_raw(-27))?; // PMIX_ERR_BAD_PARAM
 
     let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
 
@@ -898,8 +899,7 @@ pub fn generate_ppn(input: &str) -> Result<String, PmixStatus> {
 /// ```
 pub fn register_attributes(function: &str, attrs: &[&str]) -> Result<(), PmixStatus> {
     // Convert function name to C string.
-    let function_cstr = std::ffi::CString::new(function)
-        .map_err(|_| PmixStatus::from_raw(-27))?; // PMIX_ERR_BAD_PARAM
+    let function_cstr = std::ffi::CString::new(function).map_err(|_| PmixStatus::from_raw(-27))?; // PMIX_ERR_BAD_PARAM
 
     // Build a NULL-terminated array of C strings for the attrs parameter.
     // The C API expects `char *attrs[]` — a NULL-terminated argv-style array.
@@ -907,10 +907,7 @@ pub fn register_attributes(function: &str, attrs: &[&str]) -> Result<(), PmixSta
     // a null terminator. The CStrs and the Vec must outlive the FFI call.
     let cstrings: Vec<std::ffi::CString> = attrs
         .iter()
-        .map(|s| {
-            std::ffi::CString::new(*s)
-                .unwrap_or_else(|_| std::ffi::CString::new("").unwrap())
-        })
+        .map(|s| std::ffi::CString::new(*s).unwrap_or_else(|_| std::ffi::CString::new("").unwrap()))
         .collect();
 
     // Build the NULL-terminated pointer array.
@@ -1254,10 +1251,7 @@ struct IoDeregContext {
 ///
 /// Called by PMIx when the deregistration request completes asynchronously.
 /// The `cbdata` parameter points to our `IoDeregContext`.
-extern "C" fn dereg_callback_bridge(
-    status: ffi::pmix_status_t,
-    cbdata: *mut std::os::raw::c_void,
-) {
+extern "C" fn dereg_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std::os::raw::c_void) {
     if cbdata.is_null() {
         return;
     }
@@ -1265,8 +1259,7 @@ extern "C" fn dereg_callback_bridge(
     // SAFETY: cbdata was created from `Box::into_raw(Box::new(ctx))` where
     // `ctx: IoDeregContext`. We reconstruct the original boxed context via
     // `Box::from_raw` and drop it, which calls the closure and frees memory.
-    let boxed_ctx: Box<IoDeregContext> =
-        unsafe { Box::from_raw(cbdata as *mut IoDeregContext) };
+    let boxed_ctx: Box<IoDeregContext> = unsafe { Box::from_raw(cbdata as *mut IoDeregContext) };
 
     let pmix_status = PmixStatus::from_raw(status);
 
@@ -1549,10 +1542,7 @@ struct IoPushContext {
 ///
 /// Called by PMIx when the async push request completes.
 /// The `cbdata` parameter points to our `IoPushContext`.
-extern "C" fn push_callback_bridge(
-    status: ffi::pmix_status_t,
-    cbdata: *mut std::os::raw::c_void,
-) {
+extern "C" fn push_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std::os::raw::c_void) {
     if cbdata.is_null() {
         return;
     }
@@ -1602,9 +1592,7 @@ where
     let c_bo_ptr = bo.as_c_mut_ptr();
 
     // Box the callback into a context struct.
-    let ctx = IoPushContext {
-        cb: Box::new(cb),
-    };
+    let ctx = IoPushContext { cb: Box::new(cb) };
     let ctx_ptr: *mut IoPushContext = Box::into_raw(Box::new(ctx));
 
     // SAFETY: PMIx_IOF_push is a documented PMIx tool API.
@@ -1852,7 +1840,10 @@ mod tests {
             result
         );
         let desc = result.unwrap();
-        assert!(!desc.is_empty(), "error_string should not return an empty string");
+        assert!(
+            !desc.is_empty(),
+            "error_string should not return an empty string"
+        );
     }
 
     /// `error_string` returns a readable description for PMIX_ERROR (-1).
@@ -1872,11 +1863,11 @@ mod tests {
     #[test]
     fn test_error_string_various_codes() {
         let codes: Vec<i32> = vec![
-            0,    // PMIX_SUCCESS
-            -1,   // PMIX_ERROR
-            -24,  // PMIX_ERR_TIMEOUT
-            -27,  // PMIX_ERR_BAD_PARAM
-            -33,  // PMIX_ERR_NOT_FOUND
+            0,   // PMIX_SUCCESS
+            -1,  // PMIX_ERROR
+            -24, // PMIX_ERR_TIMEOUT
+            -27, // PMIX_ERR_BAD_PARAM
+            -33, // PMIX_ERR_NOT_FOUND
         ];
         for code in codes {
             let status = PmixStatus::from_raw(code);
@@ -1955,7 +1946,10 @@ mod tests {
             result
         );
         let desc = result.unwrap();
-        assert!(!desc.is_empty(), "proc_state_string should not return an empty string");
+        assert!(
+            !desc.is_empty(),
+            "proc_state_string should not return an empty string"
+        );
     }
 
     /// `proc_state_string` returns the expected string for key lifecycle states.
@@ -2020,9 +2014,19 @@ mod tests {
         use crate::PmixProcState::*;
 
         let error_states = [
-            Error, KilledByCmd, Aborted, FailedToStart, AbortedBySig,
-            TermWoSync, CommFailed, SensorBoundExceeded, CalledAbort,
-            HeartbeatFailed, Migrating, CannotRestart, TermNonZero,
+            Error,
+            KilledByCmd,
+            Aborted,
+            FailedToStart,
+            AbortedBySig,
+            TermWoSync,
+            CommFailed,
+            SensorBoundExceeded,
+            CalledAbort,
+            HeartbeatFailed,
+            Migrating,
+            CannotRestart,
+            TermNonZero,
             FailedToLaunch,
         ];
         for state in error_states {
@@ -2061,11 +2065,28 @@ mod tests {
         use crate::PmixProcState::*;
 
         let states = [
-            Undef, Prepped, LaunchUnderway, Restart, Terminate,
-            Running, Connected, Unterminated, Terminated, Error,
-            KilledByCmd, Aborted, FailedToStart, AbortedBySig,
-            TermWoSync, CommFailed, SensorBoundExceeded, CalledAbort,
-            HeartbeatFailed, Migrating, CannotRestart, TermNonZero,
+            Undef,
+            Prepped,
+            LaunchUnderway,
+            Restart,
+            Terminate,
+            Running,
+            Connected,
+            Unterminated,
+            Terminated,
+            Error,
+            KilledByCmd,
+            Aborted,
+            FailedToStart,
+            AbortedBySig,
+            TermWoSync,
+            CommFailed,
+            SensorBoundExceeded,
+            CalledAbort,
+            HeartbeatFailed,
+            Migrating,
+            CannotRestart,
+            TermNonZero,
             FailedToLaunch,
         ];
         for state in states {
@@ -2136,9 +2157,21 @@ mod tests {
         let remote = scope_string(Remote).unwrap();
         let global = scope_string(Global).unwrap();
 
-        assert!(local.to_lowercase().contains("local"), "Local scope string should contain 'local', got '{}'", local);
-        assert!(remote.to_lowercase().contains("remote"), "Remote scope string should contain 'remote', got '{}'", remote);
-        assert!(global.to_lowercase().contains("global"), "Global scope string should contain 'global', got '{}'", global);
+        assert!(
+            local.to_lowercase().contains("local"),
+            "Local scope string should contain 'local', got '{}'",
+            local
+        );
+        assert!(
+            remote.to_lowercase().contains("remote"),
+            "Remote scope string should contain 'remote', got '{}'",
+            remote
+        );
+        assert!(
+            global.to_lowercase().contains("global"),
+            "Global scope string should contain 'global', got '{}'",
+            global
+        );
     }
 
     /// `scope_string` is deterministic — the same scope always returns
@@ -2258,7 +2291,9 @@ mod tests {
     fn test_data_range_string_all_known() {
         use crate::PmixDataRange::*;
 
-        let ranges = [Undef, Rm, Local, Namespace, Session, Global, Custom, ProcLocal, Invalid];
+        let ranges = [
+            Undef, Rm, Local, Namespace, Session, Global, Custom, ProcLocal, Invalid,
+        ];
         for range in ranges {
             let result = data_range_string(range);
             assert!(
@@ -2286,10 +2321,26 @@ mod tests {
         let session = data_range_string(Session).unwrap();
         let global = data_range_string(Global).unwrap();
 
-        assert!(local.to_lowercase().contains("local"), "Local range string should contain 'local', got '{}'", local);
-        assert!(namespace.to_lowercase().contains("namespace"), "Namespace range string should contain 'namespace', got '{}'", namespace);
-        assert!(session.to_lowercase().contains("session"), "Session range string should contain 'session', got '{}'", session);
-        assert!(global.to_lowercase().contains("global"), "Global range string should contain 'global', got '{}'", global);
+        assert!(
+            local.to_lowercase().contains("local"),
+            "Local range string should contain 'local', got '{}'",
+            local
+        );
+        assert!(
+            namespace.to_lowercase().contains("namespace"),
+            "Namespace range string should contain 'namespace', got '{}'",
+            namespace
+        );
+        assert!(
+            session.to_lowercase().contains("session"),
+            "Session range string should contain 'session', got '{}'",
+            session
+        );
+        assert!(
+            global.to_lowercase().contains("global"),
+            "Global range string should contain 'global', got '{}'",
+            global
+        );
     }
 
     /// `data_range_string` is deterministic — the same range always returns
@@ -2362,7 +2413,9 @@ mod tests {
     fn test_data_range_from_raw_to_raw_roundtrip() {
         use crate::PmixDataRange::*;
 
-        let ranges = [Undef, Rm, Local, Namespace, Session, Global, Custom, ProcLocal, Invalid];
+        let ranges = [
+            Undef, Rm, Local, Namespace, Session, Global, Custom, ProcLocal, Invalid,
+        ];
         for range in ranges {
             let raw = range.to_raw();
             let recovered = PmixDataRange::from_raw(raw);
@@ -2455,7 +2508,12 @@ mod tests {
     fn test_info_directives_string_all_known() {
         use crate::InfoFlags;
 
-        let flags = [InfoFlags::REQD, InfoFlags::QUALIFIER, InfoFlags::PERSISTENT, InfoFlags::REQD_PROCESSED];
+        let flags = [
+            InfoFlags::REQD,
+            InfoFlags::QUALIFIER,
+            InfoFlags::PERSISTENT,
+            InfoFlags::REQD_PROCESSED,
+        ];
         for flag in flags {
             let result = info_directives_string(flag);
             assert!(
@@ -2563,7 +2621,11 @@ mod tests {
         let raw = flags.raw();
         let recovered = InfoFlags(raw);
         assert_eq!(flags, recovered, "InfoFlags(raw(flags)) should round-trip");
-        assert_eq!(raw, 1 | 16 | 4, "combined flags should have correct raw value (REQD=1 | PERSISTENT=16 | REQD_PROCESSED=4 = 21)");
+        assert_eq!(
+            raw,
+            1 | 16 | 4,
+            "combined flags should have correct raw value (REQD=1 | PERSISTENT=16 | REQD_PROCESSED=4 = 21)"
+        );
     }
 
     /// `InfoFlags::contains` checks individual bits correctly.
@@ -2749,17 +2811,37 @@ mod tests {
         use crate::IOFChannelFlags;
 
         let stdin = format!("{}", IOFChannelFlags::STDIN);
-        assert!(stdin.contains("STDIN"), "Display for STDIN should contain 'STDIN', got '{}'", stdin);
+        assert!(
+            stdin.contains("STDIN"),
+            "Display for STDIN should contain 'STDIN', got '{}'",
+            stdin
+        );
 
         let stdout = format!("{}", IOFChannelFlags::STDOUT);
-        assert!(stdout.contains("STDOUT"), "Display for STDOUT should contain 'STDOUT', got '{}'", stdout);
+        assert!(
+            stdout.contains("STDOUT"),
+            "Display for STDOUT should contain 'STDOUT', got '{}'",
+            stdout
+        );
 
         let no_channels = format!("{}", IOFChannelFlags::NO_CHANNELS);
-        assert!(no_channels.contains("NO_CHANNELS"), "Display for NO_CHANNELS should contain 'NO_CHANNELS', got '{}'", no_channels);
+        assert!(
+            no_channels.contains("NO_CHANNELS"),
+            "Display for NO_CHANNELS should contain 'NO_CHANNELS', got '{}'",
+            no_channels
+        );
 
         let combined = format!("{}", (IOFChannelFlags::STDOUT | IOFChannelFlags::STDERR));
-        assert!(combined.contains("STDOUT"), "Display for combined should contain 'STDOUT', got '{}'", combined);
-        assert!(combined.contains("STDERR"), "Display for combined should contain 'STDERR', got '{}'", combined);
+        assert!(
+            combined.contains("STDOUT"),
+            "Display for combined should contain 'STDOUT', got '{}'",
+            combined
+        );
+        assert!(
+            combined.contains("STDERR"),
+            "Display for combined should contain 'STDERR', got '{}'",
+            combined
+        );
     }
 
     /// `IOFChannelFlags` BitOrAssign works correctly.
@@ -3035,8 +3117,8 @@ mod tests {
         use crate::PmixLinkState::*;
 
         assert_eq!(UnknownState.to_raw(), 0); // PMIX_LINK_STATE_UNKNOWN
-        assert_eq!(LinkDown.to_raw(), 1);     // PMIX_LINK_DOWN
-        assert_eq!(LinkUp.to_raw(), 2);       // PMIX_LINK_UP
+        assert_eq!(LinkDown.to_raw(), 1); // PMIX_LINK_DOWN
+        assert_eq!(LinkUp.to_raw(), 2); // PMIX_LINK_UP
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -3098,7 +3180,10 @@ mod tests {
 
         let unknown = PmixDeviceType::Unknown(0xFF);
         let result = device_type_string(unknown);
-        assert!(result.is_ok(), "device_type_string should handle unknown values");
+        assert!(
+            result.is_ok(),
+            "device_type_string should handle unknown values"
+        );
     }
 
     /// `PmixDeviceType::from_raw` / `to_raw` roundtrip for all known values.
@@ -3113,7 +3198,10 @@ mod tests {
         assert_eq!(PmixDeviceType::from_raw(0x08), OpenFabrics);
         assert_eq!(PmixDeviceType::from_raw(0x10), Dma);
         assert_eq!(PmixDeviceType::from_raw(0x20), Coproc);
-        assert_eq!(PmixDeviceType::from_raw(0xFF), PmixDeviceType::Unknown(0xFF));
+        assert_eq!(
+            PmixDeviceType::from_raw(0xFF),
+            PmixDeviceType::Unknown(0xFF)
+        );
 
         assert_eq!(UnknownType.to_raw(), 0x00);
         assert_eq!(Block.to_raw(), 0x01);
@@ -3134,12 +3222,12 @@ mod tests {
         use crate::PmixDeviceType::*;
 
         assert_eq!(UnknownType.to_raw(), 0x00); // PMIX_DEVTYPE_UNKNOWN
-        assert_eq!(Block.to_raw(), 0x01);       // PMIX_DEVTYPE_BLOCK
-        assert_eq!(Gpu.to_raw(), 0x02);         // PMIX_DEVTYPE_GPU
-        assert_eq!(Network.to_raw(), 0x04);     // PMIX_DEVTYPE_NETWORK
+        assert_eq!(Block.to_raw(), 0x01); // PMIX_DEVTYPE_BLOCK
+        assert_eq!(Gpu.to_raw(), 0x02); // PMIX_DEVTYPE_GPU
+        assert_eq!(Network.to_raw(), 0x04); // PMIX_DEVTYPE_NETWORK
         assert_eq!(OpenFabrics.to_raw(), 0x08); // PMIX_DEVTYPE_OPENFABRICS
-        assert_eq!(Dma.to_raw(), 0x10);         // PMIX_DEVTYPE_DMA
-        assert_eq!(Coproc.to_raw(), 0x20);      // PMIX_DEVTYPE_COPROC
+        assert_eq!(Dma.to_raw(), 0x10); // PMIX_DEVTYPE_DMA
+        assert_eq!(Coproc.to_raw(), 0x20); // PMIX_DEVTYPE_COPROC
     }
 
     /// `PmixDeviceType` Display implementation matches C strings.
@@ -3224,10 +3312,7 @@ mod tests {
     fn test_generate_ppn_empty_input() {
         let result = generate_ppn("");
         // Empty input is not a valid PPN specification.
-        assert!(
-            result.is_err(),
-            "generate_ppn should reject empty input"
-        );
+        assert!(result.is_err(), "generate_ppn should reject empty input");
     }
 
     /// `generate_ppn` result is deterministic — same input produces same output.
@@ -3237,7 +3322,10 @@ mod tests {
         let input = "0-3;4-7;8,9,10";
         let result1 = generate_ppn(input);
         let result2 = generate_ppn(input);
-        assert!(result1.is_ok() && result2.is_ok(), "both calls should succeed");
+        assert!(
+            result1.is_ok() && result2.is_ok(),
+            "both calls should succeed"
+        );
         assert_eq!(
             result1.unwrap(),
             result2.unwrap(),

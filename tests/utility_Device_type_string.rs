@@ -4,7 +4,7 @@
 //! PMIx daemon — `PMIx_Device_type_string` only looks up a static string table
 //! inside the library.
 
-use pmix::{utility::device_type_string, PmixDeviceType};
+use pmix::{PmixDeviceType, utility::device_type_string};
 
 /// `device_type_string` returns "UNKNOWN" for PMIX_DEVTYPE_UNKNOWN (0x00).
 #[test]

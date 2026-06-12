@@ -110,7 +110,10 @@ fn proc_state_string_deterministic() {
 fn proc_state_string_distinct() {
     let running = pmix::utility::proc_state_string(PmixProcState::Running).unwrap();
     let terminated = pmix::utility::proc_state_string(PmixProcState::Terminated).unwrap();
-    assert_ne!(running, terminated, "Running and Terminated must produce different strings");
+    assert_ne!(
+        running, terminated,
+        "Running and Terminated must produce different strings"
+    );
 }
 
 /// `proc_state_string` for `Undef` returns the library's "UNDEFINED" string.
@@ -155,8 +158,18 @@ fn proc_state_from_raw_to_raw_roundtrip() {
     ];
     for (raw, expected) in states {
         let state = PmixProcState::from_raw(raw);
-        assert_eq!(state, expected, "from_raw({}) should yield {:?}", raw, expected);
-        assert_eq!(state.to_raw(), raw, "to_raw({:?}) should yield {}", expected, raw);
+        assert_eq!(
+            state, expected,
+            "from_raw({}) should yield {:?}",
+            raw, expected
+        );
+        assert_eq!(
+            state.to_raw(),
+            raw,
+            "to_raw({:?}) should yield {}",
+            expected,
+            raw
+        );
     }
 }
 
@@ -229,7 +242,10 @@ fn proc_state_display_matches_c() {
         (PmixProcState::Undef, "UNDEFINED"),
         (PmixProcState::Running, "PROC EXECUTING"),
         (PmixProcState::Terminated, "PROC HAS TERMINATED"),
-        (PmixProcState::Connected, "PROC HAS CONNECTED TO LOCAL PMIX SERVER"),
+        (
+            PmixProcState::Connected,
+            "PROC HAS CONNECTED TO LOCAL PMIX SERVER",
+        ),
         (PmixProcState::Aborted, "PROC ABNORMALLY ABORTED"),
     ];
     for (state, expected) in states {

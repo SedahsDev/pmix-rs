@@ -4,8 +4,8 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (PMIx_Init) are marked `#[ignore]`.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module and type availability
@@ -54,12 +54,14 @@ fn get_value_callback_trait_object() {
 #[test]
 fn get_nb_signature() {
     fn check<F>(_: F) {}
-    check::<fn(
-        &pmix::Proc,
-        &str,
-        Option<&pmix::Info>,
-        Box<dyn pmix::data_ops::GetValueCallback>,
-    ) -> Result<(), pmix::PmixStatus>>(pmix::data_ops::get_nb);
+    check::<
+        fn(
+            &pmix::Proc,
+            &str,
+            Option<&pmix::Info>,
+            Box<dyn pmix::data_ops::GetValueCallback>,
+        ) -> Result<(), pmix::PmixStatus>,
+    >(pmix::data_ops::get_nb);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,7 +94,10 @@ fn callback_struct_implementation() {
 
     // Simulate bridge invocation.
     cb.on_result(pmix::PmixStatus::from_raw(0), None);
-    assert!(called.load(Ordering::SeqCst), "callback should have been called");
+    assert!(
+        called.load(Ordering::SeqCst),
+        "callback should have been called"
+    );
 }
 
 /// Callback receives status and value parameters.
@@ -334,12 +339,7 @@ fn get_nb_not_found_callback() {
     }
 
     let proc = pmix::Proc::new("nonexistent", 0).unwrap();
-    let result = pmix::data_ops::get_nb(
-        &proc,
-        "nonexistent_key",
-        None,
-        Box::new(NotFoundCheck),
-    );
+    let result = pmix::data_ops::get_nb(&proc, "nonexistent_key", None, Box::new(NotFoundCheck));
     assert!(result.is_err(), "should fail without PMIx_Init");
 }
 

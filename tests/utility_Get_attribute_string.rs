@@ -13,8 +13,8 @@
 //! cargo test --test utility_Get_attribute_string -- --ignored
 //! ```
 
-use pmix::utility::{get_attribute_name, get_attribute_string};
 use pmix::PmixStatus;
+use pmix::utility::{get_attribute_name, get_attribute_string};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // get_attribute_string — basic behavior
@@ -88,7 +88,8 @@ fn get_attribute_string_various_keys() {
         assert!(
             result.is_ok(),
             "get_attribute_string(\"{}\") should return Ok, got {:?}",
-            key, result
+            key,
+            result
         );
         let output = result.unwrap();
         assert!(
@@ -291,7 +292,8 @@ fn get_attribute_name_edge_cases() {
         assert!(
             result.is_ok(),
             "get_attribute_name(\"{}\") should return Ok, got {:?}",
-            key, result
+            key,
+            result
         );
         assert!(!result.unwrap().is_empty());
     }

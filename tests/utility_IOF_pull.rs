@@ -15,10 +15,9 @@ use pmix::IOFChannelFlags;
 fn io_forward_reg_handler_trait_object() {
     use pmix::utility::IoForwardRegHandler;
 
-    let cb: Box<dyn IoForwardRegHandler> =
-        Box::new(|_status: pmix::PmixStatus, _handle: usize| {
-            // No-op handler for type checking.
-        });
+    let cb: Box<dyn IoForwardRegHandler> = Box::new(|_status: pmix::PmixStatus, _handle: usize| {
+        // No-op handler for type checking.
+    });
     let _: Box<dyn IoForwardRegHandler> = cb;
 }
 
@@ -193,11 +192,10 @@ fn io_forward_reg_handler_with_logic() {
 
     // Use a cell-like pattern: the handler stores state via a static
     // or just verify the closure type works without mutation.
-    let cb: Box<dyn IoForwardRegHandler> =
-        Box::new(|status: pmix::PmixStatus, handle: usize| {
-            // Handler logic: check status and handle.
-            let _ = (status.is_error(), handle);
-        });
+    let cb: Box<dyn IoForwardRegHandler> = Box::new(|status: pmix::PmixStatus, handle: usize| {
+        // Handler logic: check status and handle.
+        let _ = (status.is_error(), handle);
+    });
     // Invoke the handler to prove it works.
     (cb)(pmix::PmixStatus::from_raw(0), 42);
 }

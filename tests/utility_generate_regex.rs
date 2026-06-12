@@ -12,9 +12,9 @@
 //! The non-ignored tests verify the wrapper's error handling and type
 //! safety without a running PMIx server.
 
-use pmix::utility::generate_regex;
 use pmix::PmixError;
 use pmix::PmixStatus;
+use pmix::utility::generate_regex;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error handling (no PMIx server required)
@@ -38,10 +38,7 @@ fn test_generate_regex_requires_server_init() {
             // Expected: PMIx server not initialized.
         }
         Err(other) => {
-            panic!(
-                "Expected ErrInit, got {:?}",
-                other
-            );
+            panic!("Expected ErrInit, got {:?}", other);
         }
         Ok(_) => {
             // Unexpected — PMIx server was somehow initialized globally.
@@ -144,10 +141,7 @@ fn test_generate_regex_sequential_nodes() {
         result
     );
     let regex = result.unwrap();
-    assert!(
-        !regex.is_empty(),
-        "regex should not be empty"
-    );
+    assert!(!regex.is_empty(), "regex should not be empty");
     assert!(
         regex.starts_with("pmix:") || regex.starts_with("blob:"),
         "regex should start with 'pmix:' or 'blob:', got '{}'",
@@ -235,7 +229,10 @@ fn test_generate_regex_single_host() {
     let result = generate_regex("localhost");
     assert!(result.is_ok(), "should succeed for a single hostname");
     let regex = result.unwrap();
-    assert!(!regex.is_empty(), "regex should not be empty for a single host");
+    assert!(
+        !regex.is_empty(),
+        "regex should not be empty for a single host"
+    );
 }
 
 /// `generate_regex` output starts with a known format prefix.
@@ -290,5 +287,8 @@ fn test_generate_regex_mixed_names() {
     let result = generate_regex(nodes);
     assert!(result.is_ok(), "should succeed for mixed names");
     let regex = result.unwrap();
-    assert!(!regex.is_empty(), "regex should not be empty for mixed names");
+    assert!(
+        !regex.is_empty(),
+        "regex should not be empty for mixed names"
+    );
 }

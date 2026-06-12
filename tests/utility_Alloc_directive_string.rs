@@ -4,7 +4,7 @@
 //! PMIx daemon — `PMIx_Alloc_directive_string` only looks up a static string
 //! table inside the library.
 
-use pmix::{utility::alloc_directive_string, PmixAllocDirective, PmixStatus};
+use pmix::{PmixAllocDirective, PmixStatus, utility::alloc_directive_string};
 
 /// `alloc_directive_string` returns `Ok(String)` for PMIX_ALLOC_DIRECTIVE (43).
 ///
@@ -97,11 +97,17 @@ fn alloc_directive_from_raw_known() {
 #[test]
 fn alloc_directive_from_raw_unknown() {
     assert!(
-        matches!(PmixAllocDirective::from_raw(0), PmixAllocDirective::Unknown(0)),
+        matches!(
+            PmixAllocDirective::from_raw(0),
+            PmixAllocDirective::Unknown(0)
+        ),
         "from_raw(0) should map to Unknown(0)"
     );
     assert!(
-        matches!(PmixAllocDirective::from_raw(255), PmixAllocDirective::Unknown(255)),
+        matches!(
+            PmixAllocDirective::from_raw(255),
+            PmixAllocDirective::Unknown(255)
+        ),
         "from_raw(255) should map to Unknown(255)"
     );
 }

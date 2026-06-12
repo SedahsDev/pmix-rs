@@ -4,7 +4,7 @@
 //! PMIx daemon — `PMIx_Link_state_string` only looks up a static string table
 //! inside the library.
 
-use pmix::{utility::link_state_string, PmixLinkState};
+use pmix::{PmixLinkState, utility::link_state_string};
 
 /// `link_state_string` returns `Ok(String)` for PMIX_LINK_STATE_UNKNOWN (0).
 ///

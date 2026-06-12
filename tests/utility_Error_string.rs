@@ -4,7 +4,7 @@
 //! PMIx daemon — `PMIx_Error_string` only looks up a static string table
 //! inside the library.
 
-use pmix::{utility::error_string, PmixStatus};
+use pmix::{PmixStatus, utility::error_string};
 
 /// `error_string` returns `Ok(String)` for PMIX_SUCCESS (0).
 ///

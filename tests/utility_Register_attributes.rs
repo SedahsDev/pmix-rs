@@ -7,8 +7,8 @@
 //! Because most tests require a running PMIx server, they are marked `#[ignore]`.
 //! The non-FFI tests (signature, type checks, input validation) run unconditionally.
 
-use pmix::utility::register_attributes;
 use pmix::PmixStatus;
+use pmix::utility::register_attributes;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Signature and type tests (no FFI required)
