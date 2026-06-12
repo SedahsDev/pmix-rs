@@ -454,4 +454,63 @@ mod tests {
         assert_eq!(p, p);
         assert_ne!(PmixBindEnvelope::Process, PmixBindEnvelope::Thread);
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // get_relative_locality tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    use super::PmixLocality;
+    use super::get_relative_locality;
+
+    /// Test that get_relative_locality compiles and does not panic.
+    #[test]
+    fn test_get_relative_locality_no_panic() {
+        let _ = get_relative_locality("0", "0");
+    }
+
+    /// Test that get_relative_locality returns error without PMIx session.
+    #[test]
+    fn test_get_relative_locality_not_initialized() {
+        let result = get_relative_locality("0", "1");
+        assert!(result.is_err());
+    }
+
+    /// Test PmixLocality bit values match C constants.
+    #[test]
+    fn test_locality_bit_values() {
+        assert_eq!(PmixLocality::UNKNOWN.bits(), 0x0000);
+        assert_eq!(PmixLocality::NONLOCAL.bits(), 0x8000);
+        assert_eq!(PmixLocality::SHARE_HWTHREAD.bits(), 0x0001);
+        assert_eq!(PmixLocality::SHARE_CORE.bits(), 0x0002);
+        assert_eq!(PmixLocality::SHARE_L1CACHE.bits(), 0x0004);
+        assert_eq!(PmixLocality::SHARE_L2CACHE.bits(), 0x0008);
+        assert_eq!(PmixLocality::SHARE_L3CACHE.bits(), 0x0010);
+        assert_eq!(PmixLocality::SHARE_PACKAGE.bits(), 0x0020);
+        assert_eq!(PmixLocality::SHARE_NUMA.bits(), 0x0040);
+        assert_eq!(PmixLocality::SHARE_NODE.bits(), 0x4000);
+    }
+
+    /// Test PmixLocality from_raw / to_raw round-trip.
+    #[test]
+    fn test_locality_roundtrip() {
+        let raw: u16 = 0x0003; // SHARE_HWTHREAD | SHARE_CORE
+        assert_eq!(PmixLocality::from_raw(raw).to_raw(), raw);
+    }
+
+    /// Test PmixLocality bit operations.
+    #[test]
+    fn test_locality_bit_ops() {
+        let mut loc = PmixLocality::empty();
+        loc.insert(PmixLocality::SHARE_CORE);
+        assert!(loc.contains(PmixLocality::SHARE_CORE));
+        loc.remove(PmixLocality::SHARE_CORE);
+        assert!(!loc.contains(PmixLocality::SHARE_CORE));
+    }
+
+    /// Test get_relative_locality rejects NUL bytes.
+    #[test]
+    fn test_get_relative_locality_nul_byte() {
+        assert!(get_relative_locality("a\x00b", "c").is_err());
+        assert!(get_relative_locality("a", "c\x00d").is_err());
+    }
 }
