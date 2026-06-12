@@ -841,11 +841,11 @@ mod tests {
     #[test]
     fn test_data_range_string_unknown() {
         use crate::PmixDataRange::Unknown;
-        let range = Unknown(99);
+        let range = Unknown;
         let result = data_range_string(range);
         assert!(
             result.is_ok(),
-            "data_range_string(Unknown(99)) should return Ok, got {:?}",
+            "data_range_string(Unknown) should return Ok, got {:?}",
             result
         );
         let desc = result.unwrap();
@@ -907,7 +907,7 @@ mod tests {
         assert_eq!(PmixDataRange::from_raw(6), Custom);
         assert_eq!(PmixDataRange::from_raw(7), ProcLocal);
         assert_eq!(PmixDataRange::from_raw(255), Invalid);
-        assert!(matches!(PmixDataRange::from_raw(200), Unknown(200)));
+        assert!(matches!(PmixDataRange::from_raw(200), Unknown));
     }
 
     /// `PmixDataRange::to_raw` returns the expected raw values.
@@ -924,7 +924,7 @@ mod tests {
         assert_eq!(Custom.to_raw(), 6);
         assert_eq!(ProcLocal.to_raw(), 7);
         assert_eq!(Invalid.to_raw(), 255);
-        assert_eq!(Unknown(42).to_raw(), 42);
+        assert_eq!(Unknown.to_raw(), 128);
     }
 
     /// `PmixDataRange` implements Display.
@@ -972,9 +972,9 @@ mod tests {
     /// `info_directives_string` returns `Ok(String)` for all known flag values.
     #[test]
     fn test_info_directives_string_all_known() {
-        use crate::InfoFlags::*;
+        use crate::InfoFlags;
 
-        let flags = [REQD, QUALIFIER, PERSISTENT, REQD_PROCESSED];
+        let flags = [InfoFlags::REQD, InfoFlags::QUALIFIER, InfoFlags::PERSISTENT, InfoFlags::REQD_PROCESSED];
         for flag in flags {
             let result = info_directives_string(flag);
             assert!(
@@ -1082,7 +1082,7 @@ mod tests {
         let raw = flags.raw();
         let recovered = InfoFlags(raw);
         assert_eq!(flags, recovered, "InfoFlags(raw(flags)) should round-trip");
-        assert_eq!(raw, 1 | 8 | 4, "combined flags should have correct raw value");
+        assert_eq!(raw, 1 | 16 | 4, "combined flags should have correct raw value (REQD=1 | PERSISTENT=16 | REQD_PROCESSED=4 = 21)");
     }
 
     /// `InfoFlags::contains` checks individual bits correctly.
