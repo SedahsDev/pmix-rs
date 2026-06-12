@@ -1,7 +1,9 @@
 //! CPU locality utilities — parsing cpuset strings, computing locality.
 //!
-//! This module provides safe Rust wrappers for PMIx CPU locality APIs:
+//! This module provides safe Rust wrappers for PMIx CPU locality and
+//! topology APIs:
 //!
+//! - [`get_cpuset`] — retrieve the CPU set for the calling process/thread.
 //! - [`parse_cpuset_string`] — parse a cpuset string into a [`PmixCpuset`].
 
 use std::ffi::CString;
@@ -9,6 +11,96 @@ use std::ffi::CString;
 use crate::PmixStatus;
 use crate::fabric::PmixCpuset;
 use crate::ffi;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixBindEnvelope
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Bind envelope selector for [`get_cpuset`].
+///
+/// Specifies whose CPU binding to retrieve: the calling process or the
+/// calling thread. Corresponds to the C `pmix_bind_envelope_t` type and
+/// the `PMIX_CPUBIND_*` constants.
+///
+/// # C API
+///
+/// ```c
+/// typedef uint8_t pmix_bind_envelope_t;
+/// #define PMIX_CPUBIND_PROCESS    0
+/// #define PMIX_CPUBIND_THREAD     1
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+#[non_exhaustive]
+pub enum PmixBindEnvelope {
+    /// Retrieve the CPU binding of the calling process.
+    Process = 0,
+    /// Retrieve the CPU binding of the calling thread.
+    Thread = 1,
+}
+
+impl PmixBindEnvelope {
+    /// Convert to the raw C `pmix_bind_envelope_t` value.
+    pub fn to_raw(self) -> u8 {
+        self as u8
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// get_cpuset
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Retrieve the CPU set for the calling process or thread.
+///
+/// Returns the set of CPUs on which the calling process (or thread) is
+/// bound, as determined by the PMIx framework. The result is written into
+/// the provided [`PmixCpuset`] object.
+///
+/// # Parameters
+///
+/// * `cpuset` — A mutable [`PmixCpuset`] that will receive the CPU bitmap.
+///   Must have been constructed via [`PmixCpuset::new`].
+/// * `ref_` — A [`PmixBindEnvelope`] specifying whose binding to retrieve
+///   (process-wide or thread-specific).
+///
+/// # Returns
+///
+/// * `Ok(())` — The cpuset was successfully retrieved.
+/// * `Err(PmixStatus)` — An appropriate PMIx error constant on failure,
+///   e.g. `PMIX_ERR_INIT` if PMIx has not been initialized, or
+///   `PMIX_ERR_NOT_SUPPORTED` if the runtime does not support cpuset
+///   queries.
+///
+/// # C API
+///
+/// ```c
+/// pmix_status_t PMIx_Get_cpuset(pmix_cpuset_t *cpuset, pmix_bind_envelope_t ref);
+/// ```
+///
+/// # Spec
+///
+/// PMIx Standard v4.1, Section 11.4.3.
+pub fn get_cpuset(
+    cpuset: &mut PmixCpuset,
+    ref_: PmixBindEnvelope,
+) -> Result<(), PmixStatus> {
+    let cpuset_ptr = cpuset.as_mut_ptr();
+    let raw_ref = ref_.to_raw();
+
+    let status = unsafe {
+        // SAFETY: `cpuset_ptr` is a valid, constructed `pmix_cpuset_t`
+        // (guaranteed by the PmixCpuset wrapper). `raw_ref` is a valid
+        // `pmix_bind_envelope_t` value (Process = 0 or Thread = 1).
+        ffi::PMIx_Get_cpuset(cpuset_ptr, raw_ref)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if !pmix_status.is_success() {
+        return Err(pmix_status);
+    }
+
+    Ok(())
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // parse_cpuset_string
@@ -147,5 +239,75 @@ mod tests {
             .join(",");
         let result = parse_cpuset_string(&long_cpu_list, &mut cpuset);
         let _ = result;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // get_cpuset tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Test that get_cpuset with Process envelope does not panic.
+    #[test]
+    fn test_get_cpuset_process() {
+        let mut cpuset = PmixCpuset::new();
+        let result = get_cpuset(&mut cpuset, PmixBindEnvelope::Process);
+        // Without a running PMIx session, this may return PMIX_ERR_INIT.
+        // The important thing is that the FFI call is made correctly.
+        let _ = result;
+    }
+
+    /// Test that get_cpuset with Thread envelope does not panic.
+    #[test]
+    fn test_get_cpuset_thread() {
+        let mut cpuset = PmixCpuset::new();
+        let result = get_cpuset(&mut cpuset, PmixBindEnvelope::Thread);
+        let _ = result;
+    }
+
+    /// Test that get_cpuset returns an error when PMIx is not initialized.
+    #[test]
+    fn test_get_cpuset_not_initialized() {
+        let mut cpuset = PmixCpuset::new();
+        let result = get_cpuset(&mut cpuset, PmixBindEnvelope::Process);
+        // PMIx is not initialized, so we expect an error (PMIX_ERR_INIT).
+        assert!(
+            result.is_err(),
+            "get_cpuset should fail when PMIx is not initialized"
+        );
+    }
+
+    /// Test that the cpuset is properly cleaned up on drop even after
+    /// a failed get_cpuset call.
+    #[test]
+    fn test_get_cpuset_cleanup_on_error() {
+        let mut cpuset = PmixCpuset::new();
+        let _ = get_cpuset(&mut cpuset, PmixBindEnvelope::Process);
+        // cpuset should still drop without issues
+        drop(cpuset);
+    }
+
+    /// Test that get_cpuset can be called multiple times on the same cpuset.
+    #[test]
+    fn test_get_cpuset_reuse_cpuset() {
+        let mut cpuset = PmixCpuset::new();
+        let r1 = get_cpuset(&mut cpuset, PmixBindEnvelope::Process);
+        let r2 = get_cpuset(&mut cpuset, PmixBindEnvelope::Process);
+        // Both calls should return the same result (likely PMIX_ERR_INIT).
+        assert_eq!(r1.is_ok(), r2.is_ok(), "repeated calls should be consistent");
+    }
+
+    /// Test PmixBindEnvelope to_raw conversion.
+    #[test]
+    fn test_bind_envelope_to_raw() {
+        assert_eq!(PmixBindEnvelope::Process.to_raw(), 0);
+        assert_eq!(PmixBindEnvelope::Thread.to_raw(), 1);
+    }
+
+    /// Test PmixBindEnvelope derive traits.
+    #[test]
+    fn test_bind_envelope_traits() {
+        let p = PmixBindEnvelope::Process;
+        assert_eq!(p.clone(), p);
+        assert_eq!(p, p);
+        assert_ne!(PmixBindEnvelope::Process, PmixBindEnvelope::Thread);
     }
 }
