@@ -1211,10 +1211,7 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
 /// // Use env to fork/exec the child process
 /// // e.g., Command::new("client").env_clear().envs(env).spawn();
 /// ```
-pub fn server_setup_fork(
-    proc: &Proc,
-    env: Option<Vec<&str>>,
-) -> Result<Vec<String>, PmixStatus> {
+pub fn server_setup_fork(proc: &Proc, env: Option<Vec<&str>>) -> Result<Vec<String>, PmixStatus> {
     // Get a pointer to the proc's internal pmix_proc_t for FFI.
     let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
 
@@ -1579,16 +1576,11 @@ pub fn server_dmodex_request(
 /// caller owns the data, and automatically invokes the ack callback
 /// after copying.
 pub trait SetupApplicationCallback: Send {
-    fn on_complete(
-        self: Box<Self>,
-        status: PmixStatus,
-        info: Vec<(String, String)>,
-    );
+    fn on_complete(self: Box<Self>, status: PmixStatus, info: Vec<(String, String)>);
 }
 
 /// Global registry mapping request IDs to pending setup_application callbacks.
-type SetupApplicationRegistry =
-    std::collections::HashMap<usize, Box<dyn SetupApplicationCallback>>;
+type SetupApplicationRegistry = std::collections::HashMap<usize, Box<dyn SetupApplicationCallback>>;
 static SETUP_APPLICATION_REGISTRY: LazyLock<Mutex<SetupApplicationRegistry>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
@@ -1642,7 +1634,8 @@ extern "C" fn setup_application_callback_bridge(
                 // pmix_data_type_t is u16; match against known values.
                 let dtype = entry.value.type_;
                 let value_str = match dtype {
-                    3 => { // PMIX_STRING
+                    3 => {
+                        // PMIX_STRING
                         if !entry.value.data.string.is_null() {
                             CStr::from_ptr(entry.value.data.string)
                                 .to_string_lossy()
@@ -1651,23 +1644,23 @@ extern "C" fn setup_application_callback_bridge(
                             String::new()
                         }
                     }
-                    6 => format!("{}", entry.value.data.integer),        // PMIX_INT
-                    11 => format!("{}", entry.value.data.uint),          // PMIX_UINT
-                    4 => format!("{}", entry.value.data.size),           // PMIX_SIZE
-                    7 => format!("{}", entry.value.data.int8),           // PMIX_INT8
-                    8 => format!("{}", entry.value.data.int16),          // PMIX_INT16
-                    9 => format!("{}", entry.value.data.int32),          // PMIX_INT32
-                    10 => format!("{}", entry.value.data.int64),         // PMIX_INT64
-                    12 => format!("{}", entry.value.data.uint8),         // PMIX_UINT8
-                    13 => format!("{}", entry.value.data.uint16),        // PMIX_UINT16
-                    14 => format!("{}", entry.value.data.uint32),        // PMIX_UINT32
-                    15 => format!("{}", entry.value.data.uint64),        // PMIX_UINT64
-                    16 => format!("{}", entry.value.data.fval),          // PMIX_FLOAT
-                    17 => format!("{}", entry.value.data.dval),          // PMIX_DOUBLE
-                    1 => format!("{}", entry.value.data.flag),           // PMIX_BOOL
-                    5 => format!("{}", entry.value.data.pid),            // PMIX_PID
-                    20 => format!("{}", entry.value.data.status),        // PMIX_STATUS
-                    31 => format!("{}", entry.value.data.rank),          // PMIX_PROC_RANK (stored as rank in union)
+                    6 => format!("{}", entry.value.data.integer), // PMIX_INT
+                    11 => format!("{}", entry.value.data.uint),   // PMIX_UINT
+                    4 => format!("{}", entry.value.data.size),    // PMIX_SIZE
+                    7 => format!("{}", entry.value.data.int8),    // PMIX_INT8
+                    8 => format!("{}", entry.value.data.int16),   // PMIX_INT16
+                    9 => format!("{}", entry.value.data.int32),   // PMIX_INT32
+                    10 => format!("{}", entry.value.data.int64),  // PMIX_INT64
+                    12 => format!("{}", entry.value.data.uint8),  // PMIX_UINT8
+                    13 => format!("{}", entry.value.data.uint16), // PMIX_UINT16
+                    14 => format!("{}", entry.value.data.uint32), // PMIX_UINT32
+                    15 => format!("{}", entry.value.data.uint64), // PMIX_UINT64
+                    16 => format!("{}", entry.value.data.fval),   // PMIX_FLOAT
+                    17 => format!("{}", entry.value.data.dval),   // PMIX_DOUBLE
+                    1 => format!("{}", entry.value.data.flag),    // PMIX_BOOL
+                    5 => format!("{}", entry.value.data.pid),     // PMIX_PID
+                    20 => format!("{}", entry.value.data.status), // PMIX_STATUS
+                    31 => format!("{}", entry.value.data.rank), // PMIX_PROC_RANK (stored as rank in union)
                     _ => format!("[type={}] ", dtype),
                 };
                 entries.push((key, value_str));
@@ -1801,7 +1794,11 @@ pub fn server_setup_application(
     let cbdata = (req_id << 2) as *mut c_void;
 
     // Get the info array pointer and length.
-    let info_ptr = if info.len > 0 { info.handle } else { ptr::null_mut() };
+    let info_ptr = if info.len > 0 {
+        info.handle
+    } else {
+        ptr::null_mut()
+    };
     let info_len = info.len;
 
     // Call the FFI function.
@@ -1868,10 +1865,7 @@ static SETUP_LOCAL_SUPPORT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex:
 /// Called by PMIx when the non-blocking setup_local_support operation completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered Rust callback and invoke it with the result status.
-extern "C" fn setup_local_support_callback_bridge(
-    status: ffi::pmix_status_t,
-    cbdata: *mut c_void,
-) {
+extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
     if cbdata.is_null() {
         return;
     }
@@ -2076,10 +2070,7 @@ static IOF_DELIVER_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0))
 /// `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered Rust callback and invoke it with the
 /// result status.
-extern "C" fn iof_deliver_callback_bridge(
-    status: ffi::pmix_status_t,
-    cbdata: *mut c_void,
-) {
+extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
     if cbdata.is_null() {
         return;
     }
@@ -2212,8 +2203,8 @@ pub fn server_iof_deliver(
     let source_ptr = &source.handle as *const ffi::pmix_proc_t;
 
     // Get the byte object pointer.
-    let bo_ptr = bo as *const crate::data_serialization::PmixByteObject
-        as *const ffi::pmix_byte_object_t;
+    let bo_ptr =
+        bo as *const crate::data_serialization::PmixByteObject as *const ffi::pmix_byte_object_t;
 
     // Prepare info parameters.
     let (info_ptr, ninfo) = if info.len > 0 {
@@ -2320,8 +2311,7 @@ impl Drop for CollectInventoryResults {
 }
 
 /// Monotonically increasing collect-inventory request ID counter.
-static COLLECT_INVENTORY_SEQ: LazyLock<Mutex<usize>> =
-    LazyLock::new(|| Mutex::new(0));
+static COLLECT_INVENTORY_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// Global registry of pending collect-inventory callbacks.
 ///
@@ -2371,7 +2361,10 @@ extern "C" fn collect_inventory_callback_bridge(
     };
 
     let pmix_status = PmixStatus::from_raw(status);
-    let inventory = CollectInventoryResults { handle: info, len: ninfo };
+    let inventory = CollectInventoryResults {
+        handle: info,
+        len: ninfo,
+    };
     cb.on_complete(pmix_status, inventory);
     // release_fn is unused — we manage our own memory via CollectInventoryResults Drop.
     let _ = release_fn;
@@ -2552,10 +2545,7 @@ static DELIVER_INVENTORY_REGISTRY: LazyLock<
 /// Called by PMIx when the inventory delivery request completes.
 /// The `cbdata` parameter encodes the request ID. We look up the
 /// registered Rust callback and invoke it with the result status.
-extern "C" fn deliver_inventory_callback_bridge(
-    status: ffi::pmix_status_t,
-    cbdata: *mut c_void,
-) {
+extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
     if cbdata.is_null() {
         return;
     }
@@ -2823,9 +2813,7 @@ pub fn server_generate_locality_string(
         if locality_ptr.is_null() {
             return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
         }
-        let s = CStr::from_ptr(locality_ptr)
-            .to_string_lossy()
-            .into_owned();
+        let s = CStr::from_ptr(locality_ptr).to_string_lossy().into_owned();
         // PMIx_server_generate_locality_string allocates with strdup/calloc;
         // free with libc::free.
         libc::free(locality_ptr as *mut std::os::raw::c_void);
@@ -2833,4 +2821,73 @@ pub fn server_generate_locality_string(
     };
 
     Ok(locality)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_generate_cpuset_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe wrapper for `PMIx_server_generate_cpuset_string`.
+///
+/// Generate a PMIx string representation of the provided CPU set bitmap.
+///
+/// The returned string is prefixed by the source field of the provided cpuset
+/// followed by a colon (e.g., `hwloc:0-3,8-11`). The remainder of the string
+/// represents the PUs to which the process is bound as expressed by the
+/// underlying implementation (e.g., hwloc bitmap list notation).
+///
+/// This function shall only be called for local client processes, with the
+/// returned string included in the job-level information (via the
+/// `PMIX_CPUSET` attribute) provided to local clients. Local clients can use
+/// these strings as input to obtain their PU bindings via the
+/// `PMIx_Parse_cpuset_string` API.
+///
+/// # Parameters
+/// * `cpuset` — CPU set bitmap from which to generate the string representation.
+///
+/// # Returns
+/// * `Ok(String)` — the cpuset string on success (e.g., `"hwloc:0-3,8-11"`).
+/// * `Err(PmixStatus)` — error code, e.g. `PMIX_ERR_BAD_PARAM` if the cpuset
+///   or its bitmap is null, `PMIX_ERR_TAKE_NEXT_OPTION` if the cpuset source
+///   is not hwloc, or other PMIx error constants.
+///
+/// # C API
+/// `pmix_status_t PMIx_server_generate_cpuset_string(const pmix_cpuset_t *cpuset, char **cpuset_string)`
+pub fn server_generate_cpuset_string(
+    cpuset: &mut crate::fabric::PmixCpuset,
+) -> Result<String, PmixStatus> {
+    let cpuset_ptr = cpuset.as_mut_ptr();
+
+    let mut cpuset_string_ptr: *mut std::os::raw::c_char = ptr::null_mut();
+
+    let status = unsafe {
+        // SAFETY:
+        // - cpuset_ptr points to a valid, constructed pmix_cpuset_t that
+        //   remains alive for the duration of this call (PMIx copies its
+        //   contents to build the cpuset string).
+        // - cpuset_string_ptr is a valid output pointer (&mut of a stack variable).
+        // - The PMIx library allocates the returned string internally.
+        ffi::PMIx_server_generate_cpuset_string(cpuset_ptr, &mut cpuset_string_ptr)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if !pmix_status.is_success() {
+        return Err(pmix_status);
+    }
+
+    // On success, PMIx has allocated a null-terminated string.
+    // Read it and take ownership, then free the C allocation.
+    let cpuset_string = unsafe {
+        if cpuset_string_ptr.is_null() {
+            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+        }
+        let s = CStr::from_ptr(cpuset_string_ptr).to_string_lossy().into_owned();
+        // PMIx_server_generate_cpuset_string allocates with asprintf/strdup;
+        // free with libc::free.
+        libc::free(cpuset_string_ptr as *mut std::os::raw::c_void);
+        s
+    };
+
+    Ok(cpuset_string)
 }
