@@ -834,10 +834,10 @@ pub fn data_print<T>(
 /// An owned output string from [`data_print`].
 ///
 /// Wraps the `char*` returned by `PMIx_Data_print` and frees it via
-/// `PMIx_Free` on drop. Implements `Deref<Target = str>` and `Display`
-/// so it can be used like a regular Rust `&str` or `String`.
+/// `free()` on drop. The inner string is converted to a Rust `String`
+/// on construction so it can be used directly as `&str`.
 pub struct PmixPrintOutput {
-    ptr: *mut std::os::raw::c_char,
+    inner: String,
 }
 
 impl PmixPrintOutput {
@@ -847,21 +847,30 @@ impl PmixPrintOutput {
     ///
     /// `ptr` must be a valid, null-terminated string allocated by the
     /// PMIx library (e.g., returned by `PMIx_Data_print`). The wrapper
-    /// takes ownership and will call `PMIx_Free` on drop.
+    /// takes ownership, converts to a Rust String, and frees the C memory.
     unsafe fn from_raw(ptr: *mut std::os::raw::c_char) -> Self {
-        Self { ptr }
+        if ptr.is_null() {
+            return Self {
+                inner: String::new(),
+            };
+        }
+        // Convert the C string to a Rust String, then free the C allocation.
+        // to_string_lossy() handles any non-UTF8 bytes by replacing with U+FFFD.
+        let s = unsafe { std::ffi::CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned();
+        // Free the C allocation — the Rust String owns its own copy now.
+        // SAFETY: ptr was allocated by asprintf (standard malloc).
+        // CString::from_raw takes ownership and calls free() on drop.
+        unsafe {
+            let _ = std::ffi::CString::from_raw(ptr);
+        }
+        Self { inner: s }
     }
 
-    /// Get the underlying C string as a Rust str slice.
-    fn as_str(&self) -> &str {
-        if self.ptr.is_null() {
-            return "";
-        }
-        // SAFETY: The pointer is a valid, null-terminated C string owned
-        // by this wrapper. It lives for as long as the wrapper exists.
-        unsafe { std::ffi::CStr::from_ptr(self.ptr) }
-            .to_string_lossy()
-            .as_ref()
+    /// Get the underlying string as a `&str`.
+    pub fn as_str(&self) -> &str {
+        &self.inner
     }
 }
 
@@ -869,40 +878,32 @@ impl std::ops::Deref for PmixPrintOutput {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        self.as_str()
+        &self.inner
     }
 }
 
 impl std::fmt::Display for PmixPrintOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
+        write!(f, "{}", self.inner)
     }
 }
 
 impl std::fmt::Debug for PmixPrintOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.as_str())
+        write!(f, "{:?}", self.inner)
     }
 }
 
-impl Drop for PmixPrintOutput {
-    fn drop(&mut self) {
-        if !self.ptr.is_null() {
-            // SAFETY: The pointer was allocated by PMIx_Data_print which uses
-            // asprintf() internally (standard malloc). We free it with the
-            // standard C free() function which doesn't require the size.
-            // After freeing, null the pointer to prevent double-free.
-            unsafe {
-                std::ffi::CString::from_raw(self.ptr);
-                // CString::drop calls free() on the underlying pointer.
-            }
-            self.ptr = ptr::null_mut();
+impl Default for PmixPrintOutput {
+    fn default() -> Self {
+        Self {
+            inner: String::new(),
         }
     }
 }
 
 impl From<PmixPrintOutput> for String {
     fn from(output: PmixPrintOutput) -> Self {
-        output.as_str().to_owned()
+        output.inner
     }
 }
