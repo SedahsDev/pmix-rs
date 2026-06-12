@@ -1,5 +1,6 @@
 //! Data serialization / deserialization — `PMIx_Data_pack`, `PMIx_Data_unpack`,
-//! `PMIx_Data_load`, `PMIx_Data_unload`, `PMIx_Data_copy`, and buffer management.
+//! `PMIx_Data_load`, `PMIx_Data_unload`, `PMIx_Data_copy`, `PMIx_Data_print`,
+//! and buffer management.
 //!
 //! This module provides safe Rust wrappers around the PMIx data buffer and
 //! serialization APIs. These functions are used to pack values into a buffer
@@ -45,6 +46,7 @@
 //! - `pmix_status_t PMIx_Data_unload(pmix_data_buffer_t *buffer, pmix_byte_object_t *payload)`
 //! - `pmix_status_t PMIx_Data_load(pmix_data_buffer_t *buffer, pmix_byte_object_t *payload)`
 //! - `pmix_status_t PMIx_Data_copy(void **dest, void *src, pmix_data_type_t type)`
+//! - `pmix_status_t PMIx_Data_print(char **output, char *prefix, void *src, pmix_data_type_t type)`
 //! - `pmix_data_buffer_t *PMIx_Data_buffer_create(void)`
 //! - `void PMIx_Data_buffer_release(pmix_data_buffer_t *buffer)`
 
@@ -76,7 +78,10 @@ impl<'a> PmixProcRef<'a> {
         // pmix_nspace_t is [c_char; 256]; c_char is i8 on Linux.
         let nspace_len = std::mem::size_of::<ffi::pmix_nspace_t>();
         let len = bytes.len().min(nspace_len - 1);
-        let c_bytes: Vec<std::os::raw::c_char> = bytes[..len].iter().map(|b| *b as std::os::raw::c_char).collect();
+        let c_bytes: Vec<std::os::raw::c_char> = bytes[..len]
+            .iter()
+            .map(|b| *b as std::os::raw::c_char)
+            .collect();
         proc.nspace[..len].copy_from_slice(&c_bytes);
         proc.rank = self.rank;
         proc
@@ -264,7 +269,9 @@ impl Drop for PmixDataBuffer {
 impl std::fmt::Debug for PmixDataBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.ptr.is_null() {
-            f.debug_struct("PmixDataBuffer").field("ptr", &"null").finish()
+            f.debug_struct("PmixDataBuffer")
+                .field("ptr", &"null")
+                .finish()
         } else {
             f.debug_struct("PmixDataBuffer")
                 .field("ptr", &self.ptr)
@@ -566,9 +573,7 @@ pub fn data_unload(buf: &PmixDataBuffer) -> Result<PmixByteObject, PmixStatus> {
     // pointer and fills the byte_object_t struct. The buffer must be valid
     // and allocated. The byte_object_t is zeroed before the call, which is
     // the expected initial state.
-    let status = unsafe {
-        ffi::PMIx_Data_unload(buf.as_mut_ptr(), byte_obj.as_mut_ptr())
-    };
+    let status = unsafe { ffi::PMIx_Data_unload(buf.as_mut_ptr(), byte_obj.as_mut_ptr()) };
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -618,7 +623,10 @@ pub fn data_load(buf: &PmixDataBuffer, payload: &PmixByteObject) -> Result<(), P
     // The byte object must have been properly initialized (either by
     // PMIx_Data_unload or by the caller with valid bytes/size).
     let status = unsafe {
-        ffi::PMIx_Data_load(buf.as_mut_ptr(), &payload.inner as *const ffi::pmix_byte_object_t as *mut ffi::pmix_byte_object_t)
+        ffi::PMIx_Data_load(
+            buf.as_mut_ptr(),
+            &payload.inner as *const ffi::pmix_byte_object_t as *mut ffi::pmix_byte_object_t,
+        )
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -706,14 +714,195 @@ pub fn data_copy<T>(
 pub fn data_copy_payload(dest: &PmixDataBuffer, src: &PmixDataBuffer) -> Result<(), PmixStatus> {
     // SAFETY: Both buffers must be valid, allocated pmix_data_buffer_t pointers.
     // PMIx_Data_copy_payload copies the raw payload from src to dest.
-    let status = unsafe {
-        ffi::PMIx_Data_copy_payload(dest.as_mut_ptr(), src.as_mut_ptr())
-    };
+    let status = unsafe { ffi::PMIx_Data_copy_payload(dest.as_mut_ptr(), src.as_mut_ptr()) };
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
         Ok(())
     } else {
         Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Data_print
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Pretty-print a data value of a specified PMIx type.
+///
+/// Since registered data types can be complex structures, this function
+/// converts a value of any PMIx-defined data type to a human-readable
+/// string representation. Primarily intended for debugging purposes.
+///
+/// The caller provides an optional `prefix` string that is prepended to
+/// the output. Pass `None` or an empty string for no prefix.
+///
+/// The returned `String` is allocated by PMIx and freed automatically
+/// when the `PmixPrintOutput` wrapper is dropped.
+///
+/// # C API
+/// `pmix_status_t PMIx_Data_print(char **output, char *prefix, void *src, pmix_data_type_t type)`
+///
+/// # Parameters
+///
+/// - `src` — Pointer to the data value to print. The source must remain
+///   valid for the duration of this call.
+/// - `prefix` — Optional string to prepend to the output. `None` means
+///   no prefix.
+/// - `data_type` — The PMIx data type of the source value. Must be one
+///   of the PMIx-defined data types.
+///
+/// # Returns
+///
+/// On success, returns `Ok(String)` containing the formatted output.
+///
+/// # Errors
+///
+/// - `PMIX_ERR_BAD_PARAM` — The provided data type is not recognized.
+/// - `PMIX_ERR_NOT_SUPPORTED` — The PMIx implementation does not support
+///   this function.
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::{PmixDataType, data_serialization::*};
+///
+/// let val: i32 = 42;
+/// match data_print(&val, Some("value="), PmixDataType::Int32) {
+///     Ok(output) => println!("Printed: {}", output),
+///     Err(e) => eprintln!("Data print failed: {}", e),
+/// }
+/// ```
+///
+/// # Memory management
+///
+/// The output string is allocated by the PMIx C library and freed via
+/// `PMIx_Free` when the returned [`PmixPrintOutput`] is dropped.
+pub fn data_print<T>(
+    src: &T,
+    prefix: Option<&str>,
+    data_type: PmixDataType,
+) -> Result<PmixPrintOutput, PmixStatus> {
+    let mut output_ptr: *mut std::os::raw::c_char = ptr::null_mut();
+
+    // Convert optional prefix to C string.
+    let prefix_ptr: *mut std::os::raw::c_char = match prefix {
+        Some(s) if !s.is_empty() => {
+            let c_str = std::ffi::CString::new(s).unwrap_or_else(|_| {
+                // If the prefix contains null bytes, fall back to empty.
+                std::ffi::CString::new("").unwrap()
+            });
+            c_str.into_raw()
+        }
+        _ => ptr::null_mut(),
+    };
+
+    // SAFETY: PMIx_Data_print writes the address of a newly allocated,
+    // null-terminated string into `output_ptr`. The `src` pointer must be
+    // valid and point to data of the specified `data_type`. The `prefix`
+    // pointer is either null or points to a valid null-terminated string.
+    // On success, the output must be freed via PMIx_Free.
+    let status = unsafe {
+        ffi::PMIx_Data_print(
+            &mut output_ptr,
+            prefix_ptr,
+            src as *const T as *mut std::os::raw::c_void,
+            data_type as ffi::pmix_data_type_t,
+        )
+    };
+
+    // Free the temporary C string for prefix if we allocated one.
+    if !prefix_ptr.is_null() {
+        // SAFETY: prefix_ptr was created via CString::into_raw and is
+        // a valid allocation that we no longer need.
+        unsafe {
+            let _ = std::ffi::CString::from_raw(prefix_ptr);
+        }
+    }
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        // SAFETY: On success, PMIx_Data_print guarantees output_ptr points
+        // to a valid, null-terminated string allocated by the PMIx library.
+        // We wrap it in PmixPrintOutput which will free it on drop.
+        Ok(unsafe { PmixPrintOutput::from_raw(output_ptr) })
+    } else {
+        Err(pmix_status)
+    }
+}
+
+/// An owned output string from [`data_print`].
+///
+/// Wraps the `char*` returned by `PMIx_Data_print` and frees it via
+/// `PMIx_Free` on drop. Implements `Deref<Target = str>` and `Display`
+/// so it can be used like a regular Rust `&str` or `String`.
+pub struct PmixPrintOutput {
+    ptr: *mut std::os::raw::c_char,
+}
+
+impl PmixPrintOutput {
+    /// Create from a raw C string pointer.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be a valid, null-terminated string allocated by the
+    /// PMIx library (e.g., returned by `PMIx_Data_print`). The wrapper
+    /// takes ownership and will call `PMIx_Free` on drop.
+    unsafe fn from_raw(ptr: *mut std::os::raw::c_char) -> Self {
+        Self { ptr }
+    }
+
+    /// Get the underlying C string as a Rust str slice.
+    fn as_str(&self) -> &str {
+        if self.ptr.is_null() {
+            return "";
+        }
+        // SAFETY: The pointer is a valid, null-terminated C string owned
+        // by this wrapper. It lives for as long as the wrapper exists.
+        unsafe { std::ffi::CStr::from_ptr(self.ptr) }
+            .to_string_lossy()
+            .as_ref()
+    }
+}
+
+impl std::ops::Deref for PmixPrintOutput {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for PmixPrintOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::fmt::Debug for PmixPrintOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.as_str())
+    }
+}
+
+impl Drop for PmixPrintOutput {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            // SAFETY: The pointer was allocated by PMIx_Data_print which uses
+            // asprintf() internally (standard malloc). We free it with the
+            // standard C free() function which doesn't require the size.
+            // After freeing, null the pointer to prevent double-free.
+            unsafe {
+                std::ffi::CString::from_raw(self.ptr);
+                // CString::drop calls free() on the underlying pointer.
+            }
+            self.ptr = ptr::null_mut();
+        }
+    }
+}
+
+impl From<PmixPrintOutput> for String {
+    fn from(output: PmixPrintOutput) -> Self {
+        output.as_str().to_owned()
     }
 }
