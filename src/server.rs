@@ -47,7 +47,10 @@
 //! ```
 
 use crate::{Info, PmixStatus, ffi};
+use std::ffi::CString;
+use std::os::raw::c_void;
 use std::ptr;
+use std::sync::{LazyLock, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixServerModule — safe wrapper around pmix_server_module_t
@@ -446,6 +449,190 @@ pub fn server_finalize(_handle: PmixServerHandle) -> Result<(), PmixStatus> {
     if pmix_status.is_success() {
         Ok(())
     } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_register_nspace — register a job nspace with the server library
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_register_nspace_nb`.
+///
+/// Implement this trait to receive the result of a non-blocking nspace
+/// registration. The `on_complete` method receives the `PmixStatus` result.
+pub trait RegisterNspaceCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending register_nspace callbacks.
+type RegisterNspaceRegistry = std::collections::HashMap<usize, Box<dyn RegisterNspaceCallback>>;
+static REGISTER_NS_SPACE_REGISTRY: LazyLock<Mutex<RegisterNspaceRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing register_nspace request ID counter.
+static REGISTER_NS_SPACE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (register_nspace completion).
+///
+/// Called by PMIx when the non-blocking nspace registration completes.
+/// The `cbdata` parameter is a raw pointer encoding the request ID.
+/// We look up the registered closure and invoke it with the result status.
+extern "C" fn register_nspace_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Register an nspace (job namespace) with the PMIx server library.
+///
+/// This function informs the PMIx server library about a new job
+/// namespace. The server must register ALL nspaces that will participate
+/// in collective operations with local processes — even if no local
+/// processes belong to that nspace, as long as any local process might
+/// perform a collective involving processes from that nspace.
+///
+/// The `nlocalprocs` parameter tells the library how many local processes
+/// will be launched within this nspace. This is required for correct
+/// collective handling, because a collective call can occur before all
+/// processes have started.
+///
+/// The `info` array can contain per-process information such as:
+///
+/// * `PMIX_LOCAL_RANK` — local rank of each process.
+/// * `PMIX_PROC_RANK` — global rank within the job.
+/// * `PMIX_NODE_RANK` — rank on the local node.
+/// * `PMIX_HOSTNAME` — hostname where the process runs.
+/// * `PMIX_NODEID` — numeric identifier of the node.
+///
+/// This is a non-blocking call — the result is delivered asynchronously
+/// via the provided `callback`.
+///
+/// # Parameters
+///
+/// * `nspace` — the job namespace identifier (string, max 255 chars).
+/// * `nlocalprocs` — number of local processes in this nspace.
+/// * `info` — optional per-process info keys.
+/// * `callback` — invoked when registration completes.
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback`.
+/// * `Err(status)` — request rejected immediately (e.g., invalid
+///   nspace, PMIx not initialized as server). The callback will NOT be called.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_register_nspace(const pmix_nspace_t nspace,
+///                                           int nlocalprocs,
+///                                           pmix_info_t info[], size_t ninfo,
+///                                           pmix_op_cbfunc_t cbfunc,
+///                                           void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_register_nspace, PmixServerModule, server_init, server_finalize};
+/// use pmix::PmixStatus;
+///
+/// struct MyNspaceCallback;
+/// impl pmix::server::RegisterNspaceCallback for MyNspaceCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///         println!("register_nspace completed: {:?}", status);
+///     }
+/// }
+///
+/// let module = PmixServerModule::default();
+/// let _handle = server_init(Some(&module), &[]).expect("server_init failed");
+///
+/// server_register_nspace("myjob.12345", 4, &[], Box::new(MyNspaceCallback))
+///     .expect("register_nspace request rejected");
+/// ```
+pub fn server_register_nspace(
+    nspace: &str,
+    nlocalprocs: i32,
+    info: &Info,
+    callback: Box<dyn RegisterNspaceCallback>,
+) -> Result<(), PmixStatus> {
+    // Convert nspace to CString for FFI.
+    let nspace_c = match CString::new(nspace) {
+        Ok(cs) => cs,
+        Err(_) => return Err(PmixStatus::from_raw(-1)), // PMIX_ERROR — contains NUL
+    };
+
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = if info.len > 0 {
+        (info.handle, info.len)
+    } else {
+        (ptr::null_mut(), 0)
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_server_register_nspace is a non-blocking server API.
+        // - nspace_c.as_ptr() is a valid null-terminated string for the
+        //   duration of this call (PMIx copies it internally).
+        // - info_ptr is either a valid array or null (checked above).
+        // - The callback bridge has C linkage and properly handles cbdata.
+        // - cbdata is an opaque pointer that we control and decode in the bridge.
+        ffi::PMIx_server_register_nspace(
+            nspace_c.as_ptr(),
+            nlocalprocs,
+            info_ptr,
+            ninfo,
+            Some(register_nspace_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
         Err(pmix_status)
     }
 }
