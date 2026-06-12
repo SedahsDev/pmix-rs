@@ -4,7 +4,7 @@
 //! `PMIx_IOF_channel_string`, `PMIx_Job_state_string`, `PMIx_Get_attribute_string`,
 //! `PMIx_Get_attribute_name`, `PMIx_Link_state_string`, `PMIx_Device_type_string`,
 //! `PMIx_generate_regex`, `PMIx_generate_ppn`, `PMIx_Register_attributes`,
-//! `PMIx_IOF_pull`, and related helpers.
+//! `PMIx_IOF_pull`, `PMIx_IOF_deregister`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
@@ -1228,6 +1228,193 @@ where
             registry.insert(handle, SendSyncPtr(ctx_ptr));
         }
         Ok(handle)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_IOF_deregister — IO forwarding deregistration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback for deregistration completion notification.
+///
+/// Invoked when the PMIx server finishes processing the deregistration
+/// request. Receives the final status and the deregistration handle.
+pub trait IoForwardDeregHandler: Fn(PmixStatus) + Send + 'static {}
+impl<F> IoForwardDeregHandler for F where F: Fn(PmixStatus) + Send + 'static {}
+
+/// Context stored per deregistration request, carrying the Rust callback.
+///
+/// Allocated on the heap via `Box::into_raw`. Freed when the deregistration
+/// callback fires (via `Box::from_raw`), or immediately if the FFI call fails.
+struct IoDeregContext {
+    cb: Box<dyn Fn(PmixStatus) + Send>,
+}
+
+/// C bridge for the deregistration callback (`pmix_op_cbfunc_t`).
+///
+/// Called by PMIx when the deregistration request completes asynchronously.
+/// The `cbdata` parameter points to our `IoDeregContext`.
+extern "C" fn dereg_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut std::os::raw::c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata was created from `Box::into_raw(Box::new(ctx))` where
+    // `ctx: IoDeregContext`. We reconstruct the original boxed context via
+    // `Box::from_raw` and drop it, which calls the closure and frees memory.
+    let boxed_ctx: Box<IoDeregContext> =
+        unsafe { Box::from_raw(cbdata as *mut IoDeregContext) };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    // Invoke the user's deregistration callback, then the Box drops,
+    // freeing both the context and the contained closure.
+    (boxed_ctx.cb)(pmix_status);
+}
+
+/// Deregister from IO forwarding previously established via `iof_pull`.
+///
+/// This tells the PMIx server to stop forwarding IO from the processes
+/// that were registered under the given handle. Any buffered IO data
+/// should be flushed before the deregistration completes.
+///
+/// # Parameters
+/// * `handle` — the registration handle returned by `iof_pull` or
+///   `iof_pull_blocking`.
+/// * `directives` — optional `pmix_info_t` directives (e.g., timeout).
+/// * `cb` — Rust closure called when deregistration completes. Receives
+///   the final `PmixStatus` and the handle.
+///
+/// # Returns
+/// * `Ok(())` — deregistration was submitted. The callback will be invoked
+///   when the server finishes processing.
+/// * `Err(PmixStatus)` — deregistration could not be submitted (e.g.,
+///   invalid handle).
+///
+/// # Note
+/// On success, the callback receives `PMIX_SUCCESS` (async processing) or
+/// `PMIX_OPERATION_SUCCEEDED` (immediate completion, in which case the
+/// callback is still called). On failure, the callback is not invoked.
+///
+/// # C API
+/// `pmix_status_t PMIx_IOF_deregister(size_t iofhdlr,`
+///     `const pmix_info_t directives[], size_t ndirs,`
+///     `pmix_op_cbfunc_t cbfunc, void *cbdata);`
+pub fn iof_deregister<F>(
+    handle: usize,
+    directives: &[ffi::pmix_info_t],
+    cb: F,
+) -> Result<(), PmixStatus>
+where
+    F: IoForwardDeregHandler,
+{
+    // Remove the handle from the global registry immediately so no further
+    // IO callbacks will be delivered for this registration.
+    {
+        let mut registry = IOF_REGISTRY.lock().unwrap();
+        if let Some(ctx_wrapped) = registry.remove(&handle) {
+            let ctx_ptr = ctx_wrapped.0;
+            if !ctx_ptr.is_null() {
+                // SAFETY: ctx_ptr was allocated via Box::into_raw in
+                // iof_pull / iof_pull_blocking and has not been freed yet.
+                // We take ownership back and drop it, which frees the
+                // IoPullContext and its contained closures.
+                unsafe {
+                    drop(Box::from_raw(ctx_ptr));
+                }
+            }
+        }
+    }
+
+    // Box the deregistration callback context so we can pass it as `*mut c_void`.
+    let ctx = IoDeregContext { cb: Box::new(cb) };
+    let ctx_ptr: *mut IoDeregContext = Box::into_raw(Box::new(ctx));
+
+    // SAFETY: PMIx_IOF_deregister is a documented PMIx tool API.
+    // - iofhdlr: valid registration handle from iof_pull.
+    // - directives: valid slice, passed as const pointer + length.
+    // - cbfunc: our dereg_callback_bridge extern "C" function.
+    // - cbdata: ctx_ptr, owned by us, valid until the callback fires.
+    let raw_status = unsafe {
+        ffi::PMIx_IOF_deregister(
+            handle,
+            directives.as_ptr(),
+            directives.len(),
+            Some(dereg_callback_bridge),
+            ctx_ptr as *mut std::os::raw::c_void,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(raw_status);
+    if pmix_status.is_error() {
+        // Deregistration could not be submitted — free the context immediately.
+        // SAFETY: ctx_ptr was allocated by Box::into_raw above and has not
+        // been used by PMIx since the call returned an error.
+        unsafe {
+            drop(Box::from_raw(ctx_ptr));
+        }
+        Err(pmix_status)
+    } else {
+        // Deregistration accepted — callback will be invoked by PMIx.
+        // The registry entry and IoPullContext have already been cleaned up.
+        Ok(())
+    }
+}
+
+/// Blocking variant of `iof_deregister` — waits for deregistration to
+/// complete and returns the final status directly.
+///
+/// # Parameters
+/// * `handle` — the registration handle returned by `iof_pull` or
+///   `iof_pull_blocking`.
+/// * `directives` — optional `pmix_info_t` directives.
+///
+/// # Returns
+/// * `Ok(())` — deregistration completed successfully.
+/// * `Err(PmixStatus)` — deregistration failed.
+///
+/// # C API
+/// Same as `PMIx_IOF_deregister` with `cbfunc` set to NULL (blocking mode).
+pub fn iof_deregister_blocking(
+    handle: usize,
+    directives: &[ffi::pmix_info_t],
+) -> Result<(), PmixStatus> {
+    // Remove the handle from the global registry immediately.
+    {
+        let mut registry = IOF_REGISTRY.lock().unwrap();
+        if let Some(ctx_wrapped) = registry.remove(&handle) {
+            let ctx_ptr = ctx_wrapped.0;
+            if !ctx_ptr.is_null() {
+                // SAFETY: ctx_ptr was allocated via Box::into_raw in
+                // iof_pull / iof_pull_blocking and has not been freed yet.
+                unsafe {
+                    drop(Box::from_raw(ctx_ptr));
+                }
+            }
+        }
+    }
+
+    // SAFETY: PMIx_IOF_deregister with NULL callback = blocking mode.
+    // The call does not return until the server has processed the
+    // deregistration request. No cbdata is needed.
+    let raw_status = unsafe {
+        ffi::PMIx_IOF_deregister(
+            handle,
+            directives.as_ptr(),
+            directives.len(),
+            None, // blocking mode — no callback
+            ptr::null_mut(),
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(raw_status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
     }
 }
 
