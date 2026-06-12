@@ -46,7 +46,7 @@
 //! pmix_status_t PMIx_server_finalize(void);
 //! ```
 
-use crate::{Info, PmixStatus, ffi};
+use crate::{ffi, Info, PmixStatus, Proc};
 use std::ffi::CString;
 use std::os::raw::c_void;
 use std::ptr;
@@ -834,5 +834,177 @@ pub fn server_deregister_nspace(
                 );
             }
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_register_client — register a client process with the server
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_register_client`.
+///
+/// Implement this trait to receive the result of a non-blocking client
+/// registration. The `on_complete` method receives the `PmixStatus` result.
+pub trait RegisterClientCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending register_client callbacks.
+type RegisterClientRegistry = std::collections::HashMap<usize, Box<dyn RegisterClientCallback>>;
+static REGISTER_CLIENT_REGISTRY: LazyLock<Mutex<RegisterClientRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing register_client request ID counter.
+static REGISTER_CLIENT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (register_client completion).
+///
+/// Called by PMIx when the non-blocking client registration completes.
+/// The `cbdata` parameter is a raw pointer encoding the request ID.
+/// We look up the registered closure and invoke it with the result status.
+extern "C" fn register_client_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Register a client process with the PMIx server library.
+///
+/// This function informs the PMIx server about a specific client process
+/// that has been launched. The `uid` and `gid` parameters help the server
+/// library authenticate clients as they connect — the library requires
+/// the actual credentials of connecting processes to match the registered
+/// values.
+///
+/// The `server_object` parameter allows the host resource manager to
+/// associate an opaque pointer with this client. The PMIx library will
+/// return this pointer in server callbacks (e.g., when the client calls
+/// finalize), allowing the host server to access its own per-client
+/// state without performing a lookup.
+///
+/// This is a non-blocking call — the result is delivered asynchronously
+/// via the provided `callback`.
+///
+/// # Parameters
+///
+/// * `proc` — the process identifier (namespace + rank) of the client.
+/// * `uid` — expected user ID of the client process for authentication.
+/// * `gid` — expected group ID of the client process for authentication.
+/// * `server_object` — opaque pointer associated with this client, returned
+///   in server callbacks. Pass `None` if not needed.
+/// * `callback` — invoked when registration completes.
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback`.
+/// * `Err(status)` — request rejected immediately (e.g., invalid proc,
+///   PMIx not initialized as server). The callback will NOT be called.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_register_client(const pmix_proc_t *proc,
+///                                           uid_t uid, gid_t gid,
+///                                           void *server_object,
+///                                           pmix_op_cbfunc_t cbfunc,
+///                                           void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_register_client, RegisterClientCallback};
+/// use pmix::{PmixStatus, Proc};
+///
+/// struct MyClientCallback;
+/// impl RegisterClientCallback for MyClientCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///         println!("register_client completed: {:?}", status);
+///     }
+/// }
+///
+/// let proc = Proc::new("myjob.12345", 0).expect("invalid nspace");
+/// server_register_client(&proc, 1000, 1000, None, Box::new(MyClientCallback))
+///     .expect("register_client request rejected");
+/// ```
+pub fn server_register_client(
+    proc: &Proc,
+    uid: ffi::uid_t,
+    gid: ffi::gid_t,
+    server_object: Option<*mut c_void>,
+    callback: Box<dyn RegisterClientCallback>,
+) -> Result<(), PmixStatus> {
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = REGISTER_CLIENT_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Get a pointer to the proc's internal pmix_proc_t for FFI.
+    let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
+
+    // The server_object is an opaque pointer the RM associates with this client.
+    let server_obj_ptr = match server_object {
+        Some(ptr) => ptr,
+        None => ptr::null_mut(),
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_server_register_client is a non-blocking server API.
+        // - proc_ptr is a valid reference to the Proc's internal pmix_proc_t
+        //   that remains alive for the duration of this call (PMIx copies it).
+        // - uid and gid are passed by value.
+        // - server_obj_ptr is either a valid pointer owned by the caller or null.
+        // - The callback bridge has C linkage and properly handles cbdata.
+        // - cbdata is an opaque pointer that we control and decode in the bridge.
+        ffi::PMIx_server_register_client(
+            proc_ptr,
+            uid,
+            gid,
+            server_obj_ptr,
+            Some(register_client_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
     }
 }
