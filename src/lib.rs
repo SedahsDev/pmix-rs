@@ -1,18 +1,20 @@
 #![allow(unused_imports)]
 
 use std::fmt::Debug;
+pub mod data_ops;
+pub mod events;
 mod ffi;
 mod info;
+pub mod process_mgmt;
 pub mod utility;
-pub mod data_ops;
 
+use crate::ffi::*;
+use cstring_array::CStringArray;
 use std::ffi::{CStr, CString, NulError};
 use std::mem::zeroed;
 use std::os::raw::{c_char, c_void};
-use std::{fmt, mem, ptr};
 use std::ptr::{null, null_mut};
-use crate::ffi::*;
-use cstring_array::CStringArray;
+use std::{fmt, mem, ptr};
 
 pub const GLOBAL: u8 = PMIX_GLOBAL as u8;
 pub const NUM_NODES: &[u8; 15] = PMIX_NUM_NODES;
@@ -39,332 +41,310 @@ pub const RANK_WILDCARD: u32 = PMIX_RANK_WILDCARD;
 #[non_exhaustive]
 pub enum PmixError {
     // ── ❶  Success & informational (0 and positive) ──────────────────────────
-
     /// `PMIX_SUCCESS` (0)
-    Success                             =    0,
+    Success = 0,
 
     // ── ❷  Widely-used base codes ────────────────────────────────────────────
-
     /// `PMIX_ERROR` (−1) — generic unspecified error.
-    Error                               =   -1,
+    Error = -1,
 
     /// `PMIX_DEBUGGER_RELEASE` (−3) — replaces the deprecated
     /// `PMIX_ERR_DEBUGGER_RELEASE`; the debugger has released a stopped process.
-    DebuggerRelease                     =   -3,
+    DebuggerRelease = -3,
 
     /// `PMIX_ERR_PROC_RESTART` (−4)
-    ErrProcRestart                      =   -4,
+    ErrProcRestart = -4,
 
     /// `PMIX_ERR_PROC_CHECKPOINT` (−5)
-    ErrProcCheckpoint                   =   -5,
+    ErrProcCheckpoint = -5,
 
     /// `PMIX_ERR_PROC_MIGRATE` (−6)
-    ErrProcMigrate                      =   -6,
+    ErrProcMigrate = -6,
 
     /// `PMIX_ERR_PROC_REQUESTED_ABORT` (−8) — a process called `PMIx_Abort`.
-    ErrProcRequestedAbort               =   -8,
+    ErrProcRequestedAbort = -8,
 
     /// `PMIX_ERR_EXISTS` (−11) — the key or object already exists.
-    ErrExists                           =  -11,
+    ErrExists = -11,
 
     /// `PMIX_ERR_INVALID_CRED` (−12) — invalid or unverifiable security credential.
-    ErrInvalidCred                      =  -12,
+    ErrInvalidCred = -12,
 
     /// `PMIX_ERR_WOULD_BLOCK` (−15) — call would block; returned only when
     /// non-blocking behaviour was requested.
-    ErrWouldBlock                       =  -15,
+    ErrWouldBlock = -15,
 
     /// `PMIX_ERR_UNKNOWN_DATA_TYPE` (−16) — `pmix_data_type_t` discriminant
     /// is not recognised.
-    ErrUnknownDataType                  =  -16,
+    ErrUnknownDataType = -16,
 
     /// `PMIX_ERR_TYPE_MISMATCH` (−18) — stored and requested types differ.
-    ErrTypeMismatch                     =  -18,
+    ErrTypeMismatch = -18,
 
     /// `PMIX_ERR_UNPACK_INADEQUATE_SPACE` (−19)
-    ErrUnpackInadequateSpace            =  -19,
+    ErrUnpackInadequateSpace = -19,
 
     /// `PMIX_ERR_UNPACK_FAILURE` (−20)
-    ErrUnpackFailure                    =  -20,
+    ErrUnpackFailure = -20,
 
     /// `PMIX_ERR_PACK_FAILURE` (−21)
-    ErrPackFailure                      =  -21,
+    ErrPackFailure = -21,
 
     /// `PMIX_ERR_NO_PERMISSIONS` (−23) — caller lacks required credentials.
-    ErrNoPermissions                    =  -23,
+    ErrNoPermissions = -23,
 
     /// `PMIX_ERR_TIMEOUT` (−24) — operation exceeded `PMIX_TIMEOUT`.
-    ErrTimeout                          =  -24,
+    ErrTimeout = -24,
 
     /// `PMIX_ERR_UNREACH` (−25) — target process or server is unreachable.
-    ErrUnreach                          =  -25,
+    ErrUnreach = -25,
 
     /// `PMIX_ERR_BAD_PARAM` (−27) — parameter out of range or inconsistent.
-    ErrBadParam                         =  -27,
+    ErrBadParam = -27,
 
     /// `PMIX_ERR_RESOURCE_BUSY` (−28) — requested resource is in use.
-    ErrResourceBusy                     =  -28,
+    ErrResourceBusy = -28,
 
     /// `PMIX_ERR_OUT_OF_RESOURCE` (−29) — a system resource was exhausted.
-    ErrOutOfResource                    =  -29,
+    ErrOutOfResource = -29,
 
     /// `PMIX_ERR_INIT` (−31) — PMIx was not initialised, or init failed.
-    ErrInit                             =  -31,
+    ErrInit = -31,
 
     /// `PMIX_ERR_NOMEM` (−32) — memory allocation failed.
-    ErrNomem                            =  -32,
+    ErrNomem = -32,
 
     // ── ❸  Data / lookup errors ──────────────────────────────────────────────
-
     /// `PMIX_ERR_NOT_FOUND` (−46) — the requested data item does not exist.
-    ErrNotFound                         =  -46,
+    ErrNotFound = -46,
 
     /// `PMIX_ERR_NOT_SUPPORTED` (−47) — API or attribute not supported here.
-    ErrNotSupported                     =  -47,
+    ErrNotSupported = -47,
 
     /// `PMIX_ERR_COMM_FAILURE` (−49) — general communication failure.
-    ErrCommFailure                      =  -49,
+    ErrCommFailure = -49,
 
     /// `PMIX_ERR_UNPACK_READ_PAST_END_OF_BUFFER` (−50)
-    ErrUnpackReadPastEndOfBuffer        =  -50,
+    ErrUnpackReadPastEndOfBuffer = -50,
 
     /// `PMIX_ERR_CONFLICTING_CLEANUP_DIRECTIVES` (−51) — two cleanup
     /// directives for the same path conflict.
-    ErrConflictingCleanupDirectives     =  -51,
+    ErrConflictingCleanupDirectives = -51,
 
     /// `PMIX_ERR_PARTIAL_SUCCESS` (−52) — succeeded for some but not all targets.
-    ErrPartialSuccess                   =  -52,
+    ErrPartialSuccess = -52,
 
     /// `PMIX_ERR_DUPLICATE_KEY` (−53) — key already exists in scope.
-    ErrDuplicateKey                     =  -53,
+    ErrDuplicateKey = -53,
 
     /// `PMIX_READY_FOR_DEBUG` (−58) — process reached the breakpoint and
     /// is waiting for a debugger (accompanied by `PMIX_BREAKPOINT`).
-    ReadyForDebug                       =  -58,
+    ReadyForDebug = -58,
 
     /// `PMIX_ERR_PARAM_VALUE_NOT_SUPPORTED` (−59) — parameter value not
     /// supported by this implementation.
-    ErrParamValueNotSupported           =  -59,
+    ErrParamValueNotSupported = -59,
 
     /// `PMIX_ERR_EMPTY` (−60) — container or collection is empty.
-    ErrEmpty                            =  -60,
+    ErrEmpty = -60,
 
     /// `PMIX_ERR_LOST_CONNECTION` (−61) — established connection was lost.
-    ErrLostConnection                   =  -61,
+    ErrLostConnection = -61,
 
     /// `PMIX_ERR_EXISTS_OUTSIDE_SCOPE` (−62) — key exists but was published
     /// outside the caller's accessible scope.
-    ErrExistsOutsideScope               =  -62,
+    ErrExistsOutsideScope = -62,
 
     // ── ❹  Job-control event codes ───────────────────────────────────────────
-
     /// `PMIX_JCTRL_CHECKPOINT` (−106) — trigger a checkpoint.
-    JctrlCheckpoint                     = -106,
+    JctrlCheckpoint = -106,
 
     /// `PMIX_JCTRL_CHECKPOINT_COMPLETE` (−107) — checkpoint finished.
-    JctrlCheckpointComplete             = -107,
+    JctrlCheckpointComplete = -107,
 
     /// `PMIX_JCTRL_PREEMPT_ALERT` (−108) — scheduler will preempt this job.
-    JctrlPreemptAlert                   = -108,
+    JctrlPreemptAlert = -108,
 
     // ── ❺  Monitoring alert codes ────────────────────────────────────────────
-
     /// `PMIX_MONITOR_HEARTBEAT_ALERT` (−109) — heartbeat missed.
-    MonitorHeartbeatAlert               = -109,
+    MonitorHeartbeatAlert = -109,
 
     /// `PMIX_MONITOR_FILE_ALERT` (−110) — watched file changed unexpectedly.
-    MonitorFileAlert                    = -110,
+    MonitorFileAlert = -110,
 
     // ── ❻  Fabric / network event codes ─────────────────────────────────────
-
     /// `PMIX_FABRIC_UPDATE_ENDPOINTS` (−113) — fabric endpoint info changed.
-    FabricUpdateEndpoints               = -113,
+    FabricUpdateEndpoints = -113,
 
     // ── ❼  Internal / registration errors ───────────────────────────────────
-
     /// `PMIX_ERR_EVENT_REGISTRATION` (−144) — event handler registration failed.
-    ErrEventRegistration                = -144,
+    ErrEventRegistration = -144,
 
     // ── ❽  Job lifecycle event codes ─────────────────────────────────────────
-
     /// `PMIX_EVENT_JOB_END` (−145) — the job has ended.
-    EventJobEnd                         = -145,
+    EventJobEnd = -145,
 
     // ── ❾  Operational-state codes ──────────────────────────────────────────
     //
     // These are NEGATIVE in the real header.
-
     /// `PMIX_OPERATION_IN_PROGRESS` (−156) — operation launched; result
     /// delivered via callback.
-    OperationInProgress                 = -156,
+    OperationInProgress = -156,
 
     /// `PMIX_OPERATION_SUCCEEDED` (−157) — event handler signals the event
     /// was fully handled.
-    OperationSucceeded                  = -157,
+    OperationSucceeded = -157,
 
     /// `PMIX_ERR_INVALID_OPERATION` (−158) — operation is not valid in the
     /// current state.
-    ErrInvalidOperation                 = -158,
+    ErrInvalidOperation = -158,
 
     // ── ❿  Attribute / registration errors ──────────────────────────────────
-
     /// `PMIX_ERR_REPEAT_ATTR_REGISTRATION` (−171) — attribute registered more
     /// than once with conflicting parameters.
-    ErrRepeatAttrRegistration           = -171,
+    ErrRepeatAttrRegistration = -171,
 
     // ── ⓫  I/O-forwarding codes ──────────────────────────────────────────────
-
     /// `PMIX_ERR_IOF_FAILURE` (−172) — general I/O-forwarding error.
-    ErrIofFailure                       = -172,
+    ErrIofFailure = -172,
 
     /// `PMIX_ERR_IOF_COMPLETE` (−173) — I/O-forwarding stream closed gracefully.
-    ErrIofComplete                      = -173,
+    ErrIofComplete = -173,
 
     // ── ⓬  Fabric status codes ───────────────────────────────────────────────
-
     /// `PMIX_FABRIC_UPDATED` (−175) — fabric topology has been updated.
-    FabricUpdated                       = -175,
+    FabricUpdated = -175,
 
     /// `PMIX_FABRIC_UPDATE_PENDING` (−176) — fabric update is in progress.
-    FabricUpdatePending                 = -176,
+    FabricUpdatePending = -176,
 
     // ── ⓭  Job-level error codes ─────────────────────────────────────────────
-
     /// `PMIX_ERR_JOB_APP_NOT_EXECUTABLE` (−177) — binary is not executable.
-    ErrJobAppNotExecutable              = -177,
+    ErrJobAppNotExecutable = -177,
 
     /// `PMIX_ERR_JOB_NO_EXE_SPECIFIED` (−178) — no executable in spawn request.
-    ErrJobNoExeSpecified                = -178,
+    ErrJobNoExeSpecified = -178,
 
     /// `PMIX_ERR_JOB_FAILED_TO_MAP` (−179) — RM could not map processes to nodes.
-    ErrJobFailedToMap                   = -179,
+    ErrJobFailedToMap = -179,
 
     /// `PMIX_ERR_JOB_CANCELED` (−180) — job was cancelled.
-    ErrJobCanceled                      = -180,
+    ErrJobCanceled = -180,
 
     /// `PMIX_ERR_JOB_FAILED_TO_LAUNCH` (−181) — spawn rejected before any
     /// process started.
-    ErrJobFailedToLaunch                = -181,
+    ErrJobFailedToLaunch = -181,
 
     /// `PMIX_ERR_JOB_ABORTED` (−182) — job aborted due to an error.
-    ErrJobAborted                       = -182,
+    ErrJobAborted = -182,
 
     /// `PMIX_ERR_JOB_KILLED_BY_CMD` (−183) — job killed by control command.
-    ErrJobKilledByCmd                   = -183,
+    ErrJobKilledByCmd = -183,
 
     /// `PMIX_ERR_JOB_ABORTED_BY_SIG` (−184) — job killed by unhandled signal.
-    ErrJobAbortedBySig                  = -184,
+    ErrJobAbortedBySig = -184,
 
     /// `PMIX_ERR_JOB_TERM_WO_SYNC` (−185) — job terminated without completing
     /// a required barrier / fence.
-    ErrJobTermWoSync                    = -185,
+    ErrJobTermWoSync = -185,
 
     /// `PMIX_ERR_JOB_SENSOR_BOUND_EXCEEDED` (−186) — sensor threshold exceeded.
-    ErrJobSensorBoundExceeded           = -186,
+    ErrJobSensorBoundExceeded = -186,
 
     /// `PMIX_ERR_JOB_NON_ZERO_TERM` (−187) — job exited with non-zero code.
-    ErrJobNonZeroTerm                   = -187,
+    ErrJobNonZeroTerm = -187,
 
     /// `PMIX_ERR_JOB_ALLOC_FAILED` (−188) — resource allocation for the job
     /// failed.
-    ErrJobAllocFailed                   = -188,
+    ErrJobAllocFailed = -188,
 
     /// `PMIX_ERR_JOB_ABORTED_BY_SYS_EVENT` (−189) — job aborted due to an
     /// unrecoverable system event (e.g. node failure).
-    ErrJobAbortedBySysEvent             = -189,
+    ErrJobAbortedBySysEvent = -189,
 
     /// `PMIX_ERR_JOB_EXE_NOT_FOUND` (−190) — executable not found on exec node.
-    ErrJobExeNotFound                   = -190,
+    ErrJobExeNotFound = -190,
 
     // ── ⓮  Job-lifecycle event codes ────────────────────────────────────────
-
     /// `PMIX_EVENT_JOB_START` (−191) — job has started.
-    EventJobStart                       = -191,
+    EventJobStart = -191,
 
     /// `PMIX_EVENT_SESSION_START` (−192) — new session has started.
-    EventSessionStart                   = -192,
+    EventSessionStart = -192,
 
     /// `PMIX_EVENT_SESSION_END` (−193) — session has ended.
-    EventSessionEnd                     = -193,
+    EventSessionEnd = -193,
 
     // ── ⓯  Process-level error codes ────────────────────────────────────────
-
     /// `PMIX_ERR_PROC_TERM_WO_SYNC` (−200) — process exited without completing
     /// a required collective operation.
-    ErrProcTermWoSync                   = -200,
+    ErrProcTermWoSync = -200,
 
     /// `PMIX_EVENT_PROC_TERMINATED` (−201) — a process has terminated.
-    EventProcTerminated                 = -201,
+    EventProcTerminated = -201,
 
     // ── ⓰  System-event codes ────────────────────────────────────────────────
-
     /// `PMIX_EVENT_SYS_BASE` (−230) — base sentinel for system events.
-    EventSysBase                        = -230,
+    EventSysBase = -230,
 
     /// `PMIX_EVENT_NODE_DOWN` (−231) — a node has gone down.
-    EventNodeDown                       = -231,
+    EventNodeDown = -231,
 
     /// `PMIX_EVENT_NODE_OFFLINE` (−232) — a node has gone offline.
-    EventNodeOffline                    = -232,
+    EventNodeOffline = -232,
 
     // ── ⓱  Additional job-level errors ──────────────────────────────────────
-
     /// `PMIX_ERR_JOB_WDIR_NOT_FOUND` (−233) — working directory not found on
     /// exec node.
-    ErrJobWdirNotFound                  = -233,
+    ErrJobWdirNotFound = -233,
 
     /// `PMIX_ERR_JOB_INSUFFICIENT_RESOURCES` (−234) — not enough resources
     /// for the spawn request.
-    ErrJobInsufficientResources         = -234,
+    ErrJobInsufficientResources = -234,
 
     /// `PMIX_ERR_JOB_SYS_OP_FAILED` (−235) — internal system operation needed
     /// for launch failed.
-    ErrJobSysOpFailed                   = -235,
+    ErrJobSysOpFailed = -235,
 
     // ── ⓲  System-event "other" range ───────────────────────────────────────
-
     /// `PMIX_EVENT_SYS_OTHER` (−330) — catch-all for undefined system events.
-    EventSysOther                       = -330,
+    EventSysOther = -330,
 
     // ── ⓳  Event-handler return codes ───────────────────────────────────────
-
     /// `PMIX_EVENT_NO_ACTION_TAKEN` (−331) — handler ran but took no action.
-    EventNoActionTaken                  = -331,
+    EventNoActionTaken = -331,
 
     /// `PMIX_EVENT_PARTIAL_ACTION_TAKEN` (−332) — handler took partial action.
-    EventPartialActionTaken             = -332,
+    EventPartialActionTaken = -332,
 
     /// `PMIX_EVENT_ACTION_DEFERRED` (−333) — handler queued actions for later.
-    EventActionDeferred                 = -333,
+    EventActionDeferred = -333,
 
     /// `PMIX_EVENT_ACTION_COMPLETE` (−334) — handler fully resolved the event.
-    EventActionComplete                 = -334,
+    EventActionComplete = -334,
 
     // ── ⓴  Per-process error codes ──────────────────────────────────────────
-
     /// `PMIX_ERR_PROC_KILLED_BY_CMD` (−400) — process killed by control command.
-    ErrProcKilledByCmd                  = -400,
+    ErrProcKilledByCmd = -400,
 
     /// `PMIX_ERR_PROC_FAILED_TO_START` (−401) — spawned process never called
     /// `PMIx_Init`.
-    ErrProcFailedToStart                = -401,
+    ErrProcFailedToStart = -401,
 
     /// `PMIX_ERR_PROC_ABORTED_BY_SIG` (−402) — process killed by unhandled signal.
-    ErrProcAbortedBySig                 = -402,
+    ErrProcAbortedBySig = -402,
 
     /// `PMIX_ERR_PROC_SENSOR_BOUND_EXCEEDED` (−403) — per-process sensor
     /// threshold exceeded.
-    ErrProcSensorBoundExceeded          = -403,
+    ErrProcSensorBoundExceeded = -403,
 
     /// `PMIX_ERR_EXIT_NONZERO_TERM` (−404) — process exited with non-zero code.
-    ErrExitNonzeroTerm                  = -404,
+    ErrExitNonzeroTerm = -404,
 
     // ── ㉑  External / user-defined boundary ────────────────────────────────
-
     /// `PMIX_EXTERNAL_ERR_BASE` (−3000) — all values **more negative** than
     /// this are reserved for user / implementation defined codes.
-    ExternalErrBase                     = -3000,
-
+    ExternalErrBase = -3000,
     // ── ⓯  Unknown / user-defined fall-through ──────────────────────────────
     // (Not a repr(i32) discriminant — stored out-of-band via the newtype trick
     //  in `from_raw`. See implementation notes below.)
@@ -405,14 +385,14 @@ impl PmixStatus {
     pub fn from_raw(code: i32) -> Self {
         match PmixError::from_raw(code) {
             Some(e) => Self::Known(e),
-            None    => Self::Unknown(code),
+            None => Self::Unknown(code),
         }
     }
 
     /// Return the raw `i32` value.
     pub fn to_raw(self) -> i32 {
         match self {
-            Self::Known(e)   => e as i32,
+            Self::Known(e) => e as i32,
             Self::Unknown(v) => v,
         }
     }
@@ -420,7 +400,7 @@ impl PmixStatus {
     /// `true` for `PMIX_SUCCESS` and any positive informational code.
     pub fn is_success(self) -> bool {
         match self {
-            Self::Known(e)   => e.is_success(),
+            Self::Known(e) => e.is_success(),
             Self::Unknown(v) => v > 0,
         }
     }
@@ -434,7 +414,7 @@ impl PmixStatus {
     pub fn known(self) -> Option<PmixError> {
         match self {
             Self::Known(e) => Some(e),
-            _              => None,
+            _ => None,
         }
     }
 }
@@ -442,7 +422,7 @@ impl PmixStatus {
 impl std::fmt::Display for PmixStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Known(e)   => e.fmt(f),
+            Self::Known(e) => e.fmt(f),
             Self::Unknown(v) => write!(f, "pmix_status_t({v}) [unknown/user-defined]"),
         }
     }
@@ -451,7 +431,9 @@ impl std::fmt::Display for PmixStatus {
 impl std::error::Error for PmixStatus {}
 
 impl From<PmixError> for PmixStatus {
-    fn from(e: PmixError) -> Self { Self::Known(e) }
+    fn from(e: PmixError) -> Self {
+        Self::Known(e)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -556,117 +538,123 @@ impl PmixError {
             -403 => Self::ErrProcSensorBoundExceeded,
             -404 => Self::ErrExitNonzeroTerm,
             -3000 => Self::ExternalErrBase,
-            _    => return None,
+            _ => return None,
         })
     }
 
     /// Return the raw `i32` discriminant (`pmix_status_t` value).
     #[inline]
-    pub fn to_raw(self) -> i32 { self as i32 }
+    pub fn to_raw(self) -> i32 {
+        self as i32
+    }
 
     /// `true` for `PMIX_SUCCESS` (0) and positive informational codes.
     ///
     /// Positive codes are used by event handlers to signal varying degrees
     /// of success rather than failure.
     #[inline]
-    pub fn is_success(self) -> bool { (self as i32) >= 0 }
+    pub fn is_success(self) -> bool {
+        (self as i32) >= 0
+    }
 
     /// `true` for any negative error code.
     #[inline]
-    pub fn is_error(self) -> bool { !self.is_success() }
+    pub fn is_error(self) -> bool {
+        !self.is_success()
+    }
 
     /// The standard short-name string (e.g. `"PMIX_ERR_NOMEM"`).
     ///
     /// Mirrors the output of `PMIx_Error_string()` from the C library.
     pub fn name(self) -> &'static str {
         match self {
-            Self::Success                           => "PMIX_SUCCESS",
-            Self::Error                             => "PMIX_ERROR",
-            Self::DebuggerRelease                   => "PMIX_DEBUGGER_RELEASE",
-            Self::ErrProcRestart                    => "PMIX_ERR_PROC_RESTART",
-            Self::ErrProcCheckpoint                 => "PMIX_ERR_PROC_CHECKPOINT",
-            Self::ErrProcMigrate                    => "PMIX_ERR_PROC_MIGRATE",
-            Self::ErrProcRequestedAbort             => "PMIX_ERR_PROC_REQUESTED_ABORT",
-            Self::ErrExists                         => "PMIX_ERR_EXISTS",
-            Self::ErrInvalidCred                    => "PMIX_ERR_INVALID_CRED",
-            Self::ErrWouldBlock                     => "PMIX_ERR_WOULD_BLOCK",
-            Self::ErrUnknownDataType                => "PMIX_ERR_UNKNOWN_DATA_TYPE",
-            Self::ErrTypeMismatch                   => "PMIX_ERR_TYPE_MISMATCH",
-            Self::ErrUnpackInadequateSpace          => "PMIX_ERR_UNPACK_INADEQUATE_SPACE",
-            Self::ErrUnpackFailure                  => "PMIX_ERR_UNPACK_FAILURE",
-            Self::ErrPackFailure                    => "PMIX_ERR_PACK_FAILURE",
-            Self::ErrNoPermissions                  => "PMIX_ERR_NO_PERMISSIONS",
-            Self::ErrTimeout                        => "PMIX_ERR_TIMEOUT",
-            Self::ErrUnreach                        => "PMIX_ERR_UNREACH",
-            Self::ErrBadParam                       => "PMIX_ERR_BAD_PARAM",
-            Self::ErrResourceBusy                   => "PMIX_ERR_RESOURCE_BUSY",
-            Self::ErrOutOfResource                  => "PMIX_ERR_OUT_OF_RESOURCE",
-            Self::ErrInit                           => "PMIX_ERR_INIT",
-            Self::ErrNomem                          => "PMIX_ERR_NOMEM",
-            Self::ErrNotFound                       => "PMIX_ERR_NOT_FOUND",
-            Self::ErrNotSupported                   => "PMIX_ERR_NOT_SUPPORTED",
-            Self::ErrCommFailure                    => "PMIX_ERR_COMM_FAILURE",
-            Self::ErrUnpackReadPastEndOfBuffer       => "PMIX_ERR_UNPACK_READ_PAST_END_OF_BUFFER",
-            Self::ErrConflictingCleanupDirectives   => "PMIX_ERR_CONFLICTING_CLEANUP_DIRECTIVES",
-            Self::ErrPartialSuccess                 => "PMIX_ERR_PARTIAL_SUCCESS",
-            Self::ErrDuplicateKey                   => "PMIX_ERR_DUPLICATE_KEY",
-            Self::ReadyForDebug                     => "PMIX_READY_FOR_DEBUG",
-            Self::ErrParamValueNotSupported         => "PMIX_ERR_PARAM_VALUE_NOT_SUPPORTED",
-            Self::ErrEmpty                          => "PMIX_ERR_EMPTY",
-            Self::ErrLostConnection                 => "PMIX_ERR_LOST_CONNECTION",
-            Self::ErrExistsOutsideScope             => "PMIX_ERR_EXISTS_OUTSIDE_SCOPE",
-            Self::JctrlCheckpoint                   => "PMIX_JCTRL_CHECKPOINT",
-            Self::JctrlCheckpointComplete           => "PMIX_JCTRL_CHECKPOINT_COMPLETE",
-            Self::JctrlPreemptAlert                 => "PMIX_JCTRL_PREEMPT_ALERT",
-            Self::MonitorHeartbeatAlert             => "PMIX_MONITOR_HEARTBEAT_ALERT",
-            Self::MonitorFileAlert                  => "PMIX_MONITOR_FILE_ALERT",
-            Self::FabricUpdateEndpoints             => "PMIX_FABRIC_UPDATE_ENDPOINTS",
-            Self::ErrEventRegistration              => "PMIX_ERR_EVENT_REGISTRATION",
-            Self::EventJobEnd                       => "PMIX_EVENT_JOB_END",
-            Self::OperationInProgress               => "PMIX_OPERATION_IN_PROGRESS",
-            Self::OperationSucceeded                => "PMIX_OPERATION_SUCCEEDED",
-            Self::ErrInvalidOperation               => "PMIX_ERR_INVALID_OPERATION",
-            Self::ErrRepeatAttrRegistration         => "PMIX_ERR_REPEAT_ATTR_REGISTRATION",
-            Self::ErrIofFailure                     => "PMIX_ERR_IOF_FAILURE",
-            Self::ErrIofComplete                    => "PMIX_ERR_IOF_COMPLETE",
-            Self::FabricUpdated                     => "PMIX_FABRIC_UPDATED",
-            Self::FabricUpdatePending               => "PMIX_FABRIC_UPDATE_PENDING",
-            Self::ErrJobAppNotExecutable            => "PMIX_ERR_JOB_APP_NOT_EXECUTABLE",
-            Self::ErrJobNoExeSpecified              => "PMIX_ERR_JOB_NO_EXE_SPECIFIED",
-            Self::ErrJobFailedToMap                 => "PMIX_ERR_JOB_FAILED_TO_MAP",
-            Self::ErrJobCanceled                    => "PMIX_ERR_JOB_CANCELED",
-            Self::ErrJobFailedToLaunch              => "PMIX_ERR_JOB_FAILED_TO_LAUNCH",
-            Self::ErrJobAborted                     => "PMIX_ERR_JOB_ABORTED",
-            Self::ErrJobKilledByCmd                 => "PMIX_ERR_JOB_KILLED_BY_CMD",
-            Self::ErrJobAbortedBySig                => "PMIX_ERR_JOB_ABORTED_BY_SIG",
-            Self::ErrJobTermWoSync                  => "PMIX_ERR_JOB_TERM_WO_SYNC",
-            Self::ErrJobSensorBoundExceeded         => "PMIX_ERR_JOB_SENSOR_BOUND_EXCEEDED",
-            Self::ErrJobNonZeroTerm                 => "PMIX_ERR_JOB_NON_ZERO_TERM",
-            Self::ErrJobAllocFailed                 => "PMIX_ERR_JOB_ALLOC_FAILED",
-            Self::ErrJobAbortedBySysEvent           => "PMIX_ERR_JOB_ABORTED_BY_SYS_EVENT",
-            Self::ErrJobExeNotFound                 => "PMIX_ERR_JOB_EXE_NOT_FOUND",
-            Self::EventJobStart                     => "PMIX_EVENT_JOB_START",
-            Self::EventSessionStart                 => "PMIX_EVENT_SESSION_START",
-            Self::EventSessionEnd                   => "PMIX_EVENT_SESSION_END",
-            Self::ErrProcTermWoSync                 => "PMIX_ERR_PROC_TERM_WO_SYNC",
-            Self::EventProcTerminated               => "PMIX_EVENT_PROC_TERMINATED",
-            Self::EventSysBase                      => "PMIX_EVENT_SYS_BASE",
-            Self::EventNodeDown                     => "PMIX_EVENT_NODE_DOWN",
-            Self::EventNodeOffline                  => "PMIX_EVENT_NODE_OFFLINE",
-            Self::ErrJobWdirNotFound                => "PMIX_ERR_JOB_WDIR_NOT_FOUND",
-            Self::ErrJobInsufficientResources       => "PMIX_ERR_JOB_INSUFFICIENT_RESOURCES",
-            Self::ErrJobSysOpFailed                 => "PMIX_ERR_JOB_SYS_OP_FAILED",
-            Self::EventSysOther                     => "PMIX_EVENT_SYS_OTHER",
-            Self::EventNoActionTaken                => "PMIX_EVENT_NO_ACTION_TAKEN",
-            Self::EventPartialActionTaken           => "PMIX_EVENT_PARTIAL_ACTION_TAKEN",
-            Self::EventActionDeferred               => "PMIX_EVENT_ACTION_DEFERRED",
-            Self::EventActionComplete               => "PMIX_EVENT_ACTION_COMPLETE",
-            Self::ErrProcKilledByCmd                => "PMIX_ERR_PROC_KILLED_BY_CMD",
-            Self::ErrProcFailedToStart              => "PMIX_ERR_PROC_FAILED_TO_START",
-            Self::ErrProcAbortedBySig               => "PMIX_ERR_PROC_ABORTED_BY_SIG",
-            Self::ErrProcSensorBoundExceeded        => "PMIX_ERR_PROC_SENSOR_BOUND_EXCEEDED",
-            Self::ErrExitNonzeroTerm                => "PMIX_ERR_EXIT_NONZERO_TERM",
-            Self::ExternalErrBase                   => "PMIX_EXTERNAL_ERR_BASE",
+            Self::Success => "PMIX_SUCCESS",
+            Self::Error => "PMIX_ERROR",
+            Self::DebuggerRelease => "PMIX_DEBUGGER_RELEASE",
+            Self::ErrProcRestart => "PMIX_ERR_PROC_RESTART",
+            Self::ErrProcCheckpoint => "PMIX_ERR_PROC_CHECKPOINT",
+            Self::ErrProcMigrate => "PMIX_ERR_PROC_MIGRATE",
+            Self::ErrProcRequestedAbort => "PMIX_ERR_PROC_REQUESTED_ABORT",
+            Self::ErrExists => "PMIX_ERR_EXISTS",
+            Self::ErrInvalidCred => "PMIX_ERR_INVALID_CRED",
+            Self::ErrWouldBlock => "PMIX_ERR_WOULD_BLOCK",
+            Self::ErrUnknownDataType => "PMIX_ERR_UNKNOWN_DATA_TYPE",
+            Self::ErrTypeMismatch => "PMIX_ERR_TYPE_MISMATCH",
+            Self::ErrUnpackInadequateSpace => "PMIX_ERR_UNPACK_INADEQUATE_SPACE",
+            Self::ErrUnpackFailure => "PMIX_ERR_UNPACK_FAILURE",
+            Self::ErrPackFailure => "PMIX_ERR_PACK_FAILURE",
+            Self::ErrNoPermissions => "PMIX_ERR_NO_PERMISSIONS",
+            Self::ErrTimeout => "PMIX_ERR_TIMEOUT",
+            Self::ErrUnreach => "PMIX_ERR_UNREACH",
+            Self::ErrBadParam => "PMIX_ERR_BAD_PARAM",
+            Self::ErrResourceBusy => "PMIX_ERR_RESOURCE_BUSY",
+            Self::ErrOutOfResource => "PMIX_ERR_OUT_OF_RESOURCE",
+            Self::ErrInit => "PMIX_ERR_INIT",
+            Self::ErrNomem => "PMIX_ERR_NOMEM",
+            Self::ErrNotFound => "PMIX_ERR_NOT_FOUND",
+            Self::ErrNotSupported => "PMIX_ERR_NOT_SUPPORTED",
+            Self::ErrCommFailure => "PMIX_ERR_COMM_FAILURE",
+            Self::ErrUnpackReadPastEndOfBuffer => "PMIX_ERR_UNPACK_READ_PAST_END_OF_BUFFER",
+            Self::ErrConflictingCleanupDirectives => "PMIX_ERR_CONFLICTING_CLEANUP_DIRECTIVES",
+            Self::ErrPartialSuccess => "PMIX_ERR_PARTIAL_SUCCESS",
+            Self::ErrDuplicateKey => "PMIX_ERR_DUPLICATE_KEY",
+            Self::ReadyForDebug => "PMIX_READY_FOR_DEBUG",
+            Self::ErrParamValueNotSupported => "PMIX_ERR_PARAM_VALUE_NOT_SUPPORTED",
+            Self::ErrEmpty => "PMIX_ERR_EMPTY",
+            Self::ErrLostConnection => "PMIX_ERR_LOST_CONNECTION",
+            Self::ErrExistsOutsideScope => "PMIX_ERR_EXISTS_OUTSIDE_SCOPE",
+            Self::JctrlCheckpoint => "PMIX_JCTRL_CHECKPOINT",
+            Self::JctrlCheckpointComplete => "PMIX_JCTRL_CHECKPOINT_COMPLETE",
+            Self::JctrlPreemptAlert => "PMIX_JCTRL_PREEMPT_ALERT",
+            Self::MonitorHeartbeatAlert => "PMIX_MONITOR_HEARTBEAT_ALERT",
+            Self::MonitorFileAlert => "PMIX_MONITOR_FILE_ALERT",
+            Self::FabricUpdateEndpoints => "PMIX_FABRIC_UPDATE_ENDPOINTS",
+            Self::ErrEventRegistration => "PMIX_ERR_EVENT_REGISTRATION",
+            Self::EventJobEnd => "PMIX_EVENT_JOB_END",
+            Self::OperationInProgress => "PMIX_OPERATION_IN_PROGRESS",
+            Self::OperationSucceeded => "PMIX_OPERATION_SUCCEEDED",
+            Self::ErrInvalidOperation => "PMIX_ERR_INVALID_OPERATION",
+            Self::ErrRepeatAttrRegistration => "PMIX_ERR_REPEAT_ATTR_REGISTRATION",
+            Self::ErrIofFailure => "PMIX_ERR_IOF_FAILURE",
+            Self::ErrIofComplete => "PMIX_ERR_IOF_COMPLETE",
+            Self::FabricUpdated => "PMIX_FABRIC_UPDATED",
+            Self::FabricUpdatePending => "PMIX_FABRIC_UPDATE_PENDING",
+            Self::ErrJobAppNotExecutable => "PMIX_ERR_JOB_APP_NOT_EXECUTABLE",
+            Self::ErrJobNoExeSpecified => "PMIX_ERR_JOB_NO_EXE_SPECIFIED",
+            Self::ErrJobFailedToMap => "PMIX_ERR_JOB_FAILED_TO_MAP",
+            Self::ErrJobCanceled => "PMIX_ERR_JOB_CANCELED",
+            Self::ErrJobFailedToLaunch => "PMIX_ERR_JOB_FAILED_TO_LAUNCH",
+            Self::ErrJobAborted => "PMIX_ERR_JOB_ABORTED",
+            Self::ErrJobKilledByCmd => "PMIX_ERR_JOB_KILLED_BY_CMD",
+            Self::ErrJobAbortedBySig => "PMIX_ERR_JOB_ABORTED_BY_SIG",
+            Self::ErrJobTermWoSync => "PMIX_ERR_JOB_TERM_WO_SYNC",
+            Self::ErrJobSensorBoundExceeded => "PMIX_ERR_JOB_SENSOR_BOUND_EXCEEDED",
+            Self::ErrJobNonZeroTerm => "PMIX_ERR_JOB_NON_ZERO_TERM",
+            Self::ErrJobAllocFailed => "PMIX_ERR_JOB_ALLOC_FAILED",
+            Self::ErrJobAbortedBySysEvent => "PMIX_ERR_JOB_ABORTED_BY_SYS_EVENT",
+            Self::ErrJobExeNotFound => "PMIX_ERR_JOB_EXE_NOT_FOUND",
+            Self::EventJobStart => "PMIX_EVENT_JOB_START",
+            Self::EventSessionStart => "PMIX_EVENT_SESSION_START",
+            Self::EventSessionEnd => "PMIX_EVENT_SESSION_END",
+            Self::ErrProcTermWoSync => "PMIX_ERR_PROC_TERM_WO_SYNC",
+            Self::EventProcTerminated => "PMIX_EVENT_PROC_TERMINATED",
+            Self::EventSysBase => "PMIX_EVENT_SYS_BASE",
+            Self::EventNodeDown => "PMIX_EVENT_NODE_DOWN",
+            Self::EventNodeOffline => "PMIX_EVENT_NODE_OFFLINE",
+            Self::ErrJobWdirNotFound => "PMIX_ERR_JOB_WDIR_NOT_FOUND",
+            Self::ErrJobInsufficientResources => "PMIX_ERR_JOB_INSUFFICIENT_RESOURCES",
+            Self::ErrJobSysOpFailed => "PMIX_ERR_JOB_SYS_OP_FAILED",
+            Self::EventSysOther => "PMIX_EVENT_SYS_OTHER",
+            Self::EventNoActionTaken => "PMIX_EVENT_NO_ACTION_TAKEN",
+            Self::EventPartialActionTaken => "PMIX_EVENT_PARTIAL_ACTION_TAKEN",
+            Self::EventActionDeferred => "PMIX_EVENT_ACTION_DEFERRED",
+            Self::EventActionComplete => "PMIX_EVENT_ACTION_COMPLETE",
+            Self::ErrProcKilledByCmd => "PMIX_ERR_PROC_KILLED_BY_CMD",
+            Self::ErrProcFailedToStart => "PMIX_ERR_PROC_FAILED_TO_START",
+            Self::ErrProcAbortedBySig => "PMIX_ERR_PROC_ABORTED_BY_SIG",
+            Self::ErrProcSensorBoundExceeded => "PMIX_ERR_PROC_SENSOR_BOUND_EXCEEDED",
+            Self::ErrExitNonzeroTerm => "PMIX_ERR_EXIT_NONZERO_TERM",
+            Self::ExternalErrBase => "PMIX_EXTERNAL_ERR_BASE",
         }
     }
 }
@@ -701,79 +689,79 @@ impl PmixError {
 #[non_exhaustive]
 pub enum PmixProcState {
     /// `PMIX_PROC_STATE_UNDEF` (0) — undefined process state.
-    Undef                       =    0,
+    Undef = 0,
 
     /// `PMIX_PROC_STATE_PREPPED` (1) — process is ready to be launched.
-    Prepped                     =    1,
+    Prepped = 1,
 
     /// `PMIX_PROC_STATE_LAUNCH_UNDERWAY` (2) — launch process underway.
-    LaunchUnderway              =    2,
+    LaunchUnderway = 2,
 
     /// `PMIX_PROC_STATE_RESTART` (3) — the proc is ready for restart.
-    Restart                     =    3,
+    Restart = 3,
 
     /// `PMIX_PROC_STATE_TERMINATE` (4) — process is marked for termination.
-    Terminate                   =    4,
+    Terminate = 4,
 
     /// `PMIX_PROC_STATE_RUNNING` (5) — daemon has locally forked process.
-    Running                     =    5,
+    Running = 5,
 
     /// `PMIX_PROC_STATE_CONNECTED` (6) — proc connected to PMIx server.
-    Connected                   =    6,
+    Connected = 6,
 
     /// `PMIX_PROC_STATE_UNTERMINATED` (15) — process has not yet terminated.
-    Unterminated                =   15,
+    Unterminated = 15,
 
     /// `PMIX_PROC_STATE_TERMINATED` (20) — process has terminated cleanly.
-    Terminated                  =   20,
+    Terminated = 20,
 
     /// `PMIX_PROC_STATE_ERROR` (50) — generic process error.
-    Error                       =   50,
+    Error = 50,
 
     /// `PMIX_PROC_STATE_KILLED_BY_CMD` (51) — process was killed by command.
-    KilledByCmd                 =   51,
+    KilledByCmd = 51,
 
     /// `PMIX_PROC_STATE_ABORTED` (52) — process aborted abnormally.
-    Aborted                     =   52,
+    Aborted = 52,
 
     /// `PMIX_PROC_STATE_FAILED_TO_START` (53) — process failed to start.
-    FailedToStart               =   53,
+    FailedToStart = 53,
 
     /// `PMIX_PROC_STATE_ABORTED_BY_SIG` (54) — process aborted by signal.
-    AbortedBySig                =   54,
+    AbortedBySig = 54,
 
     /// `PMIX_PROC_STATE_TERM_WO_SYNC` (55) — process exited without calling
     /// `PMIx_Finalize`.
-    TermWoSync                  =   55,
+    TermWoSync = 55,
 
     /// `PMIX_PROC_STATE_COMM_FAILED` (56) — process communication has failed.
-    CommFailed                  =   56,
+    CommFailed = 56,
 
     /// `PMIX_PROC_STATE_SENSOR_BOUND_EXCEEDED` (57) — process exceeded a
     /// sensor limit.
-    SensorBoundExceeded         =   57,
+    SensorBoundExceeded = 57,
 
     /// `PMIX_PROC_STATE_CALLED_ABORT` (58) — process called `PMIx_Abort`.
-    CalledAbort                 =   58,
+    CalledAbort = 58,
 
     /// `PMIX_PROC_STATE_HEARTBEAT_FAILED` (59) — process failed to send
     /// heartbeat within time limit.
-    HeartbeatFailed             =   59,
+    HeartbeatFailed = 59,
 
     /// `PMIX_PROC_STATE_MIGRATING` (60) — process failed and is waiting for
     /// resources before restarting.
-    Migrating                   =   60,
+    Migrating = 60,
 
     /// `PMIX_PROC_STATE_CANNOT_RESTART` (61) — process failed and cannot be
     /// restarted.
-    CannotRestart               =   61,
+    CannotRestart = 61,
 
     /// `PMIX_PROC_STATE_TERM_NON_ZERO` (62) — process exited with a
     /// non-zero status, indicating abnormal termination.
-    TermNonZero                 =   62,
+    TermNonZero = 62,
 
     /// `PMIX_PROC_STATE_FAILED_TO_LAUNCH` (63) — unable to launch process.
-    FailedToLaunch              =   63,
+    FailedToLaunch = 63,
 
     /// An unrecognised or future process state value.
     Unknown(u8),
@@ -783,13 +771,13 @@ impl PmixProcState {
     /// Convert a raw `pmix_proc_state_t` (`u8`) into a `PmixProcState`.
     pub fn from_raw(state: u8) -> Self {
         match state {
-            0  => Self::Undef,
-            1  => Self::Prepped,
-            2  => Self::LaunchUnderway,
-            3  => Self::Restart,
-            4  => Self::Terminate,
-            5  => Self::Running,
-            6  => Self::Connected,
+            0 => Self::Undef,
+            1 => Self::Prepped,
+            2 => Self::LaunchUnderway,
+            3 => Self::Restart,
+            4 => Self::Terminate,
+            5 => Self::Running,
+            6 => Self::Connected,
             15 => Self::Unterminated,
             20 => Self::Terminated,
             50 => Self::Error,
@@ -814,29 +802,29 @@ impl PmixProcState {
     pub fn to_raw(self) -> u8 {
         match self {
             Self::Unknown(v) => v,
-            Self::Undef                       => 0,
-            Self::Prepped                     => 1,
-            Self::LaunchUnderway              => 2,
-            Self::Restart                     => 3,
-            Self::Terminate                   => 4,
-            Self::Running                     => 5,
-            Self::Connected                   => 6,
-            Self::Unterminated                => 15,
-            Self::Terminated                  => 20,
-            Self::Error                       => 50,
-            Self::KilledByCmd                 => 51,
-            Self::Aborted                     => 52,
-            Self::FailedToStart               => 53,
-            Self::AbortedBySig                => 54,
-            Self::TermWoSync                  => 55,
-            Self::CommFailed                  => 56,
-            Self::SensorBoundExceeded         => 57,
-            Self::CalledAbort                 => 58,
-            Self::HeartbeatFailed             => 59,
-            Self::Migrating                   => 60,
-            Self::CannotRestart               => 61,
-            Self::TermNonZero                 => 62,
-            Self::FailedToLaunch              => 63,
+            Self::Undef => 0,
+            Self::Prepped => 1,
+            Self::LaunchUnderway => 2,
+            Self::Restart => 3,
+            Self::Terminate => 4,
+            Self::Running => 5,
+            Self::Connected => 6,
+            Self::Unterminated => 15,
+            Self::Terminated => 20,
+            Self::Error => 50,
+            Self::KilledByCmd => 51,
+            Self::Aborted => 52,
+            Self::FailedToStart => 53,
+            Self::AbortedBySig => 54,
+            Self::TermWoSync => 55,
+            Self::CommFailed => 56,
+            Self::SensorBoundExceeded => 57,
+            Self::CalledAbort => 58,
+            Self::HeartbeatFailed => 59,
+            Self::Migrating => 60,
+            Self::CannotRestart => 61,
+            Self::TermNonZero => 62,
+            Self::FailedToLaunch => 63,
         }
     }
 
@@ -880,30 +868,30 @@ impl PmixProcState {
 impl std::fmt::Display for PmixProcState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Undef               => write!(f, "UNDEFINED"),
-            Self::Prepped             => write!(f, "PREPPED FOR LAUNCH"),
-            Self::LaunchUnderway      => write!(f, "LAUNCH UNDERWAY"),
-            Self::Restart             => write!(f, "PROC READY FOR RESTART"),
-            Self::Terminate           => write!(f, "PROC MARKED FOR TERMINATION"),
-            Self::Running             => write!(f, "PROC EXECUTING"),
-            Self::Connected           => write!(f, "PROC HAS CONNECTED TO LOCAL PMIX SERVER"),
-            Self::Unterminated        => write!(f, "PROC HAS NOT TERMINATED"),
-            Self::Terminated          => write!(f, "PROC HAS TERMINATED"),
-            Self::Error               => write!(f, "PROC ERROR"),
-            Self::KilledByCmd         => write!(f, "PROC KILLED BY CMD"),
-            Self::Aborted             => write!(f, "PROC ABNORMALLY ABORTED"),
-            Self::FailedToStart       => write!(f, "PROC FAILED TO START"),
-            Self::AbortedBySig        => write!(f, "PROC ABORTED BY SIGNAL"),
-            Self::TermWoSync          => write!(f, "PROC TERMINATED WITHOUT CALLING PMIx_Finalize"),
-            Self::CommFailed          => write!(f, "PROC LOST COMMUNICATION"),
+            Self::Undef => write!(f, "UNDEFINED"),
+            Self::Prepped => write!(f, "PREPPED FOR LAUNCH"),
+            Self::LaunchUnderway => write!(f, "LAUNCH UNDERWAY"),
+            Self::Restart => write!(f, "PROC READY FOR RESTART"),
+            Self::Terminate => write!(f, "PROC MARKED FOR TERMINATION"),
+            Self::Running => write!(f, "PROC EXECUTING"),
+            Self::Connected => write!(f, "PROC HAS CONNECTED TO LOCAL PMIX SERVER"),
+            Self::Unterminated => write!(f, "PROC HAS NOT TERMINATED"),
+            Self::Terminated => write!(f, "PROC HAS TERMINATED"),
+            Self::Error => write!(f, "PROC ERROR"),
+            Self::KilledByCmd => write!(f, "PROC KILLED BY CMD"),
+            Self::Aborted => write!(f, "PROC ABNORMALLY ABORTED"),
+            Self::FailedToStart => write!(f, "PROC FAILED TO START"),
+            Self::AbortedBySig => write!(f, "PROC ABORTED BY SIGNAL"),
+            Self::TermWoSync => write!(f, "PROC TERMINATED WITHOUT CALLING PMIx_Finalize"),
+            Self::CommFailed => write!(f, "PROC LOST COMMUNICATION"),
             Self::SensorBoundExceeded => write!(f, "PROC SENSOR BOUND EXCEEDED"),
-            Self::CalledAbort         => write!(f, "PROC CALLED PMIx_Abort"),
-            Self::HeartbeatFailed     => write!(f, "PROC FAILED TO REPORT HEARTBEAT"),
-            Self::Migrating           => write!(f, "PROC WAITING TO MIGRATE"),
-            Self::CannotRestart       => write!(f, "PROC CANNOT BE RESTARTED"),
-            Self::TermNonZero         => write!(f, "PROC TERMINATED WITH NON-ZERO STATUS"),
-            Self::FailedToLaunch      => write!(f, "PROC FAILED TO LAUNCH"),
-            Self::Unknown(v)          => write!(f, "UNKNOWN STATE ({v})"),
+            Self::CalledAbort => write!(f, "PROC CALLED PMIx_Abort"),
+            Self::HeartbeatFailed => write!(f, "PROC FAILED TO REPORT HEARTBEAT"),
+            Self::Migrating => write!(f, "PROC WAITING TO MIGRATE"),
+            Self::CannotRestart => write!(f, "PROC CANNOT BE RESTARTED"),
+            Self::TermNonZero => write!(f, "PROC TERMINATED WITH NON-ZERO STATUS"),
+            Self::FailedToLaunch => write!(f, "PROC FAILED TO LAUNCH"),
+            Self::Unknown(v) => write!(f, "UNKNOWN STATE ({v})"),
         }
     }
 }
@@ -930,19 +918,19 @@ impl std::fmt::Display for PmixProcState {
 #[non_exhaustive]
 pub enum PmixScope {
     /// `PMIX_SCOPE_UNDEF` (0) — undefined scope.
-    Undef     = 0,
+    Undef = 0,
 
     /// `PMIX_LOCAL` (1) — share with processes also on this node.
-    Local     = 1,
+    Local = 1,
 
     /// `PMIX_REMOTE` (2) — share with processes not on this node.
-    Remote    = 2,
+    Remote = 2,
 
     /// `PMIX_GLOBAL` (3) — share with all processes (local + remote).
-    Global    = 3,
+    Global = 3,
 
     /// `PMIX_INTERNAL` (4) — store data in the internal tables only.
-    Internal  = 4,
+    Internal = 4,
 
     /// An unrecognised or future scope value.
     Unknown(u8),
@@ -965,10 +953,10 @@ impl PmixScope {
     pub fn to_raw(self) -> u8 {
         match self {
             Self::Unknown(v) => v,
-            Self::Undef    => 0,
-            Self::Local    => 1,
-            Self::Remote   => 2,
-            Self::Global   => 3,
+            Self::Undef => 0,
+            Self::Local => 1,
+            Self::Remote => 2,
+            Self::Global => 3,
             Self::Internal => 4,
         }
     }
@@ -977,10 +965,10 @@ impl PmixScope {
 impl std::fmt::Display for PmixScope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Undef    => write!(f, "UNDEFINED"),
-            Self::Local    => write!(f, "LOCAL"),
-            Self::Remote   => write!(f, "REMOTE"),
-            Self::Global   => write!(f, "GLOBAL"),
+            Self::Undef => write!(f, "UNDEFINED"),
+            Self::Local => write!(f, "LOCAL"),
+            Self::Remote => write!(f, "REMOTE"),
+            Self::Global => write!(f, "GLOBAL"),
             Self::Internal => write!(f, "INTERNAL"),
             Self::Unknown(v) => write!(f, "UNKNOWN SCOPE ({v})"),
         }
@@ -1017,32 +1005,32 @@ impl std::fmt::Display for PmixScope {
 #[non_exhaustive]
 pub enum PmixJobState {
     /// `PMIX_JOB_STATE_UNDEF` (0) — undefined job state.
-    Undef               = 0,
+    Undef = 0,
 
     /// `PMIX_JOB_STATE_AWAITING_ALLOC` (1) — job is waiting for resources
     /// to be allocated to it.
-    AwaitingAlloc       = 1,
+    AwaitingAlloc = 1,
 
     /// `PMIX_JOB_STATE_LAUNCH_UNDERWAY` (2) — job launch is underway.
-    LaunchUnderway      = 2,
+    LaunchUnderway = 2,
 
     /// `PMIX_JOB_STATE_RUNNING` (3) — all processes have been spawned.
-    Running             = 3,
+    Running = 3,
 
     /// `PMIX_JOB_STATE_SUSPENDED` (4) — job has been suspended.
-    Suspended           = 4,
+    Suspended = 4,
 
     /// `PMIX_JOB_STATE_CONNECTED` (5) — all processes have connected to
     /// their PMIx server.
-    Connected           = 5,
+    Connected = 5,
 
     /// `PMIX_JOB_STATE_UNTERMINATED` (15) — boundary value; any state less
     /// than this means the job has not terminated.
-    Unterminated        = 15,
+    Unterminated = 15,
 
     /// `PMIX_JOB_STATE_TERMINATED` (20) — job has terminated and is no
     /// longer running, typically accompanied by the job exit status.
-    Terminated          = 20,
+    Terminated = 20,
 
     /// `PMIX_JOB_STATE_TERMINATED_WITH_ERROR` (50) — job has terminated
     /// and is no longer running, typically accompanied by a job-related
@@ -1057,12 +1045,12 @@ impl PmixJobState {
     /// Convert a raw `pmix_job_state_t` (`u8`) into a `PmixJobState`.
     pub fn from_raw(state: u8) -> Self {
         match state {
-            0  => Self::Undef,
-            1  => Self::AwaitingAlloc,
-            2  => Self::LaunchUnderway,
-            3  => Self::Running,
-            4  => Self::Suspended,
-            5  => Self::Connected,
+            0 => Self::Undef,
+            1 => Self::AwaitingAlloc,
+            2 => Self::LaunchUnderway,
+            3 => Self::Running,
+            4 => Self::Suspended,
+            5 => Self::Connected,
             15 => Self::Unterminated,
             20 => Self::Terminated,
             50 => Self::TerminatedWithError,
@@ -1074,14 +1062,14 @@ impl PmixJobState {
     pub fn to_raw(self) -> u8 {
         match self {
             Self::Unknown(v) => v,
-            Self::Undef               => 0,
-            Self::AwaitingAlloc       => 1,
-            Self::LaunchUnderway      => 2,
-            Self::Running             => 3,
-            Self::Suspended           => 4,
-            Self::Connected           => 5,
-            Self::Unterminated        => 15,
-            Self::Terminated          => 20,
+            Self::Undef => 0,
+            Self::AwaitingAlloc => 1,
+            Self::LaunchUnderway => 2,
+            Self::Running => 3,
+            Self::Suspended => 4,
+            Self::Connected => 5,
+            Self::Unterminated => 15,
+            Self::Terminated => 20,
             Self::TerminatedWithError => 50,
         }
     }
@@ -1090,14 +1078,14 @@ impl PmixJobState {
 impl std::fmt::Display for PmixJobState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Undef               => write!(f, "UNDEF"),
-            Self::AwaitingAlloc       => write!(f, "AWAITING_ALLOC"),
-            Self::LaunchUnderway      => write!(f, "LAUNCH_UNDERWAY"),
-            Self::Running             => write!(f, "RUNNING"),
-            Self::Suspended           => write!(f, "SUSPENDED"),
-            Self::Connected           => write!(f, "CONNECTED"),
-            Self::Unterminated        => write!(f, "UNTERMINATED"),
-            Self::Terminated          => write!(f, "TERMINATED"),
+            Self::Undef => write!(f, "UNDEF"),
+            Self::AwaitingAlloc => write!(f, "AWAITING_ALLOC"),
+            Self::LaunchUnderway => write!(f, "LAUNCH_UNDERWAY"),
+            Self::Running => write!(f, "RUNNING"),
+            Self::Suspended => write!(f, "SUSPENDED"),
+            Self::Connected => write!(f, "CONNECTED"),
+            Self::Unterminated => write!(f, "UNTERMINATED"),
+            Self::Terminated => write!(f, "TERMINATED"),
             Self::TerminatedWithError => write!(f, "TERMINATED_WITH_ERROR"),
             Self::Unknown(v) => write!(f, "UNKNOWN JOB STATE ({v})"),
         }
@@ -1136,10 +1124,10 @@ pub enum PmixLinkState {
     UnknownState = 0,
 
     /// `PMIX_LINK_DOWN` (1) — the port is inactive.
-    LinkDown     = 1,
+    LinkDown = 1,
 
     /// `PMIX_LINK_UP` (2) — the port is active.
-    LinkUp       = 2,
+    LinkUp = 2,
 
     /// An unrecognised or future link state value.
     Unknown(u8),
@@ -1161,8 +1149,8 @@ impl PmixLinkState {
         match self {
             Self::Unknown(v) => v,
             Self::UnknownState => 0,
-            Self::LinkDown     => 1,
-            Self::LinkUp       => 2,
+            Self::LinkDown => 1,
+            Self::LinkUp => 2,
         }
     }
 }
@@ -1171,9 +1159,9 @@ impl std::fmt::Display for PmixLinkState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownState => write!(f, "UNKNOWN"),
-            Self::LinkDown     => write!(f, "INACTIVE"),
-            Self::LinkUp       => write!(f, "ACTIVE"),
-            Self::Unknown(v)   => write!(f, "UNKNOWN LINK STATE ({v})"),
+            Self::LinkDown => write!(f, "INACTIVE"),
+            Self::LinkUp => write!(f, "ACTIVE"),
+            Self::Unknown(v) => write!(f, "UNKNOWN LINK STATE ({v})"),
         }
     }
 }
@@ -1213,24 +1201,24 @@ pub enum PmixDeviceType {
     UnknownType = 0x00,
 
     /// `PMIX_DEVTYPE_BLOCK` (0x01) — block storage device.
-    Block       = 0x01,
+    Block = 0x01,
 
     /// `PMIX_DEVTYPE_GPU` (0x02) — graphics processing unit.
-    Gpu         = 0x02,
+    Gpu = 0x02,
 
     /// `PMIX_DEVTYPE_NETWORK` (0x04) — network interface card.
-    Network     = 0x04,
+    Network = 0x04,
 
     /// `PMIX_DEVTYPE_OPENFABRICS` (0x08) — InfiniBand / RoCE / iWARP
     /// fabric adapter.
     OpenFabrics = 0x08,
 
     /// `PMIX_DEVTYPE_DMA` (0x10) — direct memory access engine.
-    Dma         = 0x10,
+    Dma = 0x10,
 
     /// `PMIX_DEVTYPE_COPROC` (0x20) — coprocessor (FPGA, accelerator,
     /// etc.).
-    Coproc      = 0x20,
+    Coproc = 0x20,
 
     /// An unrecognised or future device type value.
     Unknown(u64),
@@ -1247,21 +1235,21 @@ impl PmixDeviceType {
             0x08 => Self::OpenFabrics,
             0x10 => Self::Dma,
             0x20 => Self::Coproc,
-            other  => Self::Unknown(other),
+            other => Self::Unknown(other),
         }
     }
 
     /// Return the raw `u64` value suitable for passing to the C API.
     pub fn to_raw(self) -> u64 {
         match self {
-            Self::Unknown(v)     => v,
-            Self::UnknownType    => 0x00,
-            Self::Block          => 0x01,
-            Self::Gpu            => 0x02,
-            Self::Network        => 0x04,
-            Self::OpenFabrics    => 0x08,
-            Self::Dma            => 0x10,
-            Self::Coproc         => 0x20,
+            Self::Unknown(v) => v,
+            Self::UnknownType => 0x00,
+            Self::Block => 0x01,
+            Self::Gpu => 0x02,
+            Self::Network => 0x04,
+            Self::OpenFabrics => 0x08,
+            Self::Dma => 0x10,
+            Self::Coproc => 0x20,
         }
     }
 }
@@ -1269,14 +1257,14 @@ impl PmixDeviceType {
 impl std::fmt::Display for PmixDeviceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnknownType   => write!(f, "UNKNOWN"),
-            Self::Block         => write!(f, "BLOCK"),
-            Self::Gpu           => write!(f, "GPU"),
-            Self::Network       => write!(f, "NETWORK"),
-            Self::OpenFabrics   => write!(f, "OPENFABRICS"),
-            Self::Dma           => write!(f, "DMA"),
-            Self::Coproc        => write!(f, "COPROCESSOR"),
-            Self::Unknown(v)    => write!(f, "UNKNOWN DEVICE TYPE ({v:X})"),
+            Self::UnknownType => write!(f, "UNKNOWN"),
+            Self::Block => write!(f, "BLOCK"),
+            Self::Gpu => write!(f, "GPU"),
+            Self::Network => write!(f, "NETWORK"),
+            Self::OpenFabrics => write!(f, "OPENFABRICS"),
+            Self::Dma => write!(f, "DMA"),
+            Self::Coproc => write!(f, "COPROCESSOR"),
+            Self::Unknown(v) => write!(f, "UNKNOWN DEVICE TYPE ({v:X})"),
         }
     }
 }
@@ -1322,11 +1310,11 @@ impl PmixPersistence {
     /// Convert a raw `pmix_persistence_t` (`u8`) into a `PmixPersistence`.
     pub fn from_raw(persist: u8) -> Self {
         match persist {
-            0   => Self::Indefinite,
-            1   => Self::FirstRead,
-            2   => Self::Process,
-            3   => Self::Application,
-            4   => Self::Session,
+            0 => Self::Indefinite,
+            1 => Self::FirstRead,
+            2 => Self::Process,
+            3 => Self::Application,
+            4 => Self::Session,
             255 => Self::Invalid,
             other => Self::Unknown(other),
         }
@@ -1336,12 +1324,12 @@ impl PmixPersistence {
     pub fn to_raw(self) -> u8 {
         match self {
             Self::Unknown(v) => v,
-            Self::Indefinite  => 0,
-            Self::FirstRead   => 1,
-            Self::Process     => 2,
+            Self::Indefinite => 0,
+            Self::FirstRead => 1,
+            Self::Process => 2,
             Self::Application => 3,
-            Self::Session     => 4,
-            Self::Invalid     => 255,
+            Self::Session => 4,
+            Self::Invalid => 255,
         }
     }
 }
@@ -1349,13 +1337,19 @@ impl PmixPersistence {
 impl std::fmt::Display for PmixPersistence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Indefinite  => write!(f, "INDEFINITE"),
-            Self::FirstRead   => write!(f, "DELETE ON FIRST ACCESS"),
-            Self::Process     => write!(f, "RETAIN UNTIL PUBLISHING PROCESS TERMINATES"),
-            Self::Application => write!(f, "RETAIN UNTIL APPLICATION OF PUBLISHING PROCESS TERMINATES"),
-            Self::Session     => write!(f, "RETAIN UNTIL ALLOCATION OF PUBLISHING PROCESS TERMINATES"),
-            Self::Invalid     => write!(f, "INVALID"),
-            Self::Unknown(v)  => write!(f, "UNKNOWN PERSISTENCE ({v})"),
+            Self::Indefinite => write!(f, "INDEFINITE"),
+            Self::FirstRead => write!(f, "DELETE ON FIRST ACCESS"),
+            Self::Process => write!(f, "RETAIN UNTIL PUBLISHING PROCESS TERMINATES"),
+            Self::Application => write!(
+                f,
+                "RETAIN UNTIL APPLICATION OF PUBLISHING PROCESS TERMINATES"
+            ),
+            Self::Session => write!(
+                f,
+                "RETAIN UNTIL ALLOCATION OF PUBLISHING PROCESS TERMINATES"
+            ),
+            Self::Invalid => write!(f, "INVALID"),
+            Self::Unknown(v) => write!(f, "UNKNOWN PERSISTENCE ({v})"),
         }
     }
 }
@@ -1413,14 +1407,14 @@ impl PmixDataRange {
     /// Convert a raw `pmix_data_range_t` (`u8`) into a `PmixDataRange`.
     pub fn from_raw(range: u8) -> Self {
         match range {
-            0   => Self::Undef,
-            1   => Self::Rm,
-            2   => Self::Local,
-            3   => Self::Namespace,
-            4   => Self::Session,
-            5   => Self::Global,
-            6   => Self::Custom,
-            7   => Self::ProcLocal,
+            0 => Self::Undef,
+            1 => Self::Rm,
+            2 => Self::Local,
+            3 => Self::Namespace,
+            4 => Self::Session,
+            5 => Self::Global,
+            6 => Self::Custom,
+            7 => Self::ProcLocal,
             255 => Self::Invalid,
             _other => Self::Unknown,
         }
@@ -1430,15 +1424,15 @@ impl PmixDataRange {
     pub fn to_raw(self) -> u8 {
         match self {
             Self::Unknown => 128,
-            Self::Undef     => 0,
-            Self::Rm        => 1,
-            Self::Local     => 2,
+            Self::Undef => 0,
+            Self::Rm => 1,
+            Self::Local => 2,
             Self::Namespace => 3,
-            Self::Session   => 4,
-            Self::Global    => 5,
-            Self::Custom    => 6,
+            Self::Session => 4,
+            Self::Global => 5,
+            Self::Custom => 6,
             Self::ProcLocal => 7,
-            Self::Invalid   => 255,
+            Self::Invalid => 255,
         }
     }
 }
@@ -1446,16 +1440,16 @@ impl PmixDataRange {
 impl std::fmt::Display for PmixDataRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Undef     => write!(f, "UNDEFINED"),
-            Self::Rm        => write!(f, "RM"),
-            Self::Local     => write!(f, "LOCAL"),
+            Self::Undef => write!(f, "UNDEFINED"),
+            Self::Rm => write!(f, "RM"),
+            Self::Local => write!(f, "LOCAL"),
             Self::Namespace => write!(f, "NAMESPACE"),
-            Self::Session   => write!(f, "SESSION"),
-            Self::Global    => write!(f, "GLOBAL"),
-            Self::Custom    => write!(f, "CUSTOM"),
+            Self::Session => write!(f, "SESSION"),
+            Self::Global => write!(f, "GLOBAL"),
+            Self::Custom => write!(f, "CUSTOM"),
             Self::ProcLocal => write!(f, "PROC LOCAL"),
-            Self::Invalid   => write!(f, "INVALID"),
-            Self::Unknown   => write!(f, "UNKNOWN RANGE (128)"),
+            Self::Invalid => write!(f, "INVALID"),
+            Self::Unknown => write!(f, "UNKNOWN RANGE (128)"),
         }
     }
 }
@@ -1689,16 +1683,16 @@ impl PmixDataType {
     /// Convert a raw `pmix_data_type_t` (`u16`) into a `PmixDataType`.
     pub fn from_raw(ty: u16) -> Self {
         match ty {
-            0  => Self::Undef,
-            1  => Self::Bool,
-            2  => Self::Byte,
-            3  => Self::String,
-            4  => Self::Size,
-            5  => Self::Pid,
-            6  => Self::Int,
-            7  => Self::Int8,
-            8  => Self::Int16,
-            9  => Self::Int32,
+            0 => Self::Undef,
+            1 => Self::Bool,
+            2 => Self::Byte,
+            3 => Self::String,
+            4 => Self::Size,
+            5 => Self::Pid,
+            6 => Self::Int,
+            7 => Self::Int8,
+            8 => Self::Int16,
+            9 => Self::Int32,
             10 => Self::Int64,
             11 => Self::Uint,
             12 => Self::Uint8,
@@ -1756,81 +1750,81 @@ impl PmixDataType {
             67 => Self::StorAccess,
             68 => Self::StorPersist,
             69 => Self::StorAccessType,
-            _  => Self::Unknown,
+            _ => Self::Unknown,
         }
     }
 
     /// Return the raw `u16` value suitable for passing to the C API.
     pub fn to_raw(self) -> u16 {
         match self {
-            Self::Undef              => 0,
-            Self::Bool               => 1,
-            Self::Byte               => 2,
-            Self::String             => 3,
-            Self::Size               => 4,
-            Self::Pid                => 5,
-            Self::Int                => 6,
-            Self::Int8               => 7,
-            Self::Int16              => 8,
-            Self::Int32              => 9,
-            Self::Int64              => 10,
-            Self::Uint               => 11,
-            Self::Uint8              => 12,
-            Self::Uint16             => 13,
-            Self::Uint32             => 14,
-            Self::Uint64             => 15,
-            Self::Float              => 16,
-            Self::Double             => 17,
-            Self::Timeval            => 18,
-            Self::Time               => 19,
-            Self::Status             => 20,
-            Self::Value              => 21,
-            Self::Proc               => 22,
-            Self::App                => 23,
-            Self::Info               => 24,
-            Self::Pdata              => 25,
-            Self::ByteObject         => 27,
-            Self::Kval               => 28,
-            Self::Persist            => 30,
-            Self::Pointer            => 31,
-            Self::Scope              => 32,
-            Self::DataRange          => 33,
-            Self::Command            => 34,
-            Self::InfoDirectives     => 35,
-            Self::DataType           => 36,
-            Self::ProcState          => 37,
-            Self::ProcInfo           => 38,
-            Self::DataArray          => 39,
-            Self::ProcRank           => 40,
-            Self::Query              => 41,
-            Self::CompressedString   => 42,
-            Self::AllocDirective     => 43,
-            Self::IofChannel         => 45,
-            Self::Envar              => 46,
-            Self::Coord              => 47,
-            Self::Regattr            => 48,
-            Self::Regex              => 49,
-            Self::JobState           => 50,
-            Self::LinkState          => 51,
-            Self::ProcCpuset         => 52,
-            Self::Geometry           => 53,
-            Self::DeviceDist         => 54,
-            Self::Endpoint           => 55,
-            Self::Topo               => 56,
-            Self::Devtype            => 57,
-            Self::LocType            => 58,
+            Self::Undef => 0,
+            Self::Bool => 1,
+            Self::Byte => 2,
+            Self::String => 3,
+            Self::Size => 4,
+            Self::Pid => 5,
+            Self::Int => 6,
+            Self::Int8 => 7,
+            Self::Int16 => 8,
+            Self::Int32 => 9,
+            Self::Int64 => 10,
+            Self::Uint => 11,
+            Self::Uint8 => 12,
+            Self::Uint16 => 13,
+            Self::Uint32 => 14,
+            Self::Uint64 => 15,
+            Self::Float => 16,
+            Self::Double => 17,
+            Self::Timeval => 18,
+            Self::Time => 19,
+            Self::Status => 20,
+            Self::Value => 21,
+            Self::Proc => 22,
+            Self::App => 23,
+            Self::Info => 24,
+            Self::Pdata => 25,
+            Self::ByteObject => 27,
+            Self::Kval => 28,
+            Self::Persist => 30,
+            Self::Pointer => 31,
+            Self::Scope => 32,
+            Self::DataRange => 33,
+            Self::Command => 34,
+            Self::InfoDirectives => 35,
+            Self::DataType => 36,
+            Self::ProcState => 37,
+            Self::ProcInfo => 38,
+            Self::DataArray => 39,
+            Self::ProcRank => 40,
+            Self::Query => 41,
+            Self::CompressedString => 42,
+            Self::AllocDirective => 43,
+            Self::IofChannel => 45,
+            Self::Envar => 46,
+            Self::Coord => 47,
+            Self::Regattr => 48,
+            Self::Regex => 49,
+            Self::JobState => 50,
+            Self::LinkState => 51,
+            Self::ProcCpuset => 52,
+            Self::Geometry => 53,
+            Self::DeviceDist => 54,
+            Self::Endpoint => 55,
+            Self::Topo => 56,
+            Self::Devtype => 57,
+            Self::LocType => 58,
             Self::CompressedByteObject => 59,
-            Self::ProcNspace         => 60,
-            Self::ProcStats          => 61,
-            Self::DiskStats          => 62,
-            Self::NetStats           => 63,
-            Self::NodeStats          => 64,
-            Self::DataBuffer         => 65,
-            Self::StorMedium         => 66,
-            Self::StorAccess         => 67,
-            Self::StorPersist        => 68,
-            Self::StorAccessType     => 69,
-            Self::Unknown            => 70,
+            Self::ProcNspace => 60,
+            Self::ProcStats => 61,
+            Self::DiskStats => 62,
+            Self::NetStats => 63,
+            Self::NodeStats => 64,
+            Self::DataBuffer => 65,
+            Self::StorMedium => 66,
+            Self::StorAccess => 67,
+            Self::StorPersist => 68,
+            Self::StorAccessType => 69,
+            Self::Unknown => 70,
         }
     }
 }
@@ -1838,74 +1832,74 @@ impl PmixDataType {
 impl std::fmt::Display for PmixDataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Undef              => write!(f, "UNDEF"),
-            Self::Bool               => write!(f, "BOOL"),
-            Self::Byte               => write!(f, "BYTE"),
-            Self::String             => write!(f, "STRING"),
-            Self::Size               => write!(f, "SIZE"),
-            Self::Pid                => write!(f, "PID"),
-            Self::Int                => write!(f, "INT"),
-            Self::Int8               => write!(f, "INT8"),
-            Self::Int16              => write!(f, "INT16"),
-            Self::Int32              => write!(f, "INT32"),
-            Self::Int64              => write!(f, "INT64"),
-            Self::Uint               => write!(f, "UINT"),
-            Self::Uint8              => write!(f, "UINT8"),
-            Self::Uint16             => write!(f, "UINT16"),
-            Self::Uint32             => write!(f, "UINT32"),
-            Self::Uint64             => write!(f, "UINT64"),
-            Self::Float              => write!(f, "FLOAT"),
-            Self::Double             => write!(f, "DOUBLE"),
-            Self::Timeval            => write!(f, "TIMEVAL"),
-            Self::Time               => write!(f, "TIME"),
-            Self::Status             => write!(f, "STATUS"),
-            Self::Value              => write!(f, "VALUE"),
-            Self::Proc               => write!(f, "PROC"),
-            Self::App                => write!(f, "APP"),
-            Self::Info               => write!(f, "INFO"),
-            Self::Pdata              => write!(f, "PDATA"),
-            Self::ByteObject         => write!(f, "BYTE_OBJECT"),
-            Self::Kval               => write!(f, "KVAL"),
-            Self::Persist            => write!(f, "PERSIST"),
-            Self::Pointer            => write!(f, "POINTER"),
-            Self::Scope              => write!(f, "SCOPE"),
-            Self::DataRange          => write!(f, "DATA_RANGE"),
-            Self::Command            => write!(f, "COMMAND"),
-            Self::InfoDirectives     => write!(f, "INFO_DIRECTIVES"),
-            Self::DataType           => write!(f, "DATA_TYPE"),
-            Self::ProcState          => write!(f, "PROC_STATE"),
-            Self::ProcInfo           => write!(f, "PROC_INFO"),
-            Self::DataArray          => write!(f, "DATA_ARRAY"),
-            Self::ProcRank           => write!(f, "PROC_RANK"),
-            Self::Query              => write!(f, "QUERY"),
-            Self::CompressedString   => write!(f, "COMPRESSED_STRING"),
-            Self::AllocDirective     => write!(f, "ALLOC_DIRECTIVE"),
-            Self::IofChannel         => write!(f, "IOF_CHANNEL"),
-            Self::Envar              => write!(f, "ENVAR"),
-            Self::Coord              => write!(f, "COORD"),
-            Self::Regattr            => write!(f, "REGATTR"),
-            Self::Regex              => write!(f, "REGEX"),
-            Self::JobState           => write!(f, "JOB_STATE"),
-            Self::LinkState          => write!(f, "LINK_STATE"),
-            Self::ProcCpuset         => write!(f, "PROC_CPUSET"),
-            Self::Geometry           => write!(f, "GEOMETRY"),
-            Self::DeviceDist         => write!(f, "DEVICE_DIST"),
-            Self::Endpoint           => write!(f, "ENDPOINT"),
-            Self::Topo               => write!(f, "TOPO"),
-            Self::Devtype            => write!(f, "DEVTYPE"),
-            Self::LocType            => write!(f, "LOCTYPE"),
+            Self::Undef => write!(f, "UNDEF"),
+            Self::Bool => write!(f, "BOOL"),
+            Self::Byte => write!(f, "BYTE"),
+            Self::String => write!(f, "STRING"),
+            Self::Size => write!(f, "SIZE"),
+            Self::Pid => write!(f, "PID"),
+            Self::Int => write!(f, "INT"),
+            Self::Int8 => write!(f, "INT8"),
+            Self::Int16 => write!(f, "INT16"),
+            Self::Int32 => write!(f, "INT32"),
+            Self::Int64 => write!(f, "INT64"),
+            Self::Uint => write!(f, "UINT"),
+            Self::Uint8 => write!(f, "UINT8"),
+            Self::Uint16 => write!(f, "UINT16"),
+            Self::Uint32 => write!(f, "UINT32"),
+            Self::Uint64 => write!(f, "UINT64"),
+            Self::Float => write!(f, "FLOAT"),
+            Self::Double => write!(f, "DOUBLE"),
+            Self::Timeval => write!(f, "TIMEVAL"),
+            Self::Time => write!(f, "TIME"),
+            Self::Status => write!(f, "STATUS"),
+            Self::Value => write!(f, "VALUE"),
+            Self::Proc => write!(f, "PROC"),
+            Self::App => write!(f, "APP"),
+            Self::Info => write!(f, "INFO"),
+            Self::Pdata => write!(f, "PDATA"),
+            Self::ByteObject => write!(f, "BYTE_OBJECT"),
+            Self::Kval => write!(f, "KVAL"),
+            Self::Persist => write!(f, "PERSIST"),
+            Self::Pointer => write!(f, "POINTER"),
+            Self::Scope => write!(f, "SCOPE"),
+            Self::DataRange => write!(f, "DATA_RANGE"),
+            Self::Command => write!(f, "COMMAND"),
+            Self::InfoDirectives => write!(f, "INFO_DIRECTIVES"),
+            Self::DataType => write!(f, "DATA_TYPE"),
+            Self::ProcState => write!(f, "PROC_STATE"),
+            Self::ProcInfo => write!(f, "PROC_INFO"),
+            Self::DataArray => write!(f, "DATA_ARRAY"),
+            Self::ProcRank => write!(f, "PROC_RANK"),
+            Self::Query => write!(f, "QUERY"),
+            Self::CompressedString => write!(f, "COMPRESSED_STRING"),
+            Self::AllocDirective => write!(f, "ALLOC_DIRECTIVE"),
+            Self::IofChannel => write!(f, "IOF_CHANNEL"),
+            Self::Envar => write!(f, "ENVAR"),
+            Self::Coord => write!(f, "COORD"),
+            Self::Regattr => write!(f, "REGATTR"),
+            Self::Regex => write!(f, "REGEX"),
+            Self::JobState => write!(f, "JOB_STATE"),
+            Self::LinkState => write!(f, "LINK_STATE"),
+            Self::ProcCpuset => write!(f, "PROC_CPUSET"),
+            Self::Geometry => write!(f, "GEOMETRY"),
+            Self::DeviceDist => write!(f, "DEVICE_DIST"),
+            Self::Endpoint => write!(f, "ENDPOINT"),
+            Self::Topo => write!(f, "TOPO"),
+            Self::Devtype => write!(f, "DEVTYPE"),
+            Self::LocType => write!(f, "LOCTYPE"),
             Self::CompressedByteObject => write!(f, "COMPRESSED_BYTE_OBJECT"),
-            Self::ProcNspace         => write!(f, "PROC_NSPACE"),
-            Self::ProcStats          => write!(f, "PROC_STATS"),
-            Self::DiskStats          => write!(f, "DISK_STATS"),
-            Self::NetStats           => write!(f, "NET_STATS"),
-            Self::NodeStats          => write!(f, "NODE_STATS"),
-            Self::DataBuffer         => write!(f, "DATA_BUFFER"),
-            Self::StorMedium         => write!(f, "STOR_MEDIUM"),
-            Self::StorAccess         => write!(f, "STOR_ACCESS"),
-            Self::StorPersist        => write!(f, "STOR_PERSIST"),
-            Self::StorAccessType     => write!(f, "STOR_ACCESS_TYPE"),
-            Self::Unknown            => write!(f, "UNKNOWN"),
+            Self::ProcNspace => write!(f, "PROC_NSPACE"),
+            Self::ProcStats => write!(f, "PROC_STATS"),
+            Self::DiskStats => write!(f, "DISK_STATS"),
+            Self::NetStats => write!(f, "NET_STATS"),
+            Self::NodeStats => write!(f, "NODE_STATS"),
+            Self::DataBuffer => write!(f, "DATA_BUFFER"),
+            Self::StorMedium => write!(f, "STOR_MEDIUM"),
+            Self::StorAccess => write!(f, "STOR_ACCESS"),
+            Self::StorPersist => write!(f, "STOR_PERSIST"),
+            Self::StorAccessType => write!(f, "STOR_ACCESS_TYPE"),
+            Self::Unknown => write!(f, "UNKNOWN"),
         }
     }
 }
@@ -1999,32 +1993,53 @@ impl IOFChannelFlags {
     pub const ALL_CHANNELS: Self = Self(PMIX_FWD_ALL_CHANNELS as pmix_iof_channel_t);
 
     /// Check if no channels are set.
-    pub fn is_empty(self) -> bool { self.0 == 0 }
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
     /// Check if a specific channel flag is set.
-    pub fn contains(self, flag: Self) -> bool { (self.0 & flag.0) == flag.0 }
+    pub fn contains(self, flag: Self) -> bool {
+        (self.0 & flag.0) == flag.0
+    }
     /// Return the raw `pmix_iof_channel_t` value.
-    pub fn raw(self) -> pmix_iof_channel_t { self.0 }
+    pub fn raw(self) -> pmix_iof_channel_t {
+        self.0
+    }
 }
 
 impl std::ops::BitOr for IOFChannelFlags {
     type Output = Self;
-    fn bitor(self, rhs: Self) -> Self { Self(self.0 | rhs.0) }
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
 }
 
 impl std::ops::BitOrAssign for IOFChannelFlags {
-    fn bitor_assign(&mut self, rhs: Self) { self.0 |= rhs.0; }
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
 }
 
 impl std::fmt::Display for IOFChannelFlags {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parts = Vec::new();
-        if self.contains(Self::STDIN)   { parts.push("STDIN"); }
-        if self.contains(Self::STDOUT)  { parts.push("STDOUT"); }
-        if self.contains(Self::STDERR)  { parts.push("STDERR"); }
-        if self.contains(Self::STDDIAG) { parts.push("STDDIAG"); }
+        if self.contains(Self::STDIN) {
+            parts.push("STDIN");
+        }
+        if self.contains(Self::STDOUT) {
+            parts.push("STDOUT");
+        }
+        if self.contains(Self::STDERR) {
+            parts.push("STDERR");
+        }
+        if self.contains(Self::STDDIAG) {
+            parts.push("STDDIAG");
+        }
         if parts.is_empty() {
-            if self.is_empty() { write!(f, "NO_CHANNELS") }
-            else { write!(f, "0x{:04X}", self.0) }
+            if self.is_empty() {
+                write!(f, "NO_CHANNELS")
+            } else {
+                write!(f, "0x{:04X}", self.0)
+            }
         } else {
             write!(f, "{}", parts.join("|"))
         }
@@ -2040,10 +2055,7 @@ pub enum BuilderError {
     KeyEmpty,
     /// The key (in bytes, *excluding* the NUL terminator) exceeds
     /// `PMIX_MAX_KEYLEN` (511).
-    KeyTooLong {
-        len:     usize,
-        maximum: usize,
-    },
+    KeyTooLong { len: usize, maximum: usize },
     /// No value was supplied before `build()` / `build_raw()` was called.
     MissingValue,
 }
@@ -2051,11 +2063,12 @@ pub enum BuilderError {
 impl std::fmt::Display for BuilderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::KeyContainsNul(e)           => write!(f, "key contains interior NUL: {e}"),
-            Self::KeyEmpty                     => write!(f, "key must not be empty"),
-            Self::KeyTooLong { len, maximum }  =>
-                write!(f, "key length {len} exceeds PMIX_MAX_KEYLEN ({maximum})"),
-            Self::MissingValue                 => write!(f, "no value supplied to builder"),
+            Self::KeyContainsNul(e) => write!(f, "key contains interior NUL: {e}"),
+            Self::KeyEmpty => write!(f, "key must not be empty"),
+            Self::KeyTooLong { len, maximum } => {
+                write!(f, "key length {len} exceeds PMIX_MAX_KEYLEN ({maximum})")
+            }
+            Self::MissingValue => write!(f, "no value supplied to builder"),
         }
     }
 }
@@ -2094,9 +2107,9 @@ pub enum ValueError {
 impl std::fmt::Display for ValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ContainsNul(e)  => write!(f, "string contains interior NUL: {e}"),
-            Self::MissingPayload  => write!(f, "no payload set on PmixValueBuilder"),
-            Self::EmptyData       => write!(f, "data slice must not be empty"),
+            Self::ContainsNul(e) => write!(f, "string contains interior NUL: {e}"),
+            Self::MissingPayload => write!(f, "no payload set on PmixValueBuilder"),
+            Self::EmptyData => write!(f, "data slice must not be empty"),
         }
     }
 }
@@ -2111,7 +2124,9 @@ impl std::error::Error for ValueError {
 }
 
 impl From<NulError> for ValueError {
-    fn from(e: NulError) -> Self { Self::ContainsNul(e) }
+    fn from(e: NulError) -> Self {
+        Self::ContainsNul(e)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2121,13 +2136,16 @@ impl From<NulError> for ValueError {
 /// Newtype so callers don't need to import `sys::pmix_timeval_t` directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PmixTimeval {
-    pub tv_sec:  i64,
+    pub tv_sec: i64,
     pub tv_usec: i64,
 }
 
 impl From<PmixTimeval> for timeval {
     fn from(v: PmixTimeval) -> Self {
-        Self { tv_sec: v.tv_sec, tv_usec: v.tv_usec }
+        Self {
+            tv_sec: v.tv_sec,
+            tv_usec: v.tv_usec,
+        }
     }
 }
 
@@ -2141,8 +2159,8 @@ impl From<PmixTimeval> for timeval {
 /// happens at construction time, not at `build()` time.
 #[derive(Debug, Clone)]
 pub struct PmixEnvar {
-    pub envar:     CString,
-    pub value:     CString,
+    pub envar: CString,
+    pub value: CString,
     pub separator: u8,
 }
 
@@ -2151,8 +2169,8 @@ impl PmixEnvar {
     /// an interior NUL.
     pub fn new(envar: &str, value: &str, separator: char) -> Result<Self, NulError> {
         Ok(Self {
-            envar:     CString::new(envar)?,
-            value:     CString::new(value)?,
+            envar: CString::new(envar)?,
+            value: CString::new(value)?,
             separator: separator as u8,
         })
     }
@@ -2167,8 +2185,13 @@ impl Proc {
         }
         handle.rank = rank;
         let c_name = CString::new(nspace)?;
-        unsafe {PMIx_Load_nspace(handle.nspace.as_mut_ptr(), c_name.as_ptr());}
-        Ok(Proc{handle: handle, len:1})
+        unsafe {
+            PMIx_Load_nspace(handle.nspace.as_mut_ptr(), c_name.as_ptr());
+        }
+        Ok(Proc {
+            handle: handle,
+            len: 1,
+        })
     }
 
     pub fn new_with_nspace(&self, rank: u32) -> Result<Self, NulError> {
@@ -2182,7 +2205,10 @@ impl Proc {
             let src_handle = self.handle;
             PMIx_Load_nspace(handle.nspace.as_mut_ptr(), src_handle.nspace.as_ptr());
         }
-        Ok(Proc{handle: handle, len:1})
+        Ok(Proc {
+            handle: handle,
+            len: 1,
+        })
     }
 
     pub fn get_rank(&self) -> u32 {
@@ -2214,18 +2240,28 @@ impl InfoFlags {
     /// `PMIX_INFO_REQD_PROCESSED` — set by the library upon processing.
     pub const REQD_PROCESSED: Self = Self(PMIX_INFO_REQD_PROCESSED);
 
-    pub fn is_empty(self)        -> bool { self.0 == 0 }
-    pub fn contains(self, f: Self) -> bool { (self.0 & f.0) == f.0 }
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+    pub fn contains(self, f: Self) -> bool {
+        (self.0 & f.0) == f.0
+    }
     /// Return the raw `pmix_info_directives_t` value.
-    pub fn raw(self) -> pmix_info_directives_t { self.0 }
+    pub fn raw(self) -> pmix_info_directives_t {
+        self.0
+    }
 }
 
 impl std::ops::BitOr for InfoFlags {
     type Output = Self;
-    fn bitor(self, rhs: Self) -> Self { Self(self.0 | rhs.0) }
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
 }
 impl std::ops::BitOrAssign for InfoFlags {
-    fn bitor_assign(&mut self, rhs: Self) { self.0 |= rhs.0; }
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixPayload – the Rust-side discriminated union
@@ -2285,7 +2321,7 @@ pub enum PmixPayload {
     /// (`PMIX_DATA_ARRAY`). Element type is recorded separately.
     DataArray {
         elem_type: pmix_data_type_t,
-        elements:  Vec<pmix_value_t>,
+        elements: Vec<pmix_value_t>,
     },
 }
 
@@ -2293,39 +2329,39 @@ impl PmixPayload {
     /// Return the `pmix_data_type_t` constant that matches this variant.
     pub fn type_tag(&self) -> pmix_data_type_t {
         (match self {
-            Self::Undef             => PMIX_UNDEF,
-            Self::Bool(_)           => PMIX_BOOL,
-            Self::Byte(_)           => PMIX_BYTE,
-            Self::String(_)         => PMIX_STRING,
-            Self::Size(_)           => PMIX_SIZE,
-            Self::Pid(_)            => PMIX_PID,
-            Self::Int(_)            => PMIX_INT,
-            Self::Int8(_)           => PMIX_INT8,
-            Self::Int16(_)          => PMIX_INT16,
-            Self::Int32(_)          => PMIX_INT32,
-            Self::Int64(_)          => PMIX_INT64,
-            Self::Uint(_)           => PMIX_UINT,
-            Self::Uint8(_)          => PMIX_UINT8,
-            Self::Uint16(_)         => PMIX_UINT16,
-            Self::Uint32(_)         => PMIX_UINT32,
-            Self::Uint64(_)         => PMIX_UINT64,
-            Self::Float(_)          => PMIX_FLOAT,
-            Self::Double(_)         => PMIX_DOUBLE,
-            Self::Timeval(_)        => PMIX_TIMEVAL,
-            Self::Status(_)         => PMIX_STATUS,
-            Self::Rank(_)           => PMIX_PROC_RANK,
-            Self::Persist(_)        => PMIX_PERSIST,
-            Self::Scope(_)          => PMIX_SCOPE,
-            Self::DataRange(_)      => PMIX_DATA_RANGE,
-            Self::ProcState(_)      => PMIX_PROC_STATE,
+            Self::Undef => PMIX_UNDEF,
+            Self::Bool(_) => PMIX_BOOL,
+            Self::Byte(_) => PMIX_BYTE,
+            Self::String(_) => PMIX_STRING,
+            Self::Size(_) => PMIX_SIZE,
+            Self::Pid(_) => PMIX_PID,
+            Self::Int(_) => PMIX_INT,
+            Self::Int8(_) => PMIX_INT8,
+            Self::Int16(_) => PMIX_INT16,
+            Self::Int32(_) => PMIX_INT32,
+            Self::Int64(_) => PMIX_INT64,
+            Self::Uint(_) => PMIX_UINT,
+            Self::Uint8(_) => PMIX_UINT8,
+            Self::Uint16(_) => PMIX_UINT16,
+            Self::Uint32(_) => PMIX_UINT32,
+            Self::Uint64(_) => PMIX_UINT64,
+            Self::Float(_) => PMIX_FLOAT,
+            Self::Double(_) => PMIX_DOUBLE,
+            Self::Timeval(_) => PMIX_TIMEVAL,
+            Self::Status(_) => PMIX_STATUS,
+            Self::Rank(_) => PMIX_PROC_RANK,
+            Self::Persist(_) => PMIX_PERSIST,
+            Self::Scope(_) => PMIX_SCOPE,
+            Self::DataRange(_) => PMIX_DATA_RANGE,
+            Self::ProcState(_) => PMIX_PROC_STATE,
             Self::AllocDirective(_) => PMIX_ALLOC_DIRECTIVE,
-            Self::IofChannel(_)     => PMIX_IOF_CHANNEL,
+            Self::IofChannel(_) => PMIX_IOF_CHANNEL,
             Self::InfoDirectives(_) => PMIX_INFO_DIRECTIVES,
-            Self::Proc(_)           => PMIX_PROC,
-            Self::ByteObject(_)     => PMIX_BYTE_OBJECT,
-            Self::Envar(_)          => PMIX_ENVAR,
-            Self::Pointer(_)        => PMIX_POINTER,
-            Self::DataArray { .. }  => PMIX_DATA_ARRAY,
+            Self::Proc(_) => PMIX_PROC,
+            Self::ByteObject(_) => PMIX_BYTE_OBJECT,
+            Self::Envar(_) => PMIX_ENVAR,
+            Self::Pointer(_) => PMIX_POINTER,
+            Self::DataArray { .. } => PMIX_DATA_ARRAY,
         }) as pmix_data_type_t
     }
 }
@@ -2353,7 +2389,9 @@ pub struct PmixValueBuilder {
 impl PmixValueBuilder {
     // ── Construction ──────────────────────────────────────────────────────
 
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     // ── Generic payload setter ────────────────────────────────────────────
 
@@ -2365,30 +2403,78 @@ impl PmixValueBuilder {
 
     // ── Typed scalar setters ──────────────────────────────────────────────
 
-    pub fn undef(self)                              -> Self { self.payload(PmixPayload::Undef) }
-    pub fn bool(self, v: bool)                      -> Self { self.payload(PmixPayload::Bool(v)) }
-    pub fn byte(self, v: u8)                        -> Self { self.payload(PmixPayload::Byte(v)) }
-    pub fn size(self, v: usize)                     -> Self { self.payload(PmixPayload::Size(v)) }
-    pub fn pid(self, v: u32)                        -> Self { self.payload(PmixPayload::Pid(v)) }
-    pub fn int(self, v: i32)                        -> Self { self.payload(PmixPayload::Int(v)) }
-    pub fn int8(self, v: i8)                        -> Self { self.payload(PmixPayload::Int8(v)) }
-    pub fn int16(self, v: i16)                      -> Self { self.payload(PmixPayload::Int16(v)) }
-    pub fn int32(self, v: i32)                      -> Self { self.payload(PmixPayload::Int32(v)) }
-    pub fn int64(self, v: i64)                      -> Self { self.payload(PmixPayload::Int64(v)) }
-    pub fn uint(self, v: u32)                       -> Self { self.payload(PmixPayload::Uint(v)) }
-    pub fn uint8(self, v: u8)                       -> Self { self.payload(PmixPayload::Uint8(v)) }
-    pub fn uint16(self, v: u16)                     -> Self { self.payload(PmixPayload::Uint16(v)) }
-    pub fn uint32(self, v: u32)                     -> Self { self.payload(PmixPayload::Uint32(v)) }
-    pub fn uint64(self, v: u64)                     -> Self { self.payload(PmixPayload::Uint64(v)) }
-    pub fn float(self, v: f32)                      -> Self { self.payload(PmixPayload::Float(v)) }
-    pub fn double(self, v: f64)                     -> Self { self.payload(PmixPayload::Double(v)) }
-    pub fn timeval(self, v: PmixTimeval)            -> Self { self.payload(PmixPayload::Timeval(v)) }
-    pub fn status(self, v: pmix_status_t)           -> Self { self.payload(PmixPayload::Status(v)) }
-    pub fn rank(self, v: pmix_rank_t)               -> Self { self.payload(PmixPayload::Rank(v)) }
-    pub fn persist(self, v: pmix_persistence_t)     -> Self { self.payload(PmixPayload::Persist(v)) }
-    pub fn scope(self, v: pmix_scope_t)             -> Self { self.payload(PmixPayload::Scope(v)) }
-    pub fn data_range(self, v: pmix_data_range_t)   -> Self { self.payload(PmixPayload::DataRange(v)) }
-    pub fn proc_state(self, v: pmix_proc_state_t)   -> Self { self.payload(PmixPayload::ProcState(v)) }
+    pub fn undef(self) -> Self {
+        self.payload(PmixPayload::Undef)
+    }
+    pub fn bool(self, v: bool) -> Self {
+        self.payload(PmixPayload::Bool(v))
+    }
+    pub fn byte(self, v: u8) -> Self {
+        self.payload(PmixPayload::Byte(v))
+    }
+    pub fn size(self, v: usize) -> Self {
+        self.payload(PmixPayload::Size(v))
+    }
+    pub fn pid(self, v: u32) -> Self {
+        self.payload(PmixPayload::Pid(v))
+    }
+    pub fn int(self, v: i32) -> Self {
+        self.payload(PmixPayload::Int(v))
+    }
+    pub fn int8(self, v: i8) -> Self {
+        self.payload(PmixPayload::Int8(v))
+    }
+    pub fn int16(self, v: i16) -> Self {
+        self.payload(PmixPayload::Int16(v))
+    }
+    pub fn int32(self, v: i32) -> Self {
+        self.payload(PmixPayload::Int32(v))
+    }
+    pub fn int64(self, v: i64) -> Self {
+        self.payload(PmixPayload::Int64(v))
+    }
+    pub fn uint(self, v: u32) -> Self {
+        self.payload(PmixPayload::Uint(v))
+    }
+    pub fn uint8(self, v: u8) -> Self {
+        self.payload(PmixPayload::Uint8(v))
+    }
+    pub fn uint16(self, v: u16) -> Self {
+        self.payload(PmixPayload::Uint16(v))
+    }
+    pub fn uint32(self, v: u32) -> Self {
+        self.payload(PmixPayload::Uint32(v))
+    }
+    pub fn uint64(self, v: u64) -> Self {
+        self.payload(PmixPayload::Uint64(v))
+    }
+    pub fn float(self, v: f32) -> Self {
+        self.payload(PmixPayload::Float(v))
+    }
+    pub fn double(self, v: f64) -> Self {
+        self.payload(PmixPayload::Double(v))
+    }
+    pub fn timeval(self, v: PmixTimeval) -> Self {
+        self.payload(PmixPayload::Timeval(v))
+    }
+    pub fn status(self, v: pmix_status_t) -> Self {
+        self.payload(PmixPayload::Status(v))
+    }
+    pub fn rank(self, v: pmix_rank_t) -> Self {
+        self.payload(PmixPayload::Rank(v))
+    }
+    pub fn persist(self, v: pmix_persistence_t) -> Self {
+        self.payload(PmixPayload::Persist(v))
+    }
+    pub fn scope(self, v: pmix_scope_t) -> Self {
+        self.payload(PmixPayload::Scope(v))
+    }
+    pub fn data_range(self, v: pmix_data_range_t) -> Self {
+        self.payload(PmixPayload::DataRange(v))
+    }
+    pub fn proc_state(self, v: pmix_proc_state_t) -> Self {
+        self.payload(PmixPayload::ProcState(v))
+    }
     pub fn alloc_directive(self, v: pmix_alloc_directive_t) -> Self {
         self.payload(PmixPayload::AllocDirective(v))
     }
@@ -2417,7 +2503,9 @@ impl PmixValueBuilder {
     ///
     /// Returns `Err(ValueError::EmptyData)` for a zero-length slice.
     pub fn byte_object(self, bytes: &[u8]) -> Result<Self, ValueError> {
-        if bytes.is_empty() { return Err(ValueError::EmptyData); }
+        if bytes.is_empty() {
+            return Err(ValueError::EmptyData);
+        }
         Ok(self.payload(PmixPayload::ByteObject(bytes.to_vec())))
     }
 
@@ -2445,10 +2533,15 @@ impl PmixValueBuilder {
     pub fn data_array(
         self,
         elem_type: pmix_data_type_t,
-        elements:  Vec<pmix_value_t>,
+        elements: Vec<pmix_value_t>,
     ) -> Result<Self, ValueError> {
-        if elements.is_empty() { return Err(ValueError::EmptyData); }
-        Ok(self.payload(PmixPayload::DataArray { elem_type, elements }))
+        if elements.is_empty() {
+            return Err(ValueError::EmptyData);
+        }
+        Ok(self.payload(PmixPayload::DataArray {
+            elem_type,
+            elements,
+        }))
     }
 
     // ── Static constructor: string_array ─────────────────────────────────
@@ -2476,17 +2569,15 @@ impl PmixValueBuilder {
     /// let _pp: *const *const std::ffi::c_char = keys.as_ptr();
     /// # Ok::<(), pmix_value_builder::ValueError>(())
     /// ```
-    pub fn string_array(
-        strings: &[&str],
-    ) -> Result<(PmixOwnedValue, CStringArray), ValueError> {
-        if strings.is_empty() { return Err(ValueError::EmptyData); }
+    pub fn string_array(strings: &[&str]) -> Result<(PmixOwnedValue, CStringArray), ValueError> {
+        if strings.is_empty() {
+            return Err(ValueError::EmptyData);
+        }
 
         // Build the pmix_value_t elements (each a PMIX_STRING).
         let elements: Result<Vec<pmix_value_t>, ValueError> = strings
             .iter()
-            .map(|s| {
-                PmixValueBuilder::new().string(s)?.build_raw()
-            })
+            .map(|s| PmixValueBuilder::new().string(s)?.build_raw())
             .collect();
 
         let owned = PmixValueBuilder::new()
@@ -2497,8 +2588,8 @@ impl PmixValueBuilder {
         // CString copies, so the two lifetimes are fully independent.
         let cstrings: Result<Vec<CString>, NulError> =
             strings.iter().map(|s| CString::new(*s)).collect();
-        let key_array = CStringArray::from_cstrings(cstrings?)
-            .expect("strings are already validated CStrings");
+        let key_array =
+            CStringArray::from_cstrings(cstrings?).expect("strings are already validated CStrings");
 
         Ok((owned, key_array))
     }
@@ -2508,7 +2599,9 @@ impl PmixValueBuilder {
     /// Validate and return a [`PmixOwnedValue`] (RAII — heap data freed on
     /// `Drop`).
     pub fn build(self) -> Result<PmixOwnedValue, ValueError> {
-        Ok(PmixOwnedValue { inner: self.build_raw()? })
+        Ok(PmixOwnedValue {
+            inner: self.build_raw()?,
+        })
     }
 
     /// Validate and write directly into a `pmix_value_t`.
@@ -2541,33 +2634,33 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
     // union arm. All other arms remain as zeroed bytes from `mem::zeroed`.
     unsafe {
         match payload {
-            PmixPayload::Undef              => { /* data stays zeroed */ }
-            PmixPayload::Bool(v)            => dst.data.flag        = v,
-            PmixPayload::Byte(v)            => dst.data.byte        = v,
-            PmixPayload::Size(v)            => dst.data.size        = v,
-            PmixPayload::Pid(v)             => dst.data.pid         = v as pid_t,
-            PmixPayload::Int(v)             => dst.data.integer     = v,
-            PmixPayload::Int8(v)            => dst.data.int8        = v,
-            PmixPayload::Int16(v)           => dst.data.int16       = v,
-            PmixPayload::Int32(v)           => dst.data.int32       = v,
-            PmixPayload::Int64(v)           => dst.data.int64       = v,
-            PmixPayload::Uint(v)            => dst.data.uint        = v,
-            PmixPayload::Uint8(v)           => dst.data.uint8       = v,
-            PmixPayload::Uint16(v)          => dst.data.uint16      = v,
-            PmixPayload::Uint32(v)          => dst.data.uint32      = v,
-            PmixPayload::Uint64(v)          => dst.data.uint64      = v,
-            PmixPayload::Float(v)           => dst.data.fval        = v,
-            PmixPayload::Double(v)          => dst.data.dval        = v,
-            PmixPayload::Timeval(v)         => dst.data.tv          = v.into(),
-            PmixPayload::Status(v)          => dst.data.status      = v,
-            PmixPayload::Rank(v)            => dst.data.rank        = v,
-            PmixPayload::Persist(v)         => dst.data.persist     = v,
-            PmixPayload::Scope(v)           => dst.data.scope       = v,
-            PmixPayload::DataRange(v)       => dst.data.range       = v,
-            PmixPayload::ProcState(v)       => dst.data.state      = v,
-            PmixPayload::AllocDirective(v)  => dst.data.adir        = v,
-            PmixPayload::IofChannel(v)      => dst.data.uint16    = v,
-            PmixPayload::InfoDirectives(v)  => dst.data.uint32  = v,
+            PmixPayload::Undef => { /* data stays zeroed */ }
+            PmixPayload::Bool(v) => dst.data.flag = v,
+            PmixPayload::Byte(v) => dst.data.byte = v,
+            PmixPayload::Size(v) => dst.data.size = v,
+            PmixPayload::Pid(v) => dst.data.pid = v as pid_t,
+            PmixPayload::Int(v) => dst.data.integer = v,
+            PmixPayload::Int8(v) => dst.data.int8 = v,
+            PmixPayload::Int16(v) => dst.data.int16 = v,
+            PmixPayload::Int32(v) => dst.data.int32 = v,
+            PmixPayload::Int64(v) => dst.data.int64 = v,
+            PmixPayload::Uint(v) => dst.data.uint = v,
+            PmixPayload::Uint8(v) => dst.data.uint8 = v,
+            PmixPayload::Uint16(v) => dst.data.uint16 = v,
+            PmixPayload::Uint32(v) => dst.data.uint32 = v,
+            PmixPayload::Uint64(v) => dst.data.uint64 = v,
+            PmixPayload::Float(v) => dst.data.fval = v,
+            PmixPayload::Double(v) => dst.data.dval = v,
+            PmixPayload::Timeval(v) => dst.data.tv = v.into(),
+            PmixPayload::Status(v) => dst.data.status = v,
+            PmixPayload::Rank(v) => dst.data.rank = v,
+            PmixPayload::Persist(v) => dst.data.persist = v,
+            PmixPayload::Scope(v) => dst.data.scope = v,
+            PmixPayload::DataRange(v) => dst.data.range = v,
+            PmixPayload::ProcState(v) => dst.data.state = v,
+            PmixPayload::AllocDirective(v) => dst.data.adir = v,
+            PmixPayload::IofChannel(v) => dst.data.uint16 = v,
+            PmixPayload::InfoDirectives(v) => dst.data.uint32 = v,
 
             // Transfer CString → *mut c_char (null-termination included).
             PmixPayload::String(cs) => {
@@ -2593,14 +2686,17 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
                 let len = bytes.len();
                 let ptr = bytes.as_mut_ptr() as *mut i8;
                 std::mem::forget(bytes);
-                dst.data.bo = pmix_byte_object_t { bytes: ptr, size: len };
+                dst.data.bo = pmix_byte_object_t {
+                    bytes: ptr,
+                    size: len,
+                };
             }
 
             // Heap-allocate pmix_envar_t; transfer both CStrings.
             PmixPayload::Envar(e) => {
                 let raw = Box::new(pmix_envar_t {
-                    envar:     e.envar.into_raw(),
-                    value:     e.value.into_raw(),
+                    envar: e.envar.into_raw(),
+                    value: e.value.into_raw(),
                     separator: e.separator as i8,
                 });
                 dst.data.envar = *Box::into_raw(raw);
@@ -2612,14 +2708,17 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
             }
 
             // Leak Vec<pmix_value_t> into a heap-allocated pmix_data_array_t.
-            PmixPayload::DataArray { elem_type, mut elements } => {
+            PmixPayload::DataArray {
+                elem_type,
+                mut elements,
+            } => {
                 elements.shrink_to_fit();
                 let len = elements.len();
                 let arr = elements.as_mut_ptr() as *mut std::ffi::c_void;
                 std::mem::forget(elements);
                 let darray = Box::new(pmix_data_array_t {
                     type_: elem_type,
-                    size:  len,
+                    size: len,
                     array: arr,
                 });
                 dst.data.darray = Box::into_raw(darray);
@@ -2664,14 +2763,18 @@ pub fn free_value(v: &mut pmix_value_t) {
                         v.data.bo.size,
                     );
                     v.data.bo.bytes = ptr::null_mut();
-                    v.data.bo.size  = 0;
+                    v.data.bo.size = 0;
                 }
             }
             t if t == PMIX_ENVAR => {
-                    let e = Box::from_raw(&mut v.data.envar);
-                    if !e.envar.is_null() { drop(CString::from_raw(e.envar)); }
-                    if !e.value.is_null() { drop(CString::from_raw(e.value)); }
-                    // Box<pmix_envar_t> is dropped here; strings already freed above.
+                let e = Box::from_raw(&mut v.data.envar);
+                if !e.envar.is_null() {
+                    drop(CString::from_raw(e.envar));
+                }
+                if !e.value.is_null() {
+                    drop(CString::from_raw(e.value));
+                }
+                // Box<pmix_envar_t> is dropped here; strings already freed above.
             }
             t if t == PMIX_DATA_ARRAY => {
                 if !v.data.darray.is_null() {
@@ -2712,13 +2815,19 @@ pub struct PmixOwnedValue {
 
 impl PmixOwnedValue {
     /// Immutable raw pointer.
-    pub fn as_raw(&self) -> *const pmix_value_t { &self.inner }
+    pub fn as_raw(&self) -> *const pmix_value_t {
+        &self.inner
+    }
 
     /// Mutable raw pointer.
-    pub fn as_raw_mut(&mut self) -> *mut pmix_value_t { &mut self.inner }
+    pub fn as_raw_mut(&mut self) -> *mut pmix_value_t {
+        &mut self.inner
+    }
 
     /// Return the `pmix_data_type_t` tag.
-    pub fn type_tag(&self) -> pmix_data_type_t { self.inner.type_ }
+    pub fn type_tag(&self) -> pmix_data_type_t {
+        self.inner.type_
+    }
 
     /// Transfer ownership out of RAII; caller must free via `PMIX_VALUE_RELEASE`
     /// or [`free_value`].
@@ -2729,7 +2838,7 @@ impl PmixOwnedValue {
     }
 
     pub fn bytes(&self) -> (*const c_void, usize) {
-        let bytes = unsafe {self.inner.data.bo}; //.bytes.cast_const() as *const c_void
+        let bytes = unsafe { self.inner.data.bo }; //.bytes.cast_const() as *const c_void
         (bytes.bytes.cast_const() as *const c_void, bytes.size)
     }
 
@@ -2739,7 +2848,9 @@ impl PmixOwnedValue {
 }
 
 impl Drop for PmixOwnedValue {
-    fn drop(&mut self) { free_value(&mut self.inner); }
+    fn drop(&mut self) {
+        free_value(&mut self.inner);
+    }
 }
 
 impl std::fmt::Debug for PmixOwnedValue {
@@ -2752,7 +2863,7 @@ impl std::fmt::Debug for PmixOwnedValue {
 
 #[derive(Clone)]
 pub struct Proc {
-    pub(crate) handle:pmix_proc_t,
+    pub(crate) handle: pmix_proc_t,
     len: usize,
 }
 
@@ -2762,7 +2873,7 @@ pub struct Info {
 }
 
 struct InfoEntry {
-    key: &'static[u8; 13],
+    key: &'static [u8; 13],
     value: *const std::ffi::c_void,
     data_type: pmix_data_type_t,
 }
@@ -2776,28 +2887,50 @@ impl InfoBuilder {
         Self { infos: Vec::new() }
     }
 
-    pub fn add(&mut self, key: &'static [u8; 13], value: *const std::ffi::c_void, data_type: pmix_data_type_t) {
+    pub fn add(
+        &mut self,
+        key: &'static [u8; 13],
+        value: *const std::ffi::c_void,
+        data_type: pmix_data_type_t,
+    ) {
         assert_ne!(key.as_ptr(), std::ptr::null());
-        self.infos.push(InfoEntry{key, value, data_type})
+        self.infos.push(InfoEntry {
+            key,
+            value,
+            data_type,
+        })
     }
     pub fn collect_data(&mut self) -> &mut InfoBuilder {
         let collect = true;
-        self.add(PMIX_COLLECT_DATA, &collect as *const bool as *const c_void, PMIX_BOOL as pmix_data_type_t);
+        self.add(
+            PMIX_COLLECT_DATA,
+            &collect as *const bool as *const c_void,
+            PMIX_BOOL as pmix_data_type_t,
+        );
         self
     }
     pub fn build(self) -> Info {
         let info_ptr: *mut pmix_info_t;
         let mut idx: usize = 0;
-        unsafe {info_ptr = PMIx_Info_create(self.infos.len())}
+        unsafe { info_ptr = PMIx_Info_create(self.infos.len()) }
         for info in &self.infos {
-            let status = unsafe {PMIx_Info_load(info_ptr.add(idx), info.key.as_ptr().cast(),
-                                                info.value, info.data_type)};
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr().cast(),
+                    info.value,
+                    info.data_type,
+                )
+            };
             if status != PMIX_SUCCESS as i32 {
                 panic!("Error loading info: {}", status);
             }
             idx += 1;
         }
-        Info { handle: info_ptr, len: idx }
+        Info {
+            handle: info_ptr,
+            len: idx,
+        }
     }
 }
 
@@ -2813,8 +2946,10 @@ impl Context {
             PMIx_Proc_construct(&mut handle);
         }
         handle.rank = rank;
-        unsafe { PMIx_Load_nspace(handle.nspace.as_mut_ptr(), self.proc.handle.nspace.as_ptr()); }
-        Ok(Proc{handle, len:1})
+        unsafe {
+            PMIx_Load_nspace(handle.nspace.as_mut_ptr(), self.proc.handle.nspace.as_ptr());
+        }
+        Ok(Proc { handle, len: 1 })
     }
 
     pub fn get_rank(&self) -> u32 {
@@ -2836,19 +2971,26 @@ pub fn init(info: Option<Info>) -> Result<Context, PmixError> {
     let mut uninit_proc = mem::MaybeUninit::<pmix_proc_t>::uninit();
     let status: pmix_status_t;
     match info {
-        Some(info) => {unsafe {
+        Some(info) => unsafe {
             status = PMIx_Init(uninit_proc.as_mut_ptr(), info.handle, info.len);
-        }}
-        None => {unsafe {
+        },
+        None => unsafe {
             status = PMIx_Init(uninit_proc.as_mut_ptr(), ptr::null_mut(), 0);
-        }}
+        },
     }
 
     let pmix_status = PmixStatus::from_raw(status);
 
     if pmix_status.is_success() {
-        unsafe { proc = uninit_proc.assume_init();}
-        Ok(Context { proc: Proc{handle: proc, len: 1  }})
+        unsafe {
+            proc = uninit_proc.assume_init();
+        }
+        Ok(Context {
+            proc: Proc {
+                handle: proc,
+                len: 1,
+            },
+        })
     } else {
         if let Some(known) = pmix_status.known() {
             Err(known)
@@ -2879,10 +3021,20 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
         }
     }
 
-    unsafe { status = PmixStatus::from_raw(PMIx_Get(&proc.handle, CStr::from_bytes_with_nul(key).unwrap().as_ptr(), info_handle, ninfos, &mut value));}
+    unsafe {
+        status = PmixStatus::from_raw(PMIx_Get(
+            &proc.handle,
+            CStr::from_bytes_with_nul(key).unwrap().as_ptr(),
+            info_handle,
+            ninfos,
+            &mut value,
+        ));
+    }
 
     if status.is_success() {
-        Ok(PmixOwnedValue{inner: unsafe{*value}})
+        Ok(PmixOwnedValue {
+            inner: unsafe { *value },
+        })
     } else {
         if let Some(known) = status.known() {
             Err(known)
@@ -2892,16 +3044,32 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
     }
 }
 
-pub fn put_value(scope: pmix_scope_t, key: &CStr, value: &mut PmixOwnedValue) -> Result<(), pmix_status_t> {
+pub fn put_value(
+    scope: pmix_scope_t,
+    key: &CStr,
+    value: &mut PmixOwnedValue,
+) -> Result<(), pmix_status_t> {
     let status: pmix_status_t;
-    unsafe { status = PMIx_Put(scope, key.as_ptr(), &mut value.inner);}
-    if status as u32 == PMIX_SUCCESS { Ok(()) } else { Err(status) }
+    unsafe {
+        status = PMIx_Put(scope, key.as_ptr(), &mut value.inner);
+    }
+    if status as u32 == PMIX_SUCCESS {
+        Ok(())
+    } else {
+        Err(status)
+    }
 }
 
 pub fn commit() -> Result<(), pmix_status_t> {
     let status: pmix_status_t;
-    unsafe { status = PMIx_Commit();}
-    if status as u32 == PMIX_SUCCESS { Ok(()) } else { Err(status) }
+    unsafe {
+        status = PMIx_Commit();
+    }
+    if status as u32 == PMIX_SUCCESS {
+        Ok(())
+    } else {
+        Err(status)
+    }
 }
 
 pub fn fence(proc: &Proc, info: Option<Info>) -> Result<(), pmix_status_t> {
@@ -2932,8 +3100,14 @@ pub fn fence(proc: &Proc, info: Option<Info>) -> Result<(), pmix_status_t> {
         }
     }
 
-    unsafe {status = PMIx_Fence(proc_handle, nprocs, info_handle, ninfos);}
-    if status as u32 == PMIX_SUCCESS { Ok(()) } else { Err(status) }
+    unsafe {
+        status = PMIx_Fence(proc_handle, nprocs, info_handle, ninfos);
+    }
+    if status as u32 == PMIX_SUCCESS {
+        Ok(())
+    } else {
+        Err(status)
+    }
 }
 
 pub fn get_version() -> &'static str {
@@ -2944,16 +3118,26 @@ pub fn get_version() -> &'static str {
     version.to_str().unwrap()
 }
 pub fn progress() {
-    unsafe {PMIx_Progress();}
+    unsafe {
+        PMIx_Progress();
+    }
 }
 
-pub fn finalize(info: Option<Info>) -> Result<(),pmix_status_t> {
+pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
     let status: pmix_status_t;
     match info {
-        Some(x) => unsafe {status = PMIx_Finalize(x.handle, x.len);}
-        None => unsafe {status = PMIx_Finalize(ptr::null_mut(), 0);}
+        Some(x) => unsafe {
+            status = PMIx_Finalize(x.handle, x.len);
+        },
+        None => unsafe {
+            status = PMIx_Finalize(ptr::null_mut(), 0);
+        },
     }
-    if status as u32 == PMIX_SUCCESS { Result::Ok(())} else { Result::Err(status) }
+    if status as u32 == PMIX_SUCCESS {
+        Result::Ok(())
+    } else {
+        Result::Err(status)
+    }
 }
 
 #[cfg(test)]
