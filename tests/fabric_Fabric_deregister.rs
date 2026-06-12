@@ -12,7 +12,7 @@
 //! with `--ignored` under a real PMIx environment.
 
 use pmix::fabric::{
-    fabric_deregister, fabric_deregister_nb, fabric_register, FabricCallback, PmixFabric,
+    FabricCallback, PmixFabric, fabric_deregister, fabric_deregister_nb, fabric_register,
 };
 use pmix::{PmixError, PmixStatus};
 
@@ -61,7 +61,10 @@ impl FabricCallback for CountingDeregisterCallback {
 fn test_fabric_deregister_not_registered() {
     let mut fabric = PmixFabric::unamed();
     let result = fabric_deregister(&mut fabric);
-    assert!(result.is_err(), "deregistering unregistered fabric must return error");
+    assert!(
+        result.is_err(),
+        "deregistering unregistered fabric must return error"
+    );
     let err = result.unwrap_err();
     assert_eq!(
         err,
@@ -280,8 +283,15 @@ fn test_fabric_deregister_lifecycle() {
         dereg_result.is_ok(),
         "deregister must succeed for a registered fabric"
     );
-    assert!(!fabric.is_registered(), "fabric must be unregistered after deregister");
-    assert_eq!(fabric.ninfo(), 0, "ninfo must be reset to 0 after deregister");
+    assert!(
+        !fabric.is_registered(),
+        "fabric must be unregistered after deregister"
+    );
+    assert_eq!(
+        fabric.ninfo(),
+        0,
+        "ninfo must be reset to 0 after deregister"
+    );
 }
 
 /// Test double deregister returns error.
@@ -304,10 +314,7 @@ fn test_fabric_double_deregister() {
 
     // Second deregister should fail.
     let second = fabric_deregister(&mut fabric);
-    assert!(
-        second.is_err(),
-        "double deregister must return error"
-    );
+    assert!(second.is_err(), "double deregister must return error");
     let err = second.unwrap_err();
     assert_eq!(
         err,
@@ -327,7 +334,10 @@ fn test_fabric_deregister_nb_lifecycle() {
     }
 
     let result = fabric_deregister_nb(&mut fabric, Box::new(TestDeregisterCallback));
-    assert!(result.is_ok(), "deregister_nb must succeed for registered fabric");
+    assert!(
+        result.is_ok(),
+        "deregister_nb must succeed for registered fabric"
+    );
     assert!(!fabric.is_registered());
 }
 
@@ -382,9 +392,12 @@ fn test_fabric_deregister_after_register_empty() {
 #[test]
 fn test_fabric_deregister_nb_wrapper_reclaim_on_error() {
     let mut fabric = PmixFabric::unamed();
-    let result = fabric_deregister_nb(&mut fabric, Box::new(CountingDeregisterCallback {
-        count: std::cell::Cell::new(0),
-    }));
+    let result = fabric_deregister_nb(
+        &mut fabric,
+        Box::new(CountingDeregisterCallback {
+            count: std::cell::Cell::new(0),
+        }),
+    );
     assert!(result.is_err());
     // If we reach here without issues, the wrapper was properly reclaimed.
 }
@@ -412,7 +425,16 @@ fn test_fabric_deregister_multiple_independent() {
     // Deregister each independently
     for (i, f) in fabrics.iter_mut().enumerate() {
         let result = fabric_deregister(f);
-        assert!(result.is_ok(), "fabric {} ({}) deregister must succeed", i, names[i]);
-        assert!(!f.is_registered(), "fabric {} must be unregistered", names[i]);
+        assert!(
+            result.is_ok(),
+            "fabric {} ({}) deregister must succeed",
+            i,
+            names[i]
+        );
+        assert!(
+            !f.is_registered(),
+            "fabric {} must be unregistered",
+            names[i]
+        );
     }
 }

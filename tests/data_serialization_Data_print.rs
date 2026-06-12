@@ -46,9 +46,7 @@ fn test_data_print_signature_f64() {
 #[test]
 fn test_data_print_signature_u8() {
     fn check<F>(_: F) {}
-    check::<fn(&u8, Option<&str>, PmixDataType) -> Result<PmixPrintOutput, PmixStatus>>(
-        data_print,
-    );
+    check::<fn(&u8, Option<&str>, PmixDataType) -> Result<PmixPrintOutput, PmixStatus>>(data_print);
 }
 
 /// Verify data_print<T> is callable with u32 (size_t on many platforms).
@@ -117,14 +115,22 @@ fn test_pmix_print_output_debug() {
 /// Verify PmixPrintOutput implements Deref<Target = str>.
 #[test]
 fn test_pmix_print_output_deref_str() {
-    fn is_deref_str<T>() where T: std::ops::Deref<Target = str> {}
+    fn is_deref_str<T>()
+    where
+        T: std::ops::Deref<Target = str>,
+    {
+    }
     is_deref_str::<PmixPrintOutput>();
 }
 
 /// Verify PmixPrintOutput implements From<PmixPrintOutput> for String.
 #[test]
 fn test_pmix_print_output_into_string() {
-    fn can_into_string<T>() where String: From<T> {}
+    fn can_into_string<T>()
+    where
+        String: From<T>,
+    {
+    }
     can_into_string::<PmixPrintOutput>();
 }
 
@@ -150,7 +156,11 @@ fn test_pmix_print_output_has_drop() {
 fn test_data_print_i32() {
     let val: i32 = 42;
     let result = data_print(&val, None, PmixDataType::Int32);
-    assert!(result.is_ok(), "data_print should succeed for Int32: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "data_print should succeed for Int32: {:?}",
+        result
+    );
     let output = result.unwrap();
     assert!(
         output.contains("42"),
@@ -166,7 +176,11 @@ fn test_data_print_i32() {
 fn test_data_print_i32_with_prefix() {
     let val: i32 = 100;
     let result = data_print(&val, Some("val="), PmixDataType::Int32);
-    assert!(result.is_ok(), "data_print with prefix should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "data_print with prefix should succeed: {:?}",
+        result
+    );
     let output = result.unwrap();
     // Output should contain the prefix
     assert!(
@@ -183,12 +197,13 @@ fn test_data_print_i32_with_prefix() {
 fn test_data_print_u64() {
     let val: u64 = 0xDEADBEEF;
     let result = data_print(&val, None, PmixDataType::Uint64);
-    assert!(result.is_ok(), "data_print should succeed for Uint64: {:?}", result);
-    let output = result.unwrap();
     assert!(
-        !output.is_empty(),
-        "Printed output should not be empty"
+        result.is_ok(),
+        "data_print should succeed for Uint64: {:?}",
+        result
     );
+    let output = result.unwrap();
+    assert!(!output.is_empty(), "Printed output should not be empty");
 }
 
 /// Print a bool value.
@@ -198,12 +213,13 @@ fn test_data_print_u64() {
 fn test_data_print_bool() {
     let val: bool = true;
     let result = data_print(&val, None, PmixDataType::Bool);
-    assert!(result.is_ok(), "data_print should succeed for Bool: {:?}", result);
-    let output = result.unwrap();
     assert!(
-        !output.is_empty(),
-        "Printed output should not be empty"
+        result.is_ok(),
+        "data_print should succeed for Bool: {:?}",
+        result
     );
+    let output = result.unwrap();
+    assert!(!output.is_empty(), "Printed output should not be empty");
 }
 
 /// Print a float value.
@@ -213,12 +229,13 @@ fn test_data_print_bool() {
 fn test_data_print_f64() {
     let val: f64 = 3.14159;
     let result = data_print(&val, None, PmixDataType::Double);
-    assert!(result.is_ok(), "data_print should succeed for Float64: {:?}", result);
-    let output = result.unwrap();
     assert!(
-        !output.is_empty(),
-        "Printed output should not be empty"
+        result.is_ok(),
+        "data_print should succeed for Float64: {:?}",
+        result
     );
+    let output = result.unwrap();
+    assert!(!output.is_empty(), "Printed output should not be empty");
 }
 
 /// Print with empty prefix should behave like None.
@@ -242,7 +259,11 @@ fn test_data_print_into_string() {
         .expect("data_print should succeed")
         .into();
     assert!(!output.is_empty(), "Converted string should not be empty");
-    assert!(output.contains("99"), "String should contain '99', got: {}", output);
+    assert!(
+        output.contains("99"),
+        "String should contain '99', got: {}",
+        output
+    );
 }
 
 /// Print multiple values of the same type in sequence.
@@ -255,7 +276,11 @@ fn test_data_print_multiple() {
         let result = data_print(&val, None, PmixDataType::Int32);
         assert!(result.is_ok(), "data_print should succeed for each value");
         let output = result.unwrap();
-        assert!(!output.is_empty(), "Output should not be empty for value {}", val);
+        assert!(
+            !output.is_empty(),
+            "Output should not be empty for value {}",
+            val
+        );
     }
 }
 
@@ -265,8 +290,7 @@ fn test_data_print_multiple() {
 #[ignore = "requires PMIx_Init and PMIx daemon"]
 fn test_data_print_deref_operations() {
     let val: i32 = 42;
-    let output = data_print(&val, None, PmixDataType::Int32)
-        .expect("data_print should succeed");
+    let output = data_print(&val, None, PmixDataType::Int32).expect("data_print should succeed");
     // Deref<Target = str> should allow str methods
     let _len = output.len();
     let _contains = output.contains("INT32");

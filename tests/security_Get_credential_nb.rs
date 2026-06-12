@@ -8,9 +8,7 @@
 //! run with `--ignored` under a real PMIx environment.
 
 use pmix::PmixError;
-use pmix::security::{
-    get_credential_nb, CredentialCallback, CredentialResults, PmixCredential,
-};
+use pmix::security::{CredentialCallback, CredentialResults, PmixCredential, get_credential_nb};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback implementations for testing
@@ -130,12 +128,12 @@ fn test_get_credential_nb_callback_not_called_on_reject() {
     );
 
     // The callback should not have been invoked (registry cleaned up).
-     // In a no-server environment, the callback won't fire because PMIx
-     // rejects the request before registering it.
-     assert!(
-         status.lock().unwrap().is_none(),
-         "Callback should not have been invoked on rejected request"
-     );
+    // In a no-server environment, the callback won't fire because PMIx
+    // rejects the request before registering it.
+    assert!(
+        status.lock().unwrap().is_none(),
+        "Callback should not have been invoked on rejected request"
+    );
 }
 
 /// Test that get_credential_nb compiles with non-empty info array.
@@ -168,7 +166,10 @@ fn test_get_credential_nb_with_server() {
 
     let info: Vec<pmix::Info> = Vec::new();
     let result = get_credential_nb(&info, callback);
-    assert!(result.is_ok(), "get_credential_nb should be accepted by server");
+    assert!(
+        result.is_ok(),
+        "get_credential_nb should be accepted by server"
+    );
 
     // Wait for the async callback to fire.
     std::thread::sleep(std::time::Duration::from_millis(1000));

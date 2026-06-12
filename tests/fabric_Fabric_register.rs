@@ -8,11 +8,11 @@
 //! Tests marked `#[ignore]` require a PMIx daemon and should be run
 //! with `--ignored` under a real PMIx environment.
 
-use pmix::fabric::{
-    fabric_deregister, fabric_deregister_nb, fabric_register, fabric_register_nb, fabric_update,
-    fabric_update_nb, FabricCallback, PmixFabric,
-};
 use pmix::PmixStatus;
+use pmix::fabric::{
+    FabricCallback, PmixFabric, fabric_deregister, fabric_deregister_nb, fabric_register,
+    fabric_register_nb, fabric_update, fabric_update_nb,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback implementations for testing

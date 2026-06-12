@@ -12,9 +12,9 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they
 //! need a running PMIx daemon / server.
 
+use pmix::groups::pmix_group_opt_t;
 use pmix::groups::*;
 use pmix::{PmixError, PmixStatus, Proc};
-use pmix::groups::pmix_group_opt_t;
 
 /// Helper to extract the error from a Result<_, PmixStatus> without
 /// requiring Debug on the Ok type (Info doesn't implement Debug).
@@ -71,7 +71,10 @@ fn group_construct_empty_procs_bad_param() {
 fn group_construct_without_init_fails() {
     let proc = Proc::new("test_ns", 0).expect("create proc");
     let result = group_construct("my_group", &[proc], &[]);
-    assert!(result.is_err(), "group_construct without PMIx_Init should fail");
+    assert!(
+        result.is_err(),
+        "group_construct without PMIx_Init should fail"
+    );
 }
 
 /// group_construct with multiple procs and directives — should fail
@@ -145,7 +148,10 @@ fn group_construct_nb_without_init_fails() {
         panic!("callback should not be invoked on synchronous failure");
     });
     let result = group_construct_nb("my_group", &[proc], &[], callback);
-    assert!(result.is_err(), "group_construct_nb without PMIx_Init should fail");
+    assert!(
+        result.is_err(),
+        "group_construct_nb without PMIx_Init should fail"
+    );
 }
 
 /// group_construct_nb callback wrapper construction test.
@@ -198,7 +204,10 @@ fn group_invite_empty_procs_bad_param() {
 fn group_invite_without_init_fails() {
     let proc = Proc::new("test_ns", 0).expect("create proc");
     let result = group_invite("my_group", &[proc], &[]);
-    assert!(result.is_err(), "group_invite without PMIx_Init should fail");
+    assert!(
+        result.is_err(),
+        "group_invite without PMIx_Init should fail"
+    );
 }
 
 /// group_invite with multiple invitees — should fail without init.
@@ -258,7 +267,10 @@ fn group_invite_nb_without_init_fails() {
         panic!("callback should not be invoked on synchronous failure");
     });
     let result = group_invite_nb("my_group", &[proc], &[], callback);
-    assert!(result.is_err(), "group_invite_nb without PMIx_Init should fail");
+    assert!(
+        result.is_err(),
+        "group_invite_nb without PMIx_Init should fail"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,12 +281,7 @@ fn group_invite_nb_without_init_fails() {
 #[test]
 fn group_join_empty_group_id_bad_param() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join(
-        "",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
     let err = extract_err(result);
     assert_eq!(
         err,

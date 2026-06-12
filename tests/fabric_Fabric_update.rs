@@ -14,8 +14,8 @@
 //! an initialized PMIx library causes a segfault, so all tests that invoke
 //! `fabric_update` directly are ignored.
 
-use pmix::fabric::{fabric_update, fabric_update_nb, FabricCallback, PmixFabric};
 use pmix::PmixStatus;
+use pmix::fabric::{FabricCallback, PmixFabric, fabric_update, fabric_update_nb};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback implementations for testing
@@ -117,9 +117,7 @@ fn fabric_update_callback_arc_status_type() {
 #[test]
 fn fabric_update_callback_closure_type() {
     let cb = ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
     };
     let _boxed: Box<dyn FabricCallback> = Box::new(cb);
 }
@@ -301,9 +299,7 @@ fn fabric_update_nb_unregistered_arc_callback() {
 #[test]
 fn fabric_update_nb_unregistered_closure_callback() {
     let cb = ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
     };
     let mut fabric = PmixFabric::unamed();
     let result = fabric_update_nb(&mut fabric, Box::new(cb));
@@ -319,9 +315,7 @@ fn fabric_update_nb_unregistered_closure_callback() {
 /// &mut PmixFabric and return Result<(), PmixStatus>.
 #[test]
 fn fabric_update_signature_compiles() {
-    fn _check_signature(
-        fabric: &mut PmixFabric,
-    ) -> Result<(), PmixStatus> {
+    fn _check_signature(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
         fabric_update(fabric)
     }
     // Just verify the function pointer type is valid.
@@ -338,8 +332,8 @@ fn fabric_update_nb_signature_compiles() {
     ) -> Result<(), PmixStatus> {
         fabric_update_nb(fabric, callback)
     }
-    let _ = _check_signature
-        as fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>;
+    let _ =
+        _check_signature as fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>;
 }
 
 /// fabric_update return type is Result<(), PmixStatus>.
@@ -352,9 +346,7 @@ fn fabric_update_return_type() {
 /// fabric_update_nb return type is Result<(), PmixStatus>.
 #[test]
 fn fabric_update_nb_return_type() {
-    fn _check_return(
-        _f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
-    ) {}
+    fn _check_return(_f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>) {}
     _check_return(fabric_update_nb);
 }
 
@@ -372,9 +364,7 @@ fn fabric_update_nb_multiple_callback_types_compile() {
         status: std::sync::Arc::new(std::sync::Mutex::new(None)),
     });
     let _: Box<dyn FabricCallback> = Box::new(ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
     });
 }
 
@@ -506,7 +496,9 @@ fn fabric_update_nb_recording_callback() {
 
     let status = std::sync::Arc::new(std::sync::Mutex::new(None));
     let status_clone = status.clone();
-    let cb = ArcStatusCallback { status: status_clone };
+    let cb = ArcStatusCallback {
+        status: status_clone,
+    };
 
     let mut fabric = PmixFabric::unamed();
     let _ = fabric_register(&mut fabric, &[]);
@@ -525,11 +517,9 @@ fn fabric_update_nb_closure_callback() {
     let called = std::sync::Arc::new(std::sync::Mutex::new(false));
     let called_clone = called.clone();
     let cb = ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {
-                *called_clone.lock().unwrap() = true;
-            },
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {
+            *called_clone.lock().unwrap() = true;
+        }))),
     };
 
     let mut fabric = PmixFabric::unamed();
@@ -654,7 +644,9 @@ fn fabric_update_nb_callback_receives_status() {
 
     let status = std::sync::Arc::new(std::sync::Mutex::new(None));
     let status_clone = status.clone();
-    let cb = ArcStatusCallback { status: status_clone };
+    let cb = ArcStatusCallback {
+        status: status_clone,
+    };
 
     let mut fabric = PmixFabric::unamed();
     let _ = fabric_register(&mut fabric, &[]);

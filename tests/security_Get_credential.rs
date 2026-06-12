@@ -9,8 +9,8 @@
 
 use pmix::PmixError;
 use pmix::security::{
+    CredentialCallback, CredentialResults, PmixCredential, ValidationCallback, ValidationResults,
     get_credential, get_credential_nb, validate_credential, validate_credential_nb,
-    CredentialCallback, CredentialResults, ValidationCallback, ValidationResults, PmixCredential,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,7 +211,10 @@ fn test_get_credential_with_server() {
     match result {
         Ok(cred) => {
             // Credential should be non-empty from a real server.
-            assert!(!cred.is_empty(), "Credential from server should not be empty");
+            assert!(
+                !cred.is_empty(),
+                "Credential from server should not be empty"
+            );
             assert!(!cred.as_bytes().is_empty());
         }
         Err(status) => {

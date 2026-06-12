@@ -7,11 +7,11 @@
 //! Tests marked `#[ignore]` require a PMIx daemon and should be run
 //! with `--ignored` under a real PMIx environment.
 
-use pmix::fabric::{
-    compute_distances, compute_distances_nb, load_topology, ComputeDistancesCallback,
-    DeviceDistances, PmixCpuset, PmixDeviceDistance, PmixTopology,
-};
 use pmix::PmixStatus;
+use pmix::fabric::{
+    ComputeDistancesCallback, DeviceDistances, PmixCpuset, PmixDeviceDistance, PmixTopology,
+    compute_distances, compute_distances_nb, load_topology,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback implementations for testing
@@ -152,10 +152,11 @@ fn test_callback_trait_object() {
 /// Test that RecordingComputeDistancesCallback compiles.
 #[test]
 fn test_recording_callback() {
-    let _callback: Box<dyn ComputeDistancesCallback> = Box::new(RecordingComputeDistancesCallback {
-        status: std::cell::Cell::new(None),
-        n_distances: std::cell::Cell::new(None),
-    });
+    let _callback: Box<dyn ComputeDistancesCallback> =
+        Box::new(RecordingComputeDistancesCallback {
+            status: std::cell::Cell::new(None),
+            n_distances: std::cell::Cell::new(None),
+        });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

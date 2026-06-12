@@ -85,7 +85,10 @@ fn test_query_results_empty() {
     // type's Debug implementation instead.
     let query = PmixQuery::new(&["pmix.version"]).expect("query creation failed");
     let debug_str = format!("{:?}", query);
-    assert!(debug_str.contains("PmixQuery"), "Debug output should contain struct name");
+    assert!(
+        debug_str.contains("PmixQuery"),
+        "Debug output should contain struct name"
+    );
 }
 
 /// Integration test: query PMIx version from a running PMIx server.

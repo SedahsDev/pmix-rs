@@ -9,8 +9,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
-use pmix::allocation::*;
 use pmix::Info;
+use pmix::allocation::*;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixAllocDirective enum tests

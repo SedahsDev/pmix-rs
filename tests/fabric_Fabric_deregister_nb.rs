@@ -25,8 +25,8 @@
 //! successful deregistration, PMIx cleans up any associated resources
 //! (e.g., cost matrices, topology data).
 
-use pmix::fabric::{fabric_deregister_nb, FabricCallback, PmixFabric};
 use pmix::PmixStatus;
+use pmix::fabric::{FabricCallback, PmixFabric, fabric_deregister_nb};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback implementations for testing
@@ -128,9 +128,7 @@ fn fabric_deregister_nb_callback_arc_status_type() {
 #[test]
 fn fabric_deregister_nb_callback_closure_type() {
     let cb = ClosureDeregisterCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
     };
     let _boxed: Box<dyn FabricCallback> = Box::new(cb);
 }
@@ -303,9 +301,7 @@ fn fabric_deregister_nb_unregistered_arc_callback() {
 #[test]
 fn fabric_deregister_nb_unregistered_closure_callback() {
     let cb = ClosureDeregisterCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
     };
     let mut fabric = PmixFabric::unamed();
     let result = fabric_deregister_nb(&mut fabric, Box::new(cb));
@@ -381,16 +377,14 @@ fn fabric_deregister_nb_signature_compiles() {
     ) -> Result<(), PmixStatus> {
         fabric_deregister_nb(fabric, callback)
     }
-    let _ = _check_signature
-        as fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>;
+    let _ =
+        _check_signature as fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>;
 }
 
 /// fabric_deregister_nb return type is Result<(), PmixStatus>.
 #[test]
 fn fabric_deregister_nb_return_type() {
-    fn _check_return(
-        _f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
-    ) {}
+    fn _check_return(_f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>) {}
     _check_return(fabric_deregister_nb);
 }
 
@@ -408,9 +402,7 @@ fn fabric_deregister_nb_multiple_callback_types_compile() {
         status: std::sync::Arc::new(std::sync::Mutex::new(None)),
     });
     let _: Box<dyn FabricCallback> = Box::new(ClosureDeregisterCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
     });
 }
 
@@ -471,20 +463,30 @@ fn fabric_deregister_nb_error_reclaims_wrapper() {
 fn fabric_deregister_nb_error_all_callback_types_reclaim() {
     let mut fabric = PmixFabric::unamed();
     let _ = fabric_deregister_nb(&mut fabric, Box::new(NoOpDeregisterCallback));
-    let _ = fabric_deregister_nb(&mut fabric, Box::new(RecordingDeregisterCallback {
-        status: std::cell::Cell::new(None),
-    }));
-    let _ = fabric_deregister_nb(&mut fabric, Box::new(CountingDeregisterCallback {
-        count: std::cell::Cell::new(0),
-    }));
-    let _ = fabric_deregister_nb(&mut fabric, Box::new(ArcDeregisterCallback {
-        status: std::sync::Arc::new(std::sync::Mutex::new(None)),
-    }));
-    let _ = fabric_deregister_nb(&mut fabric, Box::new(ClosureDeregisterCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
-    }));
+    let _ = fabric_deregister_nb(
+        &mut fabric,
+        Box::new(RecordingDeregisterCallback {
+            status: std::cell::Cell::new(None),
+        }),
+    );
+    let _ = fabric_deregister_nb(
+        &mut fabric,
+        Box::new(CountingDeregisterCallback {
+            count: std::cell::Cell::new(0),
+        }),
+    );
+    let _ = fabric_deregister_nb(
+        &mut fabric,
+        Box::new(ArcDeregisterCallback {
+            status: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        }),
+    );
+    let _ = fabric_deregister_nb(
+        &mut fabric,
+        Box::new(ClosureDeregisterCallback {
+            f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
+        }),
+    );
     // If all wrappers were reclaimed, no leak occurred.
 }
 
@@ -501,7 +503,10 @@ fn fabric_deregister_nb_multiple_unregistered() {
 
     let mut results = Vec::new();
     for mut f in fabrics {
-        results.push(fabric_deregister_nb(&mut f, Box::new(NoOpDeregisterCallback)));
+        results.push(fabric_deregister_nb(
+            &mut f,
+            Box::new(NoOpDeregisterCallback),
+        ));
     }
 
     for (i, result) in results.into_iter().enumerate() {
@@ -581,7 +586,10 @@ fn fabric_deregister_nb_registered_fabric() {
     let dereg_result = fabric_deregister_nb(&mut fabric, Box::new(NoOpDeregisterCallback));
     if dereg_result.is_ok() {
         // Callback will be invoked asynchronously by PMIx.
-        assert!(!fabric.is_registered(), "fabric must be marked unregistered");
+        assert!(
+            !fabric.is_registered(),
+            "fabric must be marked unregistered"
+        );
     }
 }
 
@@ -593,7 +601,9 @@ fn fabric_deregister_nb_recording_callback() {
 
     let status = std::sync::Arc::new(std::sync::Mutex::new(None));
     let status_clone = status.clone();
-    let cb = ArcDeregisterCallback { status: status_clone };
+    let cb = ArcDeregisterCallback {
+        status: status_clone,
+    };
 
     let mut fabric = PmixFabric::unamed();
     let _ = fabric_register(&mut fabric, &[]);
@@ -648,7 +658,10 @@ fn fabric_deregister_nb_lifecycle() {
         dereg_result.is_ok(),
         "deregister_nb must succeed for a registered fabric"
     );
-    assert!(!fabric.is_registered(), "fabric must be unregistered after deregister_nb");
+    assert!(
+        !fabric.is_registered(),
+        "fabric must be unregistered after deregister_nb"
+    );
 }
 
 /// Double deregister_nb — register, deregister_nb, then try again.
@@ -656,8 +669,8 @@ fn fabric_deregister_nb_lifecycle() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn fabric_deregister_nb_double_deregister() {
-    use pmix::fabric::fabric_register;
     use pmix::PmixError;
+    use pmix::fabric::fabric_register;
 
     let mut fabric = PmixFabric::unamed();
     let _ = fabric_register(&mut fabric, &[]);
@@ -672,10 +685,7 @@ fn fabric_deregister_nb_double_deregister() {
 
     // Second deregister_nb should fail with BAD_PARAM.
     let second = fabric_deregister_nb(&mut fabric, Box::new(NoOpDeregisterCallback));
-    assert!(
-        second.is_err(),
-        "double deregister_nb must return error"
-    );
+    assert!(second.is_err(), "double deregister_nb must return error");
     let err = second.unwrap_err();
     assert_eq!(
         err,
@@ -712,9 +722,14 @@ fn fabric_deregister_nb_multiple_independent() {
         assert!(
             result.is_ok(),
             "fabric {} ({}) deregister_nb must succeed",
-            i, names[i]
+            i,
+            names[i]
         );
-        assert!(!f.is_registered(), "fabric {} must be unregistered", names[i]);
+        assert!(
+            !f.is_registered(),
+            "fabric {} must be unregistered",
+            names[i]
+        );
     }
 }
 
@@ -732,7 +747,11 @@ fn fabric_deregister_nb_resets_state() {
 
     let _ = fabric_deregister_nb(&mut fabric, Box::new(NoOpDeregisterCallback));
     assert!(!fabric.is_registered());
-    assert_eq!(fabric.ninfo(), 0, "ninfo should be reset after deregister_nb");
+    assert_eq!(
+        fabric.ninfo(),
+        0,
+        "ninfo should be reset after deregister_nb"
+    );
 }
 
 /// fabric_deregister_nb with a counting callback — verify callback is only

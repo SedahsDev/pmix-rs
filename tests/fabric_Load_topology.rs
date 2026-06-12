@@ -14,7 +14,7 @@
 //! Tests marked `#[ignore]` require a PMIx daemon and should be run
 //! with `--ignored` under a real PMIx environment.
 
-use pmix::fabric::{load_topology, PmixTopology};
+use pmix::fabric::{PmixTopology, load_topology};
 use pmix::{PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────

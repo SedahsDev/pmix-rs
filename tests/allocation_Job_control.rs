@@ -1,7 +1,7 @@
 //! Tests for PMIx_Job_control and PMIx_Job_control_nb safe wrappers.
 
-use pmix::allocation::*;
 use pmix::PmixStatus;
+use pmix::allocation::*;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixJobCtrlAction enum tests
@@ -14,7 +14,10 @@ fn test_job_ctrl_action_keys() {
     assert_eq!(PmixJobCtrlAction::Kill.key(), "pmix.jctrl.kill");
     assert_eq!(PmixJobCtrlAction::Signal(9).key(), "pmix.jctrl.sig");
     assert_eq!(PmixJobCtrlAction::Terminate.key(), "pmix.jctrl.term");
-    assert_eq!(PmixJobCtrlAction::Cancel("req-1".to_string()).key(), "pmix.jctrl.cancel");
+    assert_eq!(
+        PmixJobCtrlAction::Cancel("req-1".to_string()).key(),
+        "pmix.jctrl.cancel"
+    );
     assert_eq!(
         PmixJobCtrlAction::Restart("ckpt-1".to_string()).key(),
         "pmix.jctrl.restart"

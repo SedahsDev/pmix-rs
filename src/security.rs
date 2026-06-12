@@ -30,7 +30,7 @@
 //!                                           pmix_validation_cbfunc_t cbfunc, void *cbdata);
 //! ```
 
-use std::os::raw::{c_void, c_uchar};
+use std::os::raw::{c_uchar, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
@@ -92,7 +92,11 @@ impl PmixCredential {
             let layout = std::alloc::Layout::array::<u8>(self.bytes.len()).unwrap();
             let buf = unsafe { std::alloc::alloc(layout) as *mut std::os::raw::c_char };
             unsafe {
-                std::ptr::copy_nonoverlapping(self.bytes.as_ptr(), buf as *mut u8, self.bytes.len());
+                std::ptr::copy_nonoverlapping(
+                    self.bytes.as_ptr(),
+                    buf as *mut u8,
+                    self.bytes.len(),
+                );
             }
             buf
         };
@@ -436,18 +440,12 @@ extern "C" fn credential_callback_bridge(
             // objects, then free the original array.
             let mut info_vec: Vec<Info> = Vec::with_capacity(ninfo);
             for i in 0..ninfo {
-                let entry = std::ptr::read_unaligned(
-                    info.add(i) as *const crate::ffi::pmix_info_t,
-                );
+                let entry = std::ptr::read_unaligned(info.add(i) as *const crate::ffi::pmix_info_t);
                 // Create a new Info handle that points to a freshly allocated
                 // pmix_info_t with copied fields.
                 let new_info = ffi::PMIx_Info_create(1);
                 if !new_info.is_null() {
-                    std::ptr::copy_nonoverlapping(
-                        &entry as *const ffi::pmix_info_t,
-                        new_info,
-                        1,
-                    );
+                    std::ptr::copy_nonoverlapping(&entry as *const ffi::pmix_info_t, new_info, 1);
                     info_vec.push(Info {
                         handle: new_info,
                         len: 1,
@@ -742,7 +740,7 @@ extern "C" fn validation_callback_bridge(
             let mut cred_map = VALIDATION_CRED_MAP.lock().unwrap();
             if let Some(cred_ptr) = cred_map.remove(&req_id) {
                 unsafe {
-                     PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
+                    PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
                 }
             }
             return;
@@ -754,7 +752,7 @@ extern "C" fn validation_callback_bridge(
         let mut cred_map = VALIDATION_CRED_MAP.lock().unwrap();
         if let Some(cred_ptr) = cred_map.remove(&req_id) {
             unsafe {
-                 PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
+                PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
             }
         }
     }
@@ -811,7 +809,7 @@ pub fn validate_credential_nb(
     let cred_c = credential.as_c_mut_ptr();
     {
         let mut cred_map = VALIDATION_CRED_MAP.lock().unwrap();
-         cred_map.insert(req_id, cred_c as usize);
+        cred_map.insert(req_id, cred_c as usize);
     }
     {
         let mut registry = VALIDATION_REGISTRY.lock().unwrap();
@@ -852,9 +850,9 @@ pub fn validate_credential_nb(
         let mut cred_map = VALIDATION_CRED_MAP.lock().unwrap();
         if let Some(cred_ptr) = cred_map.remove(&req_id) {
             unsafe {
-                 PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
+                PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
             }
         }
         Err(pmix_status)
-        }
-        }
+    }
+}

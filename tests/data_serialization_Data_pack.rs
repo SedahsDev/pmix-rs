@@ -59,7 +59,10 @@ fn test_buffer_debug() {
 fn test_buffer_debug_null() {
     let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
     let debug_str = format!("{:?}", buf);
-    assert!(debug_str.contains("null"), "null buffer should show 'null' in debug");
+    assert!(
+        debug_str.contains("null"),
+        "null buffer should show 'null' in debug"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -168,14 +171,22 @@ fn test_load_replaces_buffer() {
     let size1 = payload1.size();
 
     data_load(&buf, &payload1).expect("load first");
-    assert_eq!(buf.bytes_used(), size1, "buffer should have first payload size");
+    assert_eq!(
+        buf.bytes_used(),
+        size1,
+        "buffer should have first payload size"
+    );
 
     // Second load replaces (not appends)
     let payload2 = PmixByteObject::from(vec![4u8, 5, 6, 7, 8, 9]);
     let size2 = payload2.size();
 
     data_load(&buf, &payload2).expect("load second (replaces)");
-    assert_eq!(buf.bytes_used(), size2, "buffer should have second payload size (replacement)");
+    assert_eq!(
+        buf.bytes_used(),
+        size2,
+        "buffer should have second payload size (replacement)"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -392,9 +403,8 @@ fn test_pack_status() {
 fn test_pack_multiple_int32() {
     let buf = data_buffer_create().expect("create buffer");
     let vals: [i32; 5] = [1, 2, 3, 4, 5];
-    let packed =
-        data_pack(None, &buf, &vals, 5, PmixDataType::Int32)
-            .expect("pack multiple int32 should succeed");
+    let packed = data_pack(None, &buf, &vals, 5, PmixDataType::Int32)
+        .expect("pack multiple int32 should succeed");
     assert_eq!(packed, 5, "should pack 5 values");
 }
 
@@ -404,9 +414,8 @@ fn test_pack_multiple_int32() {
 fn test_pack_multiple_bytes() {
     let buf = data_buffer_create().expect("create buffer");
     let bytes: [u8; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    let packed =
-        data_pack(None, &buf, &bytes, 10, PmixDataType::Uint8)
-            .expect("pack multiple bytes should succeed");
+    let packed = data_pack(None, &buf, &bytes, 10, PmixDataType::Uint8)
+        .expect("pack multiple bytes should succeed");
     assert_eq!(packed, 10);
 }
 
@@ -696,12 +705,10 @@ fn test_pack_int32_boundary_values() {
     let buf = data_buffer_create().expect("create buffer");
 
     let min_val: i32 = i32::MIN;
-    data_pack(None, &buf, &min_val, 1, PmixDataType::Int32)
-        .expect("pack i32::MIN should succeed");
+    data_pack(None, &buf, &min_val, 1, PmixDataType::Int32).expect("pack i32::MIN should succeed");
 
     let max_val: i32 = i32::MAX;
-    data_pack(None, &buf, &max_val, 1, PmixDataType::Int32)
-        .expect("pack i32::MAX should succeed");
+    data_pack(None, &buf, &max_val, 1, PmixDataType::Int32).expect("pack i32::MAX should succeed");
 
     let mut recovered_min: i32 = 0;
     let mut count: i32 = 1;
@@ -737,8 +744,7 @@ fn test_pack_zero_values() {
 
     let mut recovered: i32 = -1;
     let mut count: i32 = 1;
-    data_unpack(None, &buf, &mut recovered, &mut count, PmixDataType::Int32)
-        .expect("unpack zero");
+    data_unpack(None, &buf, &mut recovered, &mut count, PmixDataType::Int32).expect("unpack zero");
     assert_eq!(recovered, 0);
 }
 

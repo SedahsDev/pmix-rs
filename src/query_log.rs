@@ -650,7 +650,14 @@ pub fn log_data_nb(
         // - PMIx does not retain data_ptr or dirs_ptr after this call returns.
         // - The caller must keep data and directives alive until the
         //   callback is invoked.
-        ffi::PMIx_Log_nb(data_ptr, ndata, dirs_ptr, ndirs, Some(log_callback_bridge), cbdata)
+        ffi::PMIx_Log_nb(
+            data_ptr,
+            ndata,
+            dirs_ptr,
+            ndirs,
+            Some(log_callback_bridge),
+            cbdata,
+        )
     };
 
     let pmix_status = PmixStatus::from_raw(status);

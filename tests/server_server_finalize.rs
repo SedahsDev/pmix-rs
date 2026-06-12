@@ -90,8 +90,7 @@ fn test_server_handle_debug_fields() {
 #[ignore = "requires PMIx daemon"]
 fn test_server_finalize_after_init() {
     let module = PmixServerModule::default();
-    let handle = server_init_minimal(Some(&module))
-        .expect("server_init_minimal should succeed");
+    let handle = server_init_minimal(Some(&module)).expect("server_init_minimal should succeed");
     let result = server_finalize(handle);
     assert!(
         result.is_ok(),
@@ -111,8 +110,7 @@ fn test_server_finalize_no_callbacks_invoked() {
     // This simulates the error path where the server was initialized
     // but no client operations occurred before finalization.
     let module = PmixServerModule::default();
-    let handle = server_init_minimal(Some(&module))
-        .expect("server_init_minimal should succeed");
+    let handle = server_init_minimal(Some(&module)).expect("server_init_minimal should succeed");
     // Finalize without having invoked any callbacks.
     let result = server_finalize(handle);
     assert!(
@@ -131,16 +129,12 @@ fn test_server_finalize_multiple_cycles() {
     let module = PmixServerModule::default();
 
     // First cycle
-    let handle1 = server_init_minimal(Some(&module))
-        .expect("first server_init should succeed");
-    server_finalize(handle1)
-        .expect("first server_finalize should succeed");
+    let handle1 = server_init_minimal(Some(&module)).expect("first server_init should succeed");
+    server_finalize(handle1).expect("first server_finalize should succeed");
 
     // Second cycle — re-init after finalize
-    let handle2 = server_init_minimal(Some(&module))
-        .expect("second server_init should succeed");
-    server_finalize(handle2)
-        .expect("second server_finalize should succeed");
+    let handle2 = server_init_minimal(Some(&module)).expect("second server_init should succeed");
+    server_finalize(handle2).expect("second server_finalize should succeed");
 }
 
 /// server_finalize with None module (minimal server, no module provided).
@@ -151,8 +145,7 @@ fn test_server_finalize_multiple_cycles() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn test_server_finalize_none_module() {
-    let handle = server_init_minimal(None)
-        .expect("server_init_minimal(None) should succeed");
+    let handle = server_init_minimal(None).expect("server_init_minimal(None) should succeed");
     let result = server_finalize(handle);
     assert!(
         result.is_ok(),
@@ -169,8 +162,7 @@ fn test_server_finalize_none_module() {
 #[ignore = "requires PMIx daemon"]
 fn test_server_finalize_releases_resources() {
     let module = PmixServerModule::default();
-    let handle = server_init_minimal(Some(&module))
-        .expect("server_init should succeed");
+    let handle = server_init_minimal(Some(&module)).expect("server_init should succeed");
 
     // Finalize — this should release all internal PMIx server resources.
     let result = server_finalize(handle);
@@ -205,8 +197,7 @@ fn test_server_finalize_error_path_type() {
 #[ignore = "requires PMIx daemon"]
 fn test_server_finalize_error_check_pattern() {
     let module = PmixServerModule::default();
-    let handle = server_init_minimal(Some(&module))
-        .expect("server_init should succeed");
+    let handle = server_init_minimal(Some(&module)).expect("server_init should succeed");
 
     // Rust pattern: match on Result instead of comparing status codes.
     match server_finalize(handle) {
@@ -214,10 +205,7 @@ fn test_server_finalize_error_check_pattern() {
             // Success — equivalent to rc == PMIX_SUCCESS
         }
         Err(status) => {
-            panic!(
-                "Finalize failed with error {:?}",
-                status
-            );
+            panic!("Finalize failed with error {:?}", status);
         }
     }
 }
@@ -231,8 +219,7 @@ fn test_server_finalize_error_check_pattern() {
 #[ignore = "requires PMIx daemon"]
 fn test_server_finalize_on_error_path() {
     let module = PmixServerModule::default();
-    let handle = server_init_minimal(Some(&module))
-        .expect("server_init should succeed");
+    let handle = server_init_minimal(Some(&module)).expect("server_init should succeed");
 
     // Simulate an error path: server was initialized but some operation
     // failed. We should still be able to finalize cleanly.
@@ -251,8 +238,7 @@ fn test_server_finalize_after_register_failure() {
     // Simulate: server_init succeeded, but a subsequent operation failed.
     // The server should still be finalizable.
     let module = PmixServerModule::default();
-    let handle = server_init_minimal(Some(&module))
-        .expect("server_init should succeed");
+    let handle = server_init_minimal(Some(&module)).expect("server_init should succeed");
 
     // In the C test, register_client fails here.
     // In Rust, we just finalize directly since we can't simulate the failure

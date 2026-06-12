@@ -11,8 +11,8 @@
 //! The signature and type-safety tests below do NOT require PMIx_Init
 //! and run normally.
 
-use pmix::data_serialization::*;
 use pmix::PmixStatus;
+use pmix::data_serialization::*;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Signature and type-safety tests — no PMIx_Init required

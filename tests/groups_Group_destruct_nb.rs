@@ -10,7 +10,7 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
-use pmix::groups::{group_destruct_nb, GroupDestructCallbackWrapper};
+use pmix::groups::{GroupDestructCallbackWrapper, group_destruct_nb};
 use pmix::{PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,8 +259,8 @@ fn group_destruct_callback_wrapper_simple() {
 /// GroupDestructCallbackWrapper captures status in the callback.
 #[test]
 fn group_destruct_callback_wrapper_captures_status() {
-    use std::sync::atomic::{AtomicI32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicI32, Ordering};
 
     let status_code = Arc::new(AtomicI32::new(999));
     let status_clone = status_code.clone();
@@ -287,8 +287,8 @@ fn group_destruct_callback_wrapper_arc_mutex() {
 /// GroupDestructCallbackWrapper with complex state tracking.
 #[test]
 fn group_destruct_callback_wrapper_state_tracking() {
-    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
     let called = Arc::new(AtomicBool::new(false));
     let status_raw = Arc::new(AtomicI32::new(i32::MAX));

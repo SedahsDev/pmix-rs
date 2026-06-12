@@ -141,7 +141,10 @@ unsafe extern "C" fn monitor_callback_bridge(
         Some(mut cb) => {
             // Build MonitorResults if info was returned.
             let results = if !info.is_null() && ninfo > 0 {
-                Some(MonitorResults { handle: info, len: ninfo })
+                Some(MonitorResults {
+                    handle: info,
+                    len: ninfo,
+                })
             } else {
                 None
             };
@@ -214,11 +217,17 @@ pub fn process_monitor(
         // Info stores a handle to the first element and a length.
         // Directives from a single InfoBuilder are contiguous.
         if directives.len() == 1 {
-            (directives[0].handle as *const ffi::pmix_info_t, directives[0].len)
+            (
+                directives[0].handle as *const ffi::pmix_info_t,
+                directives[0].len,
+            )
         } else {
             // Multiple Info objects — use the first's pointer.
             // In practice, callers should pass a single Info containing all directives.
-            (directives[0].handle as *const ffi::pmix_info_t, directives[0].len)
+            (
+                directives[0].handle as *const ffi::pmix_info_t,
+                directives[0].len,
+            )
         }
     };
 
@@ -240,10 +249,11 @@ pub fn process_monitor(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success()
-        || pmix_status == PmixStatus::Known(PmixError::ErrPartialSuccess)
-    {
-        Ok(MonitorResults { handle: results, len: nresults })
+    if pmix_status.is_success() || pmix_status == PmixStatus::Known(PmixError::ErrPartialSuccess) {
+        Ok(MonitorResults {
+            handle: results,
+            len: nresults,
+        })
     } else {
         Err(pmix_status)
     }
@@ -299,9 +309,15 @@ pub fn process_monitor_nb(
     let (dirs_ptr, ndirs) = if directives.is_empty() {
         (ptr::null(), 0)
     } else if directives.len() == 1 {
-        (directives[0].handle as *const ffi::pmix_info_t, directives[0].len)
+        (
+            directives[0].handle as *const ffi::pmix_info_t,
+            directives[0].len,
+        )
     } else {
-        (directives[0].handle as *const ffi::pmix_info_t, directives[0].len)
+        (
+            directives[0].handle as *const ffi::pmix_info_t,
+            directives[0].len,
+        )
     };
 
     let status = unsafe {

@@ -8,7 +8,7 @@
 
 use pmix::PmixError;
 use pmix::monitoring::{
-    heartbeat, process_monitor, process_monitor_nb, MonitorCallback, MonitorResults,
+    MonitorCallback, MonitorResults, heartbeat, process_monitor, process_monitor_nb,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,11 +196,7 @@ fn test_monitor_callback_trait_compiles() {
         f: Box<dyn Fn(pmix::PmixStatus, Option<MonitorResults>) + Send>,
     }
     impl MonitorCallback for ClosureMonitorCallback {
-        fn on_complete(
-            &mut self,
-            status: pmix::PmixStatus,
-            results: Option<MonitorResults>,
-        ) {
+        fn on_complete(&mut self, status: pmix::PmixStatus, results: Option<MonitorResults>) {
             (self.f)(status, results);
         }
     }
@@ -220,7 +216,10 @@ fn test_recording_monitor_callback() {
     let test_status = pmix::PmixStatus::Known(PmixError::Success);
     MonitorCallback::on_complete(&mut cb, test_status, None);
 
-    assert_eq!(cb.status.get(), Some(pmix::PmixStatus::Known(PmixError::Success)));
+    assert_eq!(
+        cb.status.get(),
+        Some(pmix::PmixStatus::Known(PmixError::Success))
+    );
     assert!(!cb.has_results.get());
 }
 
@@ -325,8 +324,7 @@ fn test_pmix_error_from_raw_monitoring() {
 /// compiles and has the correct type.
 #[test]
 fn test_monitor_error_code_type() {
-    let error_code: pmix::PmixStatus =
-        pmix::PmixStatus::Known(PmixError::MonitorHeartbeatAlert);
+    let error_code: pmix::PmixStatus = pmix::PmixStatus::Known(PmixError::MonitorHeartbeatAlert);
     assert_eq!(error_code.to_raw(), -109);
     assert!(!error_code.is_success());
 }

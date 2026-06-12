@@ -261,7 +261,10 @@ pub fn allocation_request(
         return Err(pmix_status);
     }
 
-    Ok(AllocationResults { handle: results, len: nresults })
+    Ok(AllocationResults {
+        handle: results,
+        len: nresults,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -287,8 +290,9 @@ static ALLOCATION_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 /// Global registry of pending allocation callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static ALLOCATION_REGISTRY: LazyLock<Mutex<std::collections::HashMap<usize, Box<dyn AllocationCallback>>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static ALLOCATION_REGISTRY: LazyLock<
+    Mutex<std::collections::HashMap<usize, Box<dyn AllocationCallback>>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 /// C bridge for `pmix_info_cbfunc_t` (allocation completion).
 ///
@@ -575,10 +579,7 @@ impl Drop for JobControlResults {
 /// `pmix_status_t PMIx_Job_control(const pmix_proc_t targets[], size_t ntargets,`
 /// `  const pmix_info_t directives[], size_t ndirs,`
 /// `  pmix_info_t **results, size_t *nresults);`
-pub fn job_control(
-    targets: &[Proc],
-    directives: &[Info],
-) -> Result<JobControlResults, PmixStatus> {
+pub fn job_control(targets: &[Proc], directives: &[Info]) -> Result<JobControlResults, PmixStatus> {
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
     let mut nresults: usize = 0;
 
@@ -626,7 +627,10 @@ pub fn job_control(
         return Err(pmix_status);
     }
 
-    Ok(JobControlResults { handle: results, len: nresults })
+    Ok(JobControlResults {
+        handle: results,
+        len: nresults,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -652,8 +656,9 @@ static JOB_CTRL_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 /// Global registry of pending job control callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static JOB_CTRL_REGISTRY: LazyLock<Mutex<std::collections::HashMap<usize, Box<dyn JobControlCallback>>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static JOB_CTRL_REGISTRY: LazyLock<
+    Mutex<std::collections::HashMap<usize, Box<dyn JobControlCallback>>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 /// C bridge for `pmix_info_cbfunc_t` (job control completion).
 ///
@@ -816,35 +821,50 @@ mod tests {
     fn test_alloc_directive_new_roundtrip() {
         let d = PmixAllocDirective::AllocNew;
         assert_eq!(d.to_raw(), 1);
-        assert_eq!(PmixAllocDirective::from_raw(1), PmixAllocDirective::AllocNew);
+        assert_eq!(
+            PmixAllocDirective::from_raw(1),
+            PmixAllocDirective::AllocNew
+        );
     }
 
     #[test]
     fn test_alloc_directive_extend_roundtrip() {
         let d = PmixAllocDirective::AllocExtend;
         assert_eq!(d.to_raw(), 2);
-        assert_eq!(PmixAllocDirective::from_raw(2), PmixAllocDirective::AllocExtend);
+        assert_eq!(
+            PmixAllocDirective::from_raw(2),
+            PmixAllocDirective::AllocExtend
+        );
     }
 
     #[test]
     fn test_alloc_directive_release_roundtrip() {
         let d = PmixAllocDirective::AllocRelease;
         assert_eq!(d.to_raw(), 3);
-        assert_eq!(PmixAllocDirective::from_raw(3), PmixAllocDirective::AllocRelease);
+        assert_eq!(
+            PmixAllocDirective::from_raw(3),
+            PmixAllocDirective::AllocRelease
+        );
     }
 
     #[test]
     fn test_alloc_directive_reacquire_roundtrip() {
         let d = PmixAllocDirective::AllocReacquire;
         assert_eq!(d.to_raw(), 4);
-        assert_eq!(PmixAllocDirective::from_raw(4), PmixAllocDirective::AllocReacquire);
+        assert_eq!(
+            PmixAllocDirective::from_raw(4),
+            PmixAllocDirective::AllocReacquire
+        );
     }
 
     #[test]
     fn test_alloc_directive_external_roundtrip() {
         let d = PmixAllocDirective::AllocExternal;
         assert_eq!(d.to_raw(), 128);
-        assert_eq!(PmixAllocDirective::from_raw(128), PmixAllocDirective::AllocExternal);
+        assert_eq!(
+            PmixAllocDirective::from_raw(128),
+            PmixAllocDirective::AllocExternal
+        );
     }
 
     #[test]
@@ -857,10 +877,22 @@ mod tests {
     #[test]
     fn test_alloc_directive_display() {
         assert_eq!(format!("{}", PmixAllocDirective::AllocNew), "ALLOC_NEW");
-        assert_eq!(format!("{}", PmixAllocDirective::AllocExtend), "ALLOC_EXTEND");
-        assert_eq!(format!("{}", PmixAllocDirective::AllocRelease), "ALLOC_RELEASE");
-        assert_eq!(format!("{}", PmixAllocDirective::AllocReacquire), "ALLOC_REAQUIRE");
-        assert_eq!(format!("{}", PmixAllocDirective::AllocExternal), "ALLOC_EXTERNAL");
+        assert_eq!(
+            format!("{}", PmixAllocDirective::AllocExtend),
+            "ALLOC_EXTEND"
+        );
+        assert_eq!(
+            format!("{}", PmixAllocDirective::AllocRelease),
+            "ALLOC_RELEASE"
+        );
+        assert_eq!(
+            format!("{}", PmixAllocDirective::AllocReacquire),
+            "ALLOC_REAQUIRE"
+        );
+        assert_eq!(
+            format!("{}", PmixAllocDirective::AllocExternal),
+            "ALLOC_EXTERNAL"
+        );
         assert_eq!(
             format!("{}", PmixAllocDirective::Unknown(99)),
             "UNKNOWN_DIRECTIVE (99)"
@@ -884,7 +916,10 @@ mod tests {
 
         // PartialEq
         assert_eq!(PmixAllocDirective::AllocNew, PmixAllocDirective::AllocNew);
-        assert_ne!(PmixAllocDirective::AllocNew, PmixAllocDirective::AllocExtend);
+        assert_ne!(
+            PmixAllocDirective::AllocNew,
+            PmixAllocDirective::AllocExtend
+        );
 
         // Eq + Hash (compile-time check)
         use std::collections::HashSet;

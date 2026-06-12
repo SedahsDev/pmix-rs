@@ -11,8 +11,8 @@
 //! an initialized PMIx library causes a segfault, so all tests that invoke
 //! `fabric_register_nb` directly are ignored.
 
-use pmix::fabric::{fabric_register_nb, FabricCallback, PmixFabric};
 use pmix::PmixStatus;
+use pmix::fabric::{FabricCallback, PmixFabric, fabric_register_nb};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback implementations for testing
@@ -114,9 +114,7 @@ fn fabric_register_nb_callback_arc_status_type() {
 #[test]
 fn fabric_register_nb_callback_closure_type() {
     let cb = ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
     };
     let _boxed: Box<dyn FabricCallback> = Box::new(cb);
 }
@@ -240,7 +238,8 @@ fn fabric_register_nb_signature_compiles() {
         fabric_register_nb(fabric, &[], callback)
     }
     // Just verify the function pointer type is valid.
-    let _ = _check_signature as fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>;
+    let _ =
+        _check_signature as fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>;
 }
 
 /// Multiple callback implementations can all be passed to fabric_register_nb.
@@ -258,9 +257,7 @@ fn fabric_register_nb_multiple_callback_types_compile() {
         status: std::sync::Arc::new(std::sync::Mutex::new(None)),
     });
     let _: Box<dyn FabricCallback> = Box::new(ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {},
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
     });
 }
 
@@ -270,7 +267,8 @@ fn fabric_register_nb_return_type() {
     // Verify the return type is what we expect.
     fn _check_return(
         _f: fn(&mut PmixFabric, &[pmix::Info], Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
-    ) {}
+    ) {
+    }
     _check_return(fabric_register_nb);
 }
 
@@ -350,7 +348,9 @@ fn fabric_register_nb_recording_callback() {
 
     let status = Arc::new(Mutex::new(None));
     let status_clone = status.clone();
-    let cb = ArcStatusCallback { status: status_clone };
+    let cb = ArcStatusCallback {
+        status: status_clone,
+    };
 
     let mut fabric = PmixFabric::unamed();
     let result = fabric_register_nb(&mut fabric, &[], Box::new(cb));
@@ -366,11 +366,9 @@ fn fabric_register_nb_closure_callback() {
     let called = std::sync::Arc::new(std::sync::Mutex::new(false));
     let called_clone = called.clone();
     let cb = ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            move |_: PmixStatus| {
-                *called_clone.lock().unwrap() = true;
-            },
-        ))),
+        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {
+            *called_clone.lock().unwrap() = true;
+        }))),
     };
 
     let mut fabric = PmixFabric::unamed();
@@ -408,9 +406,7 @@ fn fabric_register_nb_full_lifecycle() {
 fn fabric_register_nb_multiple_fabrics() {
     let mut fabrics: Vec<PmixFabric> = Vec::new();
     for i in 0..3 {
-        fabrics.push(
-            PmixFabric::new(Some(&format!("fabric_{}", i))).unwrap(),
-        );
+        fabrics.push(PmixFabric::new(Some(&format!("fabric_{}", i))).unwrap());
     }
 
     for fabric in &mut fabrics {
@@ -427,7 +423,9 @@ fn fabric_register_nb_multiple_fabrics() {
 fn fabric_register_nb_callback_receives_success() {
     let status = std::sync::Arc::new(std::sync::Mutex::new(None));
     let status_clone = status.clone();
-    let cb = ArcStatusCallback { status: status_clone };
+    let cb = ArcStatusCallback {
+        status: status_clone,
+    };
 
     let mut fabric = PmixFabric::unamed();
     let _result = fabric_register_nb(&mut fabric, &[], Box::new(cb));

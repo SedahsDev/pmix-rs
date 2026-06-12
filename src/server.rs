@@ -478,10 +478,7 @@ static REGISTER_NS_SPACE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::n
 /// Called by PMIx when the non-blocking nspace registration completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered closure and invoke it with the result status.
-extern "C" fn register_nspace_callback_bridge(
-    status: ffi::pmix_status_t,
-    cbdata: *mut c_void,
-) {
+extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
     if cbdata.is_null() {
         return;
     }

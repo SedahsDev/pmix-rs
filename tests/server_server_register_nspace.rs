@@ -55,10 +55,7 @@ fn test_register_nspace_callback_receives_status() {
     let captured = status.lock().unwrap();
     assert!(captured.is_some(), "callback should have captured status");
     let captured = captured.as_ref().unwrap();
-    assert!(
-        captured.is_success(),
-        "captured status should be success"
-    );
+    assert!(captured.is_success(), "captured status should be success");
 }
 
 /// Multiple callback implementations can coexist.
@@ -101,7 +98,11 @@ fn test_callback_captures_state() {
     cb1.on_complete(PmixStatus::from_raw(0));
     cb2.on_complete(PmixStatus::from_raw(0));
 
-    assert_eq!(*counter.lock().unwrap(), 2, "counter should be incremented twice");
+    assert_eq!(
+        *counter.lock().unwrap(),
+        2,
+        "counter should be incremented twice"
+    );
 }
 
 /// Callback receives error status correctly.
@@ -148,8 +149,12 @@ fn test_server_register_nspace_signature() {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
         let info = pmix::InfoBuilder::new().build();
-        let _f: fn(&str, i32, &pmix::Info, Box<dyn RegisterNspaceCallback>) -> Result<(), PmixStatus> =
-            server_register_nspace;
+        let _f: fn(
+            &str,
+            i32,
+            &pmix::Info,
+            Box<dyn RegisterNspaceCallback>,
+        ) -> Result<(), PmixStatus> = server_register_nspace;
         let _ = (_f, &info); // suppress unused warnings
     }
 }
@@ -176,10 +181,7 @@ fn test_register_nspace_nul_in_nspace() {
         "register_nspace should reject nspace containing NUL byte"
     );
     let err = result.unwrap_err();
-    assert!(
-        !err.is_success(),
-        "error status should not be success"
-    );
+    assert!(!err.is_success(), "error status should not be success");
 }
 
 /// server_register_nspace compiles with valid nspace (will fail without PMIx daemon).
@@ -194,12 +196,8 @@ fn test_register_nspace_valid_nspace_signature() {
     }
 
     let info = pmix::InfoBuilder::new().build();
-    let _result: Result<(), PmixStatus> = server_register_nspace(
-        "myjob.12345",
-        4,
-        &info,
-        Box::new(DummyCb),
-    );
+    let _result: Result<(), PmixStatus> =
+        server_register_nspace("myjob.12345", 4, &info, Box::new(DummyCb));
     // We don't assert the result because it depends on PMIx server state.
 }
 
@@ -212,12 +210,8 @@ fn test_register_nspace_zero_local_procs() {
     }
 
     let info = pmix::InfoBuilder::new().build();
-    let _result: Result<(), PmixStatus> = server_register_nspace(
-        "myjob.67890",
-        0,
-        &info,
-        Box::new(DummyCb),
-    );
+    let _result: Result<(), PmixStatus> =
+        server_register_nspace("myjob.67890", 0, &info, Box::new(DummyCb));
 }
 
 /// server_register_nspace with large nlocalprocs compiles.
@@ -229,12 +223,8 @@ fn test_register_nspace_large_nlocalprocs() {
     }
 
     let info = pmix::InfoBuilder::new().build();
-    let _result: Result<(), PmixStatus> = server_register_nspace(
-        "bigjob.99999",
-        1024,
-        &info,
-        Box::new(DummyCb),
-    );
+    let _result: Result<(), PmixStatus> =
+        server_register_nspace("bigjob.99999", 1024, &info, Box::new(DummyCb));
 }
 
 /// server_register_nspace with empty info array compiles.
@@ -246,12 +236,8 @@ fn test_register_nspace_empty_info() {
     }
 
     let info = pmix::InfoBuilder::new().build();
-    let _result: Result<(), PmixStatus> = server_register_nspace(
-        "test_nspace",
-        2,
-        &info,
-        Box::new(DummyCb),
-    );
+    let _result: Result<(), PmixStatus> =
+        server_register_nspace("test_nspace", 2, &info, Box::new(DummyCb));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -319,7 +305,11 @@ fn test_register_nspace_multiple_nspaces() {
         });
         let nspace = format!("job_{}", i);
         let result = server_register_nspace(&nspace, 4, &info, cb);
-        assert!(result.is_ok(), "register_nspace for {} should be accepted", nspace);
+        assert!(
+            result.is_ok(),
+            "register_nspace for {} should be accepted",
+            nspace
+        );
     }
 }
 

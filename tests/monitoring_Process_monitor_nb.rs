@@ -7,9 +7,7 @@
 //! a running PMIx daemon / server.
 
 use pmix::PmixError;
-use pmix::monitoring::{
-    process_monitor_nb, MonitorCallback, MonitorResults,
-};
+use pmix::monitoring::{MonitorCallback, MonitorResults, process_monitor_nb};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback implementations for testing
@@ -202,8 +200,7 @@ fn test_file_alert_roundtrip() {
 /// compiles and has the correct type.
 #[test]
 fn test_monitor_nb_file_alert_error_type() {
-    let error_code: pmix::PmixStatus =
-        pmix::PmixStatus::Known(PmixError::MonitorFileAlert);
+    let error_code: pmix::PmixStatus = pmix::PmixStatus::Known(PmixError::MonitorFileAlert);
     assert_eq!(error_code.to_raw(), -110);
     assert!(!error_code.is_success());
 }
@@ -229,7 +226,10 @@ fn test_pmix_error_monitor_variants_traits() {
     let cloned_fa = PmixError::MonitorFileAlert;
     assert_eq!(copied_hb, PmixError::MonitorHeartbeatAlert);
     assert_eq!(cloned_fa, PmixError::MonitorFileAlert);
-    assert_ne!(PmixError::MonitorHeartbeatAlert, PmixError::MonitorFileAlert);
+    assert_ne!(
+        PmixError::MonitorHeartbeatAlert,
+        PmixError::MonitorFileAlert
+    );
     use std::collections::HashSet;
     let mut set = HashSet::new();
     assert!(set.insert(PmixError::MonitorHeartbeatAlert));
@@ -244,10 +244,7 @@ fn test_pmix_error_from_raw_monitoring() {
         PmixError::from_raw(-109),
         Some(PmixError::MonitorHeartbeatAlert)
     );
-    assert_eq!(
-        PmixError::from_raw(-110),
-        Some(PmixError::MonitorFileAlert)
-    );
+    assert_eq!(PmixError::from_raw(-110), Some(PmixError::MonitorFileAlert));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -289,7 +286,11 @@ fn test_monitor_cbdata_encoding() {
     for req_id in [1u64, 42, 1000, u64::MAX >> 2] {
         let cbdata = (req_id << 2) as *mut std::ffi::c_void;
         let decoded = (cbdata as u64) >> 2;
-        assert_eq!(decoded, req_id, "cbdata round-trip failed for req_id={}", req_id);
+        assert_eq!(
+            decoded, req_id,
+            "cbdata round-trip failed for req_id={}",
+            req_id
+        );
     }
 }
 
@@ -298,7 +299,11 @@ fn test_monitor_cbdata_encoding() {
 fn test_monitor_cbdata_non_null() {
     for req_id in 1..=100 {
         let cbdata = (req_id << 2) as *mut std::ffi::c_void;
-        assert!(!cbdata.is_null(), "cbdata must be non-null for req_id={}", req_id);
+        assert!(
+            !cbdata.is_null(),
+            "cbdata must be non-null for req_id={}",
+            req_id
+        );
     }
 }
 

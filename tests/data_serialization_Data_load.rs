@@ -90,7 +90,11 @@ fn test_load_single_byte() {
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![42u8]);
     let result = data_load(&buf, &payload);
-    assert!(result.is_ok(), "loading single byte should succeed, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "loading single byte should succeed, got {:?}",
+        result
+    );
 }
 
 /// data_load with a multi-byte payload should succeed.
@@ -99,7 +103,11 @@ fn test_load_multi_byte() {
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![10u8, 20, 30, 40, 50]);
     let result = data_load(&buf, &payload);
-    assert!(result.is_ok(), "loading multi-byte payload should succeed, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "loading multi-byte payload should succeed, got {:?}",
+        result
+    );
 }
 
 /// data_load with a large payload (4KB) should succeed.
@@ -109,7 +117,11 @@ fn test_load_large_payload() {
     let original: Vec<u8> = (0..4096).map(|i| (i % 256) as u8).collect();
     let payload = PmixByteObject::from(original);
     let result = data_load(&buf, &payload);
-    assert!(result.is_ok(), "loading large payload should succeed, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "loading large payload should succeed, got {:?}",
+        result
+    );
 }
 
 /// data_load with all-zero bytes should succeed.
@@ -118,7 +130,11 @@ fn test_load_all_zeros() {
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![0u8; 64]);
     let result = data_load(&buf, &payload);
-    assert!(result.is_ok(), "loading all zeros should succeed, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "loading all zeros should succeed, got {:?}",
+        result
+    );
 }
 
 /// data_load with all-0xFF bytes should succeed.
@@ -127,7 +143,11 @@ fn test_load_all_0xff() {
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![0xFFu8; 128]);
     let result = data_load(&buf, &payload);
-    assert!(result.is_ok(), "loading all 0xFF should succeed, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "loading all 0xFF should succeed, got {:?}",
+        result
+    );
 }
 
 /// data_load with alternating byte pattern should succeed.
@@ -139,7 +159,11 @@ fn test_load_alternating_pattern() {
         .collect();
     let payload = PmixByteObject::from(original);
     let result = data_load(&buf, &payload);
-    assert!(result.is_ok(), "loading alternating pattern should succeed, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "loading alternating pattern should succeed, got {:?}",
+        result
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

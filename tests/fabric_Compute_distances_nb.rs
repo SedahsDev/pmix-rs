@@ -7,10 +7,10 @@
 //! Tests marked `#[ignore]` require a PMIx daemon and should be run
 //! with `--ignored` under a real PMIx environment.
 
-use pmix::fabric::{
-    compute_distances_nb, ComputeDistancesCallback, DeviceDistances, PmixCpuset, PmixTopology,
-};
 use pmix::PmixStatus;
+use pmix::fabric::{
+    ComputeDistancesCallback, DeviceDistances, PmixCpuset, PmixTopology, compute_distances_nb,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback implementations for testing

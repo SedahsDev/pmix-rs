@@ -10,8 +10,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
-use pmix::process_mgmt::resolve_peers;
 use pmix::PmixStatus;
+use pmix::process_mgmt::resolve_peers;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Resolve_peers without PMIx_Init (expected to fail gracefully)
@@ -87,9 +87,7 @@ fn resolve_peers_without_init_returns_err_init() {
                 raw
             );
         }
-        Ok(_) => panic!(
-            "resolve_peers without init should not succeed"
-        ),
+        Ok(_) => panic!("resolve_peers without init should not succeed"),
     }
 }
 

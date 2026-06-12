@@ -57,7 +57,11 @@ fn test_buffer_create_for_copy_payload() {
 #[test]
 fn test_buffer_create_empty() {
     let buf = data_buffer_create().expect("create buffer");
-    assert_eq!(buf.bytes_used(), 0, "new buffer should have zero bytes used");
+    assert_eq!(
+        buf.bytes_used(),
+        0,
+        "new buffer should have zero bytes used"
+    );
 }
 
 /// Verify data_buffer_create produces a buffer with bytes_allocated accessible.
@@ -86,7 +90,10 @@ fn test_pmix_status_bad_param() {
 #[test]
 fn test_pmix_status_not_supported() {
     let not_supported = PmixStatus::from_raw(-11); // PMIX_ERR_NOT_SUPPORTED
-    assert!(not_supported.is_error(), "PMIX_ERR_NOT_SUPPORTED should be error");
+    assert!(
+        not_supported.is_error(),
+        "PMIX_ERR_NOT_SUPPORTED should be error"
+    );
 }
 
 /// Verify PmixDataType has variants used by data_pack for copy_payload tests.
@@ -127,7 +134,10 @@ fn test_data_buffer_as_mut_ptr() {
 fn test_data_buffer_debug() {
     let buf = data_buffer_create().expect("create buffer");
     let debug_str = format!("{:?}", buf);
-    assert!(debug_str.contains("PmixDataBuffer"), "Debug should contain struct name");
+    assert!(
+        debug_str.contains("PmixDataBuffer"),
+        "Debug should contain struct name"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +160,10 @@ fn test_copy_payload_basic() {
     // Copy payload from src to dest
     let result = data_copy_payload(&dest_buf, &src_buf);
     assert!(result.is_ok(), "copy_payload should succeed");
-    assert!(dest_buf.bytes_used() > 0, "dest buffer should have data after copy");
+    assert!(
+        dest_buf.bytes_used() > 0,
+        "dest buffer should have data after copy"
+    );
 }
 
 /// Copy payload does not destroy the source buffer (non-destructive).
@@ -183,8 +196,15 @@ fn test_copy_payload_empty_source() {
 
     // Both buffers are empty — copy should still succeed (copy nothing)
     let result = data_copy_payload(&dest_buf, &src_buf);
-    assert!(result.is_ok(), "copy_payload of empty buffer should succeed");
-    assert_eq!(dest_buf.bytes_used(), 0, "dest should remain empty after copying empty source");
+    assert!(
+        result.is_ok(),
+        "copy_payload of empty buffer should succeed"
+    );
+    assert_eq!(
+        dest_buf.bytes_used(),
+        0,
+        "dest should remain empty after copying empty source"
+    );
 }
 
 /// Copy payload with multiple packed values of different types.
@@ -228,8 +248,14 @@ fn test_copy_payload_roundtrip() {
     // Unpack from the destination buffer
     let mut recovered: i32 = 0;
     let mut count: i32 = 1;
-    let unpacked = data_unpack(None, &dest_buf, &mut recovered, &mut count, PmixDataType::Int32)
-        .expect("unpack from dest should succeed");
+    let unpacked = data_unpack(
+        None,
+        &dest_buf,
+        &mut recovered,
+        &mut count,
+        PmixDataType::Int32,
+    )
+    .expect("unpack from dest should succeed");
     assert_eq!(unpacked, 1, "should unpack 1 value");
     assert_eq!(recovered, original, "recovered value should match original");
 }
@@ -253,7 +279,10 @@ fn test_copy_payload_accumulates() {
     data_copy_payload(&dest_buf, &src_buf).expect("second copy");
     let after_second = dest_buf.bytes_used();
 
-    assert!(after_second > after_first, "second copy_payload should increase dest buffer size");
+    assert!(
+        after_second > after_first,
+        "second copy_payload should increase dest buffer size"
+    );
     assert_eq!(
         after_second - after_first,
         src_bytes,
@@ -387,8 +416,14 @@ fn test_copy_payload_roundtrip_i64() {
 
     let mut recovered: i64 = 0;
     let mut count: i32 = 1;
-    let unpacked = data_unpack(None, &dest_buf, &mut recovered, &mut count, PmixDataType::Int64)
-        .expect("unpack from dest should succeed");
+    let unpacked = data_unpack(
+        None,
+        &dest_buf,
+        &mut recovered,
+        &mut count,
+        PmixDataType::Int64,
+    )
+    .expect("unpack from dest should succeed");
     assert_eq!(unpacked, 1, "should unpack 1 value");
     assert_eq!(recovered, original, "recovered i64 should match original");
 }
@@ -407,10 +442,19 @@ fn test_copy_payload_roundtrip_f64() {
 
     let mut recovered: f64 = 0.0;
     let mut count: i32 = 1;
-    let unpacked = data_unpack(None, &dest_buf, &mut recovered, &mut count, PmixDataType::Double)
-        .expect("unpack from dest should succeed");
+    let unpacked = data_unpack(
+        None,
+        &dest_buf,
+        &mut recovered,
+        &mut count,
+        PmixDataType::Double,
+    )
+    .expect("unpack from dest should succeed");
     assert_eq!(unpacked, 1, "should unpack 1 value");
-    assert!((recovered - original).abs() < f64::EPSILON, "recovered f64 should match original");
+    assert!(
+        (recovered - original).abs() < f64::EPSILON,
+        "recovered f64 should match original"
+    );
 }
 
 /// Copy payload with size type.

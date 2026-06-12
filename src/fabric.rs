@@ -540,9 +540,7 @@ impl PmixTopology {
 
     /// Get the source hint, if any.
     pub fn source(&self) -> Option<&str> {
-        self.source
-            .as_ref()
-            .map(|s| s.to_str().unwrap_or(""))
+        self.source.as_ref().map(|s| s.to_str().unwrap_or(""))
     }
 
     /// Check if this topology has been loaded.
@@ -702,16 +700,12 @@ impl PmixDeviceDistance {
         let uuid = if raw.uuid.is_null() {
             String::new()
         } else {
-            CStr::from_ptr(raw.uuid)
-                .to_string_lossy()
-                .into_owned()
+            CStr::from_ptr(raw.uuid).to_string_lossy().into_owned()
         };
         let osname = if raw.osname.is_null() {
             String::new()
         } else {
-            CStr::from_ptr(raw.osname)
-                .to_string_lossy()
-                .into_owned()
+            CStr::from_ptr(raw.osname).to_string_lossy().into_owned()
         };
         Self {
             uuid,
@@ -902,8 +896,7 @@ pub fn compute_distances(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *mut ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *mut ffi::pmix_info_t
             },
             info.len(),
         )
@@ -983,8 +976,7 @@ pub fn compute_distances_nb(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *mut ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *mut ffi::pmix_info_t
             },
             info.len(),
         )

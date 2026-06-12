@@ -1049,12 +1049,7 @@ pub fn data_compress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
     // On success, `out_bytes` points to a malloc'd buffer that we take
     // ownership of. On failure, `out_bytes` is null and nothing to free.
     let success = unsafe {
-        ffi::PMIx_Data_compress(
-            input.as_ptr(),
-            input.len(),
-            &mut out_bytes,
-            &mut out_len,
-        )
+        ffi::PMIx_Data_compress(input.as_ptr(), input.len(), &mut out_bytes, &mut out_len)
     };
 
     if success {
@@ -1152,12 +1147,7 @@ pub fn data_decompress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
     // The input MUST have been produced by PMIx_Data_compress — passing
     // other data leads to undefined behavior in the zlib inflate step.
     let success = unsafe {
-        ffi::PMIx_Data_decompress(
-            input.as_ptr(),
-            input.len(),
-            &mut out_bytes,
-            &mut out_len,
-        )
+        ffi::PMIx_Data_decompress(input.as_ptr(), input.len(), &mut out_bytes, &mut out_len)
     };
 
     if success {

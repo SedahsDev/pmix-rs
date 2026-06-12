@@ -8,8 +8,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
-use pmix::process_mgmt::resolve_nodes;
 use pmix::PmixStatus;
+use pmix::process_mgmt::resolve_nodes;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Resolve_nodes without PMIx_Init (expected to fail gracefully)

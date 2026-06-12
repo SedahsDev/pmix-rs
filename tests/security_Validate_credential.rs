@@ -9,8 +9,8 @@
 
 use pmix::PmixError;
 use pmix::security::{
-    validate_credential, validate_credential_nb, ValidationCallback, ValidationResults,
-    PmixCredential,
+    PmixCredential, ValidationCallback, ValidationResults, validate_credential,
+    validate_credential_nb,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,10 +61,8 @@ fn test_validation_callback_is_send() {
 fn test_validation_callback_with_state() {
     let status = std::sync::Arc::new(std::sync::Mutex::new(None));
     let result_len = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let _cb: Box<dyn ValidationCallback> = Box::new(RecordingValidationCallback {
-        status,
-        result_len,
-    });
+    let _cb: Box<dyn ValidationCallback> =
+        Box::new(RecordingValidationCallback { status, result_len });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,8 +464,7 @@ fn test_validate_credential_with_server() {
     let cred = get_credential(&info).expect("get_credential should succeed with server");
     let result = validate_credential(&cred, &info);
     match result {
-        Ok(_results) => {
-        }
+        Ok(_results) => {}
         Err(status) => {
             panic!("validate_credential failed: {:?}", status);
         }
@@ -491,8 +488,7 @@ fn test_validate_credential_invalid_credential_with_server() {
     );
     let status = result.unwrap_err();
     assert!(
-        status == pmix::PmixStatus::Known(PmixError::ErrInvalidCred)
-            || !status.is_success(),
+        status == pmix::PmixStatus::Known(PmixError::ErrInvalidCred) || !status.is_success(),
         "Expected ERR_INVALID_CRED or another error, got {:?}",
         status
     );
@@ -536,10 +532,7 @@ fn test_validate_credential_nb_with_server() {
     );
 
     let len = received_len.lock().unwrap();
-    assert!(
-        len.is_some(),
-        "Callback should have received result length"
-    );
+    assert!(len.is_some(), "Callback should have received result length");
 }
 
 /// Integration test: validate_credential_nb with an invalid credential.
@@ -561,15 +554,15 @@ fn test_validate_credential_nb_invalid_credential_with_server() {
     let info: Vec<pmix::Info> = Vec::new();
 
     let result = validate_credential_nb(&invalid_cred, &info, callback);
-    assert!(result.is_ok(), "validate_credential_nb should be accepted (error comes in callback)");
+    assert!(
+        result.is_ok(),
+        "validate_credential_nb should be accepted (error comes in callback)"
+    );
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
     let status = received_status.lock().unwrap();
-    assert!(
-        status.is_some(),
-        "Callback should have been invoked"
-    );
+    assert!(status.is_some(), "Callback should have been invoked");
     // The callback should report an error status for the invalid credential.
     assert!(
         !status.as_ref().unwrap().is_success(),

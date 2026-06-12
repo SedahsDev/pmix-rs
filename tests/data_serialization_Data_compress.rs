@@ -11,8 +11,8 @@
 //! The signature and type-safety tests below do NOT require PMIx_Init
 //! and run normally.
 
-use pmix::data_serialization::*;
 use pmix::PmixStatus;
+use pmix::data_serialization::*;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Signature and type-safety tests — no PMIx_Init required (no FFI calls)
@@ -179,7 +179,10 @@ fn test_decompress_zeros_roundtrip() {
     let data = vec![0u8; 4096];
     let compressed = data_compress(&data).expect("compress zeros");
     let decompressed = data_decompress(&compressed).expect("decompress");
-    assert_eq!(decompressed, data, "Roundtrip should produce identical data");
+    assert_eq!(
+        decompressed, data,
+        "Roundtrip should produce identical data"
+    );
 }
 
 /// Compress and decompress a repeating pattern.
