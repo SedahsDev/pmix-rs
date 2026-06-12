@@ -51,12 +51,10 @@ pub fn group_construct(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
 
     let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle)
-            as *const ffi::pmix_proc_t
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
     };
 
     let (dirs_ptr, ndirs) = if directives.is_empty() {
@@ -157,8 +155,7 @@ pub fn group_construct_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
 
     let cb_box: *mut GroupConstructCallbackWrapper = Box::into_raw(Box::new(callback));
 
@@ -196,8 +193,7 @@ pub fn group_construct_nb(
     }
 
     let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle)
-            as *const ffi::pmix_proc_t
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
     };
 
     let (info_ptr, ninfo) = if info.is_empty() {
@@ -205,8 +201,7 @@ pub fn group_construct_nb(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
@@ -258,12 +253,10 @@ pub fn group_invite(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
 
     let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle)
-            as *const ffi::pmix_proc_t
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
     };
 
     let (info_ptr, ninfo) = if info.is_empty() {
@@ -271,8 +264,7 @@ pub fn group_invite(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
@@ -360,8 +352,7 @@ pub fn group_invite_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
     let cb_box: *mut GroupInviteCallbackWrapper = Box::into_raw(Box::new(callback));
 
     extern "C" fn group_invite_callback_bridge(
@@ -398,8 +389,7 @@ pub fn group_invite_nb(
     }
 
     let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle)
-            as *const ffi::pmix_proc_t
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
     };
 
     let (info_ptr, ninfo) = if info.is_empty() {
@@ -407,8 +397,7 @@ pub fn group_invite_nb(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
@@ -464,12 +453,10 @@ pub fn group_join(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
 
     let leader_ptr = unsafe {
-        std::ptr::addr_of!((*(&*leader as *const Proc)).handle)
-            as *const ffi::pmix_proc_t
+        std::ptr::addr_of!((*(&*leader as *const Proc)).handle) as *const ffi::pmix_proc_t
     };
 
     let (info_ptr, ninfo) = if info.is_empty() {
@@ -477,8 +464,7 @@ pub fn group_join(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
@@ -565,8 +551,7 @@ pub fn group_join_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
     let cb_box: *mut GroupJoinCallbackWrapper = Box::into_raw(Box::new(callback));
 
     extern "C" fn group_join_callback_bridge(
@@ -603,8 +588,7 @@ pub fn group_join_nb(
     }
 
     let leader_ptr = unsafe {
-        std::ptr::addr_of!((*(&*leader as *const Proc)).handle)
-            as *const ffi::pmix_proc_t
+        std::ptr::addr_of!((*(&*leader as *const Proc)).handle) as *const ffi::pmix_proc_t
     };
 
     let (info_ptr, ninfo) = if info.is_empty() {
@@ -612,8 +596,7 @@ pub fn group_join_nb(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
@@ -656,24 +639,20 @@ pub fn group_leave(group_id: &str, info: &[Info]) -> Result<(), PmixStatus> {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
 
     let (info_ptr, ninfo) = if info.is_empty() {
         (ptr::null(), 0)
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
     };
 
-    let raw_status = unsafe {
-        ffi::PMIx_Group_leave(group_id_c.as_ptr(), info_ptr, ninfo)
-    };
+    let raw_status = unsafe { ffi::PMIx_Group_leave(group_id_c.as_ptr(), info_ptr, ninfo) };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
     if pmix_status.is_success() {
@@ -720,8 +699,7 @@ pub fn group_leave_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
     let cb_box: *mut GroupLeaveCallbackWrapper = Box::into_raw(Box::new(callback));
 
     extern "C" fn group_leave_callback_bridge(status: i32, cbdata: *mut c_void) {
@@ -735,8 +713,7 @@ pub fn group_leave_nb(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
@@ -777,24 +754,20 @@ pub fn group_destruct(group_id: &str, info: &[Info]) -> Result<(), PmixStatus> {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
 
     let (info_ptr, ninfo) = if info.is_empty() {
         (ptr::null(), 0)
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
     };
 
-    let raw_status = unsafe {
-        ffi::PMIx_Group_destruct(group_id_c.as_ptr(), info_ptr, ninfo)
-    };
+    let raw_status = unsafe { ffi::PMIx_Group_destruct(group_id_c.as_ptr(), info_ptr, ninfo) };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
     if pmix_status.is_success() {
@@ -841,14 +814,11 @@ pub fn group_destruct_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id)
-        .expect("group_id must not contain interior NUL bytes");
+    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
     let cb_box: *mut GroupDestructCallbackWrapper = Box::into_raw(Box::new(callback));
 
     extern "C" fn group_destruct_callback_bridge(status: i32, cbdata: *mut c_void) {
-        let cb_wrapper = unsafe {
-            Box::from_raw(cbdata as *mut GroupDestructCallbackWrapper)
-        };
+        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut GroupDestructCallbackWrapper) };
         let pmix_status = PmixStatus::from_raw(status);
         (cb_wrapper.callback)(pmix_status);
     }
@@ -858,8 +828,7 @@ pub fn group_destruct_nb(
     } else {
         (
             unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
             },
             info.len(),
         )
