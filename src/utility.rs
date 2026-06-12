@@ -2,12 +2,12 @@
 //! `PMIx_Scope_string`, `PMIx_Persistence_string`, `PMIx_Data_range_string`,
 //! `PMIx_Info_directives_string`, `PMIx_Data_type_string`, `PMIx_Alloc_directive_string`,
 //! `PMIx_IOF_channel_string`, `PMIx_Job_state_string`, `PMIx_Get_attribute_string`,
-//! `PMIx_Get_attribute_name`, and related helpers.
+//! `PMIx_Get_attribute_name`, `PMIx_Link_state_string`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixJobState, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -609,6 +609,58 @@ pub fn get_attribute_name(attribute: &str) -> Result<String, PmixStatus> {
     if c_ptr.is_null() {
         // Should not happen — the C implementation always returns a non-null
         // pointer (either the canonical name or the input unchanged).
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Link_state_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a human-readable string description of a PMIx link state value.
+///
+/// The `pmix_link_state_t` encodes the physical link state of a fabric
+/// device port. Defined values are:
+///
+/// * `PMIX_LINK_STATE_UNKNOWN` (0) — port state is unknown or not applicable.
+/// * `PMIX_LINK_DOWN` (1) — port is inactive.
+/// * `PMIX_LINK_UP` (2) — port is active.
+///
+/// The returned string is owned by the PMIx library and must not be freed
+/// or modified by the caller. This wrapper copies the string into a Rust
+/// `String` so the caller owns the result.
+///
+/// # C API
+/// `const char* PMIx_Link_state_string(pmix_link_state_t state)`
+///
+/// # Returns
+/// * `Ok(String)` — the library's description of the link state.
+/// * `Err(PmixStatus)` — if the C function returned a null pointer
+///   (should not happen for valid `pmix_link_state_t` values, but guarded
+///   against for safety).
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::link_state_string, PmixLinkState};
+///
+/// let state = PmixLinkState::LinkUp;
+/// let desc = link_state_string(state).expect("valid state");
+/// assert_eq!(desc, "ACTIVE");
+/// ```
+pub fn link_state_string(state: PmixLinkState) -> Result<String, PmixStatus> {
+    let raw = state.to_raw();
+    // SAFETY: PMIx_Link_state_string takes a single pmix_link_state_t (u8)
+    // and returns a pointer to a static, null-terminated string owned by
+    // the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points
+    // to read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Link_state_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_link_state_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
@@ -1763,5 +1815,100 @@ mod tests {
         assert_eq!(Unterminated.to_raw(), 15);
         assert_eq!(Terminated.to_raw(), 20);
         assert_eq!(TerminatedWithError.to_raw(), 50);
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // PMIx_Link_state_string
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /// `link_state_string` returns `Ok(String)` for all known link states.
+    #[test]
+    fn test_link_state_string_all_known() {
+        use crate::PmixLinkState::*;
+
+        let states = [UnknownState, LinkDown, LinkUp];
+        for state in states {
+            let result = link_state_string(state);
+            assert!(
+                result.is_ok(),
+                "link_state_string({:?}) should return Ok, got {:?}",
+                state,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "link_state_string({:?}) should not return an empty string",
+                state
+            );
+        }
+    }
+
+    /// `link_state_string` returns the expected strings for each state.
+    #[test]
+    fn test_link_state_string_expected_values() {
+        use crate::PmixLinkState::*;
+
+        let unknown = link_state_string(UnknownState).unwrap();
+        assert_eq!(unknown, "UNKNOWN");
+
+        let down = link_state_string(LinkDown).unwrap();
+        assert_eq!(down, "INACTIVE");
+
+        let up = link_state_string(LinkUp).unwrap();
+        assert_eq!(up, "ACTIVE");
+    }
+
+    /// `link_state_string` is deterministic — same state always returns same string.
+    #[test]
+    fn test_link_state_string_deterministic() {
+        use crate::PmixLinkState::*;
+
+        let first = link_state_string(LinkUp).unwrap();
+        let second = link_state_string(LinkUp).unwrap();
+        assert_eq!(first, second, "link_state_string should be deterministic");
+
+        let first = link_state_string(LinkDown).unwrap();
+        let second = link_state_string(LinkDown).unwrap();
+        assert_eq!(first, second, "link_state_string should be deterministic");
+    }
+
+    /// `PmixLinkState` Display matches the C string output.
+    #[test]
+    fn test_link_state_display() {
+        use crate::PmixLinkState::*;
+
+        assert_eq!(format!("{}", UnknownState), "UNKNOWN");
+        assert_eq!(format!("{}", LinkDown), "INACTIVE");
+        assert_eq!(format!("{}", LinkUp), "ACTIVE");
+    }
+
+    /// `PmixLinkState::from_raw` / `to_raw` roundtrip for all known values.
+    #[test]
+    fn test_link_state_from_raw_to_raw() {
+        use crate::PmixLinkState::*;
+
+        assert_eq!(PmixLinkState::from_raw(0), UnknownState);
+        assert_eq!(PmixLinkState::from_raw(1), LinkDown);
+        assert_eq!(PmixLinkState::from_raw(2), LinkUp);
+        assert_eq!(PmixLinkState::from_raw(255), PmixLinkState::Unknown(255));
+
+        assert_eq!(UnknownState.to_raw(), 0);
+        assert_eq!(LinkDown.to_raw(), 1);
+        assert_eq!(LinkUp.to_raw(), 2);
+
+        // Roundtrip for unknown values
+        let unknown = PmixLinkState::from_raw(42);
+        assert_eq!(unknown.to_raw(), 42);
+    }
+
+    /// `PmixLinkState` raw values match the C header definitions.
+    #[test]
+    fn test_link_state_raw_values() {
+        use crate::PmixLinkState::*;
+
+        assert_eq!(UnknownState.to_raw(), 0); // PMIX_LINK_STATE_UNKNOWN
+        assert_eq!(LinkDown.to_raw(), 1);     // PMIX_LINK_DOWN
+        assert_eq!(LinkUp.to_raw(), 2);       // PMIX_LINK_UP
     }
 }

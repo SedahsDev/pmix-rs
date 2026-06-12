@@ -1104,6 +1104,80 @@ impl std::fmt::Display for PmixJobState {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PmixLinkState — pmix_link_state_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe Rust representation of `pmix_link_state_t` (PMIx v4.1+).
+///
+/// `pmix_link_state_t` is a `uint8_t` that encodes the physical link state
+/// of a fabric device port. Used by the fabric device API to report port
+/// status:
+///
+/// * `0` — `UNKNOWN` — port state is unknown or not applicable.
+/// * `1` — `LINK_DOWN` — port is inactive.
+/// * `2` — `LINK_UP` — port is active.
+///
+/// All values defined in `pmix_common.h §Link State Definitions` are
+/// represented.  Unknown raw values from future library versions are
+/// captured in the [`Unknown`][PmixLinkState::Unknown] variant.
+///
+/// # C API
+/// `typedef uint8_t pmix_link_state_t;`
+///
+/// See also [`crate::utility::link_state_string`] for the human-readable
+/// string representation of each state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[non_exhaustive]
+pub enum PmixLinkState {
+    /// `PMIX_LINK_STATE_UNKNOWN` (0) — the port state is unknown or not
+    /// applicable.
+    UnknownState = 0,
+
+    /// `PMIX_LINK_DOWN` (1) — the port is inactive.
+    LinkDown     = 1,
+
+    /// `PMIX_LINK_UP` (2) — the port is active.
+    LinkUp       = 2,
+
+    /// An unrecognised or future link state value.
+    Unknown(u8),
+}
+
+impl PmixLinkState {
+    /// Convert a raw `pmix_link_state_t` (`u8`) into a `PmixLinkState`.
+    pub fn from_raw(state: u8) -> Self {
+        match state {
+            0 => Self::UnknownState,
+            1 => Self::LinkDown,
+            2 => Self::LinkUp,
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// Return the raw `u8` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u8 {
+        match self {
+            Self::Unknown(v) => v,
+            Self::UnknownState => 0,
+            Self::LinkDown     => 1,
+            Self::LinkUp       => 2,
+        }
+    }
+}
+
+impl std::fmt::Display for PmixLinkState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownState => write!(f, "UNKNOWN"),
+            Self::LinkDown     => write!(f, "INACTIVE"),
+            Self::LinkUp       => write!(f, "ACTIVE"),
+            Self::Unknown(v)   => write!(f, "UNKNOWN LINK STATE ({v})"),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PmixPersistence — pmix_persistence_t
 // ─────────────────────────────────────────────────────────────────────────────
 
