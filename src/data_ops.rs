@@ -1000,3 +1000,70 @@ pub fn unpublish_nb(
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Store_internal — store data locally with internal scope
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Store data locally for retrieval by other areas of this process.
+///
+/// This is data that has only **internal scope** — it will never be
+/// "pushed" externally to a remote server. The data is stored in the
+/// local process's PMIx internal store and can later be retrieved via
+/// [`get_nb`][crate::data_ops::get_nb] or a blocking get.
+///
+/// Unlike [`publish`][crate::data_ops::publish], this call does not make
+/// the data available for lookup by other processes. It is purely a
+/// local caching mechanism used internally by the PMIx library and by
+/// tools/servers that need to cache data before committing it.
+///
+/// # Parameters
+///
+/// - `proc`: The process identity (namespace + rank) associated with the data.
+/// - `key`: The attribute key (must not contain NUL, max 511 bytes).
+/// - `value`: The value to store. The caller retains ownership of this value
+///   — PMIx makes its own internal copy.
+///
+/// # Returns
+///
+/// - `Ok(())` if the data was stored successfully.
+/// - `Err(status)` on failure:
+///   - `PMIX_ERR_INIT` — PMIx has not been initialized.
+///   - `PMIX_ERR_BAD_PARAM` — key is NULL or too long (> PMIX_MAX_KEYLEN).
+///   - `PMIX_ERR_NOMEM` — memory allocation failed.
+///
+/// # C API
+/// `pmix_status_t PMIx_Store_internal(const pmix_proc_t *proc, const char key[], pmix_value_t *val)`
+pub fn store_internal(proc: &Proc, key: &str, value: &PmixOwnedValue) -> Result<(), PmixStatus> {
+    // Convert key to C string.
+    let key_c = match CString::new(key) {
+        Ok(c) => c,
+        Err(_) => {
+            return Err(PmixStatus::Known(PmixError::Error));
+        }
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_Store_internal is a synchronous PMIx API call.
+        // - proc.handle is a valid pmix_proc_t owned by the Proc parameter.
+        // - key_c is a valid null-terminated C string that lives long enough.
+        // - value.as_raw() gives a valid pmix_value_t owned by PmixOwnedValue
+        //   that lives long enough. The FFI signature declares `*mut pmix_value_t`
+        //   but the C implementation only reads from the value (copies it via
+        //   PMIX_BFROPS_VALUE_XFER) and does not retain the pointer after return.
+        //   Casting *const to *mut is safe here because no mutation occurs.
+        ffi::PMIx_Store_internal(
+            &proc.handle as *const ffi::pmix_proc_t,
+            key_c.as_ptr(),
+            value.as_raw() as *mut ffi::pmix_value_t,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
