@@ -1,4 +1,5 @@
-//! Process management — `PMIx_Abort`, `PMIx_Spawn`, `PMIx_Spawn_nb`.
+//! Process management — `PMIx_Abort`, `PMIx_Spawn`, `PMIx_Spawn_nb`,
+//! `PMIx_Connect`, `PMIx_Connect_nb`.
 //!
 //! This module provides safe Rust wrappers around the PMIx process
 //! management APIs:
@@ -7,11 +8,14 @@
 //!   specified processes with a given error code and message.
 //! * **Spawn** — spawn new processes/applications in the PMIx universe.
 //! * **Spawn_nb** — non-blocking variant of spawn with a callback.
+//! * **Connect** — record a set of processes as "connected", enabling
+//!   cross-namespace notification and job-level info sharing.
+//! * **Connect_nb** — non-blocking variant of connect with a callback.
 //!
 //! # Example
 //!
 //! ```no_run
-//! use pmix::process_mgmt::{abort, spawn, PmixApp};
+//! use pmix::process_mgmt::{abort, spawn, connect, PmixApp};
 //! use pmix::{PmixError, PmixStatus, Proc};
 //!
 //! // Abort all processes in the caller's namespace
@@ -30,6 +34,10 @@
 //!     .build();
 //! let result = spawn(&[], &[app]);
 //! // result is Ok(nspace) on success
+//!
+//! // Connect to a namespace
+//! let proc = Proc::new("target_namespace", pmix::PMIX_RANK_WILDCARD);
+//! let result = connect(&[proc], &[]);
 //! ```
 
 use crate::ffi;
@@ -109,7 +117,12 @@ pub fn abort(
     // - Note: if the caller's own process is included in `procs`, this
     //   function may not return. That is documented PMIx behavior.
     let raw_status = unsafe {
-        ffi::PMIx_Abort(status.to_raw() as std::os::raw::c_int, msg_ptr, procs_ptr, nprocs)
+        ffi::PMIx_Abort(
+            status.to_raw() as std::os::raw::c_int,
+            msg_ptr,
+            procs_ptr,
+            nprocs,
+        )
     };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
@@ -369,14 +382,11 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
             let n = app.argv.len();
             // Allocate null-terminated pointer array via libc::calloc.
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc(
-                    (n + 1) as usize,
-                    std::mem::size_of::<*mut c_char>(),
-                ) as *mut *mut c_char
+                libc::calloc((n + 1) as usize, std::mem::size_of::<*mut c_char>())
+                    as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes())
-                    .unwrap_or_else(|_| CString::new("").unwrap());
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").unwrap());
                 unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
             }
             // ptrs[n] is already NULL from calloc.
@@ -390,14 +400,11 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
         } else {
             let n = app.env.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc(
-                    (n + 1) as usize,
-                    std::mem::size_of::<*mut c_char>(),
-                ) as *mut *mut c_char
+                libc::calloc((n + 1) as usize, std::mem::size_of::<*mut c_char>())
+                    as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes())
-                    .unwrap_or_else(|_| CString::new("").unwrap());
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").unwrap());
                 unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
             }
             ptrs
@@ -432,9 +439,8 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
     //   with all string fields allocated via C-compatible allocators.
     // - `nspace_buf` is a properly sized output buffer.
     // - PMIx_Spawn does not retain any of our pointers after return.
-    let status = unsafe {
-        ffi::PMIx_Spawn(info_ptr, ninfo, raw_apps, napps, nspace_buf.as_mut_ptr())
-    };
+    let status =
+        unsafe { ffi::PMIx_Spawn(info_ptr, ninfo, raw_apps, napps, nspace_buf.as_mut_ptr()) };
 
     // The AppArrayGuard will call PMIx_App_free(raw_apps, napps) which
     // calls PMIX_APP_DESTRUCT on each element, freeing cmd/argv/env/cwd
@@ -480,7 +486,6 @@ impl SpawnCallbackWrapper {
         }
     }
 }
-
 
 /// Non-blocking spawn with a Rust closure callback.
 ///
@@ -577,14 +582,11 @@ pub fn spawn_nb(
         } else {
             let n = app.argv.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc(
-                    (n + 1) as usize,
-                    std::mem::size_of::<*mut c_char>(),
-                ) as *mut *mut c_char
+                libc::calloc((n + 1) as usize, std::mem::size_of::<*mut c_char>())
+                    as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes())
-                    .unwrap_or_else(|_| CString::new("").unwrap());
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").unwrap());
                 unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
             }
             ptrs
@@ -597,14 +599,11 @@ pub fn spawn_nb(
         } else {
             let n = app.env.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc(
-                    (n + 1) as usize,
-                    std::mem::size_of::<*mut c_char>(),
-                ) as *mut *mut c_char
+                libc::calloc((n + 1) as usize, std::mem::size_of::<*mut c_char>())
+                    as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes())
-                    .unwrap_or_else(|_| CString::new("").unwrap());
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").unwrap());
                 unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
             }
             ptrs
@@ -654,6 +653,221 @@ pub fn spawn_nb(
     } else {
         // On synchronous failure, PMIx still calls the callback with
         // the error status, so the bridge function will drop cb_box.
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Connect
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Record a set of processes as "connected".
+///
+/// Instructs the PMIx server to treat the specified processes as a
+/// connected group. When processes are connected:
+///
+/// * The resource manager treats the failure of any process in the
+///   group as a reportable event and takes appropriate action.
+/// * Each process receives job-level info for the other namespaces
+///   in the group, enabling cross-namespace queries without
+///   communication penalties.
+/// * Processes in the group receive notification of errors from
+///   other members.
+///
+/// This is a **blocking** call: it does not return until all
+/// participating processes have called `connect` with the same
+/// set of processes.
+///
+/// # Constraints
+/// * A process can only engage in *one* connect operation involving
+///   the identical set of processes at a time.
+/// * A process *can* be simultaneously engaged in multiple connect
+///   operations, each involving a different set of processes.
+/// * The `info` array can pass directives regarding the collective
+///   algorithm, timeout constraints, and other options.
+///
+/// # Returns
+/// * `Ok(())` — all participating processes have connected.
+/// * `Err(PmixStatus)` — the connect operation failed.
+///
+/// # Thread Safety
+/// The caller is responsible for ensuring thread safety when calling
+/// this from multiple threads simultaneously.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_Connect(const pmix_proc_t procs[], size_t nprocs,
+///                            const pmix_info_t info[], size_t ninfo);
+/// ```
+pub fn connect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
+    if procs.is_empty() {
+        return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
+    }
+
+    // Convert proc slice to a raw pointer.
+    // SAFETY: `procs` is a non-empty slice of `Proc` values, each
+    // containing a `pmix_proc_t` handle as its first field. We take
+    // the address of the first element's handle and cast it to the
+    // FFI type. The slice remains valid for the duration of this call.
+    let procs_ptr = unsafe {
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
+    };
+
+    // Convert info slice to a raw pointer.
+    let (info_ptr, ninfo) = if info.is_empty() {
+        (ptr::null(), 0)
+    } else {
+        // SAFETY: `info` is a non-empty slice of `Info` values, each
+        // containing a pointer to a `pmix_info_t`. We take the address
+        // of the first element's handle field.
+        (
+            unsafe {
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
+            },
+            info.len(),
+        )
+    };
+
+    // SAFETY: FFI call into PMIx library.
+    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles
+    //   that remain valid for the duration of this call. PMIx does
+    //   not retain these pointers after return.
+    // - `info_ptr` is either null or points to a valid slice of
+    //   `pmix_info_t` pointers. PMIx reads but does not retain.
+    // - `nprocs` and `ninfo` are the correct lengths of their arrays.
+    // - This is a blocking call: it does not return until all
+    //   participating processes have completed the connect operation.
+    let raw_status = unsafe { ffi::PMIx_Connect(procs_ptr, procs.len(), info_ptr, ninfo) };
+
+    let pmix_status = PmixStatus::from_raw(raw_status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ConnectCallbackWrapper — Rust closure → FFI callback bridge
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Non-blocking connect callback wrapper.
+///
+/// Wraps a Rust closure so it can be called from the C FFI callback.
+/// The closure receives `PmixStatus` — the result of the connect
+/// operation (`PMIX_SUCCESS` or an error code).
+pub struct ConnectCallbackWrapper {
+    /// The user's Rust closure.
+    callback: Box<dyn Fn(PmixStatus) + Send + 'static>,
+}
+
+impl ConnectCallbackWrapper {
+    /// Create a new wrapper around a Rust closure.
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(PmixStatus) + Send + 'static,
+    {
+        Self {
+            callback: Box::new(f),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Connect_nb
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Non-blocking connect with a Rust closure callback.
+///
+/// Records a set of processes as "connected" without blocking. The
+/// provided callback is invoked when the operation completes.
+///
+/// * The callback receives `PmixStatus`:
+///   - `PMIX_SUCCESS` — all participating processes have connected.
+///   - Error code — the connect operation failed.
+/// * The `callback` closure must be `Send + 'static` because it may
+///   be invoked from a different thread by the PMIx library.
+///
+/// # Returns
+/// * `Ok(())` — the connect request was accepted (async, result in callback).
+/// * `Err(PmixStatus)` — the connect request itself failed synchronously.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_Connect_nb(const pmix_proc_t procs[], size_t nprocs,
+///                               const pmix_info_t info[], size_t ninfo,
+///                               pmix_op_cbfunc_t cbfunc, void *cbdata);
+/// ```
+pub fn connect_nb(
+    procs: &[Proc],
+    info: &[Info],
+    callback: ConnectCallbackWrapper,
+) -> Result<(), PmixStatus> {
+    if procs.is_empty() {
+        return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
+    }
+
+    // Box the callback wrapper so it lives on the heap and outlives
+    // the FFI call. We pass it as cbdata and recover it in the C
+    // callback via Box::from_raw.
+    let cb_box: *mut ConnectCallbackWrapper = Box::into_raw(Box::new(callback));
+
+    // The C bridge function that PMIx calls back into.
+    // SAFETY: This extern "C" function is only called by PMIx with
+    // the cbdata pointer we provided (Box<ConnectCallbackWrapper>).
+    // It takes ownership of the box via Box::from_raw.
+    extern "C" fn connect_callback_bridge(status: i32, cbdata: *mut c_void) {
+        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut ConnectCallbackWrapper) };
+        let pmix_status = PmixStatus::from_raw(status);
+        (cb_wrapper.callback)(pmix_status);
+        // The box is dropped here.
+    }
+
+    // Convert proc slice to a raw pointer.
+    // SAFETY: `procs` is a non-empty slice of `Proc` values.
+    let procs_ptr = unsafe {
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
+    };
+
+    // Convert info slice to a raw pointer.
+    let (info_ptr, ninfo) = if info.is_empty() {
+        (ptr::null(), 0)
+    } else {
+        (
+            unsafe {
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
+            },
+            info.len(),
+        )
+    };
+
+    // SAFETY: FFI call into PMIx library.
+    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles.
+    // - `info_ptr` is either null or points to a valid slice of
+    //   `pmix_info_t` pointers.
+    // - `connect_callback_bridge` is a valid extern "C" callback.
+    // - `cb_box` is a valid heap-allocated ConnectCallbackWrapper
+    //   that will be recovered in the callback via Box::from_raw.
+    // - PMIx_Connect_nb returns immediately; the callback is invoked
+    //   asynchronously by the PMIx library at a later time.
+    let raw_status = unsafe {
+        ffi::PMIx_Connect_nb(
+            procs_ptr,
+            procs.len(),
+            info_ptr,
+            ninfo,
+            Some(connect_callback_bridge),
+            cb_box as *mut c_void,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(raw_status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        // On synchronous failure, PMIx may or may not call the callback.
+        // To be safe, reclaim the box to avoid a memory leak.
+        unsafe { drop(Box::from_raw(cb_box)) };
         Err(pmix_status)
     }
 }
