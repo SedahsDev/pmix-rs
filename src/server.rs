@@ -2040,3 +2040,226 @@ pub fn server_setup_local_support(
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_IOF_deliver — deliver forwarded I/O to local PMIx server
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_IOF_deliver`.
+///
+/// Implement this trait to receive the result of an I/O forwarding
+/// delivery request. The `on_complete` method receives the `PmixStatus`
+/// result — success means the PMIx server has accepted the data for
+/// distribution to its clients.
+///
+/// # Important
+///
+/// The host RM must retain ownership of the byte object (`bo`) until
+/// the callback is executed, or until a non-success status is returned
+/// immediately by the function. The safe wrapper handles this by taking
+/// a reference that must remain valid until the callback fires.
+pub trait IOFDeliverCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending IOF_deliver callbacks.
+type IOFDeliverRegistry = std::collections::HashMap<usize, Box<dyn IOFDeliverCallback>>;
+static IOF_DELIVER_REGISTRY: LazyLock<Mutex<IOFDeliverRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing IOF_deliver request ID counter.
+static IOF_DELIVER_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (IOF_deliver completion).
+///
+/// Called by PMIx when the I/O forwarding delivery completes. The
+/// `cbdata` parameter is a raw pointer encoding the request ID.
+/// We look up the registered Rust callback and invoke it with the
+/// result status.
+extern "C" fn iof_deliver_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Deliver forwarded I/O data to the local PMIx server for distribution.
+///
+/// This function allows the host resource manager (RM) to pass I/O data
+/// that has been forwarded from a remote source to the local PMIx server
+/// for distribution to its clients that have registered for the data.
+///
+/// The PMIx server is responsible for determining which of its clients
+/// have actually registered to receive the provided data and delivering
+/// it to them.
+///
+/// # Parameters
+///
+/// * `source` — the process that provided the data being forwarded.
+///   This identifies the source of the I/O stream.
+/// * `channel` — the I/O channel (stdin, stdout, stderr) from which
+///   the data originated. Specified as `IOFChannelFlags` bitmask.
+/// * `bo` — a byte object containing the raw I/O data to deliver.
+///   The data must remain valid until the callback is invoked.
+/// * `info` — optional metadata describing the data, including
+///   attributes such as `PMIX_IOF_COMPLETE` to indicate that the
+///   source channel has been closed (EOF).
+/// * `callback` — invoked when the data has been processed by the
+///   PMIx server. The host RM must retain the byte object until this
+///   callback fires.
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback`.
+/// * `Err(status)` — request rejected immediately (e.g., invalid
+///   source, PMIx not initialized as server). The callback
+///   will NOT be called.
+///
+/// # Error conditions
+///
+/// * `PMIX_ERR_INIT` — PMIx server library has not been initialized.
+/// * `PMIX_ERR_BAD_PARAM` — `source` is null, `bo` is null, or
+///   `channel` is invalid.
+/// * `PMIX_ERR_NOMEM` — insufficient memory to process the request.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_IOF_deliver(const pmix_proc_t *source,
+///                                       pmix_iof_channel_t channel,
+///                                       const pmix_byte_object_t *bo,
+///                                       const pmix_info_t info[], size_t ninfo,
+///                                       pmix_op_cbfunc_t cbfunc, void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_iof_deliver, IOFDeliverCallback};
+/// use pmix::{Proc, PmixStatus, IOFChannelFlags};
+/// use pmix::data_serialization::PmixByteObject;
+///
+/// struct MyIOFCallback;
+/// impl IOFDeliverCallback for MyIOFCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///         if status.is_success() {
+///             println!("I/O data delivered successfully");
+///         } else {
+///             eprintln!("I/O delivery failed: {:?}", status);
+///         }
+///     }
+/// }
+///
+/// let source = Proc::new("myapp.12345", 0).expect("invalid nspace");
+/// let data = PmixByteObject::from(b"Hello, stdout!".to_vec());
+/// let channel = IOFChannelFlags::STDOUT;
+///
+/// // Note: data must remain alive until the callback fires.
+/// // In practice, use Arc or a longer-lived buffer.
+/// server_iof_deliver(
+///     &source,
+///     channel,
+///     &data,
+///     &pmix::Info::default(),
+///     Box::new(MyIOFCallback),
+/// ).expect("IOF_deliver rejected");
+/// ```
+pub fn server_iof_deliver(
+    source: &Proc,
+    channel: crate::IOFChannelFlags,
+    bo: &crate::data_serialization::PmixByteObject,
+    info: &Info,
+    callback: Box<dyn IOFDeliverCallback>,
+) -> Result<(), PmixStatus> {
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = IOF_DELIVER_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    // We shift left by 2 to ensure the pointer is properly aligned
+    // and non-null (req_id starts from 1, so req_id << 2 >= 4).
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Get a pointer to the source proc's internal pmix_proc_t for FFI.
+    let source_ptr = &source.handle as *const ffi::pmix_proc_t;
+
+    // Get the byte object pointer.
+    let bo_ptr = bo as *const crate::data_serialization::PmixByteObject
+        as *const ffi::pmix_byte_object_t;
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = if info.len > 0 {
+        (info.handle, info.len)
+    } else {
+        (ptr::null_mut(), 0)
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_server_IOF_deliver is a non-blocking server API.
+        // - source_ptr is a valid reference to the Proc's internal pmix_proc_t
+        //   that remains alive for the duration of this call (PMIx copies it).
+        // - channel.0 is the raw pmix_iof_channel_t bitmask.
+        // - bo_ptr is a valid reference to the PmixByteObject's internal
+        //   pmix_byte_object_t. The caller must ensure bo remains valid until
+        //   the callback fires (the PMIx spec requires the host RM to retain
+        //   the byte object until the callback is executed).
+        // - info_ptr is either a valid array of pmix_info_t (from Info.handle)
+        //   or null (PMIx accepts null info with ninfo=0).
+        // - The callback bridge has C linkage and properly handles cbdata.
+        // - cbdata is an opaque pointer that we control and decode in the bridge.
+        // - The PMIx library validates parameters internally and returns
+        //   PMIX_ERR_INIT if not initialized as server, PMIX_ERR_BAD_PARAM
+        //   if source/bo/channel are invalid, PMIX_ERR_NOMEM on OOM.
+        ffi::PMIx_server_IOF_deliver(
+            source_ptr,
+            channel.0,
+            bo_ptr,
+            info_ptr,
+            ninfo,
+            Some(iof_deliver_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
