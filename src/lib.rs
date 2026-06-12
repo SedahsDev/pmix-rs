@@ -2,9 +2,10 @@
 
 use std::fmt::Debug;
 pub mod allocation;
-pub mod data_ops;
-pub mod events;
 pub mod cpu_locality;
+pub mod data_ops;
+pub mod data_serialization;
+pub mod events;
 pub mod fabric;
 mod ffi;
 pub mod groups;
