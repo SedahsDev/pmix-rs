@@ -46,7 +46,7 @@
 //! pmix_status_t PMIx_server_finalize(void);
 //! ```
 
-use crate::{ffi, Info, PmixStatus, Proc};
+use crate::{Info, PmixStatus, Proc, ffi};
 use std::ffi::CString;
 use std::os::raw::c_void;
 use std::ptr;
@@ -691,10 +691,7 @@ static DEREGISTER_NS_SPACE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex:
 /// Called by PMIx when the non-blocking nspace deregistration completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered closure and invoke it with the result status.
-extern "C" fn deregister_nspace_callback_bridge(
-    status: ffi::pmix_status_t,
-    cbdata: *mut c_void,
-) {
+extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
     if cbdata.is_null() {
         return;
     }
@@ -770,10 +767,7 @@ extern "C" fn deregister_nspace_callback_bridge(
 /// // Deregister a completed job's namespace
 /// server_deregister_nspace("myjob.12345", Some(Box::new(MyDeregisterCallback)));
 /// ```
-pub fn server_deregister_nspace(
-    nspace: &str,
-    callback: Option<Box<dyn DeregisterNspaceCallback>>,
-) {
+pub fn server_deregister_nspace(nspace: &str, callback: Option<Box<dyn DeregisterNspaceCallback>>) {
     // Convert nspace to CString for FFI.
     let nspace_c = match CString::new(nspace) {
         Ok(cs) => cs,
@@ -827,11 +821,7 @@ pub fn server_deregister_nspace(
             // SAFETY: nspace_c.as_ptr() is a valid null-terminated string.
             // NULL callback means blocking execution.
             unsafe {
-                ffi::PMIx_server_deregister_nspace(
-                    nspace_c.as_ptr(),
-                    None,
-                    std::ptr::null_mut(),
-                );
+                ffi::PMIx_server_deregister_nspace(nspace_c.as_ptr(), None, std::ptr::null_mut());
             }
         }
     }
@@ -1006,5 +996,156 @@ pub fn server_register_client(
         let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
         registry.remove(&req_id);
         Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_deregister_client — deregister a specific client process
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_deregister_client`.
+///
+/// Implement this trait to receive the result of a non-blocking client
+/// deregistration. The `on_complete` method receives the `PmixStatus` result.
+pub trait DeregisterClientCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending deregister_client callbacks.
+type DeregisterClientRegistry = std::collections::HashMap<usize, Box<dyn DeregisterClientCallback>>;
+static DEREGISTER_CLIENT_REGISTRY: LazyLock<Mutex<DeregisterClientRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing deregister_client request ID counter.
+static DEREGISTER_CLIENT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (deregister_client completion).
+///
+/// Called by PMIx when the non-blocking client deregistration completes.
+/// The `cbdata` parameter is a raw pointer encoding the request ID.
+/// We look up the registered closure and invoke it with the result status.
+extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Deregister a specific client process and purge all data relating to it.
+///
+/// This function tells the PMIx server library to delete all information
+/// for a specific client process. Unlike [`server_deregister_nspace`],
+/// which purges ALL data for an entire namespace, this API targets only
+/// a single process within a namespace.
+///
+/// This API is intended solely for use in exception cases — for example,
+/// when a specific client must be forcibly removed while other clients
+/// in the same namespace continue to operate normally.
+///
+/// # Parameters
+///
+/// * `proc` — the process identifier (namespace + rank) of the client to deregister.
+/// * `callback` — invoked when deregistration completes. Pass `None` for
+///   blocking behavior (the C API accepts a NULL callback for blocking
+///   execution, though this is not recommended in async contexts).
+///
+/// # Returns
+///
+/// Nothing — the C API returns `void`. If a callback is provided, the
+/// result is delivered asynchronously. If no callback is provided, the
+/// call executes as a blocking operation.
+///
+/// # C API
+/// ```c
+/// void PMIx_server_deregister_client(const pmix_proc_t *proc,
+///                                    pmix_op_cbfunc_t cbfunc,
+///                                    void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_deregister_client, DeregisterClientCallback};
+/// use pmix::{PmixStatus, Proc};
+///
+/// struct MyDeregisterCallback;
+/// impl DeregisterClientCallback for MyDeregisterCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///         println!("deregister_client completed: {:?}", status);
+///     }
+/// }
+///
+/// let proc = Proc::new("myjob.12345", 3).expect("invalid nspace");
+/// // Deregister a specific misbehaving client
+/// server_deregister_client(&proc, Some(Box::new(MyDeregisterCallback)));
+/// ```
+pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn DeregisterClientCallback>>) {
+    // The proc's nspace must not contain NUL bytes — Proc::new already
+    // validates this at construction time, so we can safely access the
+    // internal CString here.
+
+    match callback {
+        Some(cb) => {
+            // Non-blocking mode: register callback and pass bridge to FFI.
+            let req_id = {
+                let mut seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
+                *seq += 1;
+                *seq
+            };
+            {
+                let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+                registry.insert(req_id, cb);
+            }
+
+            // Encode the request ID as a non-null pointer for cbdata.
+            let cbdata = (req_id << 2) as *mut c_void;
+
+            // Get a pointer to the proc's internal pmix_proc_t for FFI.
+            let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
+
+            // SAFETY: PMIx_server_deregister_client is a non-blocking server API.
+            // - proc_ptr is a valid reference to the Proc's internal pmix_proc_t
+            //   that remains alive for the duration of this call (PMIx copies it).
+            // - The callback bridge has C linkage and properly handles cbdata.
+            // - cbdata is an opaque pointer that we control and decode in the bridge.
+            // - The C function returns void; no return value to check.
+            unsafe {
+                ffi::PMIx_server_deregister_client(
+                    proc_ptr,
+                    Some(deregister_client_callback_bridge),
+                    cbdata,
+                );
+            }
+        }
+        None => {
+            // Blocking mode: pass NULL callback. The C API documents
+            // that a NULL cbfunc means the function executes as a
+            // blocking operation.
+            //
+            // SAFETY: proc_ptr is a valid reference to the Proc's internal
+            // pmix_proc_t. NULL callback means blocking execution.
+            let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
+            unsafe {
+                ffi::PMIx_server_deregister_client(proc_ptr, None, std::ptr::null_mut());
+            }
+        }
     }
 }
