@@ -2765,3 +2765,72 @@ pub fn server_deliver_inventory(
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_generate_locality_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe wrapper for `PMIx_server_generate_locality_string`.
+///
+/// Generate a PMIx locality string from a given CPU set bitmap.
+///
+/// The returned locality string encodes the hardware topology location
+/// (NUMA node, L3/L2/L1 cache domain, socket, core, etc.) of the CPUs
+/// in the provided cpuset. The string can be passed to
+/// `PMIx_Get_relative_locality` to determine the relative locality of
+/// two processes.
+///
+/// This function shall only be called for local client processes, with
+/// the returned locality included in the job-level information (via the
+/// `PMIX_LOCALITY_STRING` attribute) provided to local clients.
+///
+/// # Parameters
+/// * `cpuset` — CPU set bitmap from which to generate the locality string.
+///
+/// # Returns
+/// * `Ok(String)` — the locality string on success.
+/// * `Err(PmixStatus)` — error code, e.g. `PMIX_ERR_NOT_SUPPORTED` if
+///   hwloc is not available or the cpuset is invalid.
+///
+/// # C API
+/// `pmix_status_t PMIx_server_generate_locality_string(const pmix_cpuset_t *cpuset, char **locality)`
+pub fn server_generate_locality_string(
+    cpuset: &mut crate::fabric::PmixCpuset,
+) -> Result<String, PmixStatus> {
+    let cpuset_ptr = cpuset.as_mut_ptr();
+
+    let mut locality_ptr: *mut std::os::raw::c_char = ptr::null_mut();
+
+    let status = unsafe {
+        // SAFETY:
+        // - cpuset_ptr points to a valid, constructed pmix_cpuset_t that
+        //   remains alive for the duration of this call (PMIx copies its
+        //   contents to build the locality string).
+        // - locality_ptr is a valid output pointer (&mut of a stack variable).
+        // - The PMIx library allocates the returned string internally.
+        ffi::PMIx_server_generate_locality_string(cpuset_ptr, &mut locality_ptr)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if !pmix_status.is_success() {
+        return Err(pmix_status);
+    }
+
+    // On success, PMIx has allocated a null-terminated string.
+    // Read it and take ownership, then free the C allocation.
+    let locality = unsafe {
+        if locality_ptr.is_null() {
+            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+        }
+        let s = CStr::from_ptr(locality_ptr)
+            .to_string_lossy()
+            .into_owned();
+        // PMIx_server_generate_locality_string allocates with strdup/calloc;
+        // free with libc::free.
+        libc::free(locality_ptr as *mut std::os::raw::c_void);
+        s
+    };
+
+    Ok(locality)
+}
