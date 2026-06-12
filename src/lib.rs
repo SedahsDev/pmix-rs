@@ -1178,6 +1178,109 @@ impl std::fmt::Display for PmixLinkState {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PmixDeviceType — pmix_device_type_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe Rust representation of `pmix_device_type_t` (PMIx v4.1+).
+///
+/// `pmix_device_type_t` is a `uint64_t` bitmask that encodes hardware device
+/// types on a node. Used by the fabric / hardware API to classify devices:
+///
+/// * `0x00` — `UNKNOWN` — device type is unknown or not applicable.
+/// * `0x01` — `BLOCK` — block storage device (disk, NVMe, etc.).
+/// * `0x02` — `GPU` — graphics processing unit.
+/// * `0x04` — `NETWORK` — network interface card.
+/// * `0x08` — `OPENFABRICS` — InfiniBand / RoCE / iWARP fabric adapter.
+/// * `0x10` — `DMA` — direct memory access engine.
+/// * `0x20` — `COPROC` — coprocessor (FPGA, accelerator, etc.).
+///
+/// All values defined in `pmix_common.h §Device Type Definitions` are
+/// represented.  Unknown raw values from future library versions are
+/// captured in the [`Unknown`][PmixDeviceType::Unknown] variant.
+///
+/// # C API
+/// `typedef uint64_t pmix_device_type_t;`
+///
+/// See also [`crate::utility::device_type_string`] for the human-readable
+/// string representation of each type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u64)]
+#[non_exhaustive]
+pub enum PmixDeviceType {
+    /// `PMIX_DEVTYPE_UNKNOWN` (0x00) — device type is unknown or not
+    /// applicable.
+    UnknownType = 0x00,
+
+    /// `PMIX_DEVTYPE_BLOCK` (0x01) — block storage device.
+    Block       = 0x01,
+
+    /// `PMIX_DEVTYPE_GPU` (0x02) — graphics processing unit.
+    Gpu         = 0x02,
+
+    /// `PMIX_DEVTYPE_NETWORK` (0x04) — network interface card.
+    Network     = 0x04,
+
+    /// `PMIX_DEVTYPE_OPENFABRICS` (0x08) — InfiniBand / RoCE / iWARP
+    /// fabric adapter.
+    OpenFabrics = 0x08,
+
+    /// `PMIX_DEVTYPE_DMA` (0x10) — direct memory access engine.
+    Dma         = 0x10,
+
+    /// `PMIX_DEVTYPE_COPROC` (0x20) — coprocessor (FPGA, accelerator,
+    /// etc.).
+    Coproc      = 0x20,
+
+    /// An unrecognised or future device type value.
+    Unknown(u64),
+}
+
+impl PmixDeviceType {
+    /// Convert a raw `pmix_device_type_t` (`u64`) into a `PmixDeviceType`.
+    pub fn from_raw(ty: u64) -> Self {
+        match ty {
+            0x00 => Self::UnknownType,
+            0x01 => Self::Block,
+            0x02 => Self::Gpu,
+            0x04 => Self::Network,
+            0x08 => Self::OpenFabrics,
+            0x10 => Self::Dma,
+            0x20 => Self::Coproc,
+            other  => Self::Unknown(other),
+        }
+    }
+
+    /// Return the raw `u64` value suitable for passing to the C API.
+    pub fn to_raw(self) -> u64 {
+        match self {
+            Self::Unknown(v)     => v,
+            Self::UnknownType    => 0x00,
+            Self::Block          => 0x01,
+            Self::Gpu            => 0x02,
+            Self::Network        => 0x04,
+            Self::OpenFabrics    => 0x08,
+            Self::Dma            => 0x10,
+            Self::Coproc         => 0x20,
+        }
+    }
+}
+
+impl std::fmt::Display for PmixDeviceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownType   => write!(f, "UNKNOWN"),
+            Self::Block         => write!(f, "BLOCK"),
+            Self::Gpu           => write!(f, "GPU"),
+            Self::Network       => write!(f, "NETWORK"),
+            Self::OpenFabrics   => write!(f, "OPENFABRICS"),
+            Self::Dma           => write!(f, "DMA"),
+            Self::Coproc        => write!(f, "COPROCESSOR"),
+            Self::Unknown(v)    => write!(f, "UNKNOWN DEVICE TYPE ({v:X})"),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PmixPersistence — pmix_persistence_t
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
-use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType, PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -661,6 +661,43 @@ pub fn link_state_string(state: PmixLinkState) -> Result<String, PmixStatus> {
     let c_ptr = unsafe { ffi::PMIx_Link_state_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_link_state_t, but guard anyway.
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    // SAFETY: The pointer is non-null and points to a valid null-terminated
+    // C string owned by the PMIx library (static lifetime).
+    let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Device_type_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe wrapper for `PMIx_Device_type_string`.
+///
+/// Returns a human-readable string for a PMIx device type value.
+///
+/// # C API
+/// `const char* PMIx_Device_type_string(pmix_device_type_t type)`
+///
+/// # Examples
+/// ```no_run
+/// use pmix::{utility::device_type_string, PmixDeviceType};
+///
+/// let ty = PmixDeviceType::Gpu;
+/// let desc = device_type_string(ty).expect("valid device type");
+/// assert_eq!(desc, "GPU");
+/// ```
+pub fn device_type_string(ty: PmixDeviceType) -> Result<String, PmixStatus> {
+    let raw = ty.to_raw();
+    // SAFETY: PMIx_Device_type_string takes a single pmix_device_type_t (u64)
+    // and returns a pointer to a static, null-terminated string owned by
+    // the library. No memory is allocated or freed by this call. The
+    // returned pointer is valid for the lifetime of the process (it points
+    // to read-only data inside the PMIx shared library).
+    let c_ptr = unsafe { ffi::PMIx_Device_type_string(raw) };
+    if c_ptr.is_null() {
+        // Should not happen for any valid pmix_device_type_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
@@ -1910,5 +1947,122 @@ mod tests {
         assert_eq!(UnknownState.to_raw(), 0); // PMIX_LINK_STATE_UNKNOWN
         assert_eq!(LinkDown.to_raw(), 1);     // PMIX_LINK_DOWN
         assert_eq!(LinkUp.to_raw(), 2);       // PMIX_LINK_UP
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Device_type_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `device_type_string` returns `Ok(String)` for all known device types.
+    #[test]
+    fn test_device_type_string_all_known() {
+        use crate::PmixDeviceType::*;
+
+        let types = [UnknownType, Block, Gpu, Network, OpenFabrics, Dma, Coproc];
+        for ty in types {
+            let result = device_type_string(ty);
+            assert!(
+                result.is_ok(),
+                "device_type_string({:?}) should return Ok, got {:?}",
+                ty,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "device_type_string({:?}) should not return an empty string",
+                ty
+            );
+        }
+    }
+
+    /// `device_type_string` returns the expected strings for key device types.
+    #[test]
+    fn test_device_type_string_expected() {
+        use crate::PmixDeviceType::*;
+
+        assert_eq!(device_type_string(UnknownType).unwrap(), "UNKNOWN");
+        assert_eq!(device_type_string(Block).unwrap(), "BLOCK");
+        assert_eq!(device_type_string(Gpu).unwrap(), "GPU");
+        assert_eq!(device_type_string(Network).unwrap(), "NETWORK");
+        assert_eq!(device_type_string(OpenFabrics).unwrap(), "OPENFABRICS");
+        assert_eq!(device_type_string(Dma).unwrap(), "DMA");
+        assert_eq!(device_type_string(Coproc).unwrap(), "COPROCESSOR");
+    }
+
+    /// `device_type_string` is deterministic — the same type always returns
+    /// the same string.
+    #[test]
+    fn test_device_type_string_deterministic() {
+        use crate::PmixDeviceType::Gpu;
+
+        let first = device_type_string(Gpu).unwrap();
+        let second = device_type_string(Gpu).unwrap();
+        assert_eq!(first, second, "device_type_string should be deterministic");
+    }
+
+    /// `device_type_string` handles unknown device type values gracefully.
+    #[test]
+    fn test_device_type_string_unknown() {
+        use crate::PmixDeviceType;
+
+        let unknown = PmixDeviceType::Unknown(0xFF);
+        let result = device_type_string(unknown);
+        assert!(result.is_ok(), "device_type_string should handle unknown values");
+    }
+
+    /// `PmixDeviceType::from_raw` / `to_raw` roundtrip for all known values.
+    #[test]
+    fn test_device_type_from_raw_to_raw() {
+        use crate::PmixDeviceType::*;
+
+        assert_eq!(PmixDeviceType::from_raw(0x00), UnknownType);
+        assert_eq!(PmixDeviceType::from_raw(0x01), Block);
+        assert_eq!(PmixDeviceType::from_raw(0x02), Gpu);
+        assert_eq!(PmixDeviceType::from_raw(0x04), Network);
+        assert_eq!(PmixDeviceType::from_raw(0x08), OpenFabrics);
+        assert_eq!(PmixDeviceType::from_raw(0x10), Dma);
+        assert_eq!(PmixDeviceType::from_raw(0x20), Coproc);
+        assert_eq!(PmixDeviceType::from_raw(0xFF), PmixDeviceType::Unknown(0xFF));
+
+        assert_eq!(UnknownType.to_raw(), 0x00);
+        assert_eq!(Block.to_raw(), 0x01);
+        assert_eq!(Gpu.to_raw(), 0x02);
+        assert_eq!(Network.to_raw(), 0x04);
+        assert_eq!(OpenFabrics.to_raw(), 0x08);
+        assert_eq!(Dma.to_raw(), 0x10);
+        assert_eq!(Coproc.to_raw(), 0x20);
+
+        // Roundtrip for unknown values
+        let unknown = PmixDeviceType::from_raw(0xDEAD);
+        assert_eq!(unknown.to_raw(), 0xDEAD);
+    }
+
+    /// `PmixDeviceType` raw values match the C header definitions.
+    #[test]
+    fn test_device_type_raw_values() {
+        use crate::PmixDeviceType::*;
+
+        assert_eq!(UnknownType.to_raw(), 0x00); // PMIX_DEVTYPE_UNKNOWN
+        assert_eq!(Block.to_raw(), 0x01);       // PMIX_DEVTYPE_BLOCK
+        assert_eq!(Gpu.to_raw(), 0x02);         // PMIX_DEVTYPE_GPU
+        assert_eq!(Network.to_raw(), 0x04);     // PMIX_DEVTYPE_NETWORK
+        assert_eq!(OpenFabrics.to_raw(), 0x08); // PMIX_DEVTYPE_OPENFABRICS
+        assert_eq!(Dma.to_raw(), 0x10);         // PMIX_DEVTYPE_DMA
+        assert_eq!(Coproc.to_raw(), 0x20);      // PMIX_DEVTYPE_COPROC
+    }
+
+    /// `PmixDeviceType` Display implementation matches C strings.
+    #[test]
+    fn test_device_type_display() {
+        use crate::PmixDeviceType::*;
+
+        assert_eq!(format!("{}", UnknownType), "UNKNOWN");
+        assert_eq!(format!("{}", Block), "BLOCK");
+        assert_eq!(format!("{}", Gpu), "GPU");
+        assert_eq!(format!("{}", Network), "NETWORK");
+        assert_eq!(format!("{}", OpenFabrics), "OPENFABRICS");
+        assert_eq!(format!("{}", Dma), "DMA");
+        assert_eq!(format!("{}", Coproc), "COPROCESSOR");
     }
 }
