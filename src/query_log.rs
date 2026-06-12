@@ -1,8 +1,10 @@
-//! Query and logging operations — `PMIx_Query_info` and non-blocking variant.
+//! Query and logging operations — `PMIx_Query_info`, `PMIx_Log`, and non-blocking variants.
 //!
 //! This module provides safe Rust wrappers for querying information from the
-//! PMIx host resource manager. The query API allows tools to request specific
-//! attributes from the PMIx server without requiring prior publication.
+//! PMIx host resource manager and logging data to a data service. The query API
+//! allows tools to request specific attributes from the PMIx server without
+//! requiring prior publication. The log API sends data to the host environment's
+//! logging infrastructure (stdout, stderr, syslog, email, global datastore, etc.).
 //!
 //! # Query model
 //!
@@ -12,6 +14,13 @@
 //!
 //! Results are returned as a `QueryResults` which auto-frees the C allocation.
 //!
+//! # Log model
+//!
+//! A log request consists of:
+//! - `data`: the info entries containing the actual data to log
+//! - `directives`: optional info entries that control the logging channel
+//!   (e.g., `PMIX_LOG_STDOUT`, `PMIX_LOG_SYSLOG`, `PMIX_LOG_EMAIL`)
+//!
 //! # C API reference
 //!
 //! ```c
@@ -19,6 +28,11 @@
 //!                                pmix_info_t **results, size_t *nresults);
 //! pmix_status_t PMIx_Query_info_nb(pmix_query_t queries[], size_t nqueries,
 //!                                   pmix_info_cbfunc_t cbfunc, void *cbdata);
+//! pmix_status_t PMIx_Log(const pmix_info_t data[], size_t ndata,
+//!                        const pmix_info_t directives[], size_t ndirs);
+//! pmix_status_t PMIx_Log_nb(const pmix_info_t data[], size_t ndata,
+//!                           const pmix_info_t directives[], size_t ndirs,
+//!                           pmix_op_cbfunc_t cbfunc, void *cbdata);
 //! ```
 
 use std::ffi::CString;
@@ -439,6 +453,212 @@ pub fn query_info_nb(
     } else {
         // Request rejected — remove the callback from the registry.
         let mut registry = QUERY_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Log — safe wrapper for PMIx_Log
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Log data to the host environment's logging service.
+///
+/// This is a blocking call — it returns only after the PMIx server has
+/// processed the log request. The data to be logged is provided in the
+/// `data` array. Optional `directives` control the logging channel and
+/// behavior (e.g., log to stdout, stderr, syslog, email, global datastore).
+///
+/// # Directives
+///
+/// Common directive keys (from the PMIx spec):
+/// - `PMIX_LOG_STDOUT` — log string to stdout
+/// - `PMIX_LOG_STDERR` — log string to stderr
+/// - `PMIX_LOG_SYSLOG` — log to syslog (defaults to ERROR priority)
+/// - `PMIX_LOG_LOCAL_SYSLOG` — log to local syslog
+/// - `PMIX_LOG_GLOBAL_SYSLOG` — forward to system gateway syslog
+/// - `PMIX_LOG_ONCE` — log only once via whichever channel supports it first
+/// - `PMIX_LOG_JOB_RECORD` — log to the host environment's job record
+/// - `PMIX_LOG_GLOBAL_DATASTORE` — store in a global data store (e.g., database)
+///
+/// # Returns
+/// - `Ok(())` on success (PMIX_SUCCESS).
+/// - `Err(PmixStatus)` on failure:
+///   - `PMIX_ERR_BAD_PARAM` — the log request contains incorrect entries.
+///   - `PMIX_ERR_NOT_SUPPORTED` — the host environment does not support logging.
+///   - Other appropriate PMIx error codes.
+///
+/// # Advice
+/// It is strongly recommended that PMIx_Log not be used for streaming data
+/// as it is not a performant transport and can perturb the application.
+/// A return of PMIX_SUCCESS only denotes that the data was successfully
+/// handed to the appropriate system call or host environment and does not
+/// indicate receipt at the final destination.
+///
+/// # C API
+/// `pmix_status_t PMIx_Log(const pmix_info_t data[], size_t ndata,`
+/// `  const pmix_info_t directives[], size_t ndirs);`
+pub fn log_data(data: &[Info], directives: &[Info]) -> Result<(), PmixStatus> {
+    let ndata = data.len();
+    let ndirs = directives.len();
+
+    // Convert slices to raw C pointers.
+    // Collect raw handles from the Info objects.
+    let data_handles: Vec<*mut ffi::pmix_info_t> = data.iter().map(|i| i.handle).collect();
+    let dirs_handles: Vec<*mut ffi::pmix_info_t> = directives.iter().map(|i| i.handle).collect();
+    let data_ptr = if ndata > 0 {
+        data_handles.as_ptr() as *const ffi::pmix_info_t
+    } else {
+        ptr::null()
+    };
+    let dirs_ptr = if ndirs > 0 {
+        dirs_handles.as_ptr() as *const ffi::pmix_info_t
+    } else {
+        ptr::null()
+    };
+
+    let status = unsafe {
+        // SAFETY: PMIx_Log is a synchronous PMIx API call.
+        // - data_ptr points to a valid pmix_info_t array owned by the
+        //   Info borrows passed by the caller (or is null if empty).
+        // - dirs_ptr points to a valid pmix_info_t array owned by the
+        //   Info borrows passed by the caller (or is null if empty).
+        // - PMIx does not retain these pointers after this call returns.
+        // - The caller must keep data and directives alive until this
+        //   function returns.
+        ffi::PMIx_Log(data_ptr, ndata, dirs_ptr, ndirs)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Callback trait and registry for PMIx_Log_nb
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for [`log_data_nb`].
+///
+/// Implement this trait to receive the result of a non-blocking log request.
+/// The `on_complete` method receives the `PmixStatus` returned by the server
+/// after processing the log request.
+pub trait LogCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping log request IDs to pending callbacks.
+type LogRegistry = std::collections::HashMap<usize, Box<dyn LogCallback>>;
+static LOG_REGISTRY: LazyLock<Mutex<LogRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing log request ID counter.
+static LOG_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (log completion).
+///
+/// Called by PMIx when the non-blocking log request completes. The `cbdata`
+/// parameter encodes the request ID. We look up the registered closure and
+/// invoke it with the result status.
+extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = LOG_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+    let cb = match cb {
+        Some(cb) => cb,
+        None => {
+            // Callback already consumed — nothing to do.
+            return;
+        }
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Non-blocking log of data to the host environment's logging service.
+///
+/// Submit an asynchronous log request. The `callback` closure is invoked once
+/// the operation completes, receiving the status.
+///
+/// The function returns immediately:
+/// - `Ok(())` if the request was accepted for asynchronous processing.
+///   The actual result will be delivered via `callback`.
+/// - `Err(status)` if the request was rejected immediately (e.g., invalid
+///   parameters or PMIx not initialized). The callback will NOT be called.
+///
+/// # C API
+/// `pmix_status_t PMIx_Log_nb(const pmix_info_t data[], size_t ndata,`
+/// `  const pmix_info_t directives[], size_t ndirs,`
+/// `  pmix_op_cbfunc_t cbfunc, void *cbdata);`
+pub fn log_data_nb(
+    data: &[Info],
+    directives: &[Info],
+    callback: Box<dyn LogCallback>,
+) -> Result<(), PmixStatus> {
+    let ndata = data.len();
+    let ndirs = directives.len();
+
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = LOG_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = LOG_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Collect raw handles from the Info objects.
+    let data_handles: Vec<*mut ffi::pmix_info_t> = data.iter().map(|i| i.handle).collect();
+    let dirs_handles: Vec<*mut ffi::pmix_info_t> = directives.iter().map(|i| i.handle).collect();
+    let data_ptr = if ndata > 0 {
+        data_handles.as_ptr() as *const ffi::pmix_info_t
+    } else {
+        ptr::null()
+    };
+    let dirs_ptr = if ndirs > 0 {
+        dirs_handles.as_ptr() as *const ffi::pmix_info_t
+    } else {
+        ptr::null()
+    };
+
+    let status = unsafe {
+        // SAFETY: PMIx_Log_nb is an async PMIx API call.
+        // - data_ptr points to a valid pmix_info_t array owned by the
+        //   Info borrows (or is null if empty).
+        // - dirs_ptr points to a valid pmix_info_t array owned by the
+        //   Info borrows (or is null if empty).
+        // - cbfunc is a valid extern "C" function pointer.
+        // - cbdata encodes the request ID; PMIx passes it back unchanged.
+        // - PMIx does not retain data_ptr or dirs_ptr after this call returns.
+        // - The caller must keep data and directives alive until the
+        //   callback is invoked.
+        ffi::PMIx_Log_nb(data_ptr, ndata, dirs_ptr, ndirs, Some(log_callback_bridge), cbdata)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        // Request rejected — remove the callback from the registry.
+        let mut registry = LOG_REGISTRY.lock().unwrap();
         registry.remove(&req_id);
         Err(pmix_status)
     }
