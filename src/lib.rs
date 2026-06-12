@@ -4,6 +4,7 @@ use std::fmt::Debug;
 mod ffi;
 mod info;
 pub mod utility;
+pub mod data_ops;
 
 use std::ffi::{CStr, CString, NulError};
 use std::mem::zeroed;
