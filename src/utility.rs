@@ -3,7 +3,7 @@
 //! `PMIx_Info_directives_string`, `PMIx_Data_type_string`, `PMIx_Alloc_directive_string`,
 //! `PMIx_IOF_channel_string`, `PMIx_Job_state_string`, `PMIx_Get_attribute_string`,
 //! `PMIx_Get_attribute_name`, `PMIx_Link_state_string`, `PMIx_Device_type_string`,
-//! `PMIx_generate_regex`, `PMIx_generate_ppn`, and related helpers.
+//! `PMIx_generate_regex`, `PMIx_generate_ppn`, `PMIx_Register_attributes`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
@@ -850,6 +850,100 @@ pub fn generate_ppn(input: &str) -> Result<String, PmixStatus> {
     // Extract the string content (copies into a Rust-owned String).
     // CString is dropped here, freeing the original C allocation.
     Ok(owned.into_string().unwrap_or_default())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Register_attributes
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Register host environment attribute support for a PMIx function.
+///
+/// The `PMIx_Register_attributes` function is used by the host environment to
+/// register which attributes it supports for a given PMIx function.  The
+/// `function` parameter identifies the PMIx API function (e.g. `"PMIx_Get"`),
+/// and `attrs` is a slice of attribute key names that the host supports for
+/// that function.
+///
+/// This function requires that the PMIx library has been initialized via
+/// [`PMIx_Init`][crate::lifecycle::init] (or the server equivalent).  Calling
+/// it before initialization returns [`PmixStatus::ErrInit`].
+///
+/// Registered attributes are stored under the *host attributes* level
+/// (`PMIX_HOST_ATTRIBUTES`).  Attempting to register the same function twice
+/// returns [`PmixStatus::ErrRepeatAttrRegistration`].
+///
+/// # C API
+/// `pmix_status_t PMIx_Register_attributes(char *function, char *attrs[])`
+///
+/// The C `attrs` parameter is a NULL-terminated argv-style array of `char*`
+/// strings.  This wrapper accepts a Rust `&[&str]` and handles the conversion.
+///
+/// # Returns
+/// * `Ok(())` — attributes were registered successfully.
+/// * `Err(PmixStatus::ErrInit)` — PMIx has not been initialized.
+/// * `Err(PmixStatus::ErrBadParam)` — function name is empty or contains a NUL byte.
+/// * `Err(PmixStatus::ErrRepeatAttrRegistration)` — the function was already
+///   registered at the host level.
+///
+/// # Examples
+/// ```no_run
+/// use pmix::utility::register_attributes;
+///
+/// // Register attributes that the host supports for PMIx_Get.
+/// let attrs = &["pmix.get.timeout", "pmix.get.scope"][..];
+/// register_attributes("PMIx_Get", attrs).expect("PMIx must be initialized");
+/// ```
+pub fn register_attributes(function: &str, attrs: &[&str]) -> Result<(), PmixStatus> {
+    // Convert function name to C string.
+    let function_cstr = std::ffi::CString::new(function)
+        .map_err(|_| PmixStatus::from_raw(-27))?; // PMIX_ERR_BAD_PARAM
+
+    // Build a NULL-terminated array of C strings for the attrs parameter.
+    // The C API expects `char *attrs[]` — a NULL-terminated argv-style array.
+    // We convert each &str to a CString, collect the raw pointers, and append
+    // a null terminator. The CStrs and the Vec must outlive the FFI call.
+    let cstrings: Vec<std::ffi::CString> = attrs
+        .iter()
+        .map(|s| {
+            std::ffi::CString::new(*s)
+                .unwrap_or_else(|_| std::ffi::CString::new("").unwrap())
+        })
+        .collect();
+
+    // Build the NULL-terminated pointer array.
+    // The FFI signature expects *mut *mut c_char, but we are only passing
+    // immutable data. We use *const *const c_char cast to *mut *mut c_char
+    // because the PMIx implementation does not modify the array contents
+    // (it copies the strings internally via pmix_argv_copy).
+    let attr_ptrs: Vec<*mut std::os::raw::c_char> = cstrings
+        .iter()
+        .map(|cs| cs.as_ptr() as *mut std::os::raw::c_char)
+        .chain(std::iter::once(std::ptr::null_mut()))
+        .collect();
+
+    // SAFETY: PMIx_Register_attributes takes a char* for the function name
+    // and a NULL-terminated char* array for attributes. Both function_cstr
+    // and attr_ptrs (backed by cstrings) live until the end of this scope,
+    // so the pointers remain valid for the duration of the FFI call.
+    // The PMIx library copies the strings internally (strdup/pmix_argv_copy)
+    // and does not retain the pointers after return.
+    //
+    // The bindgen-generated signature uses *mut c_char for both parameters,
+    // but the PMIx implementation does not modify the inputs — it only reads
+    // and copies them. The cast from *const to *mut is therefore safe.
+    let status = unsafe {
+        ffi::PMIx_Register_attributes(
+            function_cstr.as_ptr() as *mut std::os::raw::c_char,
+            attr_ptrs.as_ptr() as *mut *mut std::os::raw::c_char,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
