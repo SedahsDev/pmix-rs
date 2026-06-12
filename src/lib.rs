@@ -9,6 +9,7 @@ mod info;
 pub mod monitoring;
 pub mod process_mgmt;
 pub mod query_log;
+pub mod security;
 pub mod utility;
 
 use crate::ffi::*;
