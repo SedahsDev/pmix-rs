@@ -4,7 +4,7 @@
 //! `PMIx_IOF_channel_string`, `PMIx_Job_state_string`, `PMIx_Get_attribute_string`,
 //! `PMIx_Get_attribute_name`, `PMIx_Link_state_string`, `PMIx_Device_type_string`,
 //! `PMIx_generate_regex`, `PMIx_generate_ppn`, `PMIx_Register_attributes`,
-//! `PMIx_IOF_pull`, `PMIx_IOF_deregister`, and related helpers.
+//! `PMIx_IOF_pull`, `PMIx_IOF_deregister`, `PMIx_IOF_push`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
@@ -1409,6 +1409,292 @@ pub fn iof_deregister_blocking(
             ptr::null_mut(),
         )
     };
+
+    let pmix_status = PmixStatus::from_raw(raw_status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixByteObject — wrapper for pmix_byte_object_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A byte object wrapper for PMIx I/O push operations.
+///
+/// Corresponds to the C type `pmix_byte_object_t`, which holds a raw
+/// pointer to a buffer and its size. This wrapper takes ownership of
+/// the bytes and provides a safe API for constructing and passing
+/// data to `PMIx_IOF_push`.
+///
+/// # Example
+/// ```no_run
+/// use pmix::utility::PmixByteObject;
+///
+/// let data = b"hello from stdin";
+/// let bo = PmixByteObject::from_slice(data);
+/// // Pass `bo` to iof_push(...).
+/// ```
+#[derive(Debug, Clone)]
+pub struct PmixByteObject {
+    bytes: Vec<u8>,
+}
+
+impl PmixByteObject {
+    /// Create a `PmixByteObject` from a byte slice (copies the data).
+    pub fn from_slice(data: &[u8]) -> Self {
+        Self {
+            bytes: data.to_vec(),
+        }
+    }
+
+    /// Create a `PmixByteObject` from a `Vec<u8>` (takes ownership).
+    pub fn from_vec(data: Vec<u8>) -> Self {
+        Self { bytes: data }
+    }
+
+    /// Create an empty `PmixByteObject`.
+    pub fn empty() -> Self {
+        Self { bytes: Vec::new() }
+    }
+
+    /// Returns `true` if the byte object contains no data.
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    /// Returns the number of bytes.
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// Returns the underlying byte slice.
+    pub fn as_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Convert to a C `pmix_byte_object_t` for FFI.
+    ///
+    /// The caller is responsible for cleaning up the C struct after use
+    /// (via `PMIx_Byte_object_destruct` or manual free).
+    fn as_c_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
+        // Use PMIx helper to construct the byte object in place.
+        // SAFETY: PMIx_Byte_object_construct initializes the struct fields
+        // to zero/null. It takes a pointer to a valid (zeroed or not)
+        // pmix_byte_object_t and sets bytes=NULL, size=0.
+        let mut c_bo: ffi::pmix_byte_object_t = unsafe { std::mem::zeroed() };
+        if !self.bytes.is_empty() {
+            // Load the bytes into the byte object using the PMIx helper.
+            // SAFETY: PMIx_Byte_object_load copies `sz` bytes from `d`
+            // into the byte object's internal buffer. The source pointer
+            // must be valid for `sz` bytes. We cast our &[u8] to c_char*.
+            unsafe {
+                ffi::PMIx_Byte_object_load(
+                    &mut c_bo as *mut ffi::pmix_byte_object_t,
+                    self.bytes.as_ptr() as *mut std::os::raw::c_char,
+                    self.bytes.len(),
+                );
+            }
+        }
+        // Allocate the C struct on the heap so we can pass a pointer to it.
+        let boxed = Box::new(c_bo);
+        Box::into_raw(boxed)
+    }
+
+    /// Free a C `pmix_byte_object_t` that was created by `as_c_mut_ptr`.
+    ///
+    /// SAFETY: `ptr` must have been returned by `as_c_mut_ptr()` and must
+    /// not have been freed already.
+    unsafe fn free_c_ptr(ptr: *mut ffi::pmix_byte_object_t) {
+        if !ptr.is_null() {
+            unsafe {
+                // Free the internal buffer allocated by PMIx_Byte_object_load.
+                ffi::PMIx_Byte_object_destruct(ptr);
+                // Free the boxed struct itself.
+                drop(Box::from_raw(ptr));
+            }
+        }
+    }
+}
+
+impl AsRef<[u8]> for PmixByteObject {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_IOF_push — push local data to remote process stdin
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback for push operation completion notification.
+///
+/// Invoked when the PMIx server finishes processing the push request.
+/// Receives the final status of the operation.
+pub trait IoForwardPushHandler: Fn(PmixStatus) + Send + 'static {}
+impl<F> IoForwardPushHandler for F where F: Fn(PmixStatus) + Send + 'static {}
+
+/// Context stored per IO push request, carrying the Rust callback.
+///
+/// Allocated on the heap via `Box::into_raw`. Freed when:
+/// - The push callback fires (via `Box::from_raw`)
+/// - The FFI call returns an error immediately (no callback invoked)
+/// - Process exits (OS reclaims memory)
+struct IoPushContext {
+    cb: Box<dyn Fn(PmixStatus) + Send>,
+}
+
+/// C bridge for the push completion callback (`pmix_op_cbfunc_t`).
+///
+/// Called by PMIx when the async push request completes.
+/// The `cbdata` parameter points to our `IoPushContext`.
+extern "C" fn push_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut std::os::raw::c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the ctx_ptr we passed to PMIx_IOF_push.
+    // It was allocated via Box::into_raw and is valid until this callback.
+    let ctx_ptr = cbdata as *mut IoPushContext;
+    // Take ownership back — this callback is the last reference.
+    let ctx = unsafe { Box::from_raw(ctx_ptr) };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    (ctx.cb)(pmix_status);
+}
+
+/// Push data collected locally (typically from stdin) to stdin of target
+/// remote processes (async).
+///
+/// The `cb` closure is called when the PMIx server finishes processing
+/// the push request. Use `iof_push_blocking` if you prefer a synchronous
+/// return value.
+///
+/// # Parameters
+/// * `targets` — process identifiers to which the data should be delivered.
+///   Use `PMIX_RANK_WILDCARD` for all processes in a namespace.
+/// * `bo` — byte object containing the payload (e.g., stdin data).
+/// * `directives` — optional `pmix_info_t` directives (buffering, etc.).
+/// * `cb` — Rust closure called when the push operation completes.
+///
+/// # Returns
+/// * `Ok(())` — push was submitted. `cb` will be invoked with the result.
+/// * `Err(PmixStatus)` — push could not be submitted (immediate error).
+///
+/// # C API
+/// `pmix_status_t PMIx_IOF_push(const pmix_proc_t targets[], size_t ntargets,`
+///     `pmix_byte_object_t *bo, const pmix_info_t directives[], size_t ndirs,`
+///     `pmix_op_cbfunc_t cbfunc, void *cbdata);`
+pub fn iof_push<F>(
+    targets: &[ffi::pmix_proc_t],
+    mut bo: PmixByteObject,
+    directives: &[ffi::pmix_info_t],
+    cb: F,
+) -> Result<(), PmixStatus>
+where
+    F: IoForwardPushHandler,
+{
+    // Allocate the C byte_object_t on the heap.
+    let c_bo_ptr = bo.as_c_mut_ptr();
+
+    // Box the callback into a context struct.
+    let ctx = IoPushContext {
+        cb: Box::new(cb),
+    };
+    let ctx_ptr: *mut IoPushContext = Box::into_raw(Box::new(ctx));
+
+    // SAFETY: PMIx_IOF_push is a documented PMIx tool API.
+    // - targets: valid slice, passed as const pointer + length.
+    // - bo: heap-allocated pmix_byte_object_t, valid for duration of call.
+    //   PMIx may copy or retain the data internally.
+    // - directives: valid slice, passed as const pointer + length.
+    // - cbfunc: our push_callback_bridge extern "C" function.
+    // - cbdata: ctx_ptr, owned by us, reclaimed in the callback.
+    let raw_status = unsafe {
+        ffi::PMIx_IOF_push(
+            targets.as_ptr(),
+            targets.len(),
+            c_bo_ptr,
+            directives.as_ptr(),
+            directives.len(),
+            Some(push_callback_bridge),
+            ctx_ptr as *mut std::os::raw::c_void,
+        )
+    };
+
+    // Free the C byte_object — PMIx has already copied/retained the data
+    // internally by the time this returns.
+    // SAFETY: c_bo_ptr was allocated by as_c_mut_ptr() above.
+    unsafe { PmixByteObject::free_c_ptr(c_bo_ptr) };
+
+    let pmix_status = PmixStatus::from_raw(raw_status);
+
+    // Per spec: PMIX_SUCCESS means async processing (callback will fire).
+    // PMIX_OPERATION_SUCCEEDED means immediate success (callback NOT called).
+    // Any error means immediate failure (callback NOT called).
+    if pmix_status.is_error() {
+        // Immediate error — callback will NOT be called. Free context.
+        // SAFETY: ctx_ptr was not handed to PMIx since the call returned error.
+        unsafe {
+            drop(Box::from_raw(ctx_ptr));
+        }
+        Err(pmix_status)
+    } else {
+        // Either async (callback will fire) or immediate success.
+        Ok(())
+    }
+}
+
+/// Blocking variant of `iof_push` — waits for the push to complete
+/// and returns the result directly.
+///
+/// # Parameters
+/// * `targets` — process identifiers to which the data should be delivered.
+/// * `bo` — byte object containing the payload.
+/// * `directives` — optional `pmix_info_t` directives.
+///
+/// # Returns
+/// * `Ok(())` — push completed successfully.
+/// * `Err(PmixStatus)` — push failed.
+///
+/// # C API
+/// Same as `PMIx_IOF_push` with `cbfunc` set to NULL (blocking mode).
+pub fn iof_push_blocking(
+    targets: &[ffi::pmix_proc_t],
+    mut bo: PmixByteObject,
+    directives: &[ffi::pmix_info_t],
+) -> Result<(), PmixStatus> {
+    // Allocate the C byte_object_t on the heap.
+    let c_bo_ptr = bo.as_c_mut_ptr();
+
+    // SAFETY: PMIx_IOF_push with NULL callback = blocking mode.
+    // The call does not return until the server has processed the
+    // push request. No cbdata is needed.
+    // - targets: valid slice, passed as const pointer + length.
+    // - bo: heap-allocated pmix_byte_object_t.
+    // - directives: valid slice, passed as const pointer + length.
+    // - cbfunc: None (blocking mode).
+    // - cbdata: null (unused in blocking mode).
+    let raw_status = unsafe {
+        ffi::PMIx_IOF_push(
+            targets.as_ptr(),
+            targets.len(),
+            c_bo_ptr,
+            directives.as_ptr(),
+            directives.len(),
+            None, // blocking mode — no callback
+            ptr::null_mut(),
+        )
+    };
+
+    // Free the C byte_object — PMIx has already processed the data.
+    // SAFETY: c_bo_ptr was allocated by as_c_mut_ptr() above.
+    unsafe { PmixByteObject::free_c_ptr(c_bo_ptr) };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
     if pmix_status.is_success() {
