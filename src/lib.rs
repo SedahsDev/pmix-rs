@@ -5,6 +5,7 @@ pub mod allocation;
 pub mod data_ops;
 pub mod events;
 mod ffi;
+pub mod groups;
 mod info;
 pub mod monitoring;
 pub mod process_mgmt;
