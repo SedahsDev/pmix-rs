@@ -4,6 +4,7 @@ use std::fmt::Debug;
 pub mod allocation;
 pub mod data_ops;
 pub mod events;
+pub mod cpu_locality;
 pub mod fabric;
 mod ffi;
 pub mod groups;
