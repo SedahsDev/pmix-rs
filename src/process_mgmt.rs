@@ -1,6 +1,6 @@
 //! Process management — `PMIx_Abort`, `PMIx_Spawn`, `PMIx_Spawn_nb`,
 //! `PMIx_Connect`, `PMIx_Connect_nb`, `PMIx_Disconnect`, `PMIx_Disconnect_nb`,
-//! `PMIx_Resolve_peers`.
+//! `PMIx_Resolve_peers`, `PMIx_Resolve_nodes`.
 //!
 //! This module provides safe Rust wrappers around the PMIx process
 //! management APIs:
@@ -1205,4 +1205,76 @@ pub fn connect_nb(
          };
 
          Ok(rust_procs)
-         }
+          }
+
+          // ─────────────────────────────────────────────────────────────────────────────
+          // PMIx_Resolve_nodes
+          // ─────────────────────────────────────────────────────────────────────────────
+
+          /// Resolve the list of nodes hosting processes within a given namespace.
+          ///
+          /// Given a namespace, return the list of nodes that host processes
+          /// within that namespace. The returned string is a comma-delimited
+          /// list of node names.
+          ///
+          /// * If the specified namespace does not exist or has no nodes,
+          ///   an error is returned.
+          /// * The caller owns the returned `String` — no explicit free is needed.
+          ///
+          /// # Returns
+          /// * `Ok(String)` — comma-delimited list of node names for the namespace.
+          /// * `Err(PmixStatus::Known(PmixError::ErrInit))` — PMIx has not been
+          ///   initialized via `PMIx_Init`.
+          /// * `Err(PmixStatus::Known(PmixError::ErrNotFound))` — the specified
+          ///   namespace is not known.
+          /// * `Err(PmixStatus)` — another error in the request.
+          ///
+          /// # Thread Safety
+          /// The caller is responsible for ensuring thread safety when calling
+          /// this from multiple threads simultaneously.
+          ///
+          /// # C API
+          /// ```c
+          /// pmix_status_t PMIx_Resolve_nodes(const pmix_nspace_t nspace,
+          ///                                  char **nodelist);
+          /// ```
+          pub fn resolve_nodes(nspace: &str) -> Result<String, PmixStatus> {
+          // Convert namespace to C string.
+          let nspace_cs = CString::new(nspace).expect(
+              "nspace must not contain interior NUL bytes",
+          );
+
+          let mut nodelist: *mut c_char = ptr::null_mut();
+
+          // SAFETY: FFI call into PMIx library.
+          // - `nspace_cs.as_ptr()` is a valid NUL-terminated C string whose
+          //   lifetime (`nspace_cs`) is kept alive until after this call.
+          // - `nodelist` is a valid mutable pointer for the output.
+          // - On success, PMIx allocates a NUL-terminated string via pmix_malloc
+          //   that the caller owns and must free via pmix_free.
+          let raw_status = unsafe {
+              ffi::PMIx_Resolve_nodes(nspace_cs.as_ptr(), &mut nodelist)
+          };
+
+          let pmix_status = PmixStatus::from_raw(raw_status);
+          if !pmix_status.is_success() {
+              return Err(pmix_status);
+          }
+
+          // Convert the C-allocated string to a Rust String.
+          // SAFETY: On success, PMIx_Resolve_nodes writes a non-null,
+          // NUL-terminated, C-allocated string into *nodelist.
+          let node_list_str: String = unsafe {
+              if nodelist.is_null() {
+                  // Should not happen on success, but be defensive.
+                  return Err(PmixStatus::from_raw(ffi::PMIX_ERR_NOT_FOUND));
+              }
+              let c_str = CStr::from_ptr(nodelist);
+              let rust_str = c_str.to_string_lossy().into_owned();
+              // Free the C-allocated string. PMIx uses pmix_free → free.
+              ffi::free(nodelist as *mut std::ffi::c_void);
+              rust_str
+          };
+
+          Ok(node_list_str)
+          }
