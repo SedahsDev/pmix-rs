@@ -3,6 +3,7 @@
 use std::fmt::Debug;
 mod ffi;
 mod info;
+mod utility;
 
 use std::ffi::{CStr, CString, NulError};
 use std::mem::zeroed;
