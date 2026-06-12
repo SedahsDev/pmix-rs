@@ -1,6 +1,6 @@
 //! Data serialization / deserialization — `PMIx_Data_pack`, `PMIx_Data_unpack`,
 //! `PMIx_Data_load`, `PMIx_Data_unload`, `PMIx_Data_copy`, `PMIx_Data_print`,
-//! and buffer management.
+//! `PMIx_Data_compress`, `PMIx_Data_decompress`, and buffer management.
 //!
 //! This module provides safe Rust wrappers around the PMIx data buffer and
 //! serialization APIs. These functions are used to pack values into a buffer
