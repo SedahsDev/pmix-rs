@@ -2891,3 +2891,101 @@ pub fn server_generate_cpuset_string(
 
     Ok(cpuset_string)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_define_process_set
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe wrapper for `PMIx_server_define_process_set`.
+///
+/// Define a PMIx process set — a named group of processes.
+///
+/// The PMIx server will alert all local clients of the new process set
+/// (including process set name and membership) via the
+/// `PMIX_PROCESS_SET_DEFINE` event.
+///
+/// # Parameters
+/// * `members` — array of processes that belong to the process set.
+/// * `pset_name` — string name of the process set being defined.
+///
+/// # Returns
+/// * `Ok(())` — process set defined successfully.
+/// * `Err(PmixStatus)` — error code, e.g. `PMIX_ERR_BAD_PARAM` if the
+///   pset_name or members array is null/empty, or other PMIx error constants.
+///
+/// # Host environment responsibilities
+/// The host environment is responsible for ensuring:
+/// - Consistent knowledge of process set membership across all involved PMIx servers.
+/// - That process set names do not conflict with system-assigned namespaces
+///   within the scope of the set.
+///
+/// # C API
+/// `pmix_status_t PMIx_server_define_process_set(const pmix_proc_t members[], size_t nmembers, char *pset_name)`
+pub fn server_define_process_set(members: &[Proc], pset_name: &str) -> Result<(), PmixStatus> {
+    // Convert pset_name to CString for FFI.
+    let pset_name_c = match CString::new(pset_name) {
+        Ok(cs) => cs,
+        Err(_) => return Err(PmixStatus::from_raw(-1)), // PMIX_ERROR — contains NUL
+    };
+
+    // Proc wraps pmix_proc_t as its first field, but also has a `len` field,
+    // so we cannot pass &[Proc] directly as *const pmix_proc_t. Instead,
+    // allocate a contiguous C array of pmix_proc_t and copy the handles.
+    let nmembers = members.len();
+    let members_ptr: *const ffi::pmix_proc_t = if nmembers == 0 {
+        ptr::null()
+    } else {
+        // SAFETY: calloc returns a zeroed allocation or null on failure.
+        // We allocate space for nmembers pmix_proc_t structs.
+        let arr = unsafe {
+            libc::calloc(nmembers, std::mem::size_of::<ffi::pmix_proc_t>()) as *mut ffi::pmix_proc_t
+        };
+        if arr.is_null() {
+            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR — allocation failed
+        }
+        // Copy each Proc's handle into the C array.
+        for (i, proc) in members.iter().enumerate() {
+            unsafe {
+                std::ptr::write(arr.add(i), proc.handle);
+            }
+        }
+        // Call FFI while arr is still valid.
+        let status = unsafe {
+            // SAFETY:
+            // - arr is a valid pointer to a contiguous array of pmix_proc_t
+            //   values, alive for the duration of this call (PMIx copies the
+            //   proc identifiers internally).
+            // - pset_name_c.as_ptr() is a valid null-terminated string for the
+            //   duration of this call (PMIx copies it internally).
+            // - PMIx_server_define_process_set is a synchronous server API.
+            ffi::PMIx_server_define_process_set(arr, nmembers, pset_name_c.as_ptr())
+        };
+        // Free the temporary C array.
+        unsafe {
+            libc::free(arr as *mut std::os::raw::c_void);
+        }
+        let pmix_status = PmixStatus::from_raw(status);
+        return if pmix_status.is_success() {
+            Ok(())
+        } else {
+            Err(pmix_status)
+        };
+    };
+
+    // Empty members case — call with null pointer.
+    let status = unsafe {
+        // SAFETY:
+        // - members_ptr is null (empty slice) — PMIx handles this gracefully.
+        // - pset_name_c.as_ptr() is a valid null-terminated string.
+        // - PMIx_server_define_process_set is a synchronous server API.
+        ffi::PMIx_server_define_process_set(members_ptr, nmembers, pset_name_c.as_ptr())
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
