@@ -907,3 +907,88 @@ impl From<PmixPrintOutput> for String {
         output.inner
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Data_embed
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Embed a raw data payload into a buffer without clearing the source.
+///
+/// The embed function is identical in operation to [`data_load`] except that
+/// it does NOT "clear" the payload upon completion — the source
+/// `PmixByteObject` remains unmodified after the call.
+///
+/// Internally, this function destructs and re-constructs the target buffer
+/// before copying the payload, so any existing data in the buffer is lost.
+///
+/// # Notes
+///
+/// - The buffer must be a valid, allocated `PmixDataBuffer` — passing an
+///   invalid buffer returns `PMIX_ERR_BAD_PARAM`.
+/// - The caller is responsible for pre-populating the payload — this function
+///   cannot convert data to network byte order.
+/// - The payload object is unaltered by this operation (unlike `data_load`).
+/// - A `None` payload is treated as a no-op and returns `PMIX_SUCCESS`.
+///
+/// # C API
+/// `pmix_status_t PMIx_Data_embed(pmix_data_buffer_t *buffer, const pmix_byte_object_t *payload)`
+///
+/// # Parameters
+///
+/// - `buf` — The data buffer into which the payload is to be embedded.
+///   Must be a valid, allocated buffer (e.g., from [`data_buffer_create`]).
+/// - `payload` — The byte object containing the raw data to embed, or
+///   `None` for a no-op.
+///
+/// # Returns
+///
+/// `Ok(())` on success, `Err(PmixStatus)` on error (e.g., bad parameter).
+///
+/// # Errors
+///
+/// - `PMIX_ERR_BAD_PARAM` — The buffer is null or invalid.
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::data_serialization::*;
+///
+/// let buf = data_buffer_create().expect("create buffer");
+/// let payload: PmixByteObject = vec![1u8, 2, 3, 4].into();
+///
+/// // Embed the payload — payload remains valid after this call
+/// data_embed(&buf, Some(&payload)).expect("embed");
+///
+/// // payload can still be used
+/// assert_eq!(payload.size(), 4);
+/// ```
+pub fn data_embed(
+    buf: &PmixDataBuffer,
+    payload: Option<&PmixByteObject>,
+) -> Result<(), PmixStatus> {
+    // Get the C pointer for the payload. When None, pass null to let
+    // PMIx_Data_embed treat it as a no-op.
+    let payload_ptr = match payload {
+        Some(p) => &p.inner as *const ffi::pmix_byte_object_t,
+        None => ptr::null(),
+    };
+
+    // SAFETY: PMIx_Data_embed reads from the byte object (if non-null) and
+    // copies the data into the buffer. The buffer must be valid and allocated.
+    // The function internally destructs and reconstructs the buffer before
+    // copying, so any existing buffer data is discarded. The byte object
+    // itself is not modified (unlike PMIx_Data_load which clears it).
+    let status = unsafe {
+        ffi::PMIx_Data_embed(
+            buf.as_mut_ptr(),
+            payload_ptr as *mut ffi::pmix_byte_object_t,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
