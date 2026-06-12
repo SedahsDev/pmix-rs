@@ -992,3 +992,201 @@ pub fn data_embed(
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Data_compress
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Compress a block of data using lossless compression (zlib).
+///
+/// Attempts to losslessly compress the provided data. If the compressed
+/// result would not be smaller than the input, the function returns
+/// `Err(PmixStatus::BadParam)` without allocating output memory.
+///
+/// The output is allocated by the PMIx library (via `malloc`) and is
+/// transferred to a Rust-owned `Vec<u8>` before the C allocation is freed.
+///
+/// # C API
+/// `bool PMIx_Data_compress(const uint8_t *inbytes, size_t size,`
+///                          `uint8_t **outbytes, size_t *nbytes)`
+///
+/// # Parameters
+///
+/// - `input` — The data to compress.
+///
+/// # Returns
+///
+/// - `Ok(Vec<u8>)` — The compressed data on success.
+/// - `Err(PmixStatus)` — Compression failed or input was not compressible.
+///
+/// # Errors
+///
+/// - `PMIX_ERR_BAD_PARAM` — Input pointer is null, input is empty, or
+///   compression would not produce a smaller result.
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::data_serialization::*;
+///
+/// // Compress a large enough payload (must exceed internal compress limit)
+/// let data = vec![0u8; 1024];
+/// match data_compress(&data) {
+///     Ok(compressed) => println!("Compressed to {} bytes", compressed.len()),
+///     Err(_) => println!("Data was not compressible"),
+/// }
+/// ```
+pub fn data_compress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
+    if input.is_empty() {
+        return Err(PmixStatus::from_raw(-27)); // PMIX_ERR_BAD_PARAM
+    }
+
+    let mut out_bytes: *mut u8 = ptr::null_mut();
+    let mut out_len: usize = 0;
+
+    // SAFETY: PMIx_Data_compress reads from `input` (which is valid for
+    // `input.len()` bytes) and writes to `out_bytes`/`out_len` on success.
+    // On success, `out_bytes` points to a malloc'd buffer that we take
+    // ownership of. On failure, `out_bytes` is null and nothing to free.
+    let success = unsafe {
+        ffi::PMIx_Data_compress(
+            input.as_ptr(),
+            input.len(),
+            &mut out_bytes,
+            &mut out_len,
+        )
+    };
+
+    if success {
+        // Take ownership of the malloc'd buffer by copying into a Vec,
+        // then free the C allocation.
+        let result = if !out_bytes.is_null() && out_len > 0 {
+            // SAFETY: `out_bytes` points to a valid malloc'd buffer of
+            // `out_len` bytes, allocated by PMIx_Data_compress.
+            let vec = unsafe { std::slice::from_raw_parts(out_bytes, out_len) }.to_vec();
+            // Free the C allocation.
+            unsafe {
+                std::alloc::dealloc(
+                    out_bytes,
+                    std::alloc::Layout::from_size_align(out_len, 1).unwrap_unchecked(),
+                );
+            };
+            vec
+        } else {
+            // Shouldn't happen if success is true, but be defensive.
+            return Err(PmixStatus::from_raw(-27)); // PMIX_ERR_BAD_PARAM
+        };
+        Ok(result)
+    } else {
+        // Compression not possible (data too small or incompressible).
+        // out_bytes should be null here; free it if not (defensive).
+        if !out_bytes.is_null() {
+            unsafe {
+                std::alloc::dealloc(
+                    out_bytes,
+                    std::alloc::Layout::from_size_align(out_len, 1).unwrap_unchecked(),
+                );
+            }
+        }
+        Err(PmixStatus::from_raw(-27)) // PMIX_ERR_BAD_PARAM
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Data_decompress
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Decompress data that was compressed by [`data_compress`].
+///
+/// Only data produced by `PMIx_Data_compress` can be decompressed by this
+/// function. Passing arbitrarily compressed data (e.g., raw zlib streams)
+/// will lead to undefined behavior.
+///
+/// The output is allocated by the PMIx library (via `malloc`) and is
+/// transferred to a Rust-owned `Vec<u8>` before the C allocation is freed.
+///
+/// # C API
+/// `bool PMIx_Data_decompress(const uint8_t *inbytes, size_t size,`
+///                            `uint8_t **outbytes, size_t *nbytes)`
+///
+/// # Parameters
+///
+/// - `input` — The compressed data to decompress. Must have been produced
+///   by [`data_compress`] / `PMIx_Data_compress`.
+///
+/// # Returns
+///
+/// - `Ok(Vec<u8>)` — The decompressed data on success.
+/// - `Err(PmixStatus)` — Decompression failed or input was invalid.
+///
+/// # Errors
+///
+/// - `PMIX_ERR_BAD_PARAM` — Input pointer is null, input is empty, or
+///   the data could not be decompressed.
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::data_serialization::*;
+///
+/// let data = vec![0u8; 1024];
+/// if let Ok(compressed) = data_compress(&data) {
+///     match data_decompress(&compressed) {
+///         Ok(decompressed) => assert_eq!(decompressed, data),
+///         Err(e) => eprintln!("Decompression failed: {:?}", e),
+///     }
+/// }
+/// ```
+pub fn data_decompress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
+    if input.is_empty() {
+        return Err(PmixStatus::from_raw(-27)); // PMIX_ERR_BAD_PARAM
+    }
+
+    let mut out_bytes: *mut u8 = ptr::null_mut();
+    let mut out_len: usize = 0;
+
+    // SAFETY: PMIx_Data_decompress reads from `input` (valid for `input.len()`
+    // bytes) and writes to `out_bytes`/`out_len` on success. On success,
+    // `out_bytes` points to a malloc'd buffer that we take ownership of.
+    // On failure, `out_bytes` is null.
+    // The input MUST have been produced by PMIx_Data_compress — passing
+    // other data leads to undefined behavior in the zlib inflate step.
+    let success = unsafe {
+        ffi::PMIx_Data_decompress(
+            input.as_ptr(),
+            input.len(),
+            &mut out_bytes,
+            &mut out_len,
+        )
+    };
+
+    if success {
+        let result = if !out_bytes.is_null() && out_len > 0 {
+            // SAFETY: `out_bytes` points to a valid malloc'd buffer of
+            // `out_len` bytes, allocated by PMIx_Data_decompress.
+            let vec = unsafe { std::slice::from_raw_parts(out_bytes, out_len) }.to_vec();
+            // Free the C allocation.
+            unsafe {
+                std::alloc::dealloc(
+                    out_bytes,
+                    std::alloc::Layout::from_size_align(out_len, 1).unwrap_unchecked(),
+                );
+            };
+            vec
+        } else {
+            return Err(PmixStatus::from_raw(-27)); // PMIX_ERR_BAD_PARAM
+        };
+        Ok(result)
+    } else {
+        // Decompression failed. Defensive cleanup.
+        if !out_bytes.is_null() {
+            unsafe {
+                std::alloc::dealloc(
+                    out_bytes,
+                    std::alloc::Layout::from_size_align(out_len, 1).unwrap_unchecked(),
+                );
+            }
+        }
+        Err(PmixStatus::from_raw(-27)) // PMIX_ERR_BAD_PARAM
+    }
+}
