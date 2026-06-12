@@ -941,7 +941,7 @@ mod tests {
         assert_eq!(format!("{}", Custom), "CUSTOM");
         assert_eq!(format!("{}", ProcLocal), "PROC LOCAL");
         assert_eq!(format!("{}", Invalid), "INVALID");
-        assert_eq!(format!("{}", Unknown(99)), "UNKNOWN RANGE (99)");
+        assert_eq!(format!("{}", Unknown), "UNKNOWN RANGE (128)");
     }
 
     // ──────────────────────────────────────────────────────────────────────

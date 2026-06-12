@@ -1111,7 +1111,7 @@ pub enum PmixDataRange {
     Invalid = 255,
 
     /// An unrecognised or future range value.
-    Unknown(u8),
+    Unknown = 128,
 }
 
 impl PmixDataRange {
@@ -1127,14 +1127,14 @@ impl PmixDataRange {
             6   => Self::Custom,
             7   => Self::ProcLocal,
             255 => Self::Invalid,
-            other => Self::Unknown(other),
+            _other => Self::Unknown,
         }
     }
 
     /// Return the raw `u8` value suitable for passing to the C API.
     pub fn to_raw(self) -> u8 {
         match self {
-            Self::Unknown(v) => v,
+            Self::Unknown => 128,
             Self::Undef     => 0,
             Self::Rm        => 1,
             Self::Local     => 2,
@@ -1160,7 +1160,7 @@ impl std::fmt::Display for PmixDataRange {
             Self::Custom    => write!(f, "CUSTOM"),
             Self::ProcLocal => write!(f, "PROC LOCAL"),
             Self::Invalid   => write!(f, "INVALID"),
-            Self::Unknown(v) => write!(f, "UNKNOWN RANGE ({v})"),
+            Self::Unknown   => write!(f, "UNKNOWN RANGE (128)"),
         }
     }
 }
