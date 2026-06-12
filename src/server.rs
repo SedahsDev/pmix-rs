@@ -1555,3 +1555,287 @@ pub fn server_dmodex_request(
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_setup_application — setup application before launch
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_setup_application`.
+///
+/// Implement this trait to receive the result of a non-blocking application
+/// setup request. The `on_complete` method receives:
+///
+/// * `status` — the PMIx status of the setup operation (success or error code).
+/// * `info` — the resulting info key-value pairs produced by the setup
+///   operation. This contains environment variables, resource assignments,
+///   security credentials, and other data needed prior to process launch.
+///   The values are owned Rust `String`s copied from the C info array.
+///
+/// # Ownership
+///
+/// The underlying C info array is owned by the PMIx library until the
+/// caller invokes the acknowledgment callback. The safe wrapper copies
+/// the info keys/values into owned `Vec<(String, String)>` so the
+/// caller owns the data, and automatically invokes the ack callback
+/// after copying.
+pub trait SetupApplicationCallback: Send {
+    fn on_complete(
+        self: Box<Self>,
+        status: PmixStatus,
+        info: Vec<(String, String)>,
+    );
+}
+
+/// Global registry mapping request IDs to pending setup_application callbacks.
+type SetupApplicationRegistry =
+    std::collections::HashMap<usize, Box<dyn SetupApplicationCallback>>;
+static SETUP_APPLICATION_REGISTRY: LazyLock<Mutex<SetupApplicationRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing setup_application request ID counter.
+static SETUP_APPLICATION_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_setup_application_cbfunc_t`.
+///
+/// Called by PMIx when the setup_application operation completes. The
+/// `info` array contains the setup results (env vars, resources, etc.).
+/// The PMIx library owns this array until we call the provided `cbfunc`
+/// acknowledgment callback.
+///
+/// The `cbdata` parameter encodes the request ID as a raw pointer.
+/// We look up the registered Rust callback, copy the info data, invoke
+/// the acknowledgment, and then invoke the user's callback.
+extern "C" fn setup_application_callback_bridge(
+    status: ffi::pmix_status_t,
+    info: *mut ffi::pmix_info_t,
+    ninfo: usize,
+    provided_cbdata: *mut c_void,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    if provided_cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: provided_cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (provided_cbdata as usize) >> 2;
+
+    // Copy the info array before the PMIx library frees it.
+    // The info array is owned by PMIx until we call the ack callback.
+    //
+    // pmix_info_t has: key (pmix_key_t = [c_char; 512]), flags, value (pmix_value_t).
+    // pmix_value_t has: type_ (pmix_data_type_t = u16), data (union).
+    // The union fields are: string, integer, uint, size, int8, int16, int32, int64,
+    // uint8, uint16, uint32, uint64, fval, dval, rank, flag, byte, bo (byte_object), etc.
+    let copied_info: Vec<(String, String)> = if !info.is_null() && ninfo > 0 {
+        // SAFETY: info points to a valid array of ninfo pmix_info_t entries
+        // allocated by PMIx. We only read the key and value fields.
+        unsafe {
+            let mut entries = Vec::with_capacity(ninfo as usize);
+            for i in 0..ninfo {
+                let entry = *info.add(i as usize);
+                let key = CStr::from_ptr(entry.key.as_ptr() as *const std::os::raw::c_char)
+                    .to_string_lossy()
+                    .into_owned();
+                // Extract value as string based on type_.
+                // pmix_data_type_t is u16; match against known values.
+                let dtype = entry.value.type_;
+                let value_str = match dtype {
+                    3 => { // PMIX_STRING
+                        if !entry.value.data.string.is_null() {
+                            CStr::from_ptr(entry.value.data.string)
+                                .to_string_lossy()
+                                .into_owned()
+                        } else {
+                            String::new()
+                        }
+                    }
+                    6 => format!("{}", entry.value.data.integer),        // PMIX_INT
+                    11 => format!("{}", entry.value.data.uint),          // PMIX_UINT
+                    4 => format!("{}", entry.value.data.size),           // PMIX_SIZE
+                    7 => format!("{}", entry.value.data.int8),           // PMIX_INT8
+                    8 => format!("{}", entry.value.data.int16),          // PMIX_INT16
+                    9 => format!("{}", entry.value.data.int32),          // PMIX_INT32
+                    10 => format!("{}", entry.value.data.int64),         // PMIX_INT64
+                    12 => format!("{}", entry.value.data.uint8),         // PMIX_UINT8
+                    13 => format!("{}", entry.value.data.uint16),        // PMIX_UINT16
+                    14 => format!("{}", entry.value.data.uint32),        // PMIX_UINT32
+                    15 => format!("{}", entry.value.data.uint64),        // PMIX_UINT64
+                    16 => format!("{}", entry.value.data.fval),          // PMIX_FLOAT
+                    17 => format!("{}", entry.value.data.dval),          // PMIX_DOUBLE
+                    1 => format!("{}", entry.value.data.flag),           // PMIX_BOOL
+                    5 => format!("{}", entry.value.data.pid),            // PMIX_PID
+                    20 => format!("{}", entry.value.data.status),        // PMIX_STATUS
+                    31 => format!("{}", entry.value.data.rank),          // PMIX_PROC_RANK (stored as rank in union)
+                    _ => format!("[type={}] ", dtype),
+                };
+                entries.push((key, value_str));
+            }
+            entries
+        }
+    } else {
+        Vec::new()
+    };
+
+    // Call the acknowledgment callback to let PMIx free the info array.
+    // This must be done before we return from the bridge function.
+    if let Some(ack) = cbfunc {
+        // SAFETY: cbfunc and cbdata are provided by PMIx and are valid
+        // for the duration of this callback invocation.
+        unsafe { ack(ffi::PMIX_SUCCESS as ffi::pmix_status_t, cbdata) };
+    }
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback with the copied data.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status, copied_info);
+}
+
+/// Request application-specific setup prior to process launch.
+///
+/// This function asks the PMIx library (and any loaded network/fabric
+/// modules) to prepare for the launch of an application identified by
+/// the given namespace. It returns setup information such as environment
+/// variables, security credentials, and resource assignments via the
+/// asynchronous callback.
+///
+/// The host resource manager calls this function after registering the
+/// namespace with [`server_register_nspace`] and before calling
+/// [`server_setup_fork`] for individual processes.
+///
+/// # Parameters
+///
+/// * `nspace` — the namespace of the application being set up.
+/// * `info` — info keys that describe the application (job size, number
+///   of nodes, fabric requirements, etc.).
+/// * `callback` — invoked when setup completes with the status and
+///   resulting info array.
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback`.
+/// * `Err(status)` — request rejected immediately (e.g., PMIx not
+///   initialized as server, or invalid parameters). The callback
+///   will NOT be called.
+///
+/// # Error conditions
+///
+/// * `PMIX_ERR_INIT` — PMIx server library has not been initialized.
+/// * `PMIX_ERR_NOMEM` — insufficient memory to process the request.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_setup_application(
+///     const pmix_nspace_t nspace,
+///     pmix_info_t info[], size_t ninfo,
+///     pmix_setup_application_cbfunc_t cbfunc,
+///     void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_setup_application, SetupApplicationCallback};
+/// use pmix::PmixStatus;
+///
+/// struct MySetupCallback;
+/// impl SetupApplicationCallback for MySetupCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus, info: Vec<(String, String)>) {
+///         if status.is_success() {
+///             println!("Setup complete, got {} info entries", info.len());
+///             for (key, value) in &info {
+///                 println!("  {} = {}", key, value);
+///             }
+///         } else {
+///             eprintln!("Setup failed: {:?}", status);
+///         }
+///     }
+/// }
+///
+/// // After registering the namespace...
+/// server_setup_application("myapp.ns", &[], Box::new(MySetupCallback))
+///     .expect("setup_application rejected");
+/// ```
+pub fn server_setup_application(
+    nspace: &str,
+    info: &Info,
+    callback: Box<dyn SetupApplicationCallback>,
+) -> Result<(), PmixStatus> {
+    // Convert nspace to CString for FFI.
+    let nspace_c = match CString::new(nspace) {
+        Ok(cs) => cs,
+        Err(_) => {
+            // NUL byte in nspace — cannot proceed.
+            // Invoke the callback with an error status immediately.
+            callback.on_complete(PmixStatus::from_raw(-1), Vec::new());
+            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+        }
+    };
+
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = SETUP_APPLICATION_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    // We shift left by 2 to ensure the pointer is properly aligned
+    // and non-null (req_id starts from 1, so req_id << 2 >= 4).
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Get the info array pointer and length.
+    let info_ptr = if info.len > 0 { info.handle } else { ptr::null_mut() };
+    let info_len = info.len;
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_server_setup_application is a non-blocking server API.
+        // - nspace_c.as_ptr() is a valid null-terminated string for the
+        //   duration of this call (PMIx copies it internally).
+        // - info_ptr is either a valid array of pmix_info_t (from Info.handle)
+        //   or null (PMIx accepts null info with ninfo=0).
+        // - info_len is the number of entries matching info_ptr.
+        // - The callback bridge has C linkage and properly handles all parameters:
+        //   copies the info array, calls the ack callback, then invokes the user.
+        // - cbdata is an opaque pointer that we control and decode in the bridge.
+        // - The PMIx library validates parameters internally and returns
+        //   PMIX_ERR_INIT if not initialized as server, PMIX_ERR_NOMEM on OOM.
+        ffi::PMIx_server_setup_application(
+            nspace_c.as_ptr(),
+            info_ptr,
+            info_len,
+            Some(setup_application_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
