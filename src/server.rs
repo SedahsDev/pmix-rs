@@ -47,7 +47,7 @@
 //! ```
 
 use crate::{Info, PmixStatus, Proc, ffi};
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
@@ -1147,5 +1147,213 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
                 ffi::PMIx_server_deregister_client(proc_ptr, None, std::ptr::null_mut());
             }
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_setup_fork — prepare environment for forked child process
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe wrapper for `PMIx_server_setup_fork`.
+///
+/// Sets up the environment of a child process to be forked by the host
+/// so it can correctly interact with the PMIx server. The PMIx client
+/// needs setup information to properly connect back to the server. This
+/// function sets appropriate environment variables for that purpose, and
+/// also provides any environment variables that were specified in the
+/// launch command (e.g., via `PMIx_Spawn`) plus other values (e.g.,
+/// variables required to properly initialize the client's fabric library).
+///
+/// # Environment variables set
+///
+/// Typical variables include (implementation-dependent):
+///
+/// * `PMIX_NAMESPACE` — the process's namespace
+/// * `PMIX_RANK` — the process's rank within the namespace
+/// * Listener URI variable(s) — rendezvous information for the client
+///   to connect back to the server
+/// * `PMIX_SECURITY_MODE` — active security module
+/// * `PMIX_BFROP_BUFFER_TYPE` — buffer serialization format
+/// * `PMIX_GDS_MODULE` — available GDS modules
+/// * `PMIX_HOSTNAME` — agreed hostname
+/// * `PMIX_VERSION` — PMIx version string
+///
+/// # Parameters
+/// * `proc` — the process whose environment should be set up
+/// * `env` — optional initial environment variables (in `KEY=VALUE` format).
+///   If `None`, an empty environment is created. The returned environment
+///   includes both the initial variables and those added by PMIx.
+///
+/// # Returns
+/// * `Ok(Vec<String>)` — the populated environment as `KEY=VALUE` strings.
+///   Pass this directly to `std::process::Command::env_clear().envs(...)`
+///   when forking the child process.
+/// * `Err(PmixStatus)` — setup failed (e.g., server not initialized,
+///   invalid proc, or internal error).
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_setup_fork(const pmix_proc_t *proc, char ***env);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_init, server_setup_fork, PmixServerModule};
+/// use pmix::Proc;
+///
+/// let module = PmixServerModule::default();
+/// let _handle = server_init(Some(&module), &[]).expect("server_init failed");
+///
+/// let proc = Proc::new("myjob.12345", 0).expect("proc creation failed");
+/// let env = server_setup_fork(&proc, None).expect("setup_fork failed");
+///
+/// // Use env to fork/exec the child process
+/// // e.g., Command::new("client").env_clear().envs(env).spawn();
+/// ```
+pub fn server_setup_fork(
+    proc: &Proc,
+    env: Option<Vec<&str>>,
+) -> Result<Vec<String>, PmixStatus> {
+    // Get a pointer to the proc's internal pmix_proc_t for FFI.
+    let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
+
+    // Build the initial C environment array from the optional env parameter.
+    // The C API expects a char ** that it will modify (append to).
+    // We allocate it using libc::calloc/realloc-compatible memory so that
+    // pmix_argv_free (which calls free) can safely release it.
+    let mut c_env: *mut *mut std::os::raw::c_char = std::ptr::null_mut();
+
+    // If the caller provided initial env vars, convert them to a C array.
+    if let Some(initial_env) = env {
+        if !initial_env.is_empty() {
+            // Allocate array of pointers (null-terminated).
+            let arr_len = initial_env.len() + 1; // +1 for NULL terminator
+            // SAFETY: calloc returns a zeroed allocation or null on failure.
+            // We use std::alloc for a null-terminated array of null pointers.
+            let arr_ptr = unsafe {
+                libc::calloc(arr_len, std::mem::size_of::<*mut std::os::raw::c_char>())
+                    as *mut *mut std::os::raw::c_char
+            };
+            if arr_ptr.is_null() && !initial_env.is_empty() {
+                return Err(PmixStatus::from_raw(-32)); // PMIX_ERR_NOMEM
+            }
+
+            for (i, env_str) in initial_env.iter().enumerate() {
+                match CString::new(*env_str) {
+                    Ok(cs) => {
+                        // SAFETY: arr_ptr[i] is a valid writable slot in our
+                        // calloc'd array. We store a raw pointer from CString
+                        // which will be freed later by libc::free.
+                        unsafe {
+                            *arr_ptr.add(i) = cs.into_raw();
+                        }
+                    }
+                    Err(_) => {
+                        // NUL byte in env string — clean up and return error.
+                        // SAFETY: Free already-stored strings and the array.
+                        unsafe {
+                            for j in 0..i {
+                                let s = *arr_ptr.add(j);
+                                if !s.is_null() {
+                                    libc::free(s as *mut std::os::raw::c_void);
+                                }
+                            }
+                            libc::free(arr_ptr as *mut std::os::raw::c_void);
+                        }
+                        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+                    }
+                }
+            }
+            c_env = arr_ptr;
+        }
+    }
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_server_setup_fork is a blocking server API.
+        // - proc_ptr is a valid reference to the Proc's internal pmix_proc_t
+        //   that remains alive for the duration of this call (PMIx copies it).
+        // - c_env is either a valid null-terminated char** array (allocated
+        //   with calloc, compatible with free) or null (PMIx will allocate).
+        // - We pass &mut c_env as the char *** output parameter.
+        ffi::PMIx_server_setup_fork(proc_ptr, &mut c_env)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if !pmix_status.is_success() {
+        // On error, free the C environment array we may have allocated.
+        // SAFETY: c_env is either null or points to a valid null-terminated
+        // array of null-terminated strings allocated with libc.
+        unsafe {
+            if !c_env.is_null() {
+                pmix_argv_free(c_env);
+            }
+        }
+        return Err(pmix_status);
+    }
+
+    // On success, read the environment array into a Vec<String>.
+    // The array is null-terminated.
+    let env_vec: Vec<String> = unsafe {
+        let mut result = Vec::new();
+        if !c_env.is_null() {
+            let mut i = 0;
+            loop {
+                let entry = *c_env.add(i);
+                if entry.is_null() {
+                    break; // Null terminator reached
+                }
+                // Convert C string to Rust String.
+                let cstr = CStr::from_ptr(entry);
+                if let Ok(s) = cstr.to_str() {
+                    result.push(s.to_owned());
+                }
+                i += 1;
+            }
+        }
+        result
+    };
+
+    // Free the C environment array (both the array and individual strings).
+    // SAFETY: c_env is a valid null-terminated char** allocated by PMIx
+    // or by our calloc above. pmix_argv_free frees both the strings and
+    // the array itself. After this, c_env is dangling.
+    unsafe {
+        pmix_argv_free(c_env);
+    }
+
+    Ok(env_vec)
+}
+
+/// Free a PMIx-allocated `char **` environment array.
+///
+/// This mirrors `pmix_argv_free` from the PMIx library: it iterates the
+/// null-terminated array, frees each string with `libc::free`, then frees
+/// the array itself.
+///
+/// # Safety
+/// The caller must ensure that `env` is either null or points to a valid
+/// null-terminated array of null-terminated strings allocated by PMIx
+/// (which uses standard `calloc`/`realloc`/`strdup` internally).
+/// Do not call this on a Rust-owned or stack-allocated array.
+unsafe fn pmix_argv_free(env: *mut *mut std::os::raw::c_char) {
+    if env.is_null() {
+        return;
+    }
+    let mut p = env;
+    loop {
+        let entry = unsafe { *p };
+        p = unsafe { p.add(1) };
+        if entry.is_null() {
+            break;
+        }
+        unsafe {
+            libc::free(entry as *mut std::os::raw::c_void);
+        }
+    }
+    unsafe {
+        libc::free(env as *mut std::os::raw::c_void);
     }
 }
