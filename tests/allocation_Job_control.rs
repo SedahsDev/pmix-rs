@@ -1,7 +1,7 @@
 //! Tests for PMIx_Job_control and PMIx_Job_control_nb safe wrappers.
 
 use pmix::allocation::*;
-use pmix::{Info, PmixStatus, Proc};
+use pmix::PmixStatus;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixJobCtrlAction enum tests
