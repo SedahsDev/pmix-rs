@@ -13,7 +13,7 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
-use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc};
+use crate::{free_value, Info, PmixError, PmixOwnedValue, PmixStatus, Proc};
 
 /// Publish data for later access via [`lookup`][crate::data_ops::lookup].
 ///
@@ -341,6 +341,408 @@ pub fn get_nb(
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
         let mut registry = GET_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Lookup — lookup published data (blocking)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A single lookup result: key, value, and the proc that published it.
+///
+/// Corresponds to `pmix_pdata_t` from the C API. The caller sets the `key`
+/// field before calling [`lookup`]; on success the `value` and `proc` fields
+/// are populated by the PMIx library.
+pub struct PmixPdata {
+    /// Process that published this data (filled on return).
+    pub proc: Proc,
+    /// Key to look up (input) / key of returned data (output).
+    pub key: String,
+    /// Value returned by the lookup (filled on success).
+    pub value: Option<PmixOwnedValue>,
+}
+
+impl std::fmt::Debug for PmixPdata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PmixPdata")
+            .field("key", &self.key)
+            .field("value_present", &self.value.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PmixPdata {
+    /// Create a new lookup request for the given key.
+    ///
+    /// The `proc` and `value` fields are uninitialized — they will be
+    /// populated by [`lookup`][crate::data_ops::lookup] on success.
+    pub fn new(key: &str) -> Self {
+        Self {
+            proc: Proc::new("", PMIX_RANK_WILDCARD as u32).unwrap_or_else(|_| {
+                Proc::new("", 0).unwrap()
+            }),
+            key: key.to_string(),
+            value: None,
+        }
+    }
+}
+
+/// PMIX_RANK_WILDCARD constant.
+const PMIX_RANK_WILDCARD: i32 = -1;
+
+/// Lookup information published by this or another process.
+///
+/// The blocking form of this call will block until the datastore has
+/// returned the data or determined it is unavailable. By default, the
+/// search is constrained to publishers within `PMIX_RANGE_SESSION`.
+///
+/// Each element of `data` should have its `key` field set to the desired
+/// attribute name. On success, the `value` and `proc` fields are populated
+/// with the published data and the identity of the publisher.
+///
+/// # Return values
+///
+/// - `Ok(results)` — the data array with populated values/procs.
+///   Status can be `Success` (all found), `ErrPartialSuccess` (some found),
+///   or `ErrNotFound` (none found — results will have empty values).
+/// - `Err(status)` on other failures (not supported, no permissions, etc.).
+///
+/// # Parameters
+///
+/// - `data`: Array of [`PmixPdata`] with keys set. Modified in place on return.
+/// - `info`: Optional directives (e.g., `PMIX_TIMEOUT`, `PMIX_RANGE`, `PMIX_WAIT`).
+///
+/// # C API
+/// `pmix_status_t PMIx_Lookup(pmix_pdata_t data[], size_t ndata,`
+/// `  const pmix_info_t info[], size_t ninfo)`
+pub fn lookup(
+    data: &mut [PmixPdata],
+    info: Option<&Info>,
+) -> Result<(PmixStatus, Vec<PmixPdata>), PmixStatus> {
+    if data.is_empty() {
+        return Err(PmixStatus::Known(PmixError::Error));
+    }
+
+    // Build the raw pmix_pdata_t array.
+    let ndata = data.len();
+    let mut raw_pdata: Vec<ffi::pmix_pdata_t> = Vec::with_capacity(ndata);
+
+    for item in data.iter() {
+        let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::zeroed() };
+
+        // Copy the key into pdata.key (pmix_key_t = [c_char; 512]).
+        let key_bytes = item.key.as_bytes();
+        let klen = key_bytes.len().min(511);
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                key_bytes.as_ptr(),
+                pdata.key.as_mut_ptr() as *mut u8,
+                klen,
+            );
+            pdata.key[klen] = 0;
+        }
+
+        // Initialize the proc field as wildcard.
+        pdata.proc_.rank = PMIX_RANK_WILDCARD as u32;
+
+        // Zero the value so PMIx writes into it.
+        unsafe {
+            std::ptr::write_bytes(&mut pdata.value, 0, 1);
+        }
+
+        // Construct the pdata using the PMIx constructor.
+        unsafe { ffi::PMIx_Pdata_construct(&mut pdata) };
+
+        raw_pdata.push(pdata);
+    }
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = match info {
+        Some(info) if info.len > 0 => (info.handle as *const ffi::pmix_info_t, info.len),
+        _ => (ptr::null(), 0),
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_Lookup is a synchronous PMIx API call. The raw_pdata
+        // slice is valid for the duration of the call. PMIx writes the
+        // proc and value fields of each pmix_pdata_t element. The info
+        // pointer (if non-null) is borrowed from the Info parameter and
+        // lives long enough. PMIx does not retain any pointers after return.
+        ffi::PMIx_Lookup(
+            raw_pdata.as_mut_ptr(),
+            ndata,
+            info_ptr,
+            ninfo,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    // Extract results from the raw pdata array.
+    let mut results = Vec::with_capacity(ndata);
+    for (i, pdata) in raw_pdata.iter_mut().enumerate() {
+        let key = data[i].key.clone();
+
+        // Extract the proc (namespace + rank).
+        let nspace_str = unsafe {
+            std::ffi::CStr::from_ptr(pdata.proc_.nspace.as_ptr())
+                .to_string_lossy()
+                .into_owned()
+        };
+        let rank = pdata.proc_.rank;
+        let proc =
+            Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).unwrap());
+
+        // Extract the value if the type is not PMIX_UNDEF.
+        let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
+        let value = if pdata.value.type_ != pmix_undef {
+            // Take ownership of the value.
+            let val = unsafe { ptr::read(&pdata.value) };
+            Some(PmixOwnedValue { inner: val })
+        } else {
+            None
+        };
+
+        results.push(PmixPdata { proc, key, value });
+    }
+
+    // Clean up raw pdata — destruct each element.
+    for pdata in raw_pdata.iter_mut() {
+        unsafe {
+            free_value(&mut pdata.value);
+            ffi::PMIx_Pdata_destruct(pdata);
+        }
+    }
+
+    // Check if this is a usable result vs hard error.
+    match pmix_status {
+        PmixStatus::Known(PmixError::Success)
+        | PmixStatus::Known(PmixError::ErrPartialSuccess)
+        | PmixStatus::Known(PmixError::ErrNotFound) => Ok((pmix_status, results)),
+        _ => Err(pmix_status),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Lookup_nb — non-blocking lookup
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_Lookup_nb`.
+///
+/// Implement this trait to receive the result of a non-blocking lookup.
+/// The `on_result` method receives:
+/// - `status`: The result status (Success, NotFound, PartialSuccess, etc.)
+/// - `data`: The lookup results (proc + key + value for each key).
+pub trait LookupCallback: Send {
+    fn on_result(self: Box<Self>, status: PmixStatus, data: Vec<PmixPdata>);
+}
+
+/// Global registry for pending lookup_nb callbacks.
+type LookupRegistry = std::collections::HashMap<usize, Box<dyn LookupCallback>>;
+static LOOKUP_REGISTRY: LazyLock<Mutex<LookupRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing lookup request ID counter.
+static LOOKUP_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_lookup_cbfunc_t`.
+///
+/// Called by PMIx when the non-blocking lookup completes. The `cbdata`
+/// parameter encodes the request ID. We look up the registered closure
+/// and invoke it with the converted results.
+extern "C" fn lookup_callback_bridge(
+    status: ffi::pmix_status_t,
+    data: *mut ffi::pmix_pdata_t,
+    ndata: usize,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // Recover the request ID from the cbdata pointer.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+    let cb = match cb {
+        Some(cb) => cb,
+        None => {
+            // Callback already consumed — still need to free the data PMIx gave us.
+            if !data.is_null() && ndata > 0 {
+                unsafe {
+                    for i in 0..ndata {
+                        let pdata = data.add(i);
+                        free_value(&mut (*pdata).value);
+                        ffi::PMIx_Pdata_destruct(pdata);
+                    }
+                    ffi::PMIx_Pdata_free(data, ndata);
+                }
+            }
+            return;
+        }
+    };
+
+    // Convert status and data.
+    let pmix_status = PmixStatus::from_raw(status);
+
+    let results = if !data.is_null() && ndata > 0 {
+        let mut results = Vec::with_capacity(ndata);
+        unsafe {
+            for i in 0..ndata {
+                let pdata = data.add(i);
+                let pdata_ref = &*pdata;
+
+                let nspace_str = std::ffi::CStr::from_ptr(pdata_ref.proc_.nspace.as_ptr())
+                    .to_string_lossy()
+                    .into_owned();
+                let key_str = std::ffi::CStr::from_ptr(pdata_ref.key.as_ptr())
+                    .to_string_lossy()
+                    .into_owned();
+                let rank = pdata_ref.proc_.rank;
+
+                let proc = Proc::new(&nspace_str, rank)
+                    .unwrap_or_else(|_| Proc::new("", 0).unwrap());
+
+                // Take ownership of the value.
+                let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
+                let value = if pdata_ref.value.type_ != pmix_undef {
+                    let val = ptr::read(&pdata_ref.value);
+                    Some(PmixOwnedValue { inner: val })
+                } else {
+                    None
+                };
+
+                results.push(PmixPdata {
+                    proc,
+                    key: key_str,
+                    value,
+                });
+            }
+        }
+        // Free the pdata array allocated by PMIx.
+        unsafe {
+            ffi::PMIx_Pdata_free(data, ndata);
+        }
+        results
+    } else {
+        Vec::new()
+    };
+
+    cb.on_result(pmix_status, results);
+}
+
+/// Non-blocking lookup of published data.
+///
+/// Submit an asynchronous request to look up the data associated with
+/// the given `keys`. The `callback` closure is invoked once the operation
+/// completes.
+///
+/// The function returns immediately:
+/// - `Ok(())` if the request was accepted for asynchronous processing.
+///   The actual result will be delivered via `callback`.
+/// - `Err(status)` if the request was rejected immediately (e.g., invalid
+///   parameters or PMIx not initialized). The callback will NOT be called.
+///
+/// # Callback behavior
+///
+/// The callback receives `(PmixStatus, Vec<PmixPdata>)`:
+/// - On success: `(Success, results)` with populated proc/key/value.
+/// - On not found: `(ErrNotFound, empty_vec)`.
+/// - On partial: `(ErrPartialSuccess, results)` with only found items.
+///
+/// # Parameters
+///
+/// - `keys`: Keys to look up (NULL-terminated in C, passed as a slice here).
+/// - `info`: Optional directives (e.g., `PMIX_TIMEOUT`, `PMIX_RANGE`, `PMIX_WAIT`).
+/// - `callback`: Closure invoked on completion.
+///
+/// # C API
+/// `pmix_status_t PMIx_Lookup_nb(char **keys, const pmix_info_t info[],`
+/// `  size_t ninfo, pmix_lookup_cbfunc_t cbfunc, void *cbdata)`
+pub fn lookup_nb(
+    keys: &[&str],
+    info: Option<&Info>,
+    callback: Box<dyn LookupCallback>,
+) -> Result<(), PmixStatus> {
+    if keys.is_empty() {
+        return Err(PmixStatus::Known(PmixError::Error));
+    }
+
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = LOOKUP_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Convert keys to NULL-terminated C string array.
+    let mut key_ptrs: Vec<*mut std::os::raw::c_char> = Vec::with_capacity(keys.len() + 1);
+    let mut cstrings: Vec<std::ffi::CString> = Vec::with_capacity(keys.len());
+
+    for &key in keys {
+        match CString::new(key) {
+            Ok(c) => {
+                cstrings.push(c);
+            }
+            Err(_) => {
+                // Key contains NUL — clean up and return error.
+                let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+                registry.remove(&req_id);
+                return Err(PmixStatus::Known(PmixError::Error));
+            }
+        }
+    }
+    for c in &cstrings {
+        key_ptrs.push(c.as_ptr() as *mut std::os::raw::c_char);
+    }
+    // NULL terminator.
+    key_ptrs.push(ptr::null_mut());
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = match info {
+        Some(info) if info.len > 0 => (info.handle as *const ffi::pmix_info_t, info.len),
+        _ => (ptr::null(), 0),
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_Lookup_nb is a non-blocking PMIx API call. The key_ptrs
+        // slice is valid for the duration of the initial call (NULL-terminated).
+        // The cstrings live long enough (dropped after this call). The callback
+        // bridge function has C linkage and properly handles the raw pointer
+        // cbdata parameter. PMIx does not retain key_ptrs after this returns.
+        ffi::PMIx_Lookup_nb(
+            key_ptrs.as_mut_ptr(),
+            info_ptr,
+            ninfo,
+            Some(lookup_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = LOOKUP_REGISTRY.lock().unwrap();
         registry.remove(&req_id);
         Err(pmix_status)
     }
