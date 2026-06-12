@@ -156,10 +156,7 @@ fn deregister_event_handler_nb_callback_not_called_on_error() {
     CALLBACK_INVOKED.store(false, Ordering::SeqCst);
     let result = deregister_event_handler_nb(9999, Some(tracking_cb), ptr::null_mut());
 
-    assert!(
-        result.is_err(),
-        "should fail without PMIx_Init"
-    );
+    assert!(result.is_err(), "should fail without PMIx_Init");
     assert!(
         !CALLBACK_INVOKED.load(Ordering::SeqCst),
         "callback should NOT have been called when deregister fails synchronously"
@@ -238,7 +235,10 @@ fn safe_wrapper_calls_ffi() {
     // signature. The call itself will fail without PMIx_Init, but that's
     // the point — it proves the FFI path is wired up.
     let result = deregister_event_handler(0, None);
-    assert!(result.is_err(), "should fail without PMIx_Init, proving FFI call was made");
+    assert!(
+        result.is_err(),
+        "should fail without PMIx_Init, proving FFI call was made"
+    );
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixStatus roundtrip for deregister error codes
@@ -256,11 +256,7 @@ fn deregister_error_codes_to_string() {
     for err in &errors {
         let raw = err.to_raw();
         let recovered = PmixStatus::from_raw(raw);
-        assert_eq!(
-            *err, recovered,
-            "Error code roundtrip failed for {:?}",
-            err
-        );
+        assert_eq!(*err, recovered, "Error code roundtrip failed for {:?}", err);
     }
 }
 
@@ -348,7 +344,11 @@ fn deregister_nb_lifecycle() {
     static CB_INVOKED: AtomicBool = AtomicBool::new(false);
 
     extern "C" fn deregister_cb(status: i32, _cbdata: *mut c_void) {
-        assert!(status >= 0, "deregister callback status should be success, got {}", status);
+        assert!(
+            status >= 0,
+            "deregister callback status should be success, got {}",
+            status
+        );
         CB_INVOKED.store(true, Ordering::SeqCst);
     }
 

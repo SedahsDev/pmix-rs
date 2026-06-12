@@ -43,7 +43,10 @@ fn abort_without_init_fails() {
 #[test]
 fn abort_without_msg_without_init_fails() {
     let result = abort(PmixStatus::Known(PmixError::Error), None, None);
-    assert!(result.is_err(), "abort without msg and without init should fail");
+    assert!(
+        result.is_err(),
+        "abort without msg and without init should fail"
+    );
 }
 
 /// Abort with explicit proc targets without init — should fail.
@@ -167,11 +170,7 @@ fn abort_empty_message_without_init_fails() {
 #[test]
 fn abort_long_message_without_init_fails() {
     let long_msg = "A".repeat(1000);
-    let result = abort(
-        PmixStatus::Known(PmixError::Error),
-        Some(&long_msg),
-        None,
-    );
+    let result = abort(PmixStatus::Known(PmixError::Error), Some(&long_msg), None);
     assert!(result.is_err(), "should fail without init");
 }
 

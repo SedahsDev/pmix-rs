@@ -5,7 +5,7 @@
 //! (via `PMIx_Init`), which requires a running PMIx daemon. Tests that need
 //! a daemon are marked `#[ignore]`.
 
-use pmix::{data_ops::store_internal, PmixStatus, Proc};
+use pmix::{PmixStatus, Proc, data_ops::store_internal};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper to build a PmixOwnedValue from a builder
@@ -27,7 +27,9 @@ fn build_value(builder: pmix::PmixValueBuilder) -> pmix::PmixOwnedValue {
 fn store_internal_not_initialized_returns_err_init() {
     let proc = Proc::new("test_namespace", 0).expect("create proc");
     let value = build_value(
-        pmix::PmixValueBuilder::new().string("test_value").expect("string value"),
+        pmix::PmixValueBuilder::new()
+            .string("test_value")
+            .expect("string value"),
     );
 
     let result = store_internal(&proc, "test_key", &value);

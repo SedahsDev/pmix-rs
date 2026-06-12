@@ -7,7 +7,7 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
-use pmix::process_mgmt::{spawn, spawn_nb, PmixApp, SpawnCallbackWrapper};
+use pmix::process_mgmt::{PmixApp, SpawnCallbackWrapper, spawn, spawn_nb};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixApp builder tests (no PMIx_Init required)
@@ -68,10 +68,7 @@ fn app_builder_args() {
 fn app_builder_envs() {
     let app = PmixApp::builder()
         .cmd("./myapp")
-        .envs(vec![
-            "FOO=bar".to_string(),
-            "BAZ=qux".to_string(),
-        ])
+        .envs(vec!["FOO=bar".to_string(), "BAZ=qux".to_string()])
         .build()
         .expect("build app");
     assert_eq!(app.env_vars().len(), 2);
@@ -87,30 +84,21 @@ fn app_builder_rejects_nul_in_cmd() {
 /// Builder rejects NUL bytes in arguments.
 #[test]
 fn app_builder_rejects_nul_in_arg() {
-    let result = PmixApp::builder()
-        .cmd("./myapp")
-        .arg("a\0rg")
-        .build();
+    let result = PmixApp::builder().cmd("./myapp").arg("a\0rg").build();
     assert!(result.is_err(), "should reject NUL in arg");
 }
 
 /// Builder rejects NUL bytes in environment variables.
 #[test]
 fn app_builder_rejects_nul_in_env() {
-    let result = PmixApp::builder()
-        .cmd("./myapp")
-        .env("KEY=\0VALUE")
-        .build();
+    let result = PmixApp::builder().cmd("./myapp").env("KEY=\0VALUE").build();
     assert!(result.is_err(), "should reject NUL in env");
 }
 
 /// Builder rejects NUL bytes in working directory.
 #[test]
 fn app_builder_rejects_nul_in_cwd() {
-    let result = PmixApp::builder()
-        .cmd("./myapp")
-        .cwd("/tmp/\0dir")
-        .build();
+    let result = PmixApp::builder().cmd("./myapp").cwd("/tmp/\0dir").build();
     assert!(result.is_err(), "should reject NUL in cwd");
 }
 

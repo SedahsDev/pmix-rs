@@ -38,7 +38,7 @@
 //! deregister_event_handler(handler_ref, None).expect("deregister failed");
 //! ```
 
-use crate::{ffi, Info, PmixDataRange, PmixStatus, Proc};
+use crate::{Info, PmixDataRange, PmixStatus, Proc, ffi};
 use std::ffi::CStr;
 use std::os::raw::c_void;
 use std::ptr;
@@ -174,7 +174,10 @@ fn wrap_notification_fn(user_fn: NotificationFn) -> (ffi::pmix_notification_fn_t
     if user_fn.is_some() {
         // Allocate the user function on the heap so the bridge can access it.
         let boxed = Box::new(user_fn);
-        (Some(notification_bridge), Box::into_raw(boxed) as *mut c_void)
+        (
+            Some(notification_bridge),
+            Box::into_raw(boxed) as *mut c_void,
+        )
     } else {
         (None, std::ptr::null_mut())
     }
@@ -474,11 +477,7 @@ pub fn notify_event(
     };
 
     let st = PmixStatus::from_raw(raw_status);
-    if st.is_success() {
-        Ok(())
-    } else {
-        Err(st)
-    }
+    if st.is_success() { Ok(()) } else { Err(st) }
 }
 
 /// Non-blocking variant of [`notify_event`].
@@ -526,9 +525,5 @@ pub fn notify_event_nb(
     };
 
     let st = PmixStatus::from_raw(raw_status);
-    if st.is_success() {
-        Ok(())
-    } else {
-        Err(st)
-    }
+    if st.is_success() { Ok(()) } else { Err(st) }
 }

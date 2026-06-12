@@ -259,15 +259,10 @@ fn register_all_events_without_init_fails() {
 /// Non-blocking registration without init should fail.
 #[test]
 fn register_event_handler_nb_without_init_fails() {
-    extern "C" fn dummy_reg_cb(
-        _status: i32,
-        _refid: EventHandlerRef,
-        _cbdata: *mut c_void,
-    ) {}
+    extern "C" fn dummy_reg_cb(_status: i32, _refid: EventHandlerRef, _cbdata: *mut c_void) {}
 
     let info = InfoBuilder::new().build();
-    let result =
-        register_event_handler_nb(&[], &info, None, Some(dummy_reg_cb), ptr::null_mut());
+    let result = register_event_handler_nb(&[], &info, None, Some(dummy_reg_cb), ptr::null_mut());
     assert!(
         result.is_err(),
         "register_event_handler_nb without PMIx_Init should fail, got {:?}",

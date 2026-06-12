@@ -13,7 +13,7 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
-use crate::{free_value, Info, PmixError, PmixOwnedValue, PmixStatus, Proc};
+use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, free_value};
 
 /// Publish data for later access via [`lookup`][crate::data_ops::lookup].
 ///
@@ -380,9 +380,8 @@ impl PmixPdata {
     /// populated by [`lookup`][crate::data_ops::lookup] on success.
     pub fn new(key: &str) -> Self {
         Self {
-            proc: Proc::new("", PMIX_RANK_WILDCARD as u32).unwrap_or_else(|_| {
-                Proc::new("", 0).unwrap()
-            }),
+            proc: Proc::new("", PMIX_RANK_WILDCARD as u32)
+                .unwrap_or_else(|_| Proc::new("", 0).unwrap()),
             key: key.to_string(),
             value: None,
         }
@@ -471,12 +470,7 @@ pub fn lookup(
         // proc and value fields of each pmix_pdata_t element. The info
         // pointer (if non-null) is borrowed from the Info parameter and
         // lives long enough. PMIx does not retain any pointers after return.
-        ffi::PMIx_Lookup(
-            raw_pdata.as_mut_ptr(),
-            ndata,
-            info_ptr,
-            ninfo,
-        )
+        ffi::PMIx_Lookup(raw_pdata.as_mut_ptr(), ndata, info_ptr, ninfo)
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -493,8 +487,7 @@ pub fn lookup(
                 .into_owned()
         };
         let rank = pdata.proc_.rank;
-        let proc =
-            Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).unwrap());
+        let proc = Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).unwrap());
 
         // Extract the value if the type is not PMIX_UNDEF.
         let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
@@ -607,8 +600,8 @@ extern "C" fn lookup_callback_bridge(
                     .into_owned();
                 let rank = pdata_ref.proc_.rank;
 
-                let proc = Proc::new(&nspace_str, rank)
-                    .unwrap_or_else(|_| Proc::new("", 0).unwrap());
+                let proc =
+                    Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).unwrap());
 
                 // Take ownership of the value.
                 let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
@@ -824,10 +817,7 @@ extern "C" fn unpublish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut
 ///
 /// # C API
 /// `pmix_status_t PMIx_Unpublish(char **keys, const pmix_info_t info[], size_t ninfo)`
-pub fn unpublish(
-    keys: Option<&[&str]>,
-    info: Option<&Info>,
-) -> Result<(), PmixStatus> {
+pub fn unpublish(keys: Option<&[&str]>, info: Option<&Info>) -> Result<(), PmixStatus> {
     // Handle the None case — unpublish all data for this process.
     let keys_ptr = match keys {
         Some(keys_slice) if !keys_slice.is_empty() => {
@@ -984,7 +974,13 @@ pub fn unpublish_nb(
         // The callback bridge function has C linkage and properly handles the
         // raw pointer cbdata parameter. PMIx does not retain keys_ptr or info
         // after this call returns.
-        ffi::PMIx_Unpublish_nb(keys_ptr, info_ptr, ninfo, Some(unpublish_callback_bridge), cbdata)
+        ffi::PMIx_Unpublish_nb(
+            keys_ptr,
+            info_ptr,
+            ninfo,
+            Some(unpublish_callback_bridge),
+            cbdata,
+        )
     };
 
     let pmix_status = PmixStatus::from_raw(status);

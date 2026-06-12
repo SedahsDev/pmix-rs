@@ -151,7 +151,10 @@ fn unpublish_nb_none_keys_before_init() {
     }
 
     let result = unpublish_nb(None, None, Box::new(InitCheckCallback));
-    assert!(result.is_err(), "unpublish_nb should fail without PMIx_Init");
+    assert!(
+        result.is_err(),
+        "unpublish_nb should fail without PMIx_Init"
+    );
     assert_eq!(
         result.unwrap_err().to_raw(),
         -31,
@@ -174,7 +177,10 @@ fn unpublish_nb_keys_before_init() {
         None,
         Box::new(KeysCheckCallback),
     );
-    assert!(result.is_err(), "unpublish_nb should fail without PMIx_Init");
+    assert!(
+        result.is_err(),
+        "unpublish_nb should fail without PMIx_Init"
+    );
     assert_eq!(
         result.unwrap_err().to_raw(),
         -31,

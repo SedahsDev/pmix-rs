@@ -5,7 +5,7 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (`PMIx_Init`) are marked `#[ignore]`.
 
-use pmix::data_ops::{lookup, lookup_nb, LookupCallback, PmixPdata};
+use pmix::data_ops::{LookupCallback, PmixPdata, lookup, lookup_nb};
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,7 +78,10 @@ fn pdata_has_expected_fields() {
 fn lookup_empty_data_returns_error() {
     let mut data: Vec<PmixPdata> = Vec::new();
     let result = lookup(&mut data, None);
-    assert!(result.is_err(), "lookup with empty data should return error");
+    assert!(
+        result.is_err(),
+        "lookup with empty data should return error"
+    );
 }
 
 /// `lookup_nb` with an empty keys array returns an error.
@@ -93,7 +96,10 @@ fn lookup_nb_empty_keys_returns_error() {
 
     let keys: &[&str] = &[];
     let result = lookup_nb(keys, None, Box::new(TestCallback));
-    assert!(result.is_err(), "lookup_nb with empty keys should return error");
+    assert!(
+        result.is_err(),
+        "lookup_nb with empty keys should return error"
+    );
 }
 
 /// `lookup` before init returns `PMIX_ERR_INIT` (-31).
@@ -284,11 +290,7 @@ fn lookup_nb_multiple_keys_before_init() {
         fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
     }
 
-    let result = lookup_nb(
-        &["key1", "key2", "key3"],
-        None,
-        Box::new(MultiCallback),
-    );
+    let result = lookup_nb(&["key1", "key2", "key3"], None, Box::new(MultiCallback));
     assert!(result.is_err(), "should fail without PMIx_Init");
     assert_eq!(result.unwrap_err().to_raw(), -31, "should be PMIX_ERR_INIT");
 }

@@ -6,6 +6,7 @@ pub mod events;
 mod ffi;
 mod info;
 pub mod process_mgmt;
+pub mod query_log;
 pub mod utility;
 
 use crate::ffi::*;
