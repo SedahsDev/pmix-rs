@@ -1189,7 +1189,7 @@ pub fn connect_nb(
               Vec::new()
           } else {
               // Read each proc from the C array.
-              let mut rust_vec = Vec::with_capacity(nprocs as usize);
+              let mut rust_vec = Vec::with_capacity(nprocs);
               for i in 0..nprocs {
                   let c_proc = std::ptr::read_unaligned(procs.add(i));
                   let proc = Proc {
