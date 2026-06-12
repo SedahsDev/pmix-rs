@@ -3,12 +3,15 @@
 //! `PMIx_Info_directives_string`, `PMIx_Data_type_string`, `PMIx_Alloc_directive_string`,
 //! `PMIx_IOF_channel_string`, `PMIx_Job_state_string`, `PMIx_Get_attribute_string`,
 //! `PMIx_Get_attribute_name`, `PMIx_Link_state_string`, `PMIx_Device_type_string`,
-//! `PMIx_generate_regex`, `PMIx_generate_ppn`, `PMIx_Register_attributes`, and related helpers.
+//! `PMIx_generate_regex`, `PMIx_generate_ppn`, `PMIx_Register_attributes`,
+//! `PMIx_IOF_pull`, and related helpers.
 //!
 //! This module provides safe Rust wrappers around PMIx utility APIs
 //! that do not fit into the lifecycle, data, or event categories.
 
 use crate::{ffi, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType, PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus};
+use std::ffi::CStr;
+use std::ptr;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -943,6 +946,288 @@ pub fn register_attributes(function: &str, attrs: &[&str]) -> Result<(), PmixSta
         Ok(())
     } else {
         Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_IOF_pull — IO forwarding registration
+// ─────────────────────────────────────────────────────────────────────────────
+
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
+/// Global registry mapping IOF handles to their Rust callback contexts.
+///
+/// PMIx_IOF_pull stores only the C function pointer for the IO callback.
+/// Our bridge function looks up the handle in this registry to find the
+/// corresponding Rust closure. The registry is populated when `iof_pull`
+/// or `iof_pull_blocking` is called and cleared when deregistered.
+type Registry = HashMap<usize, SendSyncPtr<*mut IoPullContext>>;
+static IOF_REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Wrapper that allows raw pointers to cross thread boundaries.
+///
+/// The raw pointer itself is managed by the PMIx FFI bridge — it is
+/// allocated via `Box::into_raw` and freed via `Box::from_raw` or
+/// on deregistration. This newtype only exists so the `HashMap` inside
+/// `IOF_REGISTRY` satisfies `Send + Sync`.
+#[derive(Clone, Copy)]
+struct SendSyncPtr<T>(T);
+// SAFETY: The pointer is only accessed behind a Mutex guard, so concurrent
+// access is serialized. The lifetime of the pointed-to data is managed by
+// the caller (Box::into_raw / Box::from_raw), not by Rust's ownership rules.
+unsafe impl<T> Send for SendSyncPtr<T> {}
+unsafe impl<T> Sync for SendSyncPtr<T> {}
+
+/// Context stored per IO pull registration, carrying both callbacks.
+///
+/// Allocated on the heap via `Box::into_raw`. Freed when:
+/// - Registration fails (immediate)
+/// - `iof_deregister` is called (via registry cleanup)
+/// - Process exits (OS reclaims memory)
+struct IoPullContext {
+    io_cb: Box<dyn Fn(usize, IOFChannelFlags, &ffi::pmix_proc_t, &[u8]) + Send>,
+    reg_cb: Box<dyn Fn(PmixStatus, usize) + Send>,
+}
+
+/// C bridge for the IO callback (`pmix_iof_cbfunc_t`).
+///
+/// Called by PMIx each time IO data arrives for a registered process.
+/// Looks up the `IoPullContext` in the global registry using `iofhdlr`.
+extern "C" fn io_callback_bridge(
+    iofhdlr: usize,
+    channel: ffi::pmix_iof_channel_t,
+    source: *mut ffi::pmix_proc_t,
+    payload: *mut ffi::pmix_byte_object_t,
+    _info: *mut ffi::pmix_info_t,
+    _ninfo: usize,
+) {
+    // Look up the context in the registry.
+    let registry = IOF_REGISTRY.lock().unwrap();
+    let ctx_ptr = match registry.get(&iofhdlr) {
+        Some(wrapped) => wrapped.0,
+        None => return, // Context not found — skip.
+    };
+    drop(registry); // Release lock before calling user code.
+
+    if ctx_ptr.is_null() {
+        return;
+    }
+
+    // SAFETY: ctx_ptr was allocated via Box::into_raw in iof_pull /
+    // iof_pull_blocking and remains valid until deregistration.
+    let ctx = unsafe { &*ctx_ptr };
+
+    // SAFETY: source is valid for the duration of this callback.
+    // PMIx guarantees the source pointer points to a valid pmix_proc_t.
+    let source_proc = unsafe { &*source };
+
+    // SAFETY: payload is valid for the duration of this callback.
+    // Extract bytes from the pmix_byte_object_t.
+    let bytes = if !payload.is_null() {
+        let p = unsafe { &*payload };
+        if !p.bytes.is_null() && p.size > 0 {
+            unsafe { std::slice::from_raw_parts(p.bytes as *const u8, p.size) }
+        } else {
+            &[]
+        }
+    } else {
+        &[]
+    };
+
+    let channel_flags = IOFChannelFlags(channel);
+    (ctx.io_cb)(iofhdlr, channel_flags, source_proc, bytes);
+}
+
+/// C bridge for the registration callback (`pmix_hdlr_reg_cbfunc_t`).
+///
+/// Called by PMIx when the async registration request completes.
+/// The `cbdata` parameter points to our `IoPullContext`.
+extern "C" fn reg_callback_bridge(
+    status: ffi::pmix_status_t,
+    refid: usize,
+    cbdata: *mut std::os::raw::c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the ctx_ptr we passed to PMIx_IOF_pull.
+    // It was allocated via Box::into_raw and is valid.
+    let ctx = unsafe { &*(cbdata as *const IoPullContext) };
+
+    // Register the handle in the global registry so the IO callback
+    // can look it up later.
+    {
+        let mut registry = IOF_REGISTRY.lock().unwrap();
+        registry.insert(refid, SendSyncPtr(cbdata as *mut IoPullContext));
+    }
+
+    let pmix_status = PmixStatus::from_raw(status);
+    (ctx.reg_cb)(pmix_status, refid);
+}
+
+/// Callback trait for receiving IO data from remote processes.
+///
+/// Implementations receive:
+/// * `handle` — the registration handle returned by `iof_pull`.
+/// * `channel` — the IO channel (`stdin`, `stdout`, `stderr`, `stddiag`).
+/// * `source` — the process that produced the IO data.
+/// * `payload` — the raw byte payload (may be empty).
+pub trait IoForwardHandler:
+    Fn(usize, IOFChannelFlags, &ffi::pmix_proc_t, &[u8]) + Send + 'static
+{
+}
+impl<F> IoForwardHandler for F where
+    F: Fn(usize, IOFChannelFlags, &ffi::pmix_proc_t, &[u8]) + Send + 'static
+{
+}
+
+/// Callback trait for registration completion notification.
+pub trait IoForwardRegHandler: Fn(PmixStatus, usize) + Send + 'static {}
+impl<F> IoForwardRegHandler for F where F: Fn(PmixStatus, usize) + Send + 'static {}
+
+/// Register to receive IO forwarded from a set of remote processes (async).
+///
+/// The `regcb` closure is called when the PMIx server finishes processing
+/// the registration request. Use `iof_pull_blocking` if you prefer a
+/// synchronous return value.
+///
+/// # Parameters
+/// * `procs` — process identifiers whose IO is being requested.
+///   Use `PMIX_RANK_WILDCARD` for all processes in a namespace.
+/// * `directives` — optional `pmix_info_t` directives (buffering, tagging, etc.).
+/// * `channel` — bitmask of IO channels to receive.
+/// * `cb` — Rust closure called for each IO event.
+/// * `regcb` — Rust closure called when registration completes.
+///
+/// # Returns
+/// * `Ok(())` — registration was submitted. `regcb` will be invoked.
+/// * `Err(PmixStatus)` — registration could not be submitted.
+///
+/// # C API
+/// `pmix_status_t PMIx_IOF_pull(const pmix_proc_t procs[], size_t nprocs,`
+///     `const pmix_info_t directives[], size_t ndirs,`
+///     `pmix_iof_channel_t channel, pmix_iof_cbfunc_t cbfunc,`
+///     `pmix_hdlr_reg_cbfunc_t regcbfunc, void *regcbdata);`
+pub fn iof_pull<F, G>(
+    procs: &[ffi::pmix_proc_t],
+    directives: &[ffi::pmix_info_t],
+    channel: IOFChannelFlags,
+    cb: F,
+    regcb: G,
+) -> Result<(), PmixStatus>
+where
+    F: IoForwardHandler,
+    G: IoForwardRegHandler,
+{
+    // Box both closures into a single context struct.
+    let ctx = IoPullContext {
+        io_cb: Box::new(cb),
+        reg_cb: Box::new(regcb),
+    };
+    let ctx_ptr: *mut IoPullContext = Box::into_raw(Box::new(ctx));
+
+    // SAFETY: PMIx_IOF_pull is a documented PMIx tool API.
+    // - procs: valid slice, passed as const pointer + length.
+    // - directives: valid slice, passed as const pointer + length.
+    // - channel: valid u16 bitmask.
+    // - cbfunc: our io_callback_bridge extern "C" function.
+    // - regcbfunc: our reg_callback_bridge extern "C" function.
+    // - regcbdata: ctx_ptr, owned by us, valid until deregistration.
+    let raw_status = unsafe {
+        ffi::PMIx_IOF_pull(
+            procs.as_ptr(),
+            procs.len(),
+            directives.as_ptr(),
+            directives.len(),
+            channel.raw(),
+            Some(io_callback_bridge),
+            Some(reg_callback_bridge),
+            ctx_ptr as *mut std::os::raw::c_void,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(raw_status);
+    if pmix_status.is_error() {
+        // Registration could not be submitted — free the context immediately.
+        // SAFETY: ctx_ptr was allocated by Box::into_raw above and has not
+        // been used by PMIx since the call returned an error.
+        unsafe {
+            drop(Box::from_raw(ctx_ptr));
+        }
+        Err(pmix_status)
+    } else {
+        // Registration accepted — the handle will be returned in regcbfunc.
+        Ok(())
+    }
+}
+
+/// Blocking variant of `iof_pull` — waits for registration to complete
+/// and returns the registration handle directly.
+///
+/// # Parameters
+/// * `procs` — process identifiers whose IO is being requested.
+/// * `directives` — optional `pmix_info_t` directives.
+/// * `channel` — bitmask of IO channels to receive.
+/// * `cb` — Rust closure called for each IO event.
+///
+/// # Returns
+/// * `Ok(handle)` — the registration handle (use with `iof_deregister`).
+/// * `Err(PmixStatus)` — registration failed.
+///
+/// # C API
+/// Same as `PMIx_IOF_pull` with `regcbfunc` set to NULL (blocking mode).
+pub fn iof_pull_blocking<F>(
+    procs: &[ffi::pmix_proc_t],
+    directives: &[ffi::pmix_info_t],
+    channel: IOFChannelFlags,
+    cb: F,
+) -> Result<usize, PmixStatus>
+where
+    F: IoForwardHandler,
+{
+    // In blocking mode, regcbfunc is NULL, so we don't need a real reg_cb.
+    let ctx = IoPullContext {
+        io_cb: Box::new(cb),
+        reg_cb: Box::new(|_, _| {
+            // Unused in blocking mode.
+        }),
+    };
+    let ctx_ptr: *mut IoPullContext = Box::into_raw(Box::new(ctx));
+
+    // SAFETY: Same as iof_pull, but regcbfunc is None (blocking mode).
+    let raw_result: ffi::pmix_status_t = unsafe {
+        ffi::PMIx_IOF_pull(
+            procs.as_ptr(),
+            procs.len(),
+            directives.as_ptr(),
+            directives.len(),
+            channel.raw(),
+            Some(io_callback_bridge),
+            None, // blocking mode — no async registration callback
+            ctx_ptr as *mut std::os::raw::c_void,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(raw_result);
+    if pmix_status.is_error() {
+        // Registration failed — free the context.
+        // SAFETY: ctx_ptr was not handed to PMIx since the call failed.
+        unsafe {
+            drop(Box::from_raw(ctx_ptr));
+        }
+        Err(pmix_status)
+    } else {
+        // In blocking mode, the return value is the registration handle.
+        let handle = raw_result as usize;
+
+        // Store the context in the registry so the IO callback can find it.
+        {
+            let mut registry = IOF_REGISTRY.lock().unwrap();
+            registry.insert(handle, SendSyncPtr(ctx_ptr));
+        }
+        Ok(handle)
     }
 }
 
