@@ -6,6 +6,7 @@ pub mod data_ops;
 pub mod events;
 mod ffi;
 mod info;
+pub mod monitoring;
 pub mod process_mgmt;
 pub mod query_log;
 pub mod utility;
