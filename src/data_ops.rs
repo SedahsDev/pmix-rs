@@ -1063,3 +1063,174 @@ pub fn store_internal(proc: &Proc, key: &str, value: &PmixOwnedValue) -> Result<
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Fence_nb — non-blocking fence / barrier with optional data exchange
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_Fence_nb`.
+///
+/// Implement this trait to receive the result of a non-blocking fence
+/// operation. The `on_complete` method receives the `PmixStatus` result.
+pub trait FenceCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending fence callbacks.
+type FenceRegistry = std::collections::HashMap<usize, Box<dyn FenceCallback>>;
+static FENCE_REGISTRY: LazyLock<Mutex<FenceRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing fence request ID counter.
+static FENCE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (fence completion).
+///
+/// Called by PMIx when the non-blocking fence completes. The `cbdata`
+/// parameter is a raw pointer encoding the request ID. We look up the
+/// registered closure and invoke it with the result status.
+extern "C" fn fence_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = FENCE_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Non-blocking fence / barrier across a group of processes.
+///
+/// Submit an asynchronous request to synchronize with the specified
+/// processes. The fence ensures that:
+///
+/// 1. All data `PMIx_Put` (and `PMIx_Commit`) by the calling process
+///    prior to this call is available for `PMIx_Get` by all processes
+///    in the fence group once the callback completes.
+/// 2. All data previously `PMIx_Put` and `PMIx_Commit` by processes
+///    in the fence group is available for `PMIx_Get` by the calling
+///    process once the callback completes.
+///
+/// The `procs` parameter specifies which processes participate. Pass an
+/// empty slice to fence across all processes in the session. The `info`
+/// parameter can include directives such as `PMIX_COLLECT_DATA` to
+/// enable data exchange, or `PMIX_TIMEOUT` to set a maximum wait time.
+///
+/// The function returns immediately:
+/// - `Ok(())` if the request was accepted for asynchronous processing.
+///   The actual result will be delivered via `callback`.
+/// - `Err(status)` if the request was rejected immediately (e.g., invalid
+///   parameters or PMIx not initialized). The callback will NOT be called.
+///
+/// # Callback behavior
+///
+/// The callback receives `PmixStatus`:
+/// - On success: `PmixStatus::Known(PmixError::Success)` — all processes
+///   have reached the fence and data exchange (if requested) is complete.
+/// - On timeout: `PmixStatus::Known(PmixError::ErrTimeout)` — not all
+///   processes reached the fence within the specified timeout.
+/// - On other error: corresponding `PmixStatus`
+///
+/// # Parameters
+///
+/// - `procs`: Processes to fence with. Empty slice means all session peers.
+/// - `info`: Optional directives (e.g., `PMIX_COLLECT_DATA`, `PMIX_TIMEOUT`).
+/// - `callback`: Closure invoked when the fence completes.
+///
+/// # C API
+/// `pmix_status_t PMIx_Fence_nb(const pmix_proc_t procs[], size_t nprocs,`
+/// `  const pmix_info_t info[], size_t ninfo,`
+/// `  pmix_op_cbfunc_t cbfunc, void *cbdata)`
+pub fn fence_nb(
+    procs: &[Proc],
+    info: Option<&Info>,
+    callback: Box<dyn FenceCallback>,
+) -> Result<(), PmixStatus> {
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = FENCE_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = FENCE_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    // We shift left by 2 to ensure the pointer is not null and
+    // remains alignable (though PMIx treats it as opaque c_void).
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Prepare proc parameters.
+    let (proc_ptr, nprocs) = if procs.is_empty() {
+        (ptr::null(), 0)
+    } else {
+        // Build a contiguous array of raw pmix_proc_t from the Proc
+        // references. Each Proc wraps exactly one pmix_proc_t.
+        // We copy each pmix_proc_t into a temporary Vec to ensure
+        // contiguity for the FFI call.
+        //
+        // SAFETY: pmix_proc_t contains a fixed-size char array (nspace)
+        // and a u32 (rank). It does not contain pointers, so cloning
+        // via std::ptr::read is safe and produces a valid copy.
+        let raw_procs: Vec<ffi::pmix_proc_t> =
+            unsafe { procs.iter().map(|p| std::ptr::read(&p.handle)).collect() };
+        (raw_procs.as_ptr(), raw_procs.len())
+    };
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = match info {
+        Some(info) if info.len > 0 => (info.handle as *const ffi::pmix_info_t, info.len),
+        _ => (ptr::null(), 0),
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_Fence_nb is a non-blocking PMIx API call.
+        // - proc_ptr (if non-null) points to a Vec<pmix_proc_t> that lives
+        //   long enough for the initial call. PMIx does not retain the pointer.
+        // - info_ptr (if non-null) is borrowed from the Info parameter and
+        //   lives long enough. PMIx does not retain it after this returns.
+        // - The callback bridge function has C linkage and properly handles
+        //   the raw pointer cbdata parameter.
+        // - PMIx_Fence_nb returns immediately and does not access proc_ptr
+        //   or info_ptr after returning.
+        ffi::PMIx_Fence_nb(
+            proc_ptr,
+            nprocs,
+            info_ptr,
+            ninfo,
+            Some(fence_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = FENCE_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
