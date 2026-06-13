@@ -150,10 +150,7 @@ pub fn is_tool_initialized() -> bool {
 ///           handle.proc().nspace(), handle.proc().rank());
 /// tool_finalize(handle).expect("tool_finalize failed");
 /// ```
-pub fn tool_init(
-    _proc: Option<&Proc>,
-    _info: &Info,
-) -> Result<PmixToolHandle, PmixStatus> {
+pub fn tool_init(_proc: Option<&Proc>, _info: &Info) -> Result<PmixToolHandle, PmixStatus> {
     let mut uninit_proc = MaybeUninit::<ffi::pmix_proc_t>::uninit();
 
     let info_ptr = if _info.len > 0 {
@@ -210,7 +207,13 @@ pub fn tool_init(
 /// tool_finalize(handle).expect("tool_finalize failed");
 /// ```
 pub fn tool_init_minimal() -> Result<PmixToolHandle, PmixStatus> {
-    tool_init(None, &Info { handle: ptr::null_mut(), len: 0 })
+    tool_init(
+        None,
+        &Info {
+            handle: ptr::null_mut(),
+            len: 0,
+        },
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -454,4 +457,78 @@ pub fn tool_attach_to_server(
     };
 
     Ok((tool_handle, server_handle))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tool_disconnect
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Disconnect the PMIx tool from a specific server connection.
+///
+/// This function disconnects the tool from the server identified by the
+/// given process identifier while leaving the tool library itself
+/// initialized. The tool can later reconnect using [`tool_attach_to_server`]
+/// or disconnect from other servers it is connected to.
+///
+/// If the tool is not currently connected to the specified server, the
+/// function returns `PMIX_ERR_NOT_FOUND`.
+///
+/// The tool library remains initialized after this call — use
+/// [`tool_finalize`] to shut down the tool library entirely.
+///
+/// # Parameters
+/// * `server` — process identifier of the server to disconnect from.
+///   This is typically the [`PmixServerHandle`] returned by
+///   [`tool_attach_to_server`], or obtained via [`tool_get_servers`].
+///
+/// # Returns
+/// * `Ok(())` — disconnection succeeded.
+/// * `Err(PmixStatus)` — disconnection failed (e.g., `ErrNotFound` if
+///   the tool is not connected to that server, `ErrInit` if the tool
+///   library was never initialized).
+///
+/// # Errors
+/// * `PmixError::ErrNotFound` — tool is not connected to the specified server.
+/// * `PmixError::ErrInit` — tool library was not initialized via [`tool_init`].
+/// * `PmixError::ErrBadParam` — server identifier is invalid or null.
+///
+/// # C API
+/// `pmix_status_t PMIx_tool_disconnect(const pmix_proc_t *server)`
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::tool::{tool_init, tool_attach_to_server, tool_disconnect, tool_finalize};
+/// use pmix::InfoBuilder;
+///
+/// // Initialize the tool
+/// let handle = tool_init(None, &InfoBuilder::new().build())
+///     .expect("tool_init failed");
+///
+/// // Attach to a server (requires a running PMIx server)
+/// // let info = InfoBuilder::new().build();
+/// // let (_, server) = tool_attach_to_server(Some(handle.proc()), true, &info)?;
+/// // if let Some(s) = server {
+/// //     // Disconnect from that server
+/// //     tool_disconnect(s.proc()).expect("tool_disconnect failed");
+/// // }
+///
+/// tool_finalize(handle).expect("tool_finalize failed");
+/// ```
+pub fn tool_disconnect(server: &Proc) -> Result<(), PmixStatus> {
+    let status = unsafe {
+        // SAFETY: PMIx_tool_disconnect expects a valid pointer to a
+        // pmix_proc_t identifying the server to disconnect from. We
+        // provide the Proc's internal C struct pointer which is a
+        // valid, initialized pmix_proc_t. The function does not
+        // modify the struct pointed to (const parameter).
+        ffi::PMIx_tool_disconnect(&server.handle as *const _)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
 }
