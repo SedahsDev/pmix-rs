@@ -235,7 +235,7 @@ fn test_callback_bridge_null_cbdata_guard() {
     }
 
     let invoked = Arc::new(Mutex::new(false));
-    let cb = Box::new(GuardCb {
+    let _cb = Box::new(GuardCb {
         invoked: Arc::clone(&invoked),
     });
 
