@@ -3206,3 +3206,164 @@ pub fn server_register_resources(
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_deregister_resources — deregister non-namespace resource information
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback trait for `PMIx_server_deregister_resources`.
+///
+/// Implement this trait to receive the result of a non-blocking resource
+/// deregistration. The `on_complete` method receives the `PmixStatus` result.
+pub trait DeregisterResourcesCallback: Send {
+    fn on_complete(self: Box<Self>, status: PmixStatus);
+}
+
+/// Global registry mapping request IDs to pending deregister_resources callbacks.
+type DeregisterResourcesRegistry = std::collections::HashMap<usize, Box<dyn DeregisterResourcesCallback>>;
+static DEREGISTER_RESOURCES_REGISTRY: LazyLock<Mutex<DeregisterResourcesRegistry>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Monotonically increasing deregister_resources request ID counter.
+static DEREGISTER_RESOURCES_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+/// C bridge for `pmix_op_cbfunc_t` (deregister_resources completion).
+///
+/// Called by PMIx when the non-blocking resource deregistration completes.
+/// The `cbdata` parameter is a raw pointer encoding the request ID.
+/// We look up the registered closure and invoke it with the result status.
+extern "C" fn deregister_resources_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the request ID we passed as a pointer cast.
+    // We reconstruct the usize from the pointer address.
+    let req_id = (cbdata as usize) >> 2;
+
+    // Look up and remove the callback from the registry.
+    let cb = {
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+
+    let cb = match cb {
+        Some(cb) => cb,
+        None => return, // Callback already consumed or never registered.
+    };
+
+    // Invoke the user's Rust callback.
+    let pmix_status = PmixStatus::from_raw(status);
+    cb.on_complete(pmix_status);
+}
+
+/// Deregister non-namespace related resource information from the PMIx server.
+///
+/// This function removes information about resources not associated with a
+/// specific namespace from the PMIx server library. This includes information
+/// on fabric devices, GPUs, and other hardware resources that were previously
+/// registered via [`server_register_resources`].
+///
+/// The deregister operation allows the host resource manager (RM) to update
+/// or remove resource information when the underlying hardware state changes
+/// (e.g., a GPU becomes unavailable, a fabric device is replaced).
+///
+/// This is a non-blocking call — the result is delivered asynchronously
+/// via the provided `callback`.
+///
+/// # Parameters
+///
+/// * `info` — array of info structures identifying which resources to
+///   deregister. If empty, all previously registered non-namespace
+///   resources are removed.
+/// * `callback` — invoked when deregistration completes.
+///
+/// # Returns
+///
+/// * `Ok(())` — request accepted for asynchronous processing.
+///   The actual result arrives via `callback`.
+/// * `Err(status)` — request rejected immediately (e.g., invalid info,
+///   PMIx not initialized as server). The callback will NOT be called.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_server_deregister_resources(pmix_info_t info[], size_t ninfo,
+///                                                pmix_op_cbfunc_t cbfunc,
+///                                                void *cbdata);
+/// ```
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::server::{server_deregister_resources, DeregisterResourcesCallback};
+/// use pmix::InfoBuilder;
+///
+/// struct MyResourceCallback;
+/// impl DeregisterResourcesCallback for MyResourceCallback {
+///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///         println!("deregister_resources completed: {:?}", status);
+///     }
+/// }
+///
+/// // Deregister all previously registered non-namespace resources
+/// let info = InfoBuilder::new().build();
+/// server_deregister_resources(&info, Box::new(MyResourceCallback))
+///     .expect("deregister_resources request rejected");
+/// ```
+pub fn server_deregister_resources(
+    info: &Info,
+    callback: Box<dyn DeregisterResourcesCallback>,
+) -> Result<(), PmixStatus> {
+    // Allocate a unique request ID and register the callback.
+    let req_id = {
+        let mut seq = DEREGISTER_RESOURCES_SEQ.lock().unwrap();
+        *seq += 1;
+        *seq
+    };
+    {
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        registry.insert(req_id, callback);
+    }
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    let cbdata = (req_id << 2) as *mut c_void;
+
+    // Get a pointer to the info array for FFI.
+    let info_ptr = if info.len > 0 {
+        info.handle as *const ffi::pmix_info_t
+    } else {
+        ptr::null()
+    };
+    let info_len = info.len;
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_server_deregister_resources is a non-blocking server API.
+        // - info_ptr is either a valid pointer to an array of pmix_info_t
+        //   (owned by the Info handle, which remains alive for the duration
+        //   of this call — PMIx copies the info internally), or null when
+        //   info_len is 0.
+        // - info_len is the number of elements in the info array.
+        // - The callback bridge has C linkage and properly handles cbdata.
+        // - cbdata is an opaque pointer that we control and decode in the bridge.
+        ffi::PMIx_server_deregister_resources(
+            info_ptr as *mut ffi::pmix_info_t,
+            info_len,
+            Some(deregister_resources_callback_bridge),
+            cbdata,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Request accepted — callback will be invoked asynchronously.
+        Ok(())
+    } else {
+        // Immediate failure — remove the registered callback so it
+        // will never be invoked.
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
