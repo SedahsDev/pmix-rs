@@ -2989,3 +2989,59 @@ pub fn server_define_process_set(members: &[Proc], pset_name: &str) -> Result<()
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_delete_process_set
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe wrapper for `PMIx_server_delete_process_set`.
+///
+/// Delete a PMIx process set — a named group of processes.
+///
+/// The PMIx server will alert all local clients of the process set name
+/// being deleted via the `PMIX_PROCESS_SET_DELETE` event. Deletion of
+/// the name has no impact on the member processes.
+///
+/// # Parameters
+/// * `pset_name` — string name of the process set being deleted.
+///
+/// # Returns
+/// * `Ok(())` — process set deleted successfully.
+/// * `Err(PmixStatus)` — error code, e.g. `PMIX_ERR_BAD_PARAM` if the
+///   pset_name is null, `PMIX_ERR_NOT_FOUND` if the process set does not
+///   exist, or other PMIx error constants.
+///
+/// # Host environment responsibilities
+/// The host environment is responsible for ensuring consistent knowledge
+/// of process set membership across all involved PMIx servers.
+///
+/// # C API
+/// `pmix_status_t PMIx_server_delete_process_set(char *pset_name)`
+pub fn server_delete_process_set(pset_name: &str) -> Result<(), PmixStatus> {
+    // Convert pset_name to CString for FFI.
+    let pset_name_c = match CString::new(pset_name) {
+        Ok(cs) => cs,
+        Err(_) => return Err(PmixStatus::from_raw(-1)), // PMIX_ERROR — contains NUL
+    };
+
+    // The C API takes `char *` (non-const) even though it doesn't modify the
+    // string. We use `as_ptr() as *mut` to match the FFI signature; this is
+    // safe because PMIx only reads the string and copies it internally.
+    let status = unsafe {
+        // SAFETY:
+        // - pset_name_c is a valid null-terminated string for the duration of
+        //   this call (PMIx copies it internally, does not retain the pointer).
+        // - The cast from *const to *mut is safe because PMIx does not write
+        //   to the string — the non-const signature is a C API convention.
+        // - PMIx_server_delete_process_set is a synchronous server API.
+        ffi::PMIx_server_delete_process_set(pset_name_c.as_ptr() as *mut std::os::raw::c_char)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
