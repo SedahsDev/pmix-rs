@@ -15,6 +15,7 @@ pub mod process_mgmt;
 pub mod query_log;
 pub mod security;
 pub mod server;
+pub mod tool;
 pub mod utility;
 
 use crate::ffi::*;
