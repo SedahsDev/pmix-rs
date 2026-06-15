@@ -26,12 +26,16 @@
 //!
 //! ```no_run
 //! use pmix::events::{register_event_handler, deregister_event_handler};
+//! use pmix::InfoBuilder;
 //!
-//! // Register a blocking handler for job-abort events
+//! // Register a handler for job-abort events
+//! let codes = [pmix::PmixStatus::Known(pmix::PmixError::ErrJobAborted)];
+//! let info = InfoBuilder::new().build();
 //! let handler_ref = register_event_handler(
-//!     &[pmix::PmixError::ErrJobAborted],
-//!     &[],
-//!     None,  // blocking mode
+//!     &codes,
+//!     &info,
+//!     None,  // blocking handler
+//!     None,  // no completion callback
 //! ).expect("register failed");
 //!
 //! // Deregister when done

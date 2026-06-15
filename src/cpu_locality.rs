@@ -165,32 +165,35 @@ pub fn parse_cpuset_string(cpuset_string: &str, cpuset: &mut PmixCpuset) -> Resu
 // PmixLocality — relative locality bitmask
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Relative locality bitmask for two processes on a node.
-///
-/// Returned by [`get_relative_locality`] to describe how two processes are
-/// positioned relative to each other on the hardware topology. Each bit
-/// corresponds to a level of shared hardware resource.
-///
-/// # C API
-///
-/// ```c
-/// typedef uint16_t pmix_locality_t;
-/// #define PMIX_LOCALITY_UNKNOWN           0x0000
-/// #define PMIX_LOCALITY_NONLOCAL          0x8000
-/// #define PMIX_LOCALITY_SHARE_HWTHREAD    0x0001
-/// #define PMIX_LOCALITY_SHARE_CORE        0x0002
-/// #define PMIX_LOCALITY_SHARE_L1CACHE     0x0004
-/// #define PMIX_LOCALITY_SHARE_L2CACHE     0x0008
-/// #define PMIX_LOCALITY_SHARE_L3CACHE     0x0010
-/// #define PMIX_LOCALITY_SHARE_PACKAGE     0x0020
-/// #define PMIX_LOCALITY_SHARE_NUMA        0x0040
-/// #define PMIX_LOCALITY_SHARE_NODE        0x4000
-/// ```
-///
-/// # Spec
-///
-/// PMIx Standard v4.1, Section 11.4.2.3.
+// Relative locality bitmask for two processes on a node.
+// Returned by [`get_relative_locality`] to describe how two processes are
+// positioned relative to each other on the hardware topology. Each bit
+// corresponds to a level of shared hardware resource.
+//
+// C API:
+// ```c
+// typedef uint16_t pmix_locality_t;
+// #define PMIX_LOCALITY_UNKNOWN           0x0000
+// #define PMIX_LOCALITY_NONLOCAL          0x8000
+// #define PMIX_LOCALITY_SHARE_HWTHREAD    0x0001
+// #define PMIX_LOCALITY_SHARE_CORE        0x0002
+// #define PMIX_LOCALITY_SHARE_L1CACHE     0x0004
+// #define PMIX_LOCALITY_SHARE_L2CACHE     0x0008
+// #define PMIX_LOCALITY_SHARE_L3CACHE     0x0010
+// #define PMIX_LOCALITY_SHARE_PACKAGE     0x0020
+// #define PMIX_LOCALITY_SHARE_NUMA        0x0040
+// #define PMIX_LOCALITY_SHARE_NODE        0x4000
+// ```
+//
+// PMIx Standard v4.1, Section 11.4.2.3.
 bitflags! {
+    /// Relative locality bitmask for two processes on a node.
+    ///
+    /// Returned by [`get_relative_locality`] to describe how two processes are
+    /// positioned relative to each other on the hardware topology. Each bit
+    /// corresponds to a level of shared hardware resource.
+    ///
+    /// PMIx Standard v4.1, Section 11.4.2.3.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     #[repr(transparent)]
     pub struct PmixLocality: u16 {

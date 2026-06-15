@@ -1,4 +1,6 @@
 #![allow(unused_imports)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::ptr_offset_with_cast)]
 
 use std::fmt::Debug;
 pub mod allocation;
@@ -7,6 +9,7 @@ pub mod data_ops;
 pub mod data_serialization;
 pub mod events;
 pub mod fabric;
+#[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
 mod ffi;
 pub mod groups;
 mod info;
@@ -385,8 +388,8 @@ pub enum PmixStatus {
 impl PmixStatus {
     /// Convert a raw `pmix_status_t` (`i32`) into a `PmixStatus`.
     ///
-    /// ```rust
-    /// use pmix_error::{PmixError, PmixStatus};
+    /// ```
+    /// use pmix::{PmixError, PmixStatus};
     ///
     /// assert_eq!(PmixStatus::from_raw(0),   PmixStatus::Known(PmixError::Success));
     /// assert_eq!(PmixStatus::from_raw(-1),  PmixStatus::Known(PmixError::Error));
@@ -2199,7 +2202,7 @@ impl Proc {
             PMIx_Load_nspace(handle.nspace.as_mut_ptr(), c_name.as_ptr());
         }
         Ok(Proc {
-            handle: handle,
+            handle,
             len: 1,
         })
     }
@@ -2216,7 +2219,7 @@ impl Proc {
             PMIx_Load_nspace(handle.nspace.as_mut_ptr(), src_handle.nspace.as_ptr());
         }
         Ok(Proc {
-            handle: handle,
+            handle,
             len: 1,
         })
     }
@@ -2283,6 +2286,7 @@ impl std::ops::BitOrAssign for InfoFlags {
 /// `Envar`, `DataArray`) own their data here; `write_into` transfers ownership
 /// to the raw `pmix_value_t`.
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 #[non_exhaustive]
 pub enum PmixPayload {
     Undef,
@@ -2386,10 +2390,11 @@ impl PmixPayload {
 /// `pmix_value_t` whose heap data the caller must free manually.
 ///
 /// # Example
-/// ```rust
-/// # use pmix_value_builder::PmixValueBuilder;
-/// let owned = PmixValueBuilder::new().uint32(42).build()?;
-/// # Ok::<(), pmix_value_builder::ValueError>(())
+/// ```
+/// use pmix::{PmixValueBuilder, ValueError};
+///
+/// let owned = PmixValueBuilder::new().uint32(42).build().expect("build");
+/// drop(owned);
 /// ```
 #[derive(Default)]
 pub struct PmixValueBuilder {
@@ -2573,11 +2578,11 @@ impl PmixValueBuilder {
     /// Both objects independently own their strings; the `CStringArray` is
     /// a separate copy intended for the C API call's lifetime only.
     ///
-    /// ```rust
-    /// # use pmix_value_builder::PmixValueBuilder;
-    /// let (val, keys) = PmixValueBuilder::string_array(&["pmix.timeout", "pmix.collect"])?;
+    /// ```
+    /// use pmix::PmixValueBuilder;
+    ///
+    /// let (val, keys) = PmixValueBuilder::string_array(&["pmix.timeout", "pmix.collect"]).expect("build");
     /// let _pp: *const *const std::ffi::c_char = keys.as_ptr();
-    /// # Ok::<(), pmix_value_builder::ValueError>(())
     /// ```
     pub fn string_array(strings: &[&str]) -> Result<(PmixOwnedValue, CStringArray), ValueError> {
         if strings.is_empty() {
@@ -2753,19 +2758,19 @@ pub fn free_value(v: &mut pmix_value_t) {
     // SAFETY: type_ was set by write_payload; we access only the matching arm.
     unsafe {
         match v.type_ as u32 {
-            t if t == PMIX_STRING as u32 => {
+            t if t == PMIX_STRING => {
                 if !v.data.string.is_null() {
                     drop(CString::from_raw(v.data.string));
                     v.data.string = ptr::null_mut();
                 }
             }
-            t if t == PMIX_PROC as u32 => {
+            t if t == PMIX_PROC => {
                 if !v.data.proc_.is_null() {
                     drop(Box::from_raw(v.data.proc_));
                     v.data.proc_ = ptr::null_mut();
                 }
             }
-            t if t == PMIX_BYTE_OBJECT as u32 => {
+            t if t == PMIX_BYTE_OBJECT => {
                 if !v.data.bo.bytes.is_null() && v.data.bo.size > 0 {
                     let _ = Vec::from_raw_parts(
                         v.data.bo.bytes as *mut u8,
@@ -2777,32 +2782,32 @@ pub fn free_value(v: &mut pmix_value_t) {
                 }
             }
             t if t == PMIX_ENVAR => {
-                let e = Box::from_raw(&mut v.data.envar);
-                if !e.envar.is_null() {
-                    drop(CString::from_raw(e.envar));
+                // envar is embedded in the union (not heap-allocated).
+                // Only free the CString pointers inside it.
+                if !v.data.envar.envar.is_null() {
+                    drop(CString::from_raw(v.data.envar.envar));
+                    v.data.envar.envar = ptr::null_mut();
                 }
-                if !e.value.is_null() {
-                    drop(CString::from_raw(e.value));
+                if !v.data.envar.value.is_null() {
+                    drop(CString::from_raw(v.data.envar.value));
+                    v.data.envar.value = ptr::null_mut();
                 }
-                // Box<pmix_envar_t> is dropped here; strings already freed above.
             }
-            t if t == PMIX_DATA_ARRAY => {
-                if !v.data.darray.is_null() {
-                    let darray = Box::from_raw(v.data.darray);
-                    if !darray.array.is_null() && darray.size > 0 {
-                        // Reconstruct the Vec to let each element's Drop run.
-                        let elements = Vec::from_raw_parts(
-                            darray.array as *mut pmix_value_t,
-                            darray.size,
-                            darray.size,
-                        );
-                        // Each element may itself own heap data; free recursively.
-                        for mut elem in elements {
-                            free_value(&mut elem);
-                        }
+            t if t == PMIX_DATA_ARRAY && !v.data.darray.is_null() => {
+                let darray = Box::from_raw(v.data.darray);
+                if !darray.array.is_null() && darray.size > 0 {
+                    // Reconstruct the Vec to let each element's Drop run.
+                    let elements = Vec::from_raw_parts(
+                        darray.array as *mut pmix_value_t,
+                        darray.size,
+                        darray.size,
+                    );
+                    // Each element may itself own heap data; free recursively.
+                    for mut elem in elements {
+                        free_value(&mut elem);
                     }
-                    v.data.darray = ptr::null_mut();
                 }
+                v.data.darray = ptr::null_mut();
             }
             // PMIX_POINTER – caller owns; we never free it.
             _ => {}
@@ -2888,13 +2893,14 @@ struct InfoEntry {
     data_type: pmix_data_type_t,
 }
 
+#[derive(Default)]
 pub struct InfoBuilder {
     infos: Vec<InfoEntry>,
 }
 
 impl InfoBuilder {
     pub fn new() -> Self {
-        Self { infos: Vec::new() }
+        Self::default()
     }
 
     pub fn add(
@@ -2979,15 +2985,14 @@ impl Drop for Context {
 pub fn init(info: Option<Info>) -> Result<Context, PmixError> {
     let proc: pmix_proc_t;
     let mut uninit_proc = mem::MaybeUninit::<pmix_proc_t>::uninit();
-    let status: pmix_status_t;
-    match info {
+    let status = match info {
         Some(info) => unsafe {
-            status = PMIx_Init(uninit_proc.as_mut_ptr(), info.handle, info.len);
+            PMIx_Init(uninit_proc.as_mut_ptr(), info.handle, info.len)
         },
         None => unsafe {
-            status = PMIx_Init(uninit_proc.as_mut_ptr(), ptr::null_mut(), 0);
+            PMIx_Init(uninit_proc.as_mut_ptr(), ptr::null_mut(), 0)
         },
-    }
+    };
 
     let pmix_status = PmixStatus::from_raw(status);
 
@@ -3083,36 +3088,20 @@ pub fn commit() -> Result<(), pmix_status_t> {
 }
 
 pub fn fence(proc: &Proc, info: Option<Info>) -> Result<(), pmix_status_t> {
-    let status: pmix_status_t;
-    let proc_handle: *const pmix_proc_t;
-    let nprocs: usize;
-    let info_handle: *const pmix_info_t;
-    let ninfos: usize;
-
-    proc_handle = &proc.handle;
-    if proc_handle.is_null() {
-        nprocs = 0;
-    } else {
-        nprocs = proc.len;
-    }
-    match info {
+    let proc_handle: *const pmix_proc_t = &proc.handle;
+    let nprocs = if proc_handle.is_null() { 0 } else { proc.len };
+    let (info_handle, ninfos) = match info {
         Some(info) => {
-            info_handle = info.handle;
-            if proc_handle.is_null() {
-                ninfos = 0;
-            } else {
-                ninfos = info.len;
-            }
+            let ih = info.handle;
+            let ni = if proc_handle.is_null() { 0 } else { info.len };
+            (ih, ni)
         }
-        None => {
-            info_handle = null();
-            ninfos = 0;
-        }
-    }
+        None => (ptr::null_mut(), 0),
+    };
 
-    unsafe {
-        status = PMIx_Fence(proc_handle, nprocs, info_handle, ninfos);
-    }
+    let status = unsafe {
+        PMIx_Fence(proc_handle, nprocs, info_handle, ninfos)
+    };
     if status as u32 == PMIX_SUCCESS {
         Ok(())
     } else {
@@ -3134,15 +3123,14 @@ pub fn progress() {
 }
 
 pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
-    let status: pmix_status_t;
-    match info {
+    let status = match info {
         Some(x) => unsafe {
-            status = PMIx_Finalize(x.handle, x.len);
+            PMIx_Finalize(x.handle, x.len)
         },
         None => unsafe {
-            status = PMIx_Finalize(ptr::null_mut(), 0);
+            PMIx_Finalize(ptr::null_mut(), 0)
         },
-    }
+    };
     if status as u32 == PMIX_SUCCESS {
         Result::Ok(())
     } else {
@@ -3155,7 +3143,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn get_version() {
-        let _proc = init(None).unwrap();
+    fn test_get_version() {
+        // get_version() reads a static string from the PMIx library — it
+        // does not require PMIx_Init or a running daemon.
+        let ver = super::get_version();
+        assert!(!ver.is_empty(), "PMIx version string should not be empty");
     }
 }

@@ -1,0 +1,300 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  PRTE_VERSION: "3.0.8"
+
+jobs:
+  ############################################################################
+  # Regular tests — no daemon needed
+  ############################################################################
+  test:
+    name: Regular tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Install PMIx development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpmix-dev libpmix-bin
+
+      - name: Verify PMIx headers
+        run: |
+          ls /usr/lib/x86_64-linux-gnu/pmix2/include/pmix.h
+          ldconfig -p | grep libpmix
+
+      - name: Build
+        run: cargo build --all-targets
+
+      - name: Run regular tests
+        run: cargo test
+
+  ############################################################################
+  # Daemon tests — build PRTE, start daemon, run ignored tests
+  ############################################################################
+  daemon-tests:
+    name: Daemon tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libpmix-dev libpmix-bin \
+            build-essential autoconf automake libtool pkg-config \
+            libevent-dev libhwloc-dev
+
+      - name: Cache PRTE build
+        id: cache-prte
+        uses: actions/cache@v4
+        with:
+          path: prte-${{ env.PRTE_VERSION }}
+          key: prte-${{ env.PRTE_VERSION }}-ubuntu-24.04
+
+      - name: Download and build PRTE
+        if: steps.cache-prte.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp
+          curl -fsSL "https://github.com/openpmix/prrte/archive/refs/tags/v${PRTE_VERSION}.tar.gz" \
+            -o prrte-${PRTE_VERSION}.tar.gz
+          tar xzf prrte-${PRTE_VERSION}.tar.gz
+          cd prrte-${PRTE_VERSION}
+
+          # If autogen is needed, run it; otherwise configure directly
+          if [ -f autogen.pl ]; then
+            ./autogen.pl
+          fi
+
+          ./configure \
+            --prefix="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}" \
+            --with-pmix=internal \
+            --disable-cuda \
+            --disable-java \
+            CFLAGS="-O2" CXXFLAGS="-O2"
+
+          make -j"$(nproc)"
+          make install
+
+      - name: Restore cached PRTE
+        if: steps.cache-prte.outputs.cache-hit == 'true'
+        run: |
+          # Ensure the cached install is on PATH and LD_LIBRARY_PATH
+          true
+
+      - name: Start PRTE daemon
+        run: |
+          PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
+          export PATH="$PRTE_HOME/bin:$PATH"
+          export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
+
+          # Create URI directory
+          URI_DIR="$GITHUB_WORKSPACE/prte_uri"
+          mkdir -p "$URI_DIR"
+
+          # Start PRTE daemon in background, writing URI to our directory
+          "$PRTE_HOME/bin/prte" \
+            --report-uri "$URI_DIR/uri" \
+            --no-ready-msg &
+          PRTE_PID=$!
+
+          echo "PRTE PID: $PRTE_PID"
+          echo "PRTE_PID=$PRTE_PID" >> "$GITHUB_ENV"
+          echo "PRTE_URI_DIR=$URI_DIR" >> "$GITHUB_ENV"
+          echo "PRTE_HOME=$PRTE_HOME" >> "$GITHUB_ENV"
+
+          # Wait for the URI file to appear (up to 30 seconds)
+          for i in $(seq 1 30); do
+            if [ -f "$URI_DIR/uri" ]; then
+              echo "PRTE URI file ready after ${i}s"
+              cat "$URI_DIR/uri"
+              break
+            fi
+            sleep 1
+          done
+
+          if [ ! -f "$URI_DIR/uri" ]; then
+            echo "ERROR: PRTE URI file not created within 30 seconds"
+            exit 1
+          fi
+
+          # Verify the daemon is actually running
+          kill -0 "$PRTE_PID" || { echo "PRTE daemon exited prematurely"; exit 1; }
+
+      - name: Build Rust crate
+        run: |
+          PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
+          export PATH="$PRTE_HOME/bin:$PATH"
+          export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
+          cargo build --all-targets
+
+      - name: Run daemon-dependent tests (ignored)
+        run: |
+          PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
+          export PATH="$PRTE_HOME/bin:$PATH"
+          export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
+
+          # Point daemon_helper to the PRTE URI file
+          export PMIX_TEST_URI_FILE="$PRTE_URI_DIR/uri"
+
+          # Run the three test suites that use daemon_helper with --ignored flag
+          echo "=== Running tool_tool_init daemon tests ==="
+          cargo test --test tool_tool_init -- --ignored --test-threads=1
+
+          echo "=== Running lib_core_api daemon tests ==="
+          cargo test --test lib_core_api -- --ignored --test-threads=1
+
+          echo "=== Running fabric_fabric_comprehensive daemon tests ==="
+          cargo test --test fabric_fabric_comprehensive -- --ignored --test-threads=1
+
+      - name: Stop PRTE daemon
+        if: always()
+        run: |
+          if [ -n "${{ env.PRTE_PID }}" ]; then
+            kill "${{ env.PRTE_PID }}" 2>/dev/null || true
+            sleep 2
+            kill -9 "${{ env.PRTE_PID }}" 2>/dev/null || true
+          fi
+
+  ############################################################################
+  # DVM-launched tests — run via prterun
+  ############################################################################
+  dvm-tests:
+    name: DVM tests (via prterun)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libpmix-dev libpmix-bin \
+            build-essential autoconf automake libtool pkg-config \
+            libevent-dev libhwloc-dev
+
+      - name: Cache PRTE build
+        id: cache-prte
+        uses: actions/cache@v4
+        with:
+          path: prte-${{ env.PRTE_VERSION }}
+          key: prte-${{ env.PRTE_VERSION }}-ubuntu-24.04
+
+      - name: Download and build PRTE
+        if: steps.cache-prte.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp
+          curl -fsSL "https://github.com/openpmix/prrte/archive/refs/tags/v${PRTE_VERSION}.tar.gz" \
+            -o prrte-${PRTE_VERSION}.tar.gz
+          tar xzf prrte-${PRTE_VERSION}.tar.gz
+          cd prrte-${PRTE_VERSION}
+
+          if [ -f autogen.pl ]; then
+            ./autogen.pl
+          fi
+
+          ./configure \
+            --prefix="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}" \
+            --with-pmix=internal \
+            --disable-cuda \
+            --disable-java \
+            CFLAGS="-O2" CXXFLAGS="-O2"
+
+          make -j"$(nproc)"
+          make install
+
+      - name: Build Rust crate
+        run: |
+          PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
+          export PATH="$PRTE_HOME/bin:$PATH"
+          export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
+          cargo build --test init_via_prterun
+
+      - name: Run DVM-launched tests via prterun
+        run: |
+          PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
+          export PATH="$PRTE_HOME/bin:$PATH"
+          export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
+
+          # Run the init_via_prterun tests under prterun
+          prterun -np 1 --report-uri /tmp/prte_uri/uri \
+            cargo test --test init_via_prterun -- --ignored --test-threads=1
+
+  ############################################################################
+  # Lint / clippy
+  ############################################################################
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable with clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install PMIx development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpmix-dev libpmix-bin
+
+      - name: Clippy check
+        run: cargo clippy --all-targets -- -D warnings

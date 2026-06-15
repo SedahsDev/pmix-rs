@@ -20,9 +20,11 @@
 //!
 //! ```no_run
 //! use pmix::tool::{tool_init, tool_finalize, PmixToolHandle};
+//! use pmix::InfoBuilder;
 //!
 //! // Initialize as a tool with no extra directives
-//! let handle = tool_init(None, &[]).expect("tool_init failed");
+//! let info = InfoBuilder::new().build();
+//! let handle = tool_init(None, &info).expect("tool_init failed");
 //!
 //! // The handle carries the tool's assigned namespace and rank
 //! let proc = handle.proc();
@@ -144,9 +146,11 @@ pub fn is_tool_initialized() -> bool {
 ///
 /// ```no_run
 /// use pmix::tool::{tool_init, tool_finalize, PmixToolHandle};
+/// use pmix::InfoBuilder;
 ///
-/// let handle = tool_init(None, &[]).expect("tool_init failed");
-/// println!("Tool identity: nspace={:?}, rank={:?}",
+/// let info = InfoBuilder::new().build();
+/// let handle = tool_init(None, &info).expect("tool_init failed");
+/// println!("Tool identity: nspace={:?}, rank={:?} ",
 ///           handle.proc().nspace(), handle.proc().rank());
 /// tool_finalize(handle).expect("tool_finalize failed");
 /// ```
@@ -523,6 +527,245 @@ pub fn tool_disconnect(server: &Proc) -> Result<(), PmixStatus> {
         // valid, initialized pmix_proc_t. The function does not
         // modify the struct pointed to (const parameter).
         ffi::PMIx_tool_disconnect(&server.handle as *const _)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tool_connect_to_server
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Connect a PMIx tool to a server, returning a tool handle with the
+/// server-assigned identity.
+///
+/// This is a convenience wrapper that calls `PMIx_tool_connect_to_server`
+/// and returns the resulting tool identity as a [`PmixToolHandle`]. Use this
+/// when the tool needs to connect to a server after initialization (e.g.,
+/// after `tool_init` with `PMIX_TOOL_DO_NOT_CONNECT`).
+///
+/// # Parameters
+/// * `proc` — if `Some`, the tool requests a specific process identity.
+///   If `None`, the server assigns one.
+/// * `info` — array of [`Info`] directives controlling the connection.
+///   Common keys include `PMIX_SERVER_URI`, `PMIX_TCP_URI`, etc.
+///
+/// # Returns
+/// * `Ok(PmixToolHandle)` — connection established, handle contains the
+///   server-assigned namespace and rank.
+/// * `Err(PmixStatus)` — connection failed.
+///
+/// # Errors
+/// * `PmixError::ErrNotFound` — no server connection info available.
+/// * `PmixError::ErrTimeout` — connection attempt timed out.
+/// * `PmixError::ErrConnRefused` — server refused the connection.
+///
+/// # C API
+/// `pmix_status_t PMIx_tool_connect_to_server(pmix_proc_t *proc,`
+/// `  pmix_info_t info[], size_t ninfo)`
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::tool::{tool_init_minimal, tool_connect_to_server, tool_finalize};
+/// use pmix::InfoBuilder;
+///
+/// // Initialize without connecting
+/// let handle = tool_init_minimal().expect("tool_init failed");
+///
+/// // Connect to a server
+/// let info = InfoBuilder::new().build();
+/// let conn = tool_connect_to_server(None, &info).expect("connect failed");
+///
+/// tool_finalize(handle).expect("tool_finalize failed");
+/// ```
+pub fn tool_connect_to_server(
+    _proc: Option<&Proc>,
+    info: &Info,
+) -> Result<PmixToolHandle, PmixStatus> {
+    let mut uninit_proc = MaybeUninit::<ffi::pmix_proc_t>::uninit();
+
+    let info_ptr = if info.len > 0 {
+        info.handle
+    } else {
+        ptr::null_mut()
+    };
+    let info_len = info.len;
+
+    let status = unsafe {
+        // SAFETY: PMIx_tool_connect_to_server expects:
+        // - proc: a mutable pointer to a pmix_proc_t that the library
+        //   will fill with the tool's assigned namespace and rank.
+        //   We provide an uninitialized MaybeUninit pointer which is
+        //   valid for the library to write into.
+        // - info: either a valid array of pmix_info_t or null.
+        // - ninfo: the number of info entries (0 if info is null).
+        ffi::PMIx_tool_connect_to_server(uninit_proc.as_mut_ptr(), info_ptr, info_len)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        let proc_raw = unsafe { uninit_proc.assume_init() };
+        let proc = Proc {
+            handle: proc_raw,
+            len: 1,
+        };
+        Ok(PmixToolHandle { proc })
+    } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tool_get_servers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Retrieve the list of servers that the tool is currently connected to.
+///
+/// Returns the process identifiers of all PMIx servers to which the tool
+/// has an active connection. The caller receives a Rust [`Vec<Proc>`] — the
+/// underlying C-allocated array is freed after copying.
+///
+/// # Returns
+/// * `Ok(Vec<Proc>)` — list of connected server process identifiers.
+///   Empty vec if the tool is not connected to any server.
+/// * `Err(PmixStatus)` — query failed (e.g., tool not initialized).
+///
+/// # Errors
+/// * `PmixError::ErrInit` — tool library was not initialized via [`tool_init`].
+/// * `PmixError::Error` — generic failure.
+///
+/// # C API
+/// `pmix_status_t PMIx_tool_get_servers(pmix_proc_t **servers, size_t *nservers)`
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::tool::{tool_init_minimal, tool_get_servers, tool_finalize};
+///
+/// let handle = tool_init_minimal().expect("tool_init failed");
+///
+/// let servers = tool_get_servers().expect("get_servers failed");
+/// for server in &servers {
+///     println!("Connected to: {:?} rank={}",
+///         server.nspace(), server.rank());
+/// }
+///
+/// tool_finalize(handle).expect("tool_finalize failed");
+/// ```
+pub fn tool_get_servers() -> Result<Vec<Proc>, PmixStatus> {
+    let mut servers: *mut ffi::pmix_proc_t = ptr::null_mut();
+    let mut nservers: usize = 0;
+
+    let status = unsafe {
+        // SAFETY: PMIx_tool_get_servers expects:
+        // - servers: a pointer to a pmix_proc_t* that the library will
+        //   allocate and populate with an array of server identities.
+        //   The caller is responsible for freeing the array via
+        //   PMIx_Proc_free.
+        // - nservers: a pointer to a size_t that receives the count.
+        ffi::PMIx_tool_get_servers(&mut servers, &mut nservers)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        let mut result = Vec::with_capacity(nservers);
+        if !servers.is_null() && nservers > 0 {
+            unsafe {
+                // SAFETY: PMIx allocated an array of nservers pmix_proc_t
+                // elements. We read each one and construct Rust Proc wrappers.
+                for i in 0..nservers {
+                    let proc_raw = ptr::read(servers.add(i));
+                    result.push(Proc {
+                        handle: proc_raw,
+                        len: 1,
+                    });
+                }
+                // Free the C-allocated array.
+                ffi::PMIx_Proc_free(servers, nservers);
+            }
+        }
+        Ok(result)
+    } else {
+        // On error, PMIx may still have allocated the array — free it.
+        if !servers.is_null() {
+            unsafe {
+                ffi::PMIx_Proc_free(servers, nservers);
+            }
+        }
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tool_set_server
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Set the primary server for the tool.
+///
+/// After connecting to multiple servers via [`tool_attach_to_server`], use
+/// this function to designate one server as the primary. The primary server
+/// is used for data operations and other requests that do not explicitly
+/// specify a target.
+///
+/// # Parameters
+/// * `server` — process identifier of the server to set as primary.
+///   This is typically obtained from [`tool_attach_to_server`] or
+///   [`tool_get_servers`].
+/// * `info` — array of [`Info`] directives (optional, can be empty).
+///
+/// # Returns
+/// * `Ok(())` — server successfully set as primary.
+/// * `Err(PmixStatus)` — operation failed.
+///
+/// # Errors
+/// * `PmixError::ErrNotFound` — tool is not connected to the specified server.
+/// * `PmixError::ErrInit` — tool library was not initialized.
+/// * `PmixError::ErrBadParam` — server identifier is invalid.
+///
+/// # C API
+/// `pmix_status_t PMIx_tool_set_server(const pmix_proc_t *server,`
+/// `  pmix_info_t info[], size_t ninfo)`
+///
+/// # Examples
+///
+/// ```no_run
+/// use pmix::tool::{tool_init_minimal, tool_attach_to_server, tool_set_server, tool_finalize};
+/// use pmix::InfoBuilder;
+///
+/// let handle = tool_init_minimal().expect("tool_init failed");
+///
+/// // Attach to a server (requires a running PMIx server)
+/// // let info = InfoBuilder::new().build();
+/// // let (_, server) = tool_attach_to_server(Some(handle.proc()), true, &info)?;
+/// // if let Some(s) = server {
+/// //     tool_set_server(s.proc(), &InfoBuilder::new().build())
+/// //         .expect("set_server failed");
+/// // }
+///
+/// tool_finalize(handle).expect("tool_finalize failed");
+/// ```
+pub fn tool_set_server(server: &Proc, info: &Info) -> Result<(), PmixStatus> {
+    let info_ptr = if info.len > 0 {
+        info.handle
+    } else {
+        ptr::null_mut()
+    };
+    let info_len = info.len;
+
+    let status = unsafe {
+        // SAFETY: PMIx_tool_set_server expects:
+        // - server: a valid const pointer to a pmix_proc_t identifying
+        //   the server to set as primary. We provide the Proc's internal
+        //   C struct pointer which is a valid, initialized pmix_proc_t.
+        // - info: either a valid array of pmix_info_t or null.
+        // - ninfo: the number of info entries (0 if info is null).
+        ffi::PMIx_tool_set_server(&server.handle as *const _, info_ptr, info_len)
     };
 
     let pmix_status = PmixStatus::from_raw(status);

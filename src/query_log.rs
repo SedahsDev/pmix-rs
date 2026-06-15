@@ -168,7 +168,7 @@ impl PmixQuery {
             }
             // Prevent the Info from freeing its allocation on drop — we've
             // transferred ownership to the query.
-            std::mem::forget(info);
+            let _ = info;
         }
         self
     }

@@ -16,12 +16,13 @@
 //!
 //! ```no_run
 //! use pmix::server::{server_init, server_finalize, PmixServerModule, PmixServerHandle};
+//! use pmix::InfoBuilder;;
 //!
 //! // Create a minimal server module with no callbacks
 //! let module = PmixServerModule::default();
 //!
 //! // Initialize the server library
-//! let handle = server_init(Some(&module), &[]).expect("server_init failed");
+//! let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
 //!
 //! // ... serve clients ...
 //!
@@ -317,9 +318,10 @@ pub struct PmixServerHandle {
 ///
 /// ```no_run
 /// use pmix::server::{server_init, server_finalize, PmixServerModule};
+/// use pmix::InfoBuilder;;
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &[]).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
 pub fn server_init(
@@ -431,9 +433,10 @@ pub fn server_init_minimal(
 ///
 /// ```no_run
 /// use pmix::server::{server_init, server_finalize, PmixServerModule};
+/// use pmix::InfoBuilder;;
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &[]).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
 pub fn server_finalize(_handle: PmixServerHandle) -> Result<(), PmixStatus> {
@@ -554,19 +557,20 @@ extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_status_t, cbdata
 ///
 /// ```no_run
 /// use pmix::server::{server_register_nspace, PmixServerModule, server_init, server_finalize};
+/// use pmix::InfoBuilder;
 /// use pmix::PmixStatus;
 ///
 /// struct MyNspaceCallback;
 /// impl pmix::server::RegisterNspaceCallback for MyNspaceCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         println!("register_nspace completed: {:?}", status);
 ///     }
 /// }
 ///
 /// let module = PmixServerModule::default();
-/// let _handle = server_init(Some(&module), &[]).expect("server_init failed");
+/// let _handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
 ///
-/// server_register_nspace("myjob.12345", 4, &[], Box::new(MyNspaceCallback))
+/// server_register_nspace("myjob.12345", 4, &InfoBuilder::new().build(), Box::new(MyNspaceCallback))
 ///     .expect("register_nspace request rejected");
 /// ```
 pub fn server_register_nspace(
@@ -652,11 +656,12 @@ pub fn server_register_nspace(
 ///
 /// ```no_run
 /// use pmix::server::{server_init, server_finalize, is_server_initialized, PmixServerModule};
+/// use pmix::InfoBuilder;
 ///
 /// assert!(!is_server_initialized());
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &[]).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
 /// assert!(is_server_initialized());
 ///
 /// server_finalize(handle).expect("server_finalize failed");
@@ -759,7 +764,7 @@ extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_status_t, cbda
 ///
 /// struct MyDeregisterCallback;
 /// impl DeregisterNspaceCallback for MyDeregisterCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         println!("deregister_nspace completed: {:?}", status);
 ///     }
 /// }
@@ -927,7 +932,7 @@ extern "C" fn register_client_callback_bridge(status: ffi::pmix_status_t, cbdata
 ///
 /// struct MyClientCallback;
 /// impl RegisterClientCallback for MyClientCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         println!("register_client completed: {:?}", status);
 ///     }
 /// }
@@ -1088,7 +1093,7 @@ extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_status_t, cbda
 ///
 /// struct MyDeregisterCallback;
 /// impl DeregisterClientCallback for MyDeregisterCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         println!("deregister_client completed: {:?}", status);
 ///     }
 /// }
@@ -1200,10 +1205,11 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
 ///
 /// ```no_run
 /// use pmix::server::{server_init, server_setup_fork, PmixServerModule};
+/// use pmix::InfoBuilder;
 /// use pmix::Proc;
 ///
 /// let module = PmixServerModule::default();
-/// let _handle = server_init(Some(&module), &[]).expect("server_init failed");
+/// let _handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
 ///
 /// let proc = Proc::new("myjob.12345", 0).expect("proc creation failed");
 /// let env = server_setup_fork(&proc, None).expect("setup_fork failed");
@@ -1211,6 +1217,7 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
 /// // Use env to fork/exec the child process
 /// // e.g., Command::new("client").env_clear().envs(env).spawn();
 /// ```
+#[allow(clippy::collapsible_if)]
 pub fn server_setup_fork(proc: &Proc, env: Option<Vec<&str>>) -> Result<Vec<String>, PmixStatus> {
     // Get a pointer to the proc's internal pmix_proc_t for FFI.
     let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
@@ -1624,9 +1631,9 @@ extern "C" fn setup_application_callback_bridge(
         // SAFETY: info points to a valid array of ninfo pmix_info_t entries
         // allocated by PMIx. We only read the key and value fields.
         unsafe {
-            let mut entries = Vec::with_capacity(ninfo as usize);
+            let mut entries = Vec::with_capacity(ninfo);
             for i in 0..ninfo {
-                let entry = *info.add(i as usize);
+                let entry = *info.add(i);
                 let key = CStr::from_ptr(entry.key.as_ptr() as *const std::os::raw::c_char)
                     .to_string_lossy()
                     .into_owned();
@@ -1741,6 +1748,7 @@ extern "C" fn setup_application_callback_bridge(
 ///
 /// ```no_run
 /// use pmix::server::{server_setup_application, SetupApplicationCallback};
+/// use pmix::InfoBuilder;
 /// use pmix::PmixStatus;
 ///
 /// struct MySetupCallback;
@@ -1758,7 +1766,7 @@ extern "C" fn setup_application_callback_bridge(
 /// }
 ///
 /// // After registering the namespace...
-/// server_setup_application("myapp.ns", &[], Box::new(MySetupCallback))
+/// server_setup_application("myapp.ns", &InfoBuilder::new().build(), Box::new(MySetupCallback))
 ///     .expect("setup_application rejected");
 /// ```
 pub fn server_setup_application(
@@ -1931,11 +1939,11 @@ extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_status_t, cb
 ///
 /// ```no_run
 /// use pmix::server::{server_setup_local_support, SetupLocalSupportCallback};
-/// use pmix::{Info, PmixStatus};
+/// use pmix::{Info, InfoBuilder, PmixStatus};
 ///
 /// struct MySetupLocalCallback;
 /// impl SetupLocalSupportCallback for MySetupLocalCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         match status {
 ///             ok if ok.is_success() => println!("Local support setup complete"),
 ///             err => eprintln!("Setup failed: {:?}", err),
@@ -1946,7 +1954,7 @@ extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_status_t, cb
 /// // Setup local support for a namespace
 /// server_setup_local_support(
 ///     "myapp.12345",
-///     &Info::default(),
+///     &InfoBuilder::new().build(),
 ///     Box::new(MySetupLocalCallback),
 /// )
 /// .expect("setup_local_support rejected");
@@ -2148,12 +2156,12 @@ extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t, cbdata: *m
 ///
 /// ```no_run
 /// use pmix::server::{server_iof_deliver, IOFDeliverCallback};
-/// use pmix::{Proc, PmixStatus, IOFChannelFlags};
+/// use pmix::{Proc, PmixStatus, IOFChannelFlags, InfoBuilder};
 /// use pmix::data_serialization::PmixByteObject;
 ///
 /// struct MyIOFCallback;
 /// impl IOFDeliverCallback for MyIOFCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         if status.is_success() {
 ///             println!("I/O data delivered successfully");
 ///         } else {
@@ -2172,7 +2180,7 @@ extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t, cbdata: *m
 ///     &source,
 ///     channel,
 ///     &data,
-///     &pmix::Info::default(),
+///     &InfoBuilder::new().build(),
 ///     Box::new(MyIOFCallback),
 /// ).expect("IOF_deliver rejected");
 /// ```
@@ -2416,7 +2424,7 @@ extern "C" fn collect_inventory_callback_bridge(
 ///
 /// ```no_run
 /// use pmix::server::{server_collect_inventory, CollectInventoryCallback, CollectInventoryResults};
-/// use pmix::{Info, PmixStatus};
+/// use pmix::{Info, InfoBuilder, PmixStatus};
 ///
 /// struct MyInventoryCallback;
 /// impl CollectInventoryCallback for MyInventoryCallback {
@@ -2429,7 +2437,7 @@ extern "C" fn collect_inventory_callback_bridge(
 ///     }
 /// }
 ///
-/// let directives = Info::default();
+/// let directives = InfoBuilder::new().build();
 /// server_collect_inventory(
 ///     &directives,
 ///     Box::new(MyInventoryCallback),
@@ -2514,7 +2522,7 @@ pub fn server_collect_inventory(
 ///
 /// struct MyDeliverCallback;
 /// impl DeliverInventoryCallback for MyDeliverCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         if status.is_success() {
 ///             println!("Inventory delivered successfully");
 ///         } else {
@@ -2620,7 +2628,7 @@ extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_status_t, cbda
 ///
 /// ```no_run
 /// use pmix::server::{server_deliver_inventory, DeliverInventoryCallback};
-/// use pmix::Info;
+/// use pmix::{Info, InfoBuilder};
 ///
 /// struct MyDeliverCallback;
 /// impl DeliverInventoryCallback for MyDeliverCallback {
@@ -2629,8 +2637,8 @@ extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_status_t, cbda
 ///     }
 /// }
 ///
-/// let inventory = Info::default();
-/// let directives = Info::default();
+/// let inventory = InfoBuilder::new().build();
+/// let directives = InfoBuilder::new().build();
 /// server_deliver_inventory(
 ///     &inventory,
 ///     &directives,
@@ -3139,7 +3147,7 @@ extern "C" fn register_resources_callback_bridge(status: ffi::pmix_status_t, cbd
 ///
 /// struct MyResourceCallback;
 /// impl RegisterResourcesCallback for MyResourceCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         println!("register_resources completed: {:?}", status);
 ///     }
 /// }
@@ -3300,7 +3308,7 @@ extern "C" fn deregister_resources_callback_bridge(status: ffi::pmix_status_t, c
 ///
 /// struct MyResourceCallback;
 /// impl DeregisterResourcesCallback for MyResourceCallback {
-///     fn on_complete(self: Box<Self>, status: PmixStatus) {
+///     fn on_complete(self: Box<Self>, status: pmix::PmixStatus) {
 ///         println!("deregister_resources completed: {:?}", status);
 ///     }
 /// }

@@ -347,6 +347,95 @@ pub fn get_nb(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Get — blocking data retrieval
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Blocking retrieval of a key-value attribute from the PMIx datastore.
+///
+/// Submit a synchronous request to retrieve the value associated with
+/// `key` for the given `proc`. The call blocks until the data becomes
+/// available, the request fails, or a timeout is reached.
+///
+/// On success, the caller receives ownership of the returned value via
+/// [`PmixOwnedValue`], which frees the underlying C memory on drop.
+///
+/// # Parameters
+///
+/// - `proc`: Process whose data to retrieve.
+/// - `key`: Attribute key to look up.
+/// - `info`: Optional directives (e.g., `PMIX_TIMEOUT`, `PMIX_WAIT`).
+///
+/// # Returns
+///
+/// - `Ok(PmixOwnedValue)` — the value associated with the key.
+/// - `Err(PmixStatus)` — retrieval failed (e.g., `ErrNotFound`, `ErrInit`,
+///   `ErrTimeout`).
+///
+/// # C API
+/// `pmix_status_t PMIx_Get(const pmix_proc_t *proc, const char key[],`
+/// `  const pmix_info_t info[], size_t ninfo, pmix_value_t **val)`
+pub fn get(
+    proc: &Proc,
+    key: &str,
+    info: Option<&Info>,
+) -> Result<PmixOwnedValue, PmixStatus> {
+    // Prepare key as C string.
+    let key_c = match CString::new(key) {
+        Ok(c) => c,
+        Err(_) => {
+            // Key contains NUL — return error immediately.
+            return Err(PmixStatus::Known(PmixError::Error));
+        }
+    };
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = match info {
+        Some(info) => {
+            if info.handle.is_null() {
+                (ptr::null(), 0)
+            } else {
+                (info.handle as *const ffi::pmix_info_t, info.len)
+            }
+        }
+        None => (ptr::null(), 0),
+    };
+
+    // Call the FFI function.
+    let mut value: *mut ffi::pmix_value_t = ptr::null_mut();
+    let status = unsafe {
+        // SAFETY: PMIx_Get is a synchronous PMIx API call. The proc pointer
+        // is valid for the duration of the call (borrowed from the Proc
+        // parameter). The key C string lives until end of scope. The info
+        // pointer (if non-null) is borrowed from the Info parameter and
+        // lives long enough. PMIx writes a valid pmix_value_t pointer into
+        // `value` on success, which we take ownership of.
+        ffi::PMIx_Get(
+            &proc.handle as *const ffi::pmix_proc_t,
+            key_c.as_ptr(),
+            info_ptr,
+            ninfo,
+            &mut value,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    if pmix_status.is_success() {
+        // Take ownership of the value returned by PMIx.
+        let owned = unsafe {
+            // SAFETY: On success, PMIx has written a valid, non-null pointer
+            // into `value` pointing to a heap-allocated pmix_value_t that
+            // the caller owns. We dereference it and wrap it in PmixOwnedValue
+            // which will free it on drop.
+            ptr::read(value)
+        };
+        Ok(PmixOwnedValue { inner: owned })
+    } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Lookup — lookup published data (blocking)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -846,7 +935,7 @@ pub fn unpublish(keys: Option<&[&str]>, info: Option<&Info>) -> Result<(), PmixS
             // SAFETY: key_ptrs and cstrings stay alive for the duration
             // of the FFI call below. We cast to get the right type
             // for the FFI signature (*mut *mut c_char).
-            key_ptrs.as_mut_ptr() as *mut *mut std::os::raw::c_char
+            key_ptrs.as_mut_ptr()
         }
         _ => ptr::null_mut(),
     };
@@ -954,7 +1043,7 @@ pub fn unpublish_nb(
 
             // SAFETY: key_ptrs and cstrings stay alive for the duration
             // of the FFI call below.
-            key_ptrs.as_mut_ptr() as *mut *mut std::os::raw::c_char
+            key_ptrs.as_mut_ptr()
         }
         _ => ptr::null_mut(),
     };

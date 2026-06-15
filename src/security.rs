@@ -172,8 +172,8 @@ impl PmixCredential {
 /// - `cred` must be a valid, non-null pointer to a `pmix_byte_object_t`
 ///   allocated by PMIx (i.e., via `pmix_malloc`).
 /// - The caller must ensure the struct is valid and not already freed.
-/// Copy bytes from a PMIx-allocated `pmix_byte_object_t` into a Rust-owned
-/// `Vec<u8>`, then free the PMIx-allocated memory.
+/// - Copy bytes from a PMIx-allocated `pmix_byte_object_t` into a Rust-owned
+///   `Vec<u8>`, then free the PMIx-allocated memory.
 ///
 /// # Safety
 /// - `cred` must be a valid, non-null pointer to a `pmix_byte_object_t`
@@ -312,6 +312,7 @@ pub trait CredentialCallback: Send {
 
 /// Results returned by the credential callback, wrapping the info array
 /// and any associated metadata.
+#[derive(Default)]
 pub struct CredentialResults {
     /// Info entries returned by the server (e.g., credential metadata,
     /// effective userid/groupid).
@@ -334,15 +335,6 @@ impl CredentialResults {
     /// `true` if there are no info entries.
     pub fn is_empty(&self) -> bool {
         self.ninfo == 0
-    }
-}
-
-impl Default for CredentialResults {
-    fn default() -> Self {
-        Self {
-            info: Vec::new(),
-            ninfo: 0,
-        }
     }
 }
 

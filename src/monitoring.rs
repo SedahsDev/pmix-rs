@@ -308,11 +308,6 @@ pub fn process_monitor_nb(
     // Build directive pointer array.
     let (dirs_ptr, ndirs) = if directives.is_empty() {
         (ptr::null(), 0)
-    } else if directives.len() == 1 {
-        (
-            directives[0].handle as *const ffi::pmix_info_t,
-            directives[0].len,
-        )
     } else {
         (
             directives[0].handle as *const ffi::pmix_info_t,

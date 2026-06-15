@@ -16,24 +16,24 @@
 //! # Typical workflow
 //!
 //! ```no_run
-//! use pmix::{PmixDataType, PmixStatus};
-//! use pmix::data_serialization::*;
+//! use pmix::{PmixDataType, data_serialization::*};
 //!
 //! // --- Sender side ---
-//! let buf = data_buffer_create()?;
+//! let buf = data_buffer_create().expect("create buffer");
 //! let val: i32 = 42;
-//! let packed = data_pack(None, &buf, &val, 1, PmixDataType::Int32)?;
+//! let packed = data_pack(None, &buf, &val, 1, PmixDataType::Int32).expect("pack");
 //! assert_eq!(packed, 1);
 //!
 //! // Unload to byte object for transport
-//! let payload = data_unload(&buf)?;
+//! let payload = data_unload(&buf).expect("unload");
 //! data_buffer_release(&buf);
 //!
 //! // --- Receiver side ---
-//! let buf2 = data_buffer_create()?;
-//! data_load(&buf2, &payload)?;
+//! let buf2 = data_buffer_create().expect("create buffer");
+//! data_load(&buf2, &payload).expect("load");
 //! let mut out: i32 = 0;
-//! let unpacked = data_unpack(None, &buf2, &mut out, 1, PmixDataType::Int32)?;
+//! let mut count: i32 = 1;
+//! let unpacked = data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Int32).expect("unpack");
 //! assert_eq!(unpacked, 1);
 //! assert_eq!(out, 42);
 //! data_buffer_release(&buf2);
@@ -836,6 +836,7 @@ pub fn data_print<T>(
 /// Wraps the `char*` returned by `PMIx_Data_print` and frees it via
 /// `free()` on drop. The inner string is converted to a Rust `String`
 /// on construction so it can be used directly as `&str`.
+#[derive(Default)]
 pub struct PmixPrintOutput {
     inner: String,
 }
@@ -891,14 +892,6 @@ impl std::fmt::Display for PmixPrintOutput {
 impl std::fmt::Debug for PmixPrintOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.inner)
-    }
-}
-
-impl Default for PmixPrintOutput {
-    fn default() -> Self {
-        Self {
-            inner: String::new(),
-        }
     }
 }
 

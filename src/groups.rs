@@ -101,7 +101,10 @@ pub fn group_construct(
                     len: 1,
                 });
             }
-            results = ptr::null_mut();
+            #[allow(unused_assignments)]
+            {
+                results = ptr::null_mut();
+            }
             vec
         }
     };
@@ -302,7 +305,10 @@ pub fn group_invite(
                     len: 1,
                 });
             }
-            results = ptr::null_mut();
+            #[allow(unused_assignments)]
+            {
+                results = ptr::null_mut();
+            }
             vec
         }
     };
@@ -455,9 +461,7 @@ pub fn group_join(
 
     let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
 
-    let leader_ptr = unsafe {
-        std::ptr::addr_of!((*(&*leader as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
+    let leader_ptr = std::ptr::addr_of!(leader.handle) as *const ffi::pmix_proc_t;
 
     let (info_ptr, ninfo) = if info.is_empty() {
         (ptr::null(), 0)
@@ -502,7 +506,10 @@ pub fn group_join(
                     len: 1,
                 });
             }
-            results = ptr::null_mut();
+            #[allow(unused_assignments)]
+            {
+                results = ptr::null_mut();
+            }
             vec
         }
     };
@@ -587,9 +594,7 @@ pub fn group_join_nb(
         (cb_wrapper.callback)(pmix_status, rust_results);
     }
 
-    let leader_ptr = unsafe {
-        std::ptr::addr_of!((*(&*leader as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
+    let leader_ptr = std::ptr::addr_of!(leader.handle) as *const ffi::pmix_proc_t;
 
     let (info_ptr, ninfo) = if info.is_empty() {
         (ptr::null(), 0)

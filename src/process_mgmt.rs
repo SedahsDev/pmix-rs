@@ -19,7 +19,7 @@
 //!
 //! ```no_run
 //! use pmix::process_mgmt::{abort, spawn, connect, disconnect, PmixApp};
-//! use pmix::{PmixError, PmixStatus, Proc};
+//! use pmix::{InfoBuilder, PmixError, PmixStatus, Proc, RANK_WILDCARD};
 //!
 //! // Abort all processes in the caller's namespace
 //! let result = abort(
@@ -34,16 +34,21 @@
 //! let app = PmixApp::builder()
 //!     .cmd("./myapp")
 //!     .maxprocs(4)
-//!     .build();
-//! let result = spawn(&[], &[app]);
+//!     .build()
+//!     .expect("valid app");
+//! let job_info = vec![InfoBuilder::new().build()];
+//! let result = spawn(&job_info, &[app]);
 //! // result is Ok(nspace) on success
 //!
 //! // Connect to a namespace
-//! let proc = Proc::new("target_namespace", pmix::PMIX_RANK_WILDCARD);
-//! let result = connect(&[proc], &[]);
+//! let target = Proc::new("target_namespace", RANK_WILDCARD)
+//!     .expect("valid proc");
+//! let connect_info = InfoBuilder::new().build();
+//! let result = connect(&[target.clone()], &[connect_info]);
 //!
 //! // Disconnect from a previously connected set
-//! let result = disconnect(&[proc], &[]);
+//! let disconnect_info = InfoBuilder::new().build();
+//! let result = disconnect(&[target], &[disconnect_info]);
 //! ```
 
 use crate::ffi;
@@ -388,7 +393,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
             let n = app.argv.len();
             // Allocate null-terminated pointer array via libc::calloc.
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc((n + 1) as usize, std::mem::size_of::<*mut c_char>())
+                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>())
                     as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
@@ -406,7 +411,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
         } else {
             let n = app.env.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc((n + 1) as usize, std::mem::size_of::<*mut c_char>())
+                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>())
                     as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
@@ -588,7 +593,7 @@ pub fn spawn_nb(
         } else {
             let n = app.argv.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc((n + 1) as usize, std::mem::size_of::<*mut c_char>())
+                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>())
                     as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
@@ -605,7 +610,7 @@ pub fn spawn_nb(
         } else {
             let n = app.env.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc((n + 1) as usize, std::mem::size_of::<*mut c_char>())
+                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>())
                     as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
