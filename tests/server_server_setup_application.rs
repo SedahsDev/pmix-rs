@@ -4,7 +4,7 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (PMIx_server_init) are marked `#[ignore]`.
 
-use pmix::server::{server_setup_application, SetupApplicationCallback};
+use pmix::server::{SetupApplicationCallback, server_setup_application};
 use pmix::{InfoBuilder, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -219,8 +219,8 @@ fn setup_application_long_namespace() {
 /// Compile-time check: the callback can access both parameters.
 #[test]
 fn setup_app_callback_receives_status_and_info() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     static CALLED: AtomicBool = AtomicBool::new(false);
 

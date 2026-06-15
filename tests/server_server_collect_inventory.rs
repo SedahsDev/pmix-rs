@@ -4,9 +4,7 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (PMIx_server_init) are marked `#[ignore]`.
 
-use pmix::server::{
-    server_collect_inventory, CollectInventoryCallback, CollectInventoryResults,
-};
+use pmix::server::{CollectInventoryCallback, CollectInventoryResults, server_collect_inventory};
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -295,7 +293,7 @@ fn collect_inventory_callback_inventory_len() {
 #[test]
 #[ignore = "requires PMIx server initialization"]
 fn collect_inventory_with_server_init() {
-    use pmix::server::{server_init, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init};
     use std::sync::atomic::{AtomicBool, Ordering};
 
     static CALLBACK_INVOKED: AtomicBool = AtomicBool::new(false);
@@ -332,7 +330,7 @@ fn collect_inventory_with_server_init() {
 #[test]
 #[ignore = "requires PMIx server initialization"]
 fn collect_inventory_with_directives() {
-    use pmix::server::{server_init, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init};
 
     struct TestCallback;
     impl CollectInventoryCallback for TestCallback {
@@ -357,7 +355,7 @@ fn collect_inventory_with_directives() {
 #[test]
 #[ignore = "requires PMIx server initialization"]
 fn collect_inventory_concurrent_requests() {
-    use pmix::server::{server_init, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init};
 
     struct TestCallback;
     impl CollectInventoryCallback for TestCallback {
@@ -425,6 +423,5 @@ fn collect_inventory_info_directives_type() {
     impl CollectInventoryCallback for Nop {
         fn on_complete(&self, _: PmixStatus, _: CollectInventoryResults) {}
     }
-    let _result: Result<(), PmixStatus> =
-        server_collect_inventory(&directives, Box::new(Nop));
+    let _result: Result<(), PmixStatus> = server_collect_inventory(&directives, Box::new(Nop));
 }

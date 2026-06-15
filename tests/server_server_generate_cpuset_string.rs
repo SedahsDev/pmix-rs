@@ -8,9 +8,9 @@
 //! a prior PMIx_server_init. All tests that invoke the FFI function are
 //! marked #[ignore] and require a running PMIx server/daemon.
 
+use pmix::PmixStatus;
 use pmix::fabric::PmixCpuset;
 use pmix::server::server_generate_cpuset_string;
-use pmix::PmixStatus;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixStatus round-trip tests (no FFI — these run without a PMIx server)
@@ -55,8 +55,7 @@ fn test_return_type_check() {
     fn assert_return_type(_: Result<String, PmixStatus>) {}
     // We can't call the function without a server, but we can verify the
     // type signature is what we expect by checking the function pointer type.
-    let _fn_ptr: fn(&mut PmixCpuset) -> Result<String, PmixStatus> =
-        server_generate_cpuset_string;
+    let _fn_ptr: fn(&mut PmixCpuset) -> Result<String, PmixStatus> = server_generate_cpuset_string;
     // Suppress unused warning on the assertion helper.
     let _ = assert_return_type;
 }
@@ -66,7 +65,10 @@ fn test_return_type_check() {
 fn test_pmix_err_bad_param_value() {
     // PMIX_ERR_BAD_PARAM = -8 in PMIx v4.x
     let status = PmixStatus::from_raw(-8);
-    assert!(!status.is_success(), "PMIX_ERR_BAD_PARAM should be an error");
+    assert!(
+        !status.is_success(),
+        "PMIX_ERR_BAD_PARAM should be an error"
+    );
 }
 
 /// Verify PMIX_ERR_TAKE_NEXT_OPTION raw value (used when cpuset source != hwloc).
@@ -74,7 +76,10 @@ fn test_pmix_err_bad_param_value() {
 fn test_pmix_err_take_next_option_value() {
     // PMIX_ERR_TAKE_NEXT_OPTION = -11 in PMIx v4.x
     let status = PmixStatus::from_raw(-11);
-    assert!(!status.is_success(), "PMIX_ERR_TAKE_NEXT_OPTION should be an error");
+    assert!(
+        !status.is_success(),
+        "PMIX_ERR_TAKE_NEXT_OPTION should be an error"
+    );
 }
 
 /// Verify PmixCpuset construction and destruction work correctly (RAII).
@@ -223,8 +228,8 @@ fn test_with_initialized_server() {
 #[ignore = "requires PMIx server initialized and hwloc available"]
 fn test_cpuset_string_format() {
     let mut cpuset = PmixCpuset::new();
-    let cpuset_str = server_generate_cpuset_string(&mut cpuset)
-        .expect("should succeed with initialized server");
+    let cpuset_str =
+        server_generate_cpuset_string(&mut cpuset).expect("should succeed with initialized server");
 
     // PMIx cpuset strings contain a colon separating source from bitmap list.
     assert!(
@@ -232,7 +237,11 @@ fn test_cpuset_string_format() {
         "cpuset string should contain a colon (source:bitmap format)"
     );
     let parts: Vec<&str> = cpuset_str.splitn(2, ':').collect();
-    assert_eq!(parts.len(), 2, "cpuset string should have source:bitmap format");
+    assert_eq!(
+        parts.len(),
+        2,
+        "cpuset string should have source:bitmap format"
+    );
     assert!(
         !parts[0].is_empty(),
         "cpuset string source prefix should not be empty"
@@ -245,8 +254,8 @@ fn test_cpuset_string_format() {
 #[ignore = "requires PMIx server initialized and hwloc available"]
 fn test_cpuset_string_hwloc_prefix() {
     let mut cpuset = PmixCpuset::new();
-    let cpuset_str = server_generate_cpuset_string(&mut cpuset)
-        .expect("should succeed with initialized server");
+    let cpuset_str =
+        server_generate_cpuset_string(&mut cpuset).expect("should succeed with initialized server");
 
     // The C implementation uses pmix_asprintf(cpuset_string, "hwloc:%s", tmp);
     assert!(
@@ -297,7 +306,10 @@ fn test_simpfabric_pattern() {
     match result {
         Ok(ppn) => {
             // ppn is an owned String — no manual free needed.
-            assert!(!ppn.is_empty(), "cpuset string from simpfabric pattern should not be empty");
+            assert!(
+                !ppn.is_empty(),
+                "cpuset string from simpfabric pattern should not be empty"
+            );
         }
         Err(status) => {
             // Expected if server not initialized or cpuset not populated.
@@ -321,8 +333,8 @@ fn test_roundtrip_with_parse() {
     // We cannot fully test this without PMIx_Parse_cpuset_string being ported,
     // but we can verify the string format is parseable (contains source:bitmap).
     let mut cpuset = PmixCpuset::new();
-    let cpuset_str = server_generate_cpuset_string(&mut cpuset)
-        .expect("should succeed with initialized server");
+    let cpuset_str =
+        server_generate_cpuset_string(&mut cpuset).expect("should succeed with initialized server");
 
     // Verify the string has a parseable format: source:bitmap
     let parts: Vec<&str> = cpuset_str.splitn(2, ':').collect();

@@ -9,8 +9,8 @@
 //! All tests that invoke the FFI function are marked #[ignore] and require
 //! a running PMIx server/daemon.
 
-use pmix::server::server_delete_process_set;
 use pmix::PmixStatus;
+use pmix::server::server_delete_process_set;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixStatus round-trip tests (no FFI — these run without a PMIx server)
@@ -52,7 +52,10 @@ fn test_return_type_check() {
 #[test]
 fn test_pmix_err_bad_param_value() {
     let status = PmixStatus::from_raw(-8);
-    assert!(!status.is_success(), "PMIX_ERR_BAD_PARAM should be an error");
+    assert!(
+        !status.is_success(),
+        "PMIX_ERR_BAD_PARAM should be an error"
+    );
 }
 
 /// Verify PMIX_ERR_NOT_FOUND raw value (used when pset doesn't exist).
@@ -60,7 +63,10 @@ fn test_pmix_err_bad_param_value() {
 fn test_pmix_err_not_found_value() {
     // PMIX_ERR_NOT_FOUND = -46
     let status = PmixStatus::from_raw(-46);
-    assert!(!status.is_success(), "PMIX_ERR_NOT_FOUND should be an error");
+    assert!(
+        !status.is_success(),
+        "PMIX_ERR_NOT_FOUND should be an error"
+    );
 }
 
 /// Verify PmixStatus equality for error codes.
@@ -76,7 +82,12 @@ fn test_pmix_status_equality() {
 fn test_pmix_status_to_raw_roundtrip() {
     for code in [-46i32, -8, -1, 0, 1] {
         let status = PmixStatus::from_raw(code);
-        assert_eq!(status.to_raw(), code, "round-trip should preserve raw value for {}", code);
+        assert_eq!(
+            status.to_raw(),
+            code,
+            "round-trip should preserve raw value for {}",
+            code
+        );
     }
 }
 

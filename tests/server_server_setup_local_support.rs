@@ -8,7 +8,7 @@
 //! Unit tests that verify API structure, types, and callback behavior
 //! run without a PMIx runtime.
 
-use pmix::server::{server_setup_local_support, SetupLocalSupportCallback};
+use pmix::server::{SetupLocalSupportCallback, server_setup_local_support};
 use pmix::{InfoBuilder, PmixStatus};
 use std::sync::{Arc, Mutex};
 
@@ -124,7 +124,10 @@ fn test_setup_local_support_without_server() {
     let result = server_setup_local_support("valid_nspace", &info, Box::new(TestCb));
 
     // Without a PMIx server initialized, this should return an error.
-    assert!(result.is_err(), "should fail without PMIx server initialized");
+    assert!(
+        result.is_err(),
+        "should fail without PMIx server initialized"
+    );
 }
 
 /// server_setup_local_support accepts empty info array.
@@ -141,7 +144,10 @@ fn test_setup_local_support_empty_info() {
     let result = server_setup_local_support("test_nspace", &info, Box::new(TestCb));
 
     // Without a PMIx server initialized, this should return an error.
-    assert!(result.is_err(), "should fail without PMIx server initialized");
+    assert!(
+        result.is_err(),
+        "should fail without PMIx server initialized"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,7 +176,10 @@ fn test_setup_local_support_callback_capture_success() {
 
     let captured = statuses.lock().unwrap();
     assert_eq!(captured.len(), 1, "should have captured one status");
-    assert!(captured[0].is_success(), "captured status should be success");
+    assert!(
+        captured[0].is_success(),
+        "captured status should be success"
+    );
 }
 
 /// Callback can distinguish between success and failure.
@@ -250,7 +259,11 @@ fn test_setup_local_support_multiple_callbacks() {
     cb1.on_complete(PmixStatus::from_raw(0));
     cb2.on_complete(PmixStatus::from_raw(0));
 
-    assert_eq!(*counter.lock().unwrap(), 2, "both callbacks should have been invoked");
+    assert_eq!(
+        *counter.lock().unwrap(),
+        2,
+        "both callbacks should have been invoked"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -278,7 +291,11 @@ fn test_setup_local_support_callback_is_send() {
         counter: Arc::clone(&counter),
     });
     cb.on_complete(PmixStatus::from_raw(0));
-    assert_eq!(*counter.lock().unwrap(), 1, "callback should have been invoked");
+    assert_eq!(
+        *counter.lock().unwrap(),
+        1,
+        "callback should have been invoked"
+    );
 }
 
 /// Callback with Arc<Mutex<T>> payload stores results.
@@ -302,7 +319,10 @@ fn test_setup_local_support_callback_with_shared_state() {
 
     let captured = results.lock().unwrap();
     assert_eq!(captured.len(), 1, "should have one result");
-    assert!(captured[0].contains("Success"), "result should contain Success");
+    assert!(
+        captured[0].contains("Success"),
+        "result should contain Success"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

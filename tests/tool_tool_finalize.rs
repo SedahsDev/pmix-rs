@@ -14,7 +14,7 @@
 //! The tool library is reference-counted. Each `tool_finalize` decrements
 //! the count; the connection closes when it reaches zero.
 
-use pmix::tool::{tool_finalize, tool_init, tool_init_minimal, PmixToolHandle};
+use pmix::tool::{PmixToolHandle, tool_finalize, tool_init, tool_init_minimal};
 use pmix::{InfoBuilder, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────

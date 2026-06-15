@@ -5,7 +5,7 @@
 //! PMIx runtime (PMIx_server_init) are marked `#[ignore]`.
 
 use pmix::data_serialization::PmixByteObject;
-use pmix::server::{server_iof_deliver, IOFDeliverCallback};
+use pmix::server::{IOFDeliverCallback, server_iof_deliver};
 use pmix::{IOFChannelFlags, PmixError, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,13 +344,7 @@ fn iof_deliver_combined_channel_flags() {
 
     // Combine STDOUT | STDERR using BitOr
     let combined = IOFChannelFlags::STDOUT | IOFChannelFlags::STDERR;
-    let result = server_iof_deliver(
-        &source,
-        combined,
-        &bo,
-        &info,
-        Box::new(TestCallback),
-    );
+    let result = server_iof_deliver(&source, combined, &bo, &info, Box::new(TestCallback));
 
     let _ = result;
 }
@@ -443,13 +437,10 @@ fn iof_deliver_status_err_init_from_raw() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn iof_deliver_after_server_init() {
-    use pmix::server::{server_finalize, server_init, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(
-        Some(&module),
-        &pmix::InfoBuilder::new().build(),
-    ) {
+    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build()) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -498,16 +489,13 @@ fn iof_deliver_after_server_init() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn iof_deliver_callback_fires_on_success() {
-    use pmix::server::{server_finalize, server_init, PmixServerModule};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use pmix::server::{PmixServerModule, server_finalize, server_init};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     let module = PmixServerModule::default();
-    let handle = match server_init(
-        Some(&module),
-        &pmix::InfoBuilder::new().build(),
-    ) {
+    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build()) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -558,13 +546,10 @@ fn iof_deliver_callback_fires_on_success() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn iof_deliver_with_complete_flag() {
-    use pmix::server::{server_finalize, server_init, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(
-        Some(&module),
-        &pmix::InfoBuilder::new().build(),
-    ) {
+    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build()) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -605,13 +590,10 @@ fn iof_deliver_with_complete_flag() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn iof_deliver_concurrent_calls() {
-    use pmix::server::{server_finalize, server_init, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(
-        Some(&module),
-        &pmix::InfoBuilder::new().build(),
-    ) {
+    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build()) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -626,8 +608,7 @@ fn iof_deliver_concurrent_calls() {
 
     // Make multiple calls — they should not interfere with each other.
     for i in 0..10 {
-        let source =
-            Proc::new(&format!("test.{}", i), 0).expect("Proc::new should succeed");
+        let source = Proc::new(&format!("test.{}", i), 0).expect("Proc::new should succeed");
         let bo = PmixByteObject::from(format!("data {}", i).into_bytes());
         let info = pmix::InfoBuilder::new().build();
 

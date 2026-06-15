@@ -197,13 +197,8 @@ fn test_register_client_valid_proc_signature() {
     }
 
     let proc = pmix::Proc::new("myjob.12345", 0).expect("invalid nspace");
-    let _result: Result<(), PmixStatus> = server_register_client(
-        &proc,
-        1000,
-        1000,
-        None,
-        Box::new(DummyCb),
-    );
+    let _result: Result<(), PmixStatus> =
+        server_register_client(&proc, 1000, 1000, None, Box::new(DummyCb));
     // We don't assert the result because it depends on PMIx server state.
 }
 
@@ -216,13 +211,8 @@ fn test_register_client_no_server_object() {
     }
 
     let proc = pmix::Proc::new("testnspace", 0).expect("invalid nspace");
-    let _result: Result<(), PmixStatus> = server_register_client(
-        &proc,
-        0,
-        0,
-        None,
-        Box::new(DummyCb),
-    );
+    let _result: Result<(), PmixStatus> =
+        server_register_client(&proc, 0, 0, None, Box::new(DummyCb));
 }
 
 /// server_register_client with server_object = Some(ptr) compiles.
@@ -254,13 +244,8 @@ fn test_register_client_different_ranks() {
 
     for rank in 0..4 {
         let proc = pmix::Proc::new("job.12345", rank).expect("invalid nspace");
-        let _result: Result<(), PmixStatus> = server_register_client(
-            &proc,
-            1000,
-            1000,
-            None,
-            Box::new(DummyCb),
-        );
+        let _result: Result<(), PmixStatus> =
+            server_register_client(&proc, 1000, 1000, None, Box::new(DummyCb));
     }
 }
 
@@ -311,13 +296,8 @@ fn test_register_client_multiple_nspaces() {
     let nspaces = ["job.1", "job.2", "job.3", "test.app.99"];
     for nspace in &nspaces {
         let proc = pmix::Proc::new(nspace, 0).expect("invalid nspace");
-        let _result: Result<(), PmixStatus> = server_register_client(
-            &proc,
-            1000,
-            1000,
-            None,
-            Box::new(DummyCb),
-        );
+        let _result: Result<(), PmixStatus> =
+            server_register_client(&proc, 1000, 1000, None, Box::new(DummyCb));
     }
 }
 
@@ -331,13 +311,8 @@ fn test_register_client_wildcard_rank() {
 
     // PMIX_RANK_WILDCARD is typically -1 cast to u32.
     let proc = pmix::Proc::new("wildcardjob", u32::MAX).expect("invalid nspace");
-    let _result: Result<(), PmixStatus> = server_register_client(
-        &proc,
-        1000,
-        1000,
-        None,
-        Box::new(DummyCb),
-    );
+    let _result: Result<(), PmixStatus> =
+        server_register_client(&proc, 1000, 1000, None, Box::new(DummyCb));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

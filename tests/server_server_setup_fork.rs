@@ -9,8 +9,8 @@
 //!
 //! Tests that require a running PMIx server are marked #[ignore].
 
-use pmix::server::server_setup_fork;
 use pmix::Proc;
+use pmix::server::server_setup_fork;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests that do NOT require PMIx runtime
@@ -24,10 +24,8 @@ fn test_setup_fork_signature() {
     let proc = Proc::new("test_namespace", 0).expect("proc creation failed");
     let _: Result<Vec<String>, _> = server_setup_fork(&proc, None);
     let _: Result<Vec<String>, _> = server_setup_fork(&proc, Some(Vec::new()));
-    let _: Result<Vec<String>, _> = server_setup_fork(
-        &proc,
-        Some(vec!["KEY=VALUE", "ANOTHER=test"]),
-    );
+    let _: Result<Vec<String>, _> =
+        server_setup_fork(&proc, Some(vec!["KEY=VALUE", "ANOTHER=test"]));
 }
 
 /// Test: server_setup_fork returns an error when PMIx server is not initialized.
@@ -98,7 +96,10 @@ fn test_setup_fork_proc_ranks() {
 fn test_setup_fork_proc_namespaces() {
     let namespaces: Vec<&str> = vec!["job.0001", "foobar", "my_app", "a"];
     let long_ns = "x".repeat(255);
-    let all_ns: Vec<&str> = namespaces.into_iter().chain(std::iter::once(&*long_ns)).collect();
+    let all_ns: Vec<&str> = namespaces
+        .into_iter()
+        .chain(std::iter::once(&*long_ns))
+        .collect();
     for ns in &all_ns {
         let proc = Proc::new(ns, 0).expect("proc creation failed");
         let result = server_setup_fork(&proc, None);
@@ -208,11 +209,7 @@ fn test_setup_fork_error_is_init() {
             // PMIx_server_setup_fork returns PMIX_ERR_INIT when not initialized.
             // The raw code should be -31 (PMIX_ERR_INIT).
             let raw = status.to_raw();
-            assert!(
-                raw < 0,
-                "error status should be negative, got: {}",
-                raw
-            );
+            assert!(raw < 0, "error status should be negative, got: {}", raw);
         }
         Ok(_) => panic!("should not succeed without server init"),
     }
@@ -242,7 +239,10 @@ fn test_setup_fork_long_namespace() {
     let long_ns = "a".repeat(200);
     let proc = Proc::new(&long_ns, 0).expect("proc creation failed");
     let result = server_setup_fork(&proc, None);
-    assert!(result.is_err(), "long namespace should fail without server init");
+    assert!(
+        result.is_err(),
+        "long namespace should fail without server init"
+    );
 }
 
 /// Test: server_setup_fork env return type is Vec<String> (owned, not borrowed).
@@ -291,10 +291,7 @@ fn test_setup_fork_multiple_procs_same_namespace() {
     assert!(result2.is_err());
 
     // All should return the same error (no server init).
-    assert_eq!(
-        result0.as_ref().unwrap_err(),
-        result1.as_ref().unwrap_err(),
-    );
+    assert_eq!(result0.as_ref().unwrap_err(), result1.as_ref().unwrap_err(),);
     assert_eq!(result1.as_ref().unwrap_err(), result2.as_ref().unwrap_err());
 }
 

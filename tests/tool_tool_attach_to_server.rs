@@ -7,9 +7,7 @@
 //! environment. Unit tests that verify API structure, types, and
 //! defaults run without a PMIx runtime.
 
-use pmix::tool::{
-    tool_attach_to_server, PmixServerHandle, PmixToolHandle,
-};
+use pmix::tool::{PmixServerHandle, PmixToolHandle, tool_attach_to_server};
 use pmix::{Info, InfoBuilder, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +65,8 @@ fn test_tool_attach_to_server_signature() {
         Option<&pmix::Proc>,
         bool,
         &Info,
-    ) -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus>;
+    )
+        -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus>;
     let _: AttachFn = tool_attach_to_server;
 }
 
@@ -110,7 +109,8 @@ fn test_tool_attach_to_server_both_requested() {
 /// tool_attach_to_server with empty info still compiles (C API may reject at runtime).
 #[test]
 fn test_tool_attach_to_server_empty_info() {
-    fn _check_empty_info() -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus> {
+    fn _check_empty_info() -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus>
+    {
         let empty = InfoBuilder::new().build();
         tool_attach_to_server(None, true, &empty)
     }
@@ -198,7 +198,11 @@ fn test_attach_result_is_send() {
 fn test_info_builder_produces_attach_compatible_info() {
     let info = InfoBuilder::new().build();
     // Compile-time check that Info can be passed to tool_attach_to_server.
-    let _: fn(Option<&pmix::Proc>, bool, &Info) -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus> =
+    let _: fn(
+        Option<&pmix::Proc>,
+        bool,
+        &Info,
+    ) -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus> =
         tool_attach_to_server;
     let _ = &info;
 }
@@ -234,10 +238,7 @@ fn test_tool_attach_to_server_with_server() {
         }
         Err(status) => {
             // Expected when no PMIx server is available
-            assert!(
-                status.is_error(),
-                "Expected error status when no server"
-            );
+            assert!(status.is_error(), "Expected error status when no server");
         }
     }
 }
@@ -259,10 +260,7 @@ fn test_tool_attach_to_server_no_server_identity() {
             let _ = tool;
         }
         Err(status) => {
-            assert!(
-                status.is_error(),
-                "Expected error status when no server"
-            );
+            assert!(status.is_error(), "Expected error status when no server");
         }
     }
 }
@@ -284,10 +282,7 @@ fn test_tool_attach_to_server_no_tool_identity() {
             let _ = server;
         }
         Err(status) => {
-            assert!(
-                status.is_error(),
-                "Expected error status when no server"
-            );
+            assert!(status.is_error(), "Expected error status when no server");
         }
     }
 }
@@ -297,7 +292,7 @@ fn test_tool_attach_to_server_no_tool_identity() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_tool_attach_after_init() {
-    use pmix::tool::{tool_init, tool_finalize};
+    use pmix::tool::{tool_finalize, tool_init};
 
     let init_info = InfoBuilder::new().build();
     let init_result = tool_init(None, &init_info);
@@ -305,11 +300,7 @@ fn test_tool_attach_after_init() {
         Ok(handle) => {
             // Now try to attach to a server
             let attach_info = InfoBuilder::new().build();
-            let attach_result = tool_attach_to_server(
-                Some(handle.proc()),
-                true,
-                &attach_info,
-            );
+            let attach_result = tool_attach_to_server(Some(handle.proc()), true, &attach_info);
             match attach_result {
                 Ok((tool, server)) => {
                     // Connection established
@@ -344,18 +335,14 @@ fn test_tool_attach_after_init() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_tool_attach_both_handles() {
-    use pmix::tool::{tool_init, tool_finalize};
+    use pmix::tool::{tool_finalize, tool_init};
 
     let init_info = InfoBuilder::new().build();
     let init_result = tool_init(None, &init_info);
     match init_result {
         Ok(handle) => {
             let attach_info = InfoBuilder::new().build();
-            let attach_result = tool_attach_to_server(
-                Some(handle.proc()),
-                true,
-                &attach_info,
-            );
+            let attach_result = tool_attach_to_server(Some(handle.proc()), true, &attach_info);
             match attach_result {
                 Ok((tool, server)) => {
                     assert!(

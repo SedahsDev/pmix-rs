@@ -8,7 +8,7 @@
 //! Unit tests that verify API structure, types, and callback behavior
 //! run without a PMIx runtime.
 
-use pmix::server::{server_deliver_inventory, DeliverInventoryCallback};
+use pmix::server::{DeliverInventoryCallback, server_deliver_inventory};
 use pmix::{InfoBuilder, PmixStatus};
 use std::sync::{Arc, Mutex};
 
@@ -209,7 +209,10 @@ fn test_callback_with_arc_data() {
     }
     impl DeliverInventoryCallback for ArcData {
         fn on_complete(self: Box<Self>, status: PmixStatus) {
-            self.data.lock().unwrap().push_str(&format!("{:?} ", status));
+            self.data
+                .lock()
+                .unwrap()
+                .push_str(&format!("{:?} ", status));
         }
     }
 
@@ -286,7 +289,10 @@ fn test_callback_send_compliance() {
     }
     impl DeliverInventoryCallback for SendCb {
         fn on_complete(self: Box<Self>, status: PmixStatus) {
-            self.data.lock().unwrap().push_str(&format!("{:?} ", status));
+            self.data
+                .lock()
+                .unwrap()
+                .push_str(&format!("{:?} ", status));
         }
     }
 

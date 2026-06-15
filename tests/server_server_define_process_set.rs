@@ -10,7 +10,7 @@
 //! a running PMIx server/daemon.
 
 use pmix::server::server_define_process_set;
-use pmix::{Proc, PmixStatus};
+use pmix::{PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixStatus round-trip tests (no FFI — these run without a PMIx server)
@@ -61,7 +61,10 @@ fn test_return_type_check() {
 fn test_pmix_err_bad_param_value() {
     // PMIX_ERR_BAD_PARAM = -8 in PMIx v4.x
     let status = PmixStatus::from_raw(-8);
-    assert!(!status.is_success(), "PMIX_ERR_BAD_PARAM should be an error");
+    assert!(
+        !status.is_success(),
+        "PMIX_ERR_BAD_PARAM should be an error"
+    );
 }
 
 /// Verify Proc construction works with various ranks.
@@ -94,7 +97,9 @@ fn test_proc_multiple_lifecycle() {
 #[test]
 fn test_proc_new_with_nspace() {
     let proc1 = Proc::new("test_nspace", 0).expect("Proc::new should work");
-    let proc2 = proc1.new_with_nspace(1).expect("new_with_nspace should work");
+    let proc2 = proc1
+        .new_with_nspace(1)
+        .expect("new_with_nspace should work");
     assert_eq!(proc2.get_rank(), 1, "new rank should be set");
 }
 
@@ -203,10 +208,7 @@ fn test_define_process_set_multiple_members() {
             // Success — process set with 5 members defined.
         }
         Err(status) => {
-            assert!(
-                !status.is_success(),
-                "error status should not be success"
-            );
+            assert!(!status.is_success(), "error status should not be success");
         }
     }
 }
@@ -299,9 +301,7 @@ fn test_pset_name_with_nul_byte() {
 fn test_no_memory_leak_smoke() {
     for i in 0..100 {
         let members: Vec<Proc> = (0..3)
-            .map(|rank| {
-                Proc::new(&format!("nspace_{}", i), rank).expect("Proc::new should work")
-            })
+            .map(|rank| Proc::new(&format!("nspace_{}", i), rank).expect("Proc::new should work"))
             .collect();
         let _ = server_define_process_set(&members, &format!("pset_{}", i));
     }

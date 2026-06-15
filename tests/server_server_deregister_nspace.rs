@@ -241,10 +241,7 @@ fn test_callback_with_arc_data() {
     }
     impl DeregisterNspaceCallback for ArcData {
         fn on_complete(self: Box<Self>, status: PmixStatus) {
-            self.data
-                .lock()
-                .unwrap()
-                .push_str(&format!("{:?}", status));
+            self.data.lock().unwrap().push_str(&format!("{:?}", status));
         }
     }
 
@@ -308,7 +305,7 @@ fn test_callback_various_statuses() {
     });
 
     // Simulate various statuses.
-    cb.on_complete(PmixStatus::from_raw(0));   // PMIX_SUCCESS
+    cb.on_complete(PmixStatus::from_raw(0)); // PMIX_SUCCESS
 }
 
 /// Multiple deregister callbacks can be created and stored.
@@ -352,7 +349,9 @@ fn test_multiple_deregister_callbacks() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn test_deregister_nspace_full_cycle() {
-    use pmix::server::{server_finalize, server_init_minimal, server_register_nspace, PmixServerModule};
+    use pmix::server::{
+        PmixServerModule, server_finalize, server_init_minimal, server_register_nspace,
+    };
 
     struct FullCycleCb {
         status: Arc<Mutex<Option<PmixStatus>>>,
@@ -391,7 +390,7 @@ fn test_deregister_nspace_full_cycle() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn test_deregister_nspace_not_previously_registered() {
-    use pmix::server::{server_finalize, server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_finalize, server_init_minimal};
 
     struct NotFoundCb {
         status: Arc<Mutex<Option<PmixStatus>>>,
@@ -420,7 +419,7 @@ fn test_deregister_nspace_not_previously_registered() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn test_deregister_nspace_multiple_sequential() {
-    use pmix::server::{server_finalize, server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_finalize, server_init_minimal};
 
     struct CountCb {
         count: Arc<Mutex<u32>>,
@@ -452,7 +451,7 @@ fn test_deregister_nspace_multiple_sequential() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn test_deregister_nspace_after_finalize() {
-    use pmix::server::{server_finalize, server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_finalize, server_init_minimal};
 
     struct AfterFinalizeCb;
     impl DeregisterNspaceCallback for AfterFinalizeCb {
@@ -472,7 +471,7 @@ fn test_deregister_nspace_after_finalize() {
 #[test]
 #[ignore = "requires PMIx server runtime"]
 fn test_deregister_nspace_blocking_no_crash() {
-    use pmix::server::{server_finalize, server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_finalize, server_init_minimal};
 
     let module = PmixServerModule::default();
     let handle = server_init_minimal(Some(&module)).expect("server_init failed");

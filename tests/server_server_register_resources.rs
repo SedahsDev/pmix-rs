@@ -8,9 +8,9 @@
 //! Unit tests that verify API structure, types, and callback behavior
 //! run without a PMIx runtime.
 
+use pmix::InfoBuilder;
 use pmix::PmixStatus;
 use pmix::server::{RegisterResourcesCallback, server_register_resources};
-use pmix::InfoBuilder;
 use std::sync::{Arc, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,7 +134,11 @@ fn test_register_resources_multiple_callbacks() {
     cb1.on_complete(PmixStatus::from_raw(0));
     cb2.on_complete(PmixStatus::from_raw(0));
 
-    assert_eq!(*counter.lock().unwrap(), 2, "both callbacks should have incremented");
+    assert_eq!(
+        *counter.lock().unwrap(),
+        2,
+        "both callbacks should have incremented"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,7 +151,8 @@ fn test_server_register_resources_signature() {
     // Verify the function signature compiles with the expected types.
     fn check_signature(
         _f: fn(&pmix::Info, Box<dyn RegisterResourcesCallback>) -> Result<(), PmixStatus>,
-    ) {}
+    ) {
+    }
 
     struct DummyCb;
     impl RegisterResourcesCallback for DummyCb {
@@ -241,7 +246,10 @@ fn test_callback_bridge_null_cbdata_guard() {
 
     // Simulate: bridge sees null cbdata, does NOT invoke callback.
     // The callback should NOT have been called.
-    assert!(!*invoked.lock().unwrap(), "null cbdata should not invoke callback");
+    assert!(
+        !*invoked.lock().unwrap(),
+        "null cbdata should not invoke callback"
+    );
 }
 
 /// Simulated callback bridge: valid cbdata invokes callback.
@@ -264,7 +272,10 @@ fn test_callback_bridge_valid_cbdata_invokes() {
     // Simulate: bridge sees valid cbdata, invokes callback.
     cb.on_complete(PmixStatus::from_raw(0));
 
-    assert!(*invoked.lock().unwrap(), "valid cbdata should invoke callback");
+    assert!(
+        *invoked.lock().unwrap(),
+        "valid cbdata should invoke callback"
+    );
 }
 
 /// Callback is consumed after invocation (registry remove pattern).
@@ -291,7 +302,11 @@ fn test_callback_consumed_after_invocation() {
 
     // The callback is consumed — it can't be invoked again.
     // The Arc<Mutex<usize>> inside survives, showing one call.
-    assert_eq!(*call_count.lock().unwrap(), 1, "callback invoked exactly once");
+    assert_eq!(
+        *call_count.lock().unwrap(),
+        1,
+        "callback invoked exactly once"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -314,7 +329,10 @@ fn test_request_id_decoding_roundtrip() {
     let original_id: usize = 42;
     let encoded = (original_id << 2) as *mut std::os::raw::c_void;
     let decoded = (encoded as usize) >> 2;
-    assert_eq!(decoded, original_id, "request ID should round-trip through encoding");
+    assert_eq!(
+        decoded, original_id,
+        "request ID should round-trip through encoding"
+    );
 }
 
 /// Multiple request IDs encode to distinct non-null pointers.
@@ -446,7 +464,10 @@ fn test_server_register_resources_not_initialized() {
     let result = server_register_resources(&info, Box::new(TestCb));
 
     // Without PMIx_server_init, this should return an error.
-    assert!(result.is_err(), "should fail when not initialized as server");
+    assert!(
+        result.is_err(),
+        "should fail when not initialized as server"
+    );
 }
 
 /// server_register_resources with immediate error does not invoke callback.

@@ -4,8 +4,8 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (PMIx_server_init) are marked `#[ignore]`.
 
-use pmix::server::{server_dmodex_request, DmodexRequestCallback};
-use pmix::{Proc, PmixError, PmixStatus};
+use pmix::server::{DmodexRequestCallback, server_dmodex_request};
+use pmix::{PmixError, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module and type availability
@@ -150,11 +150,7 @@ fn dmodex_request_multiple_procs_consistent_error() {
     for rank in ranks {
         let proc = Proc::new("test.job", rank).expect("Proc::new should succeed");
         let result = server_dmodex_request(&proc, Box::new(TestCallback));
-        assert!(
-            result.is_err(),
-            "rank {} should fail without init",
-            rank
-        );
+        assert!(result.is_err(), "rank {} should fail without init", rank);
         assert_eq!(
             result.unwrap_err().to_raw(),
             -31,
@@ -173,8 +169,8 @@ fn dmodex_request_multiple_procs_consistent_error() {
 /// Compile-time check: the callback can access both parameters.
 #[test]
 fn dmodex_callback_receives_status_and_blob() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     static CALLED: AtomicBool = AtomicBool::new(false);
 
@@ -586,11 +582,7 @@ fn dmodex_request_multiple_calls_distinct_registrations() {
     // or corrupting the callback registry.
     for i in 0..10 {
         let result = server_dmodex_request(&proc, Box::new(TestCallback));
-        assert!(
-            result.is_err(),
-            "call {} should fail without init",
-            i
-        );
+        assert!(result.is_err(), "call {} should fail without init", i);
     }
 }
 

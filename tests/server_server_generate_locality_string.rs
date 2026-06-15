@@ -8,9 +8,9 @@
 //! a prior PMIx_server_init. All tests that invoke the FFI function are
 //! marked #[ignore] and require a running PMIx server/daemon.
 
+use pmix::PmixStatus;
 use pmix::fabric::PmixCpuset;
 use pmix::server::server_generate_locality_string;
-use pmix::PmixStatus;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixStatus round-trip tests (no FFI — these run without a PMIx server)
