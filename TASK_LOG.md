@@ -1,47 +1,49 @@
-# Batch 3 Task Log — lib_core_lifecycle
+# Batch 4 Task Log — tool_basic_lifecycle
 
-**Branch:** `wt/batch3-lib-lifecycle`
-**Worktree:** `/home/bzf/projects/pmix-rs-worktrees/batch3`
+**Branch:** `wt/batch4-tool-lifecycle`
+**Worktree:** `/home/bzf/projects/pmix-rs-worktrees/batch4`
 **Started:** 2026-06-16
 **Status:** ✅ COMPLETED
 
 ## Goal
-Create tests for `pmix::init`, `pmix::finalize`, `initialized()`, and `get_version()` per the test plan.
+Create standalone tests for `tool_init`, `tool_finalize`, `tool_init_minimal`, `is_tool_initialized`.
 
 ## Functions Tested
-- `pmix::init(info: Option<Info>) -> Result<Context, PmixError>` — PMIx_Init wrapper
-- `pmix::finalize(info: Option<Info>) -> Result<(), pmix_status_t>` — PMIx_Finalize wrapper
-- `pmix::utility::initialized() -> bool` — PMIx_Initialized flag
-- `pmix::get_version() -> &'static str` — PMIx_Get_version re-export
+- `pmix::tool::tool_init(proc: Option<&Proc>, info: &Info) -> Result<PmixToolHandle, PmixStatus>`
+- `pmix::tool::tool_init_minimal() -> Result<PmixToolHandle, PmixStatus>`
+- `pmix::tool::tool_finalize(handle: PmixToolHandle) -> Result<(), PmixStatus>`
+- `pmix::tool::is_tool_initialized() -> bool`
 
 ## What Was Done
 
-### Phase 1: Grok Subagent Generation
-- Delegated to subagent with detailed context about PMIx behavior
-- Subagent completed in ~7.5 minutes (454s), 38 API calls
-- Created `tests/lib_core_lifecycle.rs` (660 lines, 49 tests)
+### Phase 1: Subagent Generation
+- Delegated to subagent, completed in ~8.7 minutes (526s), 44 API calls
+- Created `tests/tool_basic_lifecycle.rs` (858 lines, 55 tests)
 
 ### Phase 2: Verification
-- `cargo check --test lib_core_lifecycle` — compiled clean
-- `cargo test --test lib_core_lifecycle -- --test-threads=1` — **49 passed, 0 failed, 0 ignored**
-- Full test suite — 0 failures across all 21 test files
+- `cargo check --test tool_basic_lifecycle` — compiled clean
+- `cargo test --test tool_basic_lifecycle -- --test-threads=1` — **55 passed, 0 failed, 0 ignored**
+- Full test suite — 0 failures across all test files
 
-## Critical Findings
-- `init(None)` without DVM returns `Err(PmixError::ErrUnreach)` (-25), NOT `ErrInit` (-31)
-- `finalize(None)` without prior init returns `Ok(())` — PMIx_Finalize is **idempotent**
-- `initialized()` returns `true` in this PMIx build (library flag is true at load time)
-- `get_version()` returns `"OpenPMIx 5.0.7a1 (PMIx Standard: 5.1, Stable ABI: 5.0, Provisional ABI: 5.0)"`
+## Key Findings
+- A PMIx daemon (PRTE) is running on this system, so `tool_init` can succeed
+- Tests use conditional patterns that handle both daemon-available and daemon-unavailable scenarios
+- `PmixToolHandle` implements Clone, Debug
+- `PmixStatus` implements Clone, Copy, Debug, PartialEq, Eq, std::error::Error
 
-## Test Summary (49 total)
+## Test Summary (55 total)
 | Category | Tests | Notes |
 |---|---|---|
-| get_version | 12 | Format, content, type safety, determinism |
-| initialized() | 7 | Type check, idempotency, determinism |
-| init() error paths | 12 | Error returns, no panics, known variants |
-| finalize() paths | 7 | Safe without init, idempotent |
-| Lifecycle patterns | 5 | Various init/finalize sequences |
-| Thread safety | 4 | Concurrent access to safe functions |
-| PmixError constants | 3 | ErrInit/ErrUnreach raw values |
+| is_tool_initialized | 5 | Bool, idempotent, deterministic |
+| tool_init_minimal | 7 | No-panic, consistent results |
+| tool_init | 8 | No-panic, parameter types, consistency |
+| PmixToolHandle/ServerHandle | 5 | Clone, Debug traits |
+| tool_finalize | 3 | Signature, move semantics |
+| PmixStatus | 11 | Clone/Copy/Debug, PartialEq, Error, from_raw |
+| Lifecycle patterns | 7 | Init/flag consistency, cycles, ref counting |
+| Thread safety | 4 | Concurrent is_tool_initialized, init_minimal, init |
+| Error/success paths | 5 | Conditional error/success verification |
+| InfoBuilder | 2 | Valid Info, empty builder |
 
 ## Commit
-- `a84e921` — test: add lib_core_lifecycle tests
+- `33c5bf1` — test: add tool_basic_lifecycle tests
