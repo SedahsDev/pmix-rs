@@ -1,47 +1,44 @@
-# Batch 7 Task Log — data_serialization_advanced
+# Batch 8 Task Log — fabric_registration
 
-**Branch:** `wt/batch7-data-advanced`
-**Worktree:** `/home/bzf/projects/pmix-rs-worktrees/batch7`
+**Branch:** `wt/batch8-fabric-registration`
+**Worktree:** `/home/bzf/projects/pmix-rs-worktrees/batch8`
 **Started:** 2026-06-16
 **Status:** ✅ COMPLETED
 
 ## Goal
-Create tests for data_load, data_unload, data_compress, data_decompress, data_embed.
+Create tests for fabric_register, fabric_deregister, fabric_update — register duplicate idempotency, info array validation, error cases, lifecycle patterns.
 
 ## Functions Tested
-- `data_load(buf, payload) -> Result<(), PmixStatus>`
-- `data_unload(buf) -> Result<PmixByteObject, PmixStatus>`
-- `data_compress(input: &[u8]) -> Result<Vec<u8>, PmixStatus>`
-- `data_decompress(input: &[u8]) -> Result<Vec<u8>, PmixStatus>`
-- `data_embed(parent, child) -> Result<(), PmixStatus>`
+- `fabric_register(fabric: &mut PmixFabric, directives: &[Info]) -> Result<(), PmixStatus>`
+- `fabric_update(fabric: &mut PmixFabric) -> Result<(), PmixStatus>`
+- `fabric_deregister(fabric: &mut PmixFabric) -> Result<(), PmixStatus>`
+- Non-blocking variants: `_nb` with callbacks
 
 ## What Was Done
-
-### Phase 1: Subagent Generation
-- Delegated to subagent, timed out at 600s but produced the file
-- Created `tests/data_serialization_advanced.rs` (1112 lines, 77 tests)
-
-### Phase 2: Verification
-- `cargo test --test data_serialization_advanced -- --test-threads=1` — **43 passed, 0 failed, 34 ignored**
-- Full test suite — 0 failures
+- Subagent completed successfully (no timeout)
+- Created `tests/fabric_registration.rs` (929 lines, 72 tests)
+- 59 passed, 0 failed, 13 ignored
 
 ## Key Findings
-- `data_compress` empty input → `Err(BadParam)`
-- `data_decompress` empty input → `Err(BadParam)`
-- Load/unload round-trips work without PMIx_Init
-- Compress/decompress round-trips work for various sizes
-- Pack→unload→load→unpack requires PMIx_Init — marked `#[ignore]`
+- `fabric_register_nb` calls FFI directly without checking `PMIx_Initialized` — SIGSEGV without server (8 tests ignored)
+- `fabric_update_nb` and `fabric_deregister_nb` have Rust-level guards (`fabric.registered`) — safe
+- `PmixFabric` is NOT Send/Sync due to raw FFI pointers
+- Fabric functions return `Err(BadParam)` or `Err(Unsupported)` without server
 
-## Test Summary (77 total)
+## Test Summary (72 total)
 | Category | Pass | Ignored | Notes |
 |---|---|---|---|
-| Load/unload round-trip | 14 | 0 | Basic, multi-hop, cycles |
-| Compress/decompress | 12 | 0 | Various sizes, patterns |
-| Compression ratio | 4 | 0 | Zeros, patterns |
-| Embed | 0 | 5 | Require PMIx_Init |
-| Error cases | 6 | 0 | Empty, corrupted |
-| Type/sig checks | 7 | 0 | Compile-time |
-| Pack→unload→load→unpack | 0 | 24 | Require PMIx_Init |
+| Register duplicate | 6 | 0 | Idempotency, same name |
+| Info array validation | 8 | 0 | Empty, single, multiple directives |
+| Error cases | 10 | 0 | Unknown fabric, double deregister |
+| Lifecycle patterns | 6 | 0 | Full blocking/nb/mixed |
+| Type checks | 8 | 0 | Debug, signatures |
+| Callback behavior | 5 | 0 | Error callbacks, reclamation |
+| Error codes | 7 | 0 | BAD_PARAM, Display/Debug |
+| Panic safety | 6 | 0 | catch_unwind for all 6 funcs |
+| State isolation | 3 | 0 | Independent fabrics |
+| Integration | 0 | 5 | Require PMIx daemon |
+| fabric_register_nb | 0 | 8 | SIGSEGV without server |
 
 ## Commit
-- `fe69334` — batch7: advanced data serialization tests
+- `c642b7e` — test: add fabric_registration tests (Batch 8)
