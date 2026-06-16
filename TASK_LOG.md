@@ -1,32 +1,32 @@
-# Batch 13 Task Log — security_credentials
+# Batch 14 Task Log — groups_lifecycle
 
-**Branch:** `wt/batch13-security`
-**Worktree:** `/home/bzf/projects/pmix-rs-worktrees/batch13`
+**Branch:** `wt/batch14-groups`
+**Worktree:** `/home/bzf/projects/pmix-rs-worktrees/batch14`
 **Started:** 2026-06-16
-**Status:** ✅ COMPLETED
+**Status:** ✅ COMPLETED — FINAL BATCH
 
 ## Goal
-Tests for get_credential, get_credential_nb, validate_credential, validate_credential_nb.
+Tests for 10 group functions: construct/destruct/invite/join/leave + _nb variants.
 
 ## What Was Done
 - Subagent completed successfully (no timeout)
-- Created `tests/security_credentials.rs` (1048 lines, 78 tests)
-- 73 passed, 0 failed, 5 ignored
+- Created `tests/groups_lifecycle.rs` (927 lines, 75 tests)
+- 70 passed, 0 failed, 5 ignored
 
-## Test Summary (78 total)
+## Test Summary (75 total)
 | Category | Pass | Ignored | Notes |
 |---|---|---|---|
-| PmixCredential struct | 14 | 0 | Construction, binary, clone, Debug |
-| CredentialResults | 2 | 0 | Default, info slice |
-| ValidationResults | 6 | 0 | Empty, Debug, Drop, move |
-| CredentialCallback trait | 4 | 0 | Object safety, Send |
-| ValidationCallback trait | 4 | 0 | Object safety, Send |
-| get_credential no-server | 4 | 0 | Error status, sequential |
-| get_credential_nb no-server | 6 | 0 | Callback, registry cleanup |
-| validate_credential no-server | 8 | 0 | Various credentials, ownership |
-| validate_credential_nb no-server | 14 | 0 | Edge cases, deadlock-free |
-| Error codes | 10 | 0 | Raw values, from_raw, is_error |
-| Integration | 0 | 5 | Require PMIx daemon |
+| Compile-time type checks | 5 | 0 | Callback wrapper signatures |
+| Send bounds | 5 | 0 | All 5 callback wrappers |
+| Callback construction | 6 | 0 | Arc/AtomicBool, Mutex, closures |
+| Parameter validation | 11 | 0 | Empty group_id, empty procs |
+| FFI failure without init | 10 | 0 | All 10 functions graceful |
+| Error status validity | 8 | 0 | Negative codes, equality |
+| Panic safety | 10 | 0 | catch_unwind for all 10 funcs |
+| Cross-function consistency | 2 | 0 | Blocking + _nb consistency |
+| Callback signature diffs | 2 | 0 | Status vs (Status, Vec<Info>) |
+| Enum variants | 2 | 0 | PMIX_GROUP_ACCEPT/DECLINE |
+| Daemon-dependent | 0 | 5 | Full lifecycle scenarios |
 
 ## Commit
-- `548a097` — test: add security_credentials.rs
+- `2d93dff` — test: add groups_lifecycle
