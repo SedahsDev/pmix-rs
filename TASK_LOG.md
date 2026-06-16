@@ -1,46 +1,32 @@
-# Batch 10 Task Log — server_init_finalize
+# Batch 11 Task Log — server_nspace_resources
 
-**Branch:** `wt/batch10-server-init`
-**Worktree:** `/home/bzf/projects/pmix-rs-worktrees/batch10`
+**Branch:** `wt/batch11-server-nspace`
+**Worktree:** `/home/bzf/projects/pmix-rs-worktrees/batch11`
 **Started:** 2026-06-16
 **Status:** ✅ COMPLETED
 
 ## Goal
-Tests for server_init, server_finalize, server_register_client, server_deregister_client.
-
-## Functions Tested
-- `server_init(module, info) -> Result<PmixServerHandle, PmixStatus>`
-- `server_init_minimal(info) -> Result<PmixServerHandle, PmixStatus>`
-- `server_finalize(handle) -> Result<(), PmixStatus>`
-- `server_register_client(proc, uid, gid, credentials, callback)`
-- `server_deregister_client(proc, callback)`
+Tests for 7 server nspace/resource functions: register_nspace, deregister_nspace, register_resources, deregister_resources, setup_application, setup_fork, setup_local_support.
 
 ## What Was Done
-- Subagent generated 58 tests, timed out at 600s
-- 51 tests call `server_init_minimal` which corrupts C-level PMIx state between tests
-- Marked 51 tests as `#[ignore]` — requires daemon isolation via prterun
-- 7 active tests: compile-time type checks, panic safety, signatures
+- Subagent completed successfully (no timeout)
+- Created `tests/server_nspace_resources.rs` (860 lines, 58 tests)
+- 50 passed, 0 failed, 8 ignored
 
 ## Key Findings
-- `server_init_minimal` corrupts C-level PMIx state between tests — double-free
-- Cannot run multiple init/finalize cycles in same process without prterun
-- 283 existing server tests already cover daemon-dependent paths
-- PmixServerHandle is NOT Copy, consumed by server_finalize
+- 3576 lines of existing tests across 7 files already cover daemon-dependent paths
+- Same C-level PMIx state corruption issue as Batch 10
+- Focus on compile-time type checks, panic safety, callback traits
 
 ## Test Summary (58 total)
 | Category | Pass | Ignored | Notes |
 |---|---|---|---|
-| Type checks | 3 | 0 | Debug, NOT Copy, default |
-| Panic safety | 3 | 0 | catch_unwind |
-| Signatures | 1 | 0 | Compile-time verification |
-| Double register | 0 | 4 | Requires daemon |
-| Finalize with clients | 0 | 4 | Requires daemon |
-| Lifecycle cycles | 0 | 5 | Requires daemon |
-| Callback patterns | 0 | 9 | Requires daemon |
-| Error propagation | 0 | 4 | Requires daemon |
-| Register/deregister | 0 | 21 | Requires daemon |
-| is_server_initialized | 0 | 3 | Requires daemon |
-| server_init variants | 0 | 1 | Requires daemon |
+| Function signatures | 7 | 0 | Compile-time verification |
+| Panic safety | 15 | 0 | catch_unwind for all 7 funcs |
+| Callback traits | 16 | 0 | Send, trait objects |
+| Error handling | 7 | 0 | Nul bytes, invalid params |
+| Cross-function | 5 | 0 | All-7-no-panic, consistency |
+| Daemon-dependent | 0 | 8 | Lifecycle, resources, setup |
 
 ## Commit
-- `54a076e` — batch10: server init/finalize lifecycle tests
+- `9cdaf6c` — test: add server_nspace_resources
