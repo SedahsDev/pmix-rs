@@ -1,14 +1,21 @@
-# Batch 22 Task Log — server round 2
+DO NOT MERGE THIS FILE
 
-**Branch:** wt/batch22-server-round2
-**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch22
-**Started:** 2026-06-17
-**Status:** COMPLETED
+# Batch 8 — Allocation Deep Tests
 
-## Results
-- server.rs: 59.25% → 69.26% lines (+10.0)
-- TOTAL: 68.94% → 70.10% lines
-- 92 active tests, 4 ignored (FFI lifecycle)
+## Coverage Delta
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Lines | 74.39% | 74.39% | +0% (FFI pass-through, needs PMIx_Init) |
+| Branches | 48.07% | 81.54% | **+33.5%** |
+| Functions | ~80% | 94.29% | **+14%** |
 
-## New file
-- `tests/server_deep.rs` — 96 tests covering PmixServerModule, server_init/finalize, register/deregister nspace/client, setup_fork/application/local_support, IOF delivery, IOFChannelFlags, PmixByteObject, callback wrappers, panic safety, FFI lifecycle
+## Tests
+- 90 active, 0 failed, 6 ignored
+- File: `tests/allocation_deep.rs` (1193 lines)
+- Covers: PmixAllocDirective exhaustiveness, AllocationCallback trait, allocation_request/request_nb, PmixJobCtrlAction, JobControlResults, job_control/job_control_nb, error verification, compile-time Send/Sync assertions
+
+## Notes
+- Grok timed out after 600s (50 API calls) — wrote 1193 lines before timeout
+- Fixed 6 private field errors (AllocationResults has private fields)
+- Added `static_assertions` dev dependency for compile-time trait assertions
+- Line coverage didn't move because allocation.rs is FFI pass-through; branch coverage jumped 33.5%
