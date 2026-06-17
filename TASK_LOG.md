@@ -1,23 +1,14 @@
-# Batch 21 Task Log — process_mgmt round 2
+# Batch 22 Task Log — server round 2
 
-**Branch:** wt/batch21-process-mgmt-round2
-**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch21
+**Branch:** wt/batch22-server-round2
+**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch22
 **Started:** 2026-06-17
 **Status:** COMPLETED
 
 ## Results
-- Test file: `tests/process_mgmt_deep.rs` — **53 tests**
-- Active: **33 passed**
-- Ignored: **20** (require PMIx_Init)
-- Full suite: **0 failures**
-- Coverage: process_mgmt.rs **72.45%** (unchanged — FFI-heavy)
-- TOTAL: **68.94%** lines
+- server.rs: 59.25% → 69.26% lines (+10.0)
+- TOTAL: 68.94% → 70.10% lines
+- 92 active tests, 4 ignored (FFI lifecycle)
 
-## Tests added
-- PmixAppBuilder: default, full, cmd-only, args/envs batch, NUL in cmd/arg/env/cwd, unicode, maxprocs variants, debug format
-- PmixApp: field accessors, debug format, no-cmd case
-- spawn/spawn_nb: empty apps rejected (with/without info)
-- connect/disconnect: empty procs rejected
-- Callback wrappers: spawn, connect, disconnect compile checks
-- Panic safety: spawn, connect, disconnect, resolve_peers, resolve_nodes, abort
-- FFI tests (ignored): spawn single/multi/info, spawn_nb, connect/disconnect variants, resolve_peers/nodes, abort variants, full lifecycle
+## New file
+- `tests/server_deep.rs` — 96 tests covering PmixServerModule, server_init/finalize, register/deregister nspace/client, setup_fork/application/local_support, IOF delivery, IOFChannelFlags, PmixByteObject, callback wrappers, panic safety, FFI lifecycle
