@@ -1,23 +1,26 @@
-# Batch 17 Task Log — data_ops round 2
+# Batch 18 Task Log — query_log round 2
 
-**Branch:** wt/batch17-data-ops-round2
-**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch17
+**Branch:** wt/batch18-query-log-round2
+**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch18
 **Started:** 2026-06-16
 **Status:** COMPLETED
 
 ## Results
-- Test file: `tests/data_ops_deep.rs` — **64 tests**
-- Active tests: **28 passed**
-- Ignored tests: **36** (require PMIx_Init)
-- Full suite: **0 failures** across all test files
+- Test file: `tests/query_log_deep.rs` — **37 tests**
+- Active tests: **19 passed**
+- Ignored tests: **18** (require PMIx_Init)
+- Full suite: **0 failures**
 
 ## Coverage Impact
-- data_ops.rs: 54.78% → **56.05%** lines (small gain from new compile-time paths)
-- TOTAL: 68.8% → **68.89%** lines
+- query_log.rs: 59.02% → **60.38%** lines
+- TOTAL: 68.89% → **68.94%** lines
 
 ## Key Discoveries
-- `get()` takes 3 args: `(proc, key, info: Option<&Info>)`
-- `lookup()` returns `Result<(PmixStatus, Vec<PmixPdata>), PmixStatus>`
-- `lookup_nb()` takes `&[&str]` keys — NOT `Vec<PmixPdata>`
-- `PmixValueBuilder` (not `PmixOwnedValueBuilder`) — builder pattern with `.string()`, `.bool()`, `.int()`, `.undef()`, `.build()`
-- All 4 callback traits: `PublishCallback`, `GetValueCallback`, `LookupCallback`, `UnpublishCallback`, `FenceCallback`
+- `PmixQuery` has no `len()` or `is_empty()` — those are on `QueryResults`
+- `PmixQuery::new(keys: &[&str])` — takes string slice, returns `Result<Self, PmixStatus>`
+- `PmixQuery::with_qualifiers(info: Info)` — consumes self, transfers Info ownership
+- `query_info(queries: &[PmixQuery])` — returns `Result<QueryResults, PmixStatus>`
+- `query_info_nb` takes `&[PmixQuery]` + `Box<dyn QueryCallback>`
+- `log_data(data: &[Info], directives: &[Info])` — both slices of Info
+- `QueryCallback::on_complete(self, status, results: QueryResults)` — receives QueryResults
+- `LogCallback::on_complete(self, status)` — status only
