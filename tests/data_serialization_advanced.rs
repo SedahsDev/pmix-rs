@@ -870,10 +870,10 @@ fn test_embed_none_payload_noop() {
 #[test]
 #[ignore]
 fn test_embed_then_release_cleanup() {
-    let buf = data_buffer_create().expect("create buffer");
+    let mut buf = data_buffer_create().expect("create buffer");
     let payload: PmixByteObject = vec![1u8, 2, 3, 4].into();
     data_embed(&buf, Some(&payload)).expect("embed");
-    data_buffer_release(&buf);
+    data_buffer_release(&mut buf);
     // No panic or double-free
     // Payload should still be valid
     assert_eq!(payload.size(), 4);

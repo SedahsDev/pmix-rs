@@ -216,7 +216,7 @@ fn test_compress_small_block() {
 fn test_compress_packed_buffer() {
     use pmix::PmixDataType;
 
-    let buf = data_buffer_create().expect("create buffer");
+    let mut buf = data_buffer_create().expect("create buffer");
 
     let val1: i32 = 42;
     let val2: i32 = 100;
@@ -226,7 +226,7 @@ fn test_compress_packed_buffer() {
     data_pack(None, &buf, &val3, 1, PmixDataType::Int32).expect("pack val3");
 
     let payload = data_unload(&buf).expect("unload");
-    data_buffer_release(&buf);
+    data_buffer_release(&mut buf);
 
     let result = data_compress(payload.as_slice());
     if result.is_ok() {

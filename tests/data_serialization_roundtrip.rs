@@ -1255,7 +1255,7 @@ fn test_data_buffer_create_signature() {
 #[test]
 fn test_data_buffer_release_signature() {
     fn check<F>(_: F) {}
-    check::<fn(&PmixDataBuffer)>(data_buffer_release);
+    check::<fn(&mut PmixDataBuffer)>(data_buffer_release);
 }
 
 /// Verify PmixPrintOutput implements Display.

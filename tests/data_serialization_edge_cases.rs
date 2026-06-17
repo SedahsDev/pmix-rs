@@ -903,7 +903,7 @@ fn test_load_unload_load_reuse() {
 /// Note: data_buffer_release calls PMIx_Data_buffer_release, and the Drop impl
 /// also calls it. The C function PMIx_Data_buffer_release should handle null
 /// Buffer Drop handles cleanup — no explicit release needed.
-/// NOTE: Do NOT call data_buffer_release(&buf) explicitly — Drop already does it,
+/// NOTE: Do NOT call data_buffer_release(&mut buf) explicitly — Drop already does it,
 /// and the wrapper does NOT null the internal pointer after explicit release,
 /// causing double-free.
 #[test]
@@ -1083,7 +1083,7 @@ fn test_buffer_create_after_release() {
     {
         let buf = data_buffer_create().expect("buf");
         // Don't call data_buffer_release explicitly — Drop handles it.
-        // Calling data_buffer_release(&buf) before Drop causes double-free
+        // Calling data_buffer_release(&mut buf) before Drop causes double-free
         // because the wrapper doesn't null the internal pointer.
     }
     let buf2 = data_buffer_create().expect("buf2");
@@ -1140,9 +1140,9 @@ fn test_buffer_from_raw_null_drop() {
 /// data_buffer_release on a null-created buffer is safe.
 #[test]
 fn test_release_null_buffer() {
-    let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
+    let mut buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
     // data_buffer_release checks is_valid() which returns false for null
-    data_buffer_release(&buf);
+    data_buffer_release(&mut buf);
     // Should not crash
 }
 
@@ -1159,7 +1159,7 @@ fn test_buffer_create_return_type() {
 /// Verify data_buffer_release signature.
 #[test]
 fn test_buffer_release_signature() {
-    let _: fn(&PmixDataBuffer) = data_buffer_release;
+    let _: fn(&mut PmixDataBuffer) = data_buffer_release;
 }
 
 /// Verify data_load signature.

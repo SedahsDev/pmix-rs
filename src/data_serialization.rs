@@ -19,24 +19,24 @@
 //! use pmix::{PmixDataType, data_serialization::*};
 //!
 //! // --- Sender side ---
-//! let buf = data_buffer_create().expect("create buffer");
+//! let mut buf = data_buffer_create().expect("create buffer");
 //! let val: i32 = 42;
 //! let packed = data_pack(None, &buf, &val, 1, PmixDataType::Int32).expect("pack");
 //! assert_eq!(packed, 1);
 //!
 //! // Unload to byte object for transport
 //! let payload = data_unload(&buf).expect("unload");
-//! data_buffer_release(&buf);
+//! data_buffer_release(&mut buf);
 //!
 //! // --- Receiver side ---
-//! let buf2 = data_buffer_create().expect("create buffer");
+//! let mut buf2 = data_buffer_create().expect("create buffer");
 //! data_load(&buf2, &payload).expect("load");
 //! let mut out: i32 = 0;
 //! let mut count: i32 = 1;
 //! let unpacked = data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Int32).expect("unpack");
 //! assert_eq!(unpacked, 1);
 //! assert_eq!(out, 42);
-//! data_buffer_release(&buf2);
+//! data_buffer_release(&mut buf2);
 //! ```
 //!
 //! # C API reference
@@ -50,7 +50,7 @@
 //! - `pmix_data_buffer_t *PMIx_Data_buffer_create(void)`
 //! - `void PMIx_Data_buffer_release(pmix_data_buffer_t *buffer)`
 
-use crate::{PmixDataType, PmixStatus, ffi};
+use crate::{ffi, PmixDataType, PmixStatus};
 use std::ptr;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -155,13 +155,11 @@ impl From<Vec<u8>> for PmixByteObject {
         if size == 0 {
             return Self::new();
         }
-        // SAFETY: We allocate a C-compatible buffer and copy the Rust bytes
-        // into it, then set up the byte_object_t with the correct pointer
-        // and size. The Drop impl will call PMIx_Byte_object_destruct to free it.
-        let layout = std::alloc::Layout::from_size_align(size, 1).expect("valid layout");
-        let c_ptr = unsafe { std::alloc::alloc(layout) };
+        // SAFETY: We allocate with libc::malloc so PMIx_Byte_object_destruct
+        // (which calls pmix_free/free) can safely free it on drop.
+        let c_ptr = unsafe { libc::malloc(size) as *mut u8 };
         if c_ptr.is_null() {
-            panic!("alloc failed in PmixByteObject::from(Vec<u8>)");
+            panic!("malloc failed in PmixByteObject::from(Vec<u8>)");
         }
         unsafe {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), c_ptr, size);
@@ -204,10 +202,10 @@ impl Drop for PmixByteObject {
 /// ```no_run
 /// use pmix::{PmixDataType, data_serialization::*};
 ///
-/// let buf = data_buffer_create().expect("create buffer");
+/// let mut buf = data_buffer_create().expect("create buffer");
 /// let val: i32 = 42;
 /// data_pack(None, &buf, &val, 1, PmixDataType::Int32).expect("pack");
-/// data_buffer_release(&buf);
+/// data_buffer_release(&mut buf);
 /// ```
 pub struct PmixDataBuffer {
     ptr: *mut ffi::pmix_data_buffer_t,
@@ -303,7 +301,7 @@ impl std::fmt::Debug for PmixDataBuffer {
 /// ```no_run
 /// use pmix::data_serialization::data_buffer_create;
 ///
-/// let buf = data_buffer_create().expect("failed to create buffer");
+/// let mut buf = data_buffer_create().expect("failed to create buffer");
 /// // use buf...
 /// // buf is automatically released on drop
 /// ```
@@ -331,15 +329,16 @@ pub fn data_buffer_create() -> Result<PmixDataBuffer, PmixStatus> {
 /// ```no_run
 /// use pmix::data_serialization::*;
 ///
-/// let buf = data_buffer_create().expect("create buffer");
-/// data_buffer_release(&buf);
+/// let mut buf = data_buffer_create().expect("create buffer");
+/// data_buffer_release(&mut buf);
 /// // buf is now invalid (double-release is prevented)
 /// ```
-pub fn data_buffer_release(buf: &PmixDataBuffer) {
+pub fn data_buffer_release(buf: &mut PmixDataBuffer) {
     if buf.is_valid() {
         // SAFETY: The pointer is valid and was created by PMIx_Data_buffer_create.
-        // After this call, the pointer is nulled to prevent double-free.
-        unsafe { ffi::PMIx_Data_buffer_release(buf.as_mut_ptr()) };
+        // After this call, the pointer is nulled to prevent double-free on drop.
+        unsafe { ffi::PMIx_Data_buffer_release(buf.ptr) };
+        buf.ptr = ptr::null_mut();
     }
 }
 
@@ -380,7 +379,7 @@ pub fn data_buffer_release(buf: &PmixDataBuffer) {
 /// ```no_run
 /// use pmix::{PmixDataType, data_serialization::*};
 ///
-/// let buf = data_buffer_create().expect("create buffer");
+/// let mut buf = data_buffer_create().expect("create buffer");
 ///
 /// // Pack a single i32
 /// let val: i32 = 42;
@@ -392,7 +391,7 @@ pub fn data_buffer_release(buf: &PmixDataBuffer) {
 /// let packed = data_pack(None, &buf, &bytes, 4, PmixDataType::Uint8).expect("pack bytes");
 /// assert_eq!(packed, 4);
 ///
-/// data_buffer_release(&buf);
+/// data_buffer_release(&mut buf);
 /// ```
 pub fn data_pack<T>(
     target: Option<PmixProcRef>,
@@ -481,7 +480,7 @@ pub fn data_pack<T>(
 /// ```no_run
 /// use pmix::{PmixDataType, data_serialization::*};
 ///
-/// let buf = data_buffer_create().expect("create buffer");
+/// let mut buf = data_buffer_create().expect("create buffer");
 /// // ... buffer was filled by packing ...
 ///
 /// // Unpack a single i32
@@ -558,7 +557,7 @@ pub fn data_unpack<T>(
 /// ```no_run
 /// use pmix::{PmixDataType, data_serialization::*};
 ///
-/// let buf = data_buffer_create().expect("create buffer");
+/// let mut buf = data_buffer_create().expect("create buffer");
 /// let val: i32 = 42;
 /// data_pack(None, &buf, &val, 1, PmixDataType::Int32).expect("pack");
 ///
@@ -611,11 +610,11 @@ pub fn data_unload(buf: &PmixDataBuffer) -> Result<PmixByteObject, PmixStatus> {
 /// ```no_run
 /// use pmix::data_serialization::*;
 ///
-/// let buf = data_buffer_create().expect("create buffer");
+/// let mut buf = data_buffer_create().expect("create buffer");
 /// // payload received from network...
 /// // let payload = receive_payload();
 /// // data_load(&buf, &payload).expect("load");
-/// data_buffer_release(&buf);
+/// data_buffer_release(&mut buf);
 /// ```
 pub fn data_load(buf: &PmixDataBuffer, payload: &PmixByteObject) -> Result<(), PmixStatus> {
     // SAFETY: PMIx_Data_load reads from the byte object's bytes/size and
@@ -946,7 +945,7 @@ impl From<PmixPrintOutput> for String {
 /// ```no_run
 /// use pmix::data_serialization::*;
 ///
-/// let buf = data_buffer_create().expect("create buffer");
+/// let mut buf = data_buffer_create().expect("create buffer");
 /// let payload: PmixByteObject = vec![1u8, 2, 3, 4].into();
 ///
 /// // Embed the payload — payload remains valid after this call
@@ -1052,13 +1051,8 @@ pub fn data_compress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
             // SAFETY: `out_bytes` points to a valid malloc'd buffer of
             // `out_len` bytes, allocated by PMIx_Data_compress.
             let vec = unsafe { std::slice::from_raw_parts(out_bytes, out_len) }.to_vec();
-            // Free the C allocation.
-            unsafe {
-                std::alloc::dealloc(
-                    out_bytes,
-                    std::alloc::Layout::from_size_align(out_len, 1).unwrap_unchecked(),
-                );
-            };
+            // Free the C allocation with libc::free (PMIx uses malloc).
+            unsafe { libc::free(out_bytes as *mut libc::c_void) };
             vec
         } else {
             // Shouldn't happen if success is true, but be defensive.
@@ -1069,12 +1063,7 @@ pub fn data_compress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
         // Compression not possible (data too small or incompressible).
         // out_bytes should be null here; free it if not (defensive).
         if !out_bytes.is_null() {
-            unsafe {
-                std::alloc::dealloc(
-                    out_bytes,
-                    std::alloc::Layout::from_size_align(out_len, 1).unwrap_unchecked(),
-                );
-            }
+            unsafe { libc::free(out_bytes as *mut libc::c_void) };
         }
         Err(PmixStatus::from_raw(-27)) // PMIX_ERR_BAD_PARAM
     }
@@ -1148,13 +1137,8 @@ pub fn data_decompress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
             // SAFETY: `out_bytes` points to a valid malloc'd buffer of
             // `out_len` bytes, allocated by PMIx_Data_decompress.
             let vec = unsafe { std::slice::from_raw_parts(out_bytes, out_len) }.to_vec();
-            // Free the C allocation.
-            unsafe {
-                std::alloc::dealloc(
-                    out_bytes,
-                    std::alloc::Layout::from_size_align(out_len, 1).unwrap_unchecked(),
-                );
-            };
+            // Free the C allocation with libc::free (PMIx uses malloc).
+            unsafe { libc::free(out_bytes as *mut libc::c_void) };
             vec
         } else {
             return Err(PmixStatus::from_raw(-27)); // PMIX_ERR_BAD_PARAM
@@ -1163,12 +1147,7 @@ pub fn data_decompress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
     } else {
         // Decompression failed. Defensive cleanup.
         if !out_bytes.is_null() {
-            unsafe {
-                std::alloc::dealloc(
-                    out_bytes,
-                    std::alloc::Layout::from_size_align(out_len, 1).unwrap_unchecked(),
-                );
-            }
+            unsafe { libc::free(out_bytes as *mut libc::c_void) };
         }
         Err(PmixStatus::from_raw(-27)) // PMIX_ERR_BAD_PARAM
     }

@@ -319,11 +319,11 @@ fn test_embed_buffer_bytes_used() {
 #[test]
 #[ignore]
 fn test_embed_then_release() {
-    let buf = data_buffer_create().expect("create buffer");
+    let mut buf = data_buffer_create().expect("create buffer");
     let payload: PmixByteObject = vec![1u8, 2, 3].into();
 
     data_embed(&buf, Some(&payload)).expect("embed");
-    data_buffer_release(&buf);
+    data_buffer_release(&mut buf);
     // No panic or double-free on release after embed
 }
 
