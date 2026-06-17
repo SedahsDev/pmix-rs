@@ -1,22 +1,23 @@
-# Batch 20 Task Log — groups round 2
+# Batch 21 Task Log — process_mgmt round 2
 
-**Branch:** wt/batch20-groups-round2
-**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch20
-**Started:** 2026-06-16
+**Branch:** wt/batch21-process-mgmt-round2
+**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch21
+**Started:** 2026-06-17
 **Status:** COMPLETED
 
 ## Results
-- Test file: `tests/groups_deep.rs` — **54 tests**
-- Active tests: **32 passed**
-- Ignored tests: **22** (require PMIx_Init)
+- Test file: `tests/process_mgmt_deep.rs` — **53 tests**
+- Active: **33 passed**
+- Ignored: **20** (require PMIx_Init)
 - Full suite: **0 failures**
-- Coverage: groups.rs **67.23%** (unchanged — FFI-heavy)
+- Coverage: process_mgmt.rs **72.45%** (unchanged — FFI-heavy)
 - TOTAL: **68.94%** lines
 
-## Key Discoveries
-- `pmix_group_opt_t` is an enum (PMIX_GROUP_DECLINE, PMIX_GROUP_ACCEPT) — not an integer
-- `Proc` is NOT Copy or Debug — must clone for reuse
-- `group_join` takes `pmix_group_opt_t` as 3rd arg, `&[Info]` as 4th
-- `group_join_nb` takes `&[Info]` before callback
-- All 5 callback wrappers: Construct, Invite, Join, Leave, Destruct
-- `group_construct` rejects empty group_id and empty procs with BAD_PARAM
+## Tests added
+- PmixAppBuilder: default, full, cmd-only, args/envs batch, NUL in cmd/arg/env/cwd, unicode, maxprocs variants, debug format
+- PmixApp: field accessors, debug format, no-cmd case
+- spawn/spawn_nb: empty apps rejected (with/without info)
+- connect/disconnect: empty procs rejected
+- Callback wrappers: spawn, connect, disconnect compile checks
+- Panic safety: spawn, connect, disconnect, resolve_peers, resolve_nodes, abort
+- FFI tests (ignored): spawn single/multi/info, spawn_nb, connect/disconnect variants, resolve_peers/nodes, abort variants, full lifecycle
