@@ -1,23 +1,22 @@
-# Batch 19 Task Log — monitoring round 2
+# Batch 20 Task Log — groups round 2
 
-**Branch:** wt/batch19-monitoring-round2
-**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch19
+**Branch:** wt/batch20-groups-round2
+**Worktree:** /home/bzf/projects/pmix-rs-worktrees/batch20
 **Started:** 2026-06-16
 **Status:** COMPLETED
 
 ## Results
-- Test file: `tests/monitoring_deep.rs` — **24 tests**
-- Active tests: **8 passed**
-- Ignored tests: **16** (require PMIx_Init)
+- Test file: `tests/groups_deep.rs` — **54 tests**
+- Active tests: **32 passed**
+- Ignored tests: **22** (require PMIx_Init)
 - Full suite: **0 failures**
-
-## Coverage Impact
-- monitoring.rs: 65.54% → **65.54%** lines (unchanged — FFI-heavy)
-- TOTAL: 68.94% → **68.94%** lines
+- Coverage: groups.rs **67.23%** (unchanged — FFI-heavy)
+- TOTAL: **68.94%** lines
 
 ## Key Discoveries
-- `MonitorResults` wraps a raw pointer — NOT `Send`
-- `MonitorCallback::on_complete(&mut self, ...)` — takes `&mut self` (not `self: Box<Self>`)
-- `process_monitor(monitor: &Info, error: PmixStatus, directives: &[Info])` — takes error code as param
-- `heartbeat()` builds a `pmix.monitor.beat` info entry and calls `PMIx_Process_monitor_nb` with NULL callback
-- `heartbeat()` does NOT panic even without PMIx_Init — just returns error
+- `pmix_group_opt_t` is an enum (PMIX_GROUP_DECLINE, PMIX_GROUP_ACCEPT) — not an integer
+- `Proc` is NOT Copy or Debug — must clone for reuse
+- `group_join` takes `pmix_group_opt_t` as 3rd arg, `&[Info]` as 4th
+- `group_join_nb` takes `&[Info]` before callback
+- All 5 callback wrappers: Construct, Invite, Join, Leave, Destruct
+- `group_construct` rejects empty group_id and empty procs with BAD_PARAM
