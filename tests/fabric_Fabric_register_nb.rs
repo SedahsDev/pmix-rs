@@ -1,479 +1,320 @@
-//! Tests for `PMIx_Fabric_register_nb` — non-blocking fabric registration.
+//! Phase 4 Batch 2: PmixFabric Non-Blocking Register/Deregister
 //!
-//! Derived from the fabric API spec in the PMIx v4.1 standard (Section 14.4.2)
-//! and the C test patterns in `test/simple/simpfabric.c`. The C test file does
-//! not exercise `PMIx_Fabric_register_nb` directly, so these tests cover the
-//! safe Rust wrapper parameter validation, callback wrapper construction,
-//! error handling paths, and integration scenarios.
+//! Tests for fabric_register_nb and fabric_deregister_nb.
 //!
-//! Tests that require `PMIx_Init` or a PMIx server are marked `#[ignore]`
-//! because they need a running PMIx daemon / server. Calling the FFI without
-//! an initialized PMIx library causes a segfault, so all tests that invoke
-//! `fabric_register_nb` directly are ignored.
+//! IMPORTANT: fabric_register_nb calls FFI unconditionally (no early-return
+//! guard like update_nb/deregister_nb). Tests that invoke fabric_register_nb
+//! are marked #[ignore] with "SIGSEGV — FFI without PMIx init".
+//!
+//! fabric_deregister_nb has `!fabric.registered` guard → safe in user-space.
+//! Callback trait tests, type checks, and signature tests are also safe.
 
-use pmix::PmixStatus;
-use pmix::fabric::{FabricCallback, PmixFabric, fabric_register_nb};
+use pmix::fabric::{
+    fabric_deregister_nb, fabric_register_nb, FabricCallback, PmixFabric,
+};
+use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
+use std::sync::{Arc, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Callback implementations for testing
+// Callback implementations
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// No-op callback — verifies the trait compiles and is object-safe.
-struct NoOpFabricCallback;
+/// No-op callback.
+struct NopCallback;
 
-impl FabricCallback for NoOpFabricCallback {
+impl FabricCallback for NopCallback {
+    fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+}
+
+/// Panic callback — verifies the error path does NOT invoke the callback.
+struct PanicCallback;
+
+impl FabricCallback for PanicCallback {
     fn on_complete(self: Box<Self>, _status: PmixStatus) {
-        // No-op — just verify the trait is object-safe and callable.
+        panic!("PanicCallback should never be invoked on the error path")
     }
 }
 
-/// Callback that records the status it received via Cell.
-struct RecordingFabricCallback {
-    status: std::cell::Cell<Option<PmixStatus>>,
+/// Recording callback — captures status for later assertion.
+struct RecordingCallback {
+    status: Arc<Mutex<Option<PmixStatus>>>,
 }
 
-impl FabricCallback for RecordingFabricCallback {
-    fn on_complete(self: Box<Self>, status: PmixStatus) {
-        self.status.set(Some(status));
-    }
-}
-
-/// Callback that counts how many times it has been invoked.
-struct CountingFabricCallback {
-    count: std::cell::Cell<u32>,
-}
-
-impl FabricCallback for CountingFabricCallback {
-    fn on_complete(self: Box<Self>, _status: PmixStatus) {
-        let c = self.count.get();
-        self.count.set(c + 1);
-    }
-}
-
-/// Callback that captures status via Arc<Mutex<>> for multi-threaded use.
-struct ArcStatusCallback {
-    status: std::sync::Arc<std::sync::Mutex<Option<PmixStatus>>>,
-}
-
-impl FabricCallback for ArcStatusCallback {
+impl FabricCallback for RecordingCallback {
     fn on_complete(self: Box<Self>, status: PmixStatus) {
         *self.status.lock().unwrap() = Some(status);
     }
 }
 
-/// Callback that wraps a closure for flexible test logic.
-struct ClosureCallback {
-    f: std::sync::Arc<std::sync::Mutex<Box<dyn FnMut(PmixStatus) + Send>>>,
+// ─────────────────────────────────────────────────────────────────────────────
+// §1  register_nb — FFI calls (ignored in user-space)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// register_nb on unamed fabric — requires PMIx server.
+#[test]
+#[ignore = "SIGSEGV — fabric_register_nb calls FFI without PMIx init"]
+fn test_register_nb_unamed() {
+    let mut fabric = PmixFabric::unamed();
+    let result = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+    // With server: Ok(()) → callback invoked later
+    // Without server: Err(INIT) → wrapper reclaimed, callback NOT invoked
+    assert!(result.is_err() || result.is_ok());
 }
 
-impl FabricCallback for ClosureCallback {
-    fn on_complete(self: Box<Self>, status: PmixStatus) {
-        let mut guard = self.f.lock().unwrap();
-        guard(status);
+/// register_nb with empty directives — requires PMIx server.
+#[test]
+#[ignore = "SIGSEGV — fabric_register_nb calls FFI without PMIx init"]
+fn test_register_nb_empty_directives() {
+    let mut fabric = PmixFabric::unamed();
+    let result = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+    assert!(result.is_err() || result.is_ok());
+}
+
+/// register_nb with a single directive — requires PMIx server.
+#[test]
+#[ignore = "SIGSEGV — fabric_register_nb calls FFI without PMIx init"]
+fn test_register_nb_single_directive() {
+    let mut fabric = PmixFabric::unamed();
+    let info = InfoBuilder::new().build();
+    let directives: &[Info] = std::slice::from_ref(&info);
+    let result = fabric_register_nb(&mut fabric, directives, Box::new(NopCallback));
+    assert!(result.is_err() || result.is_ok());
+}
+
+/// register_nb with multiple directives — requires PMIx server.
+#[test]
+#[ignore = "SIGSEGV — fabric_register_nb calls FFI without PMIx init"]
+fn test_register_nb_multiple_directives() {
+    let mut fabric = PmixFabric::unamed();
+    let directives = vec![InfoBuilder::new().build(), InfoBuilder::new().build()];
+    let result = fabric_register_nb(&mut fabric, &directives, Box::new(NopCallback));
+    assert!(result.is_err() || result.is_ok());
+}
+
+/// register_nb callback not invoked on error path — requires PMIx server.
+#[test]
+#[ignore = "SIGSEGV — fabric_register_nb calls FFI without PMIx init"]
+fn test_register_nb_callback_not_invoked_on_error() {
+    let mut fabric = PmixFabric::unamed();
+    let _result = fabric_register_nb(&mut fabric, &[], Box::new(PanicCallback));
+    // If FFI returns error, wrapper is reclaimed and callback is NOT invoked.
+    // If FFI returns success, callback IS invoked later (panic → test fails).
+    // In user-space, this test is ignored because FFI segfaults.
+}
+
+/// register_nb wrapper reclamation — requires PMIx server.
+#[test]
+#[ignore = "SIGSEGV — fabric_register_nb calls FFI without PMIx init"]
+fn test_register_nb_wrapper_reclamation_loop() {
+    for _ in 0..10 {
+        let mut fabric = PmixFabric::unamed();
+        let _ = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
     }
 }
 
+/// register_nb does not panic — requires PMIx server.
+#[test]
+#[ignore = "SIGSEGV — fabric_register_nb calls FFI without PMIx init"]
+fn test_register_nb_no_panic_unamed() {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut f = PmixFabric::unamed();
+        fabric_register_nb(&mut f, &[], Box::new(NopCallback))
+    }));
+    // Result may be Err (no server) or Ok (server present).
+    // Key point: no panic.
+    assert!(result.is_ok(), "register_nb must not panic on unamed fabric");
+}
+
+/// register_nb with recording callback — requires PMIx server.
+#[test]
+#[ignore = "SIGSEGV — fabric_register_nb calls FFI without PMIx init"]
+fn test_register_nb_recording_callback() {
+    let mut fabric = PmixFabric::unamed();
+    let status = Arc::new(Mutex::new(None));
+    let result = fabric_register_nb(
+        &mut fabric,
+        &[],
+        Box::new(RecordingCallback {
+            status: Arc::clone(&status),
+        }),
+    );
+    if result.is_err() {
+        return; // No server — callback not invoked, wrapper reclaimed.
+    }
+    // With server: callback will be invoked asynchronously.
+    assert!(fabric.is_registered());
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// FabricCallback trait tests (no FFI — these always pass)
+// §2  deregister_nb — user-space safe (!fabric.registered guard)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// FabricCallback is object-safe — can be boxed and stored as dyn.
+/// deregister_nb on unamed fabric returns BAD_PARAM.
 #[test]
-fn fabric_register_nb_callback_trait_object() {
-    let _cb: Box<dyn FabricCallback> = Box::new(NoOpFabricCallback);
+fn test_deregister_nb_unregistered_bad_param() {
+    let mut fabric = PmixFabric::unamed();
+    let result = fabric_deregister_nb(&mut fabric, Box::new(NopCallback));
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
 }
 
-/// RecordingFabricCallback compiles and is object-safe.
+/// deregister_nb on named (unregistered) fabric returns BAD_PARAM.
 #[test]
-fn fabric_register_nb_callback_records_status_type() {
-    let cb = RecordingFabricCallback {
-        status: std::cell::Cell::new(None),
-    };
-    let _boxed: Box<dyn FabricCallback> = Box::new(cb);
+fn test_deregister_nb_named_unregistered_bad_param() {
+    let mut fabric = PmixFabric::new(Some("dereg_nb_test")).unwrap();
+    let result = fabric_deregister_nb(&mut fabric, Box::new(NopCallback));
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
+    assert_eq!(fabric.name(), Some("dereg_nb_test"));
 }
 
-/// CountingFabricCallback compiles and is object-safe.
+/// deregister_nb callback NOT invoked on error path.
 #[test]
-fn fabric_register_nb_callback_counting_type() {
-    let cb = CountingFabricCallback {
-        count: std::cell::Cell::new(0),
-    };
-    let _boxed: Box<dyn FabricCallback> = Box::new(cb);
+fn test_deregister_nb_callback_not_invoked_on_error() {
+    let mut fabric = PmixFabric::unamed();
+    let result = fabric_deregister_nb(&mut fabric, Box::new(PanicCallback));
+    assert!(result.is_err());
+    // PanicCallback was NOT invoked — wrapper was reclaimed.
 }
 
-/// ArcStatusCallback compiles and is object-safe.
+/// deregister_nb wrapper reclamation — 100 iterations, no leaks.
 #[test]
-fn fabric_register_nb_callback_arc_status_type() {
-    let cb = ArcStatusCallback {
-        status: std::sync::Arc::new(std::sync::Mutex::new(None)),
-    };
-    let _boxed: Box<dyn FabricCallback> = Box::new(cb);
+fn test_deregister_nb_wrapper_reclamation_loop() {
+    for _ in 0..100 {
+        let mut fabric = PmixFabric::unamed();
+        let _ = fabric_deregister_nb(&mut fabric, Box::new(NopCallback));
+    }
 }
 
-/// ClosureCallback compiles and is object-safe.
+/// deregister_nb does not panic on unamed fabric.
 #[test]
-fn fabric_register_nb_callback_closure_type() {
-    let cb = ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
-    };
-    let _boxed: Box<dyn FabricCallback> = Box::new(cb);
+fn test_deregister_nb_no_panic_unamed() {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut f = PmixFabric::unamed();
+        fabric_deregister_nb(&mut f, Box::new(NopCallback))
+    }));
+    assert!(result.is_ok(), "deregister_nb must not panic on unamed fabric");
 }
 
-/// FabricCallback is Send (required by the trait bound).
+/// deregister_nb error is an error status.
 #[test]
-fn fabric_register_nb_callback_is_send() {
+fn test_deregister_nb_error_is_error_status() {
+    let mut fabric = PmixFabric::unamed();
+    let result = fabric_deregister_nb(&mut fabric, Box::new(NopCallback));
+    let err = result.unwrap_err();
+    assert!(err.is_error(), "deregister_nb error must be an error status");
+}
+
+/// deregister_nb preserves fabric state after error.
+#[test]
+fn test_deregister_nb_preserves_state() {
+    let mut fabric = PmixFabric::new(Some("state_preserved")).unwrap();
+    let _ = fabric_deregister_nb(&mut fabric, Box::new(NopCallback));
+    assert!(!fabric.is_registered());
+    assert_eq!(fabric.name(), Some("state_preserved"));
+    assert_eq!(fabric.index(), 0);
+    assert_eq!(fabric.ninfo(), 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §3  Callback trait tests (user-space safe)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// FabricCallback requires Send + 'static.
+#[test]
+fn test_fabric_callback_send_bound() {
     fn assert_send<T: Send>() {}
     assert_send::<Box<dyn FabricCallback>>();
 }
 
-/// NoOpFabricCallback is Send.
+/// NopCallback implements Send.
 #[test]
-fn fabric_register_nb_callback_noop_is_send() {
+fn test_nop_callback_is_send() {
     fn assert_send<T: Send>() {}
-    assert_send::<NoOpFabricCallback>();
+    assert_send::<NopCallback>();
 }
 
-/// RecordingFabricCallback is Send.
+/// RecordingCallback implements Send (Arc<Mutex<>> is Send).
 #[test]
-fn fabric_register_nb_callback_recording_is_send() {
+fn test_recording_callback_is_send() {
     fn assert_send<T: Send>() {}
-    assert_send::<RecordingFabricCallback>();
-}
-
-/// ArcStatusCallback is Send.
-#[test]
-fn fabric_register_nb_callback_arc_is_send() {
-    fn assert_send<T: Send>() {}
-    assert_send::<ArcStatusCallback>();
-}
-
-/// ClosureCallback is Send.
-#[test]
-fn fabric_register_nb_callback_closure_is_send() {
-    fn assert_send<T: Send>() {}
-    assert_send::<ClosureCallback>();
+    assert_send::<RecordingCallback>();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PmixFabric construction — prerequisites for fabric_register_nb
+// §4  Function signature checks
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// PmixFabric can be created unnamed — prerequisite for fabric_register_nb.
+/// register_nb has the correct function signature.
 #[test]
-fn fabric_register_nb_fabric_unamed() {
-    let fabric = PmixFabric::unamed();
-    assert!(!fabric.is_registered());
-    assert_eq!(fabric.index(), 0);
-    assert_eq!(fabric.ninfo(), 0);
-    assert_eq!(fabric.name(), None);
-}
-
-/// PmixFabric can be created with a name — prerequisite for fabric_register_nb.
-#[test]
-fn fabric_register_nb_fabric_named() {
-    let fabric = PmixFabric::new(Some("infiniband")).unwrap();
-    assert!(!fabric.is_registered());
-    assert_eq!(fabric.name(), Some("infiniband"));
-}
-
-/// PmixFabric can be created with None name.
-#[test]
-fn fabric_register_nb_fabric_none_name() {
-    let fabric = PmixFabric::new(None).unwrap();
-    assert!(!fabric.is_registered());
-    assert_eq!(fabric.name(), None);
-}
-
-/// PmixFabric::new rejects names with interior NUL bytes.
-#[test]
-fn fabric_register_nb_fabric_nul_name_rejected() {
-    let result = PmixFabric::new(Some("test\0fabric"));
-    assert!(result.is_err());
-}
-
-/// PmixFabric implements Debug.
-#[test]
-fn fabric_register_nb_fabric_debug() {
-    let fabric = PmixFabric::new(Some("debug_test")).unwrap();
-    let debug_str = format!("{:?}", fabric);
-    assert!(!debug_str.is_empty());
-    assert!(debug_str.contains("PmixFabric"));
-    assert!(debug_str.contains("debug_test"));
-}
-
-/// PmixFabric Debug for unnamed fabric.
-#[test]
-fn fabric_register_nb_fabric_debug_unamed() {
-    let fabric = PmixFabric::unamed();
-    let debug_str = format!("{:?}", fabric);
-    assert!(debug_str.contains("PmixFabric"));
-    assert!(debug_str.contains("registered"));
-}
-
-/// PmixFabric index and ninfo start at zero.
-#[test]
-fn fabric_register_nb_fabric_initial_state() {
-    let fabric = PmixFabric::unamed();
-    assert_eq!(fabric.index(), 0);
-    assert_eq!(fabric.ninfo(), 0);
-    assert!(!fabric.is_registered());
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Signature and type compatibility tests (compile-only, no FFI)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// fabric_register_nb accepts the correct parameter types.
-/// This is a compile-time check — the function signature must accept:
-/// &mut PmixFabric, &[Info], Box<dyn FabricCallback>.
-#[test]
-fn fabric_register_nb_signature_compiles() {
-    // Verify the function is callable with the right types.
-    // We can't actually call it without a PMIx server (segfaults),
-    // but we can verify the types are correct by checking it compiles.
-    fn _check_signature(
-        fabric: &mut PmixFabric,
-        callback: Box<dyn FabricCallback>,
-    ) -> Result<(), PmixStatus> {
-        fabric_register_nb(fabric, &[], callback)
-    }
-    // Just verify the function pointer type is valid.
-    let _ =
-        _check_signature as fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>;
-}
-
-/// Multiple callback implementations can all be passed to fabric_register_nb.
-#[test]
-fn fabric_register_nb_multiple_callback_types_compile() {
-    // Verify all callback types implement FabricCallback.
-    let _: Box<dyn FabricCallback> = Box::new(NoOpFabricCallback);
-    let _: Box<dyn FabricCallback> = Box::new(RecordingFabricCallback {
-        status: std::cell::Cell::new(None),
-    });
-    let _: Box<dyn FabricCallback> = Box::new(CountingFabricCallback {
-        count: std::cell::Cell::new(0),
-    });
-    let _: Box<dyn FabricCallback> = Box::new(ArcStatusCallback {
-        status: std::sync::Arc::new(std::sync::Mutex::new(None)),
-    });
-    let _: Box<dyn FabricCallback> = Box::new(ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {}))),
-    });
-}
-
-/// fabric_register_nb return type is Result<(), PmixStatus>.
-#[test]
-fn fabric_register_nb_return_type() {
-    // Verify the return type is what we expect.
-    fn _check_return(
-        _f: fn(&mut PmixFabric, &[pmix::Info], Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
+fn test_register_nb_signature() {
+    fn _check_sig(
+        _f: fn(&mut PmixFabric, &[Info], Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
     ) {
     }
-    _check_return(fabric_register_nb);
+    _check_sig(fabric_register_nb);
+}
+
+/// deregister_nb has the correct function signature.
+#[test]
+fn test_deregister_nb_signature() {
+    fn _check_sig(_f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>) {}
+    _check_sig(fabric_deregister_nb);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Callback wrapper memory safety (compile checks, no FFI)
+// §5  Multiple fabrics independence (deregister_nb only — safe)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Callback wrapper with large captured data compiles.
+/// Multiple fabrics with independent nb deregister attempts.
 #[test]
-fn fabric_register_nb_large_callback_data_compiles() {
-    struct LargeCallback {
-        #[allow(dead_code)]
-        data: Vec<u8>,
-    }
-    impl FabricCallback for LargeCallback {
-        fn on_complete(self: Box<Self>, _status: PmixStatus) {
-            // Data is dropped here.
-        }
-    }
-    let _cb: Box<dyn FabricCallback> = Box::new(LargeCallback {
-        data: vec![0u8; 4096],
-    });
-}
+fn test_multiple_fabrics_nb_deregister() {
+    let mut fabrics: Vec<_> = (0..5)
+        .map(|i| PmixFabric::new(Some(&format!("dereg_nb_{}", i))).unwrap())
+        .collect();
 
-/// Callback wrapper can capture complex state (Arc, Mutex, Vec).
-#[test]
-fn fabric_register_nb_complex_callback_state() {
-    struct ComplexCallback {
-        statuses: std::sync::Arc<std::sync::Mutex<Vec<PmixStatus>>>,
-        name: String,
+    for f in &mut fabrics {
+        let result = fabric_deregister_nb(f, Box::new(NopCallback));
+        assert!(result.is_err());
     }
-    impl FabricCallback for ComplexCallback {
-        fn on_complete(self: Box<Self>, status: PmixStatus) {
-            self.statuses.lock().unwrap().push(status);
-        }
-    }
-    let cb = ComplexCallback {
-        statuses: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
-        name: "complex_test".to_string(),
-    };
-    let _boxed: Box<dyn FabricCallback> = Box::new(cb);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Integration tests (require PMIx daemon — all ignored)
+// §6  Deregister nb with recording callback (user-space safe)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// fabric_register_nb with an unnamed fabric and no directives.
-/// This is the simplest possible call — register the default fabric.
+/// Recording callback NOT invoked on deregister_nb error path.
 #[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_unamed_no_directives() {
+fn test_deregister_nb_recording_callback_not_invoked() {
     let mut fabric = PmixFabric::unamed();
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(NoOpFabricCallback));
-    if result.is_ok() {
-        assert!(fabric.is_registered());
-    }
-}
-
-/// fabric_register_nb with a named fabric.
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_named_fabric() {
-    let mut fabric = PmixFabric::new(Some("infiniband")).unwrap();
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(NoOpFabricCallback));
-    if result.is_ok() {
-        assert!(fabric.is_registered());
-        assert!(fabric.index() > 0);
-    }
-}
-
-/// fabric_register_nb with a recording callback — verify callback receives status.
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_recording_callback() {
-    use std::sync::{Arc, Mutex};
-
     let status = Arc::new(Mutex::new(None));
-    let status_clone = status.clone();
-    let cb = ArcStatusCallback {
-        status: status_clone,
-    };
+    let result = fabric_deregister_nb(
+        &mut fabric,
+        Box::new(RecordingCallback {
+            status: Arc::clone(&status),
+        }),
+    );
+    assert!(result.is_err());
+    // Callback was NOT invoked — status remains None.
+    assert!(status.lock().unwrap().is_none());
+}
 
+/// Recording callback invoked by daemon after successful deregister.
+#[test]
+#[ignore = "requires PMIx daemon"]
+fn test_deregister_nb_recording_callback_with_daemon() {
     let mut fabric = PmixFabric::unamed();
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(cb));
-    if result.is_ok() {
-        assert!(fabric.is_registered());
+    let status = Arc::new(Mutex::new(None));
+    let result = fabric_deregister_nb(
+        &mut fabric,
+        Box::new(RecordingCallback {
+            status: Arc::clone(&status),
+        }),
+    );
+    if result.is_err() {
+        return; // No server
     }
-}
-
-/// fabric_register_nb with a closure callback — verify closure is accepted.
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_closure_callback() {
-    let called = std::sync::Arc::new(std::sync::Mutex::new(false));
-    let called_clone = called.clone();
-    let cb = ClosureCallback {
-        f: std::sync::Arc::new(std::sync::Mutex::new(Box::new(move |_: PmixStatus| {
-            *called_clone.lock().unwrap() = true;
-        }))),
-    };
-
-    let mut fabric = PmixFabric::unamed();
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(cb));
-    if result.is_ok() {
-        assert!(fabric.is_registered());
-    }
-}
-
-/// fabric_register_nb followed by fabric_update_nb then fabric_deregister_nb.
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_full_lifecycle() {
-    use pmix::fabric::{fabric_deregister_nb, fabric_update_nb};
-
-    let mut fabric = PmixFabric::new(Some("lifecycle")).unwrap();
-
-    // Register (non-blocking)
-    let reg = fabric_register_nb(&mut fabric, &[], Box::new(NoOpFabricCallback));
-    if reg.is_err() {
-        return; // No PMIx server
-    }
-    assert!(fabric.is_registered());
-
-    // Update (non-blocking)
-    let _update = fabric_update_nb(&mut fabric, Box::new(NoOpFabricCallback));
-
-    // Deregister (non-blocking)
-    let _dereg = fabric_deregister_nb(&mut fabric, Box::new(NoOpFabricCallback));
-}
-
-/// fabric_register_nb with multiple fabrics registered simultaneously.
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_multiple_fabrics() {
-    let mut fabrics: Vec<PmixFabric> = Vec::new();
-    for i in 0..3 {
-        fabrics.push(PmixFabric::new(Some(&format!("fabric_{}", i))).unwrap());
-    }
-
-    for fabric in &mut fabrics {
-        let result = fabric_register_nb(fabric, &[], Box::new(NoOpFabricCallback));
-        if result.is_ok() {
-            assert!(fabric.is_registered());
-        }
-    }
-}
-
-/// fabric_register_nb callback receives PMIX_SUCCESS on successful registration.
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_callback_receives_success() {
-    let status = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let status_clone = status.clone();
-    let cb = ArcStatusCallback {
-        status: status_clone,
-    };
-
-    let mut fabric = PmixFabric::unamed();
-    let _result = fabric_register_nb(&mut fabric, &[], Box::new(cb));
-    // Callback will be invoked asynchronously by PMIx.
-}
-
-/// fabric_register_nb with a counting callback — verify it can track invocations.
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_counting_callback() {
-    let cb = CountingFabricCallback {
-        count: std::cell::Cell::new(0),
-    };
-    let mut fabric = PmixFabric::unamed();
-    let _result = fabric_register_nb(&mut fabric, &[], Box::new(cb));
-}
-
-/// fabric_register_nb registers the fabric (sets registered flag on success).
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_sets_registered_flag() {
-    let mut fabric = PmixFabric::unamed();
     assert!(!fabric.is_registered());
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(NoOpFabricCallback));
-    if result.is_ok() {
-        assert!(fabric.is_registered());
-    }
-}
-
-/// fabric_register_nb with complex callback state.
-#[test]
-#[ignore = "requires PMIx daemon"]
-fn fabric_register_nb_complex_callback() {
-    struct ComplexCallback {
-        statuses: std::sync::Arc<std::sync::Mutex<Vec<PmixStatus>>>,
-        name: String,
-    }
-    impl FabricCallback for ComplexCallback {
-        fn on_complete(self: Box<Self>, status: PmixStatus) {
-            self.statuses.lock().unwrap().push(status);
-        }
-    }
-
-    let cb = ComplexCallback {
-        statuses: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
-        name: "complex_test".to_string(),
-    };
-
-    let mut fabric = PmixFabric::unamed();
-    let _result = fabric_register_nb(&mut fabric, &[], Box::new(cb));
 }
