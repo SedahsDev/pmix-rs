@@ -775,3 +775,21 @@ pub fn tool_set_server(server: &Proc, info: &Info) -> Result<(), PmixStatus> {
         Err(pmix_status)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_tool_is_connected — connection status check
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Check whether the current tool is connected to the PMIx server.
+///
+/// Returns `true` if the tool's connection to the server is active,
+/// `false` if disconnected or if PMIx has not been initialized.
+///
+/// This is useful for detecting disconnection events and determining
+/// whether to retry operations or exit gracefully.
+///
+/// # C API
+/// `bool PMIx_tool_is_connected(void);`
+pub fn tool_is_connected() -> bool {
+    unsafe { ffi::PMIx_tool_is_connected() }
+}

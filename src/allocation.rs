@@ -47,7 +47,7 @@
 //! }
 //! ```
 
-use std::ffi::c_int;
+use std::ffi::{c_int, c_void};
 use std::ptr;
 use std::sync::Mutex;
 
@@ -804,6 +804,194 @@ pub fn job_control_nb(
         let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
         registry.remove(&req_id);
         Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Session_control — session-level control APIs
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Owned wrapper around the `pmix_info_t` array returned by
+/// `PMIx_Session_control` callbacks. Automatically frees via
+/// `PMIx_Info_free` on drop.
+#[derive(Debug)]
+pub struct SessionControlResults {
+    handle: *mut ffi::pmix_info_t,
+    len: usize,
+}
+
+impl SessionControlResults {
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl Drop for SessionControlResults {
+    fn drop(&mut self) {
+        if !self.handle.is_null() && self.len > 0 {
+            unsafe {
+                ffi::PMIx_Info_free(self.handle, self.len);
+                self.handle = ptr::null_mut();
+                self.len = 0;
+            }
+        }
+    }
+}
+
+/// Callback trait for [`session_control`].
+///
+/// Implement this trait to receive the result of an asynchronous
+/// session control operation.
+pub trait SessionControlCallback: Send + 'static {
+    fn on_complete(&self, status: PmixStatus, results: SessionControlResults);
+}
+
+static SESSION_CTRL_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+
+static SESSION_CTRL_REGISTRY: LazyLock<
+    Mutex<std::collections::HashMap<usize, Box<dyn SessionControlCallback>>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+extern "C" fn session_control_callback_bridge(
+    status: ffi::pmix_status_t,
+    info: *mut ffi::pmix_info_t,
+    ninfo: usize,
+    _release_cbdata: *mut c_void,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    let req_id = (cbdata as usize) >> 2;
+
+    let cb = {
+        let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+        registry.remove(&req_id)
+    };
+    let cb = match cb {
+        Some(cb) => cb,
+        None => {
+            if !info.is_null() && ninfo > 0 {
+                unsafe {
+                    ffi::PMIx_Info_free(info, ninfo);
+                }
+            }
+            return;
+        }
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    let results = SessionControlResults {
+        handle: info,
+        len: ninfo,
+    };
+    cb.on_complete(pmix_status, results);
+    let _ = release_fn;
+}
+
+/// Send a session-level control command to the PMIx server (non-blocking).
+///
+/// Session control allows the caller to perform session-wide operations
+/// such as pausing, resuming, or terminating all processes within a
+/// given session. The `sessionID` identifies the target session and
+/// `directives` carry the control action and parameters.
+///
+/// Passing `None` for `callback` makes this a blocking call where the
+/// return status indicates the overall operation's completion.
+///
+/// # Parameters
+/// - `session_id`: The session identifier to control.
+/// - `directives`: Array of [`Info`] entries specifying the control action.
+/// - `callback`: Optional boxed callback for async completion. Pass `None`
+///   for a blocking call.
+///
+/// # Returns
+/// - With callback: `Ok(())` if accepted, `Err(PmixStatus)` if rejected.
+///   The callback receives the final result.
+/// - Without callback: `Ok(SessionControlResults)` on success, `Err(PmixStatus)` on failure.
+///
+/// # C API
+/// `pmix_status_t PMIx_Session_control(uint32_t sessionID,`\n`  const pmix_info_t directives[], size_t ndirs,`\n`  pmix_info_cbfunc_t cbfunc, void *cbdata);`
+pub fn session_control(
+    session_id: u32,
+    directives: &[Info],
+    callback: Option<Box<dyn SessionControlCallback>>,
+) -> Result<Option<SessionControlResults>, PmixStatus> {
+    let directives_ptr = if directives.is_empty() {
+        ptr::null_mut()
+    } else {
+        &directives[0] as *const Info as *mut ffi::pmix_info_t
+    };
+    let ndirs = directives.len();
+
+    match callback {
+        Some(cb) => {
+            // Non-blocking mode
+            let req_id = {
+                let mut seq = SESSION_CTRL_SEQ.lock().unwrap();
+                *seq += 1;
+                *seq
+            };
+            let cbdata = (req_id << 2) as *mut c_void;
+
+            {
+                let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+                registry.insert(req_id, cb);
+            }
+
+            let status = unsafe {
+                ffi::PMIx_Session_control(
+                    session_id,
+                    directives_ptr,
+                    ndirs,
+                    Some(session_control_callback_bridge),
+                    cbdata,
+                )
+            };
+
+            let pmix_status = PmixStatus::from_raw(status);
+            if pmix_status.is_success() {
+                Ok(None)
+            } else {
+                let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+                registry.remove(&req_id);
+                Err(pmix_status)
+            }
+        }
+        None => {
+            // Blocking mode — pass NULL cbfunc
+            let results: *mut ffi::pmix_info_t = ptr::null_mut();
+            let nresults: usize = 0;
+
+            // For blocking mode, we pass a dummy callback that writes to our
+            // output variables. However, the C API says passing NULL cbfunc
+            // makes it blocking with return status as the indicator.
+            let status = unsafe {
+                ffi::PMIx_Session_control(
+                    session_id,
+                    directives_ptr,
+                    ndirs,
+                    None,
+                    ptr::null_mut(),
+                )
+            };
+
+            let pmix_status = PmixStatus::from_raw(status);
+            if pmix_status.is_success() {
+                Ok(Some(SessionControlResults {
+                    handle: results,
+                    len: nresults,
+                }))
+            } else {
+                Err(pmix_status)
+            }
+        }
     }
 }
 
