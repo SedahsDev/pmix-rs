@@ -568,6 +568,14 @@ impl PmixTopology {
             self.topology = (*self.raw.as_ptr()).topology;
         }
     }
+
+    /// Create a test instance of `PmixTopology` without FFI.
+    ///
+    /// Test helper — creates a PmixTopology without FFI.
+    /// and loaded is false, so drop is a no-op.
+    pub fn test_new(source: Option<&str>) -> Result<Self, std::ffi::NulError> {
+        Self::new(source)
+    }
 }
 
 impl Drop for PmixTopology {
@@ -618,6 +626,18 @@ impl PmixCpuset {
         unsafe { ffi::PMIx_Cpuset_construct(raw_ptr) };
         this.constructed = true;
         this
+    }
+
+    /// Create a test instance of `PmixCpuset` without calling FFI construct.
+    ///
+    /// Test helper — creates a PmixCpuset without calling FFI construct.
+    /// but the raw data is uninit — use only for tests that don't actually
+    /// pass the pointer to FFI.
+    pub fn test_new() -> Self {
+        Self {
+            raw: std::mem::MaybeUninit::uninit(),
+            constructed: true,
+        }
     }
 
     /// Get a mutable pointer to the raw `pmix_cpuset_t` for FFI calls.
@@ -728,8 +748,7 @@ impl PmixDeviceDistance {
 
     /// Create a test instance of `PmixDeviceDistance` without FFI.
     ///
-    /// Only available under `#[cfg(test)]`.
-    #[cfg(test)]
+    /// Test helper — creates a PmixDeviceDistance without FFI.
     pub fn test_new(
         uuid: &str,
         osname: &str,
@@ -777,9 +796,8 @@ impl DeviceDistances {
 
     /// Create a test instance of `DeviceDistances` without FFI.
     ///
-    /// Only available under `#[cfg(test)]`. The raw pointer is null so
+    /// Test helper — creates DeviceDistances without FFI. The raw pointer is null so
     /// drop is a no-op.
-    #[cfg(test)]
     pub fn test_new(distances: Vec<PmixDeviceDistance>) -> Self {
         Self {
             distances,
