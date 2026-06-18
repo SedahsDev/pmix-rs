@@ -725,6 +725,26 @@ impl PmixDeviceDistance {
             maxdist: raw.maxdist,
         }
     }
+
+    /// Create a test instance of `PmixDeviceDistance` without FFI.
+    ///
+    /// Only available under `#[cfg(test)]`.
+    #[cfg(test)]
+    pub fn test_new(
+        uuid: &str,
+        osname: &str,
+        device_type: PmixDeviceType,
+        mindist: u16,
+        maxdist: u16,
+    ) -> Self {
+        Self {
+            uuid: uuid.to_string(),
+            osname: osname.to_string(),
+            device_type,
+            mindist,
+            maxdist,
+        }
+    }
 }
 
 /// A collection of device distances returned by [`compute_distances`].
@@ -753,6 +773,19 @@ impl DeviceDistances {
     /// Check if there are no distance entries.
     pub fn is_empty(&self) -> bool {
         self.distances.is_empty()
+    }
+
+    /// Create a test instance of `DeviceDistances` without FFI.
+    ///
+    /// Only available under `#[cfg(test)]`. The raw pointer is null so
+    /// drop is a no-op.
+    #[cfg(test)]
+    pub fn test_new(distances: Vec<PmixDeviceDistance>) -> Self {
+        Self {
+            distances,
+            raw_ptr: ptr::null_mut(),
+            len: 0,
+        }
     }
 }
 
@@ -1353,5 +1386,123 @@ mod tests {
         let mut fabric = PmixFabric::unamed();
         let result = fabric_deregister_nb(&mut fabric, Box::new(NbCb));
         assert!(result.is_err());
+    }
+
+    // ── PmixDeviceDistance accessor tests ──
+
+    /// Test PmixDeviceDistance constructor and uuid accessor.
+    #[test]
+    fn test_device_distance_uuid() {
+        let dist = PmixDeviceDistance::test_new("gpu-001", "nvidia0", PmixDeviceType::Gpu, 10, 50);
+        assert_eq!(dist.uuid(), "gpu-001");
+    }
+
+    /// Test PmixDeviceDistance osname accessor.
+    #[test]
+    fn test_device_distance_osname() {
+        let dist = PmixDeviceDistance::test_new("gpu-001", "nvidia0", PmixDeviceType::Gpu, 10, 50);
+        assert_eq!(dist.osname(), "nvidia0");
+    }
+
+    /// Test PmixDeviceDistance device_type accessor.
+    #[test]
+    fn test_device_distance_device_type() {
+        let dist = PmixDeviceDistance::test_new("gpu-001", "nvidia0", PmixDeviceType::Gpu, 10, 50);
+        assert_eq!(dist.device_type(), PmixDeviceType::Gpu);
+    }
+
+    /// Test PmixDeviceDistance mindist accessor.
+    #[test]
+    fn test_device_distance_mindist() {
+        let dist = PmixDeviceDistance::test_new("net-001", "eth0", PmixDeviceType::Network, 5, 20);
+        assert_eq!(dist.mindist(), 5);
+    }
+
+    /// Test PmixDeviceDistance maxdist accessor.
+    #[test]
+    fn test_device_distance_maxdist() {
+        let dist = PmixDeviceDistance::test_new("net-001", "eth0", PmixDeviceType::Network, 5, 20);
+        assert_eq!(dist.maxdist(), 20);
+    }
+
+    /// Test PmixDeviceDistance with empty strings.
+    #[test]
+    fn test_device_distance_empty_strings() {
+        let dist = PmixDeviceDistance::test_new("", "", PmixDeviceType::UnknownType, 0, 0);
+        assert_eq!(dist.uuid(), "");
+        assert_eq!(dist.osname(), "");
+        assert_eq!(dist.device_type(), PmixDeviceType::UnknownType);
+        assert_eq!(dist.mindist(), 0);
+        assert_eq!(dist.maxdist(), 0);
+    }
+
+    /// Test PmixDeviceDistance with all device types.
+    #[test]
+    fn test_device_distance_all_types() {
+        let gpu = PmixDeviceDistance::test_new("g", "g", PmixDeviceType::Gpu, 1, 2);
+        assert_eq!(gpu.device_type(), PmixDeviceType::Gpu);
+        let net = PmixDeviceDistance::test_new("n", "n", PmixDeviceType::Network, 3, 4);
+        assert_eq!(net.device_type(), PmixDeviceType::Network);
+        let unknown = PmixDeviceDistance::test_new("u", "u", PmixDeviceType::Unknown(0xFF), 5, 6);
+        assert_eq!(unknown.device_type(), PmixDeviceType::Unknown(0xFF));
+    }
+
+    // ── DeviceDistances accessor tests ──
+
+    /// Test DeviceDistances with empty collection.
+    #[test]
+    fn test_device_distances_empty() {
+        let distances = DeviceDistances::test_new(vec![]);
+        assert!(distances.is_empty());
+        assert_eq!(distances.len(), 0);
+        assert_eq!(distances.distances().len(), 0);
+    }
+
+    /// Test DeviceDistances with single entry.
+    #[test]
+    fn test_device_distances_single() {
+        let entry = PmixDeviceDistance::test_new("gpu-001", "nvidia0", PmixDeviceType::Gpu, 10, 50);
+        let distances = DeviceDistances::test_new(vec![entry]);
+        assert!(!distances.is_empty());
+        assert_eq!(distances.len(), 1);
+        assert_eq!(distances.distances().len(), 1);
+        assert_eq!(distances.distances()[0].uuid(), "gpu-001");
+    }
+
+    /// Test DeviceDistances with multiple entries.
+    #[test]
+    fn test_device_distances_multiple() {
+        let entries = vec![
+            PmixDeviceDistance::test_new("gpu-001", "nvidia0", PmixDeviceType::Gpu, 10, 50),
+            PmixDeviceDistance::test_new("gpu-002", "nvidia1", PmixDeviceType::Gpu, 15, 55),
+            PmixDeviceDistance::test_new("net-001", "eth0", PmixDeviceType::Network, 20, 80),
+        ];
+        let distances = DeviceDistances::test_new(entries);
+        assert!(!distances.is_empty());
+        assert_eq!(distances.len(), 3);
+        assert_eq!(distances.distances()[0].uuid(), "gpu-001");
+        assert_eq!(distances.distances()[1].uuid(), "gpu-002");
+        assert_eq!(distances.distances()[2].uuid(), "net-001");
+    }
+
+    /// Test DeviceDistances Debug formatting.
+    #[test]
+    fn test_device_distances_debug() {
+        let entry = PmixDeviceDistance::test_new("gpu-001", "nvidia0", PmixDeviceType::Gpu, 10, 50);
+        let distances = DeviceDistances::test_new(vec![entry]);
+        let debug_str = format!("{:?}", distances);
+        assert!(debug_str.contains("DeviceDistances"));
+        assert!(!debug_str.is_empty());
+    }
+
+    /// Test DeviceDistances drop with null raw_ptr (test_new path).
+    #[test]
+    fn test_device_distances_drop_null_raw() {
+        // Should not panic or leak when raw_ptr is null.
+        let distances = DeviceDistances::test_new(vec![
+            PmixDeviceDistance::test_new("g1", "n1", PmixDeviceType::Gpu, 1, 2),
+            PmixDeviceDistance::test_new("g2", "n2", PmixDeviceType::Gpu, 3, 4),
+        ]);
+        drop(distances); // Should be safe, no-op drop
     }
 }
