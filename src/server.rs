@@ -48,8 +48,9 @@
 //! ```
 
 use crate::{ffi, Info, PmixError, PmixOwnedValue, PmixStatus, Proc};
+use crate::security::PmixCredential;
 use std::ffi::{CStr, CString};
-use std::os::raw::c_void;
+use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
@@ -3607,4 +3608,422 @@ pub fn server_fence(
     } else {
         Err(pmix_status)
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Fence_nb — non-blocking synchronization fence (server context)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Callback wrapper for [`server_fence_nb`].
+///
+/// Wraps a Rust closure so it can be called from the C FFI callback.
+/// The closure receives `PmixStatus` — the result of the fence operation.
+pub struct FenceNbCallbackWrapper {
+    callback: Box<dyn Fn(PmixStatus) + Send + 'static>,
+}
+
+impl FenceNbCallbackWrapper {
+    /// Create a new wrapper around a Rust closure.
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(PmixStatus) + Send + 'static,
+    {
+        Self {
+            callback: Box::new(f),
+        }
+    }
+}
+
+/// Execute a non-blocking synchronization fence operation from a server context.
+///
+/// This wraps `PMIx_Fence_nb` to be called from a server context. Unlike
+/// [`server_fence`], this returns immediately and invokes the provided
+/// callback when the fence completes.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `info` — optional directives (e.g., timeout).
+/// * `callback` — a [`FenceNbCallbackWrapper`] containing a closure that
+///   receives `PmixStatus` when the fence completes.
+///
+/// # Returns
+/// * `Ok(())` — the fence request was accepted (async, result in callback).
+/// * `Err(PmixStatus)` — the fence request itself failed synchronously.
+///
+/// # C API
+/// `pmix_status_t PMIx_Fence_nb(const pmix_proc_t procs[], size_t nprocs,
+///                               const pmix_info_t info[], size_t ninfo,
+///                               pmix_op_cbfunc_t cbfunc, void *cbdata);`
+pub fn server_fence_nb(
+    _handle: &PmixServerHandle,
+    _info: &[Info],
+    callback: FenceNbCallbackWrapper,
+) -> Result<(), PmixStatus> {
+    let cb_box: *mut FenceNbCallbackWrapper = Box::into_raw(Box::new(callback));
+
+    extern "C" fn fence_nb_callback_bridge(status: i32, cbdata: *mut c_void) {
+        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut FenceNbCallbackWrapper) };
+        let pmix_status = PmixStatus::from_raw(status);
+        (cb_wrapper.callback)(pmix_status);
+    }
+
+    let (info_ptr, ninfo) = if !_info.is_empty() && _info[0].len > 0 {
+        (_info[0].handle as *const ffi::pmix_info_t, _info[0].len)
+    } else {
+        (ptr::null(), 0)
+    };
+
+    let status = unsafe {
+        ffi::PMIx_Fence_nb(
+            ptr::null(),
+            0,
+            info_ptr,
+            ninfo,
+            Some(fence_nb_callback_bridge),
+            cb_box as *mut c_void,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        unsafe { let _ = Box::from_raw(cb_box); }
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Connect — connect processes (server context)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Connect a set of processes from a server context.
+///
+/// This wraps `PMIx_Connect` to be called from a server context. The connect
+/// operation establishes a communication channel between the specified
+/// processes, enabling them to exchange data via PMIx.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `procs` — the set of processes to connect.
+/// * `info` — optional directives for the connect operation.
+///
+/// # Returns
+/// * `Ok(())` — all processes connected successfully.
+/// * `Err(PmixStatus)` — connect failed.
+///
+/// # C API
+/// `pmix_status_t PMIx_Connect(const pmix_proc_t procs[], size_t nprocs,
+///                              const pmix_info_t info[], size_t ninfo);`
+pub fn server_connect(
+    _handle: &PmixServerHandle,
+    procs: &[Proc],
+    info: &[Info],
+) -> Result<(), PmixStatus> {
+    if procs.is_empty() {
+        return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
+    }
+
+    let procs_ptr = unsafe {
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
+    };
+
+    let (info_ptr, ninfo) = if info.is_empty() {
+        (ptr::null(), 0)
+    } else {
+        (
+            unsafe {
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
+            },
+            info.len(),
+        )
+    };
+
+    let status = unsafe { ffi::PMIx_Connect(procs_ptr, procs.len(), info_ptr, ninfo) };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
+
+/// Non-blocking connect from a server context.
+///
+/// This wraps `PMIx_Connect_nb` to be called from a server context.
+///
+/// # C API
+/// `pmix_status_t PMIx_Connect_nb(const pmix_proc_t procs[], size_t nprocs,
+///                                 const pmix_info_t info[], size_t ninfo,
+///                                 pmix_op_cbfunc_t cbfunc, void *cbdata);`
+pub fn server_connect_nb(
+    _handle: &PmixServerHandle,
+    procs: &[Proc],
+    info: &[Info],
+    callback: FenceNbCallbackWrapper,
+) -> Result<(), PmixStatus> {
+    if procs.is_empty() {
+        return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
+    }
+
+    let cb_box: *mut FenceNbCallbackWrapper = Box::into_raw(Box::new(callback));
+
+    extern "C" fn connect_nb_callback_bridge(status: i32, cbdata: *mut c_void) {
+        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut FenceNbCallbackWrapper) };
+        let pmix_status = PmixStatus::from_raw(status);
+        (cb_wrapper.callback)(pmix_status);
+    }
+
+    let procs_ptr = unsafe {
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
+    };
+
+    let (info_ptr, ninfo) = if info.is_empty() {
+        (ptr::null(), 0)
+    } else {
+        (
+            unsafe {
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
+            },
+            info.len(),
+        )
+    };
+
+    let status = unsafe {
+        ffi::PMIx_Connect_nb(
+            procs_ptr,
+            procs.len(),
+            info_ptr,
+            ninfo,
+            Some(connect_nb_callback_bridge),
+            cb_box as *mut c_void,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        unsafe { let _ = Box::from_raw(cb_box); }
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Disconnect — disconnect processes (server context)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Disconnect a set of processes from a server context.
+///
+/// This wraps `PMIx_Disconnect` to be called from a server context.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `procs` — the set of processes to disconnect.
+/// * `info` — optional directives for the disconnect operation.
+///
+/// # Returns
+/// * `Ok(())` — all processes disconnected successfully.
+/// * `Err(PmixStatus)` — disconnect failed.
+///
+/// # C API
+/// `pmix_status_t PMIx_Disconnect(const pmix_proc_t procs[], size_t nprocs,
+///                                 const pmix_info_t info[], size_t ninfo);`
+pub fn server_disconnect(
+    _handle: &PmixServerHandle,
+    procs: &[Proc],
+    info: &[Info],
+) -> Result<(), PmixStatus> {
+    if procs.is_empty() {
+        return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
+    }
+
+    let procs_ptr = unsafe {
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
+    };
+
+    let (info_ptr, ninfo) = if info.is_empty() {
+        (ptr::null(), 0)
+    } else {
+        (
+            unsafe {
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
+            },
+            info.len(),
+        )
+    };
+
+    let status = unsafe { ffi::PMIx_Disconnect(procs_ptr, procs.len(), info_ptr, ninfo) };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        Err(pmix_status)
+    }
+}
+
+/// Non-blocking disconnect from a server context.
+///
+/// # C API
+/// `pmix_status_t PMIx_Disconnect_nb(const pmix_proc_t ranges[], size_t nprocs,
+///                                    const pmix_info_t info[], size_t ninfo,
+///                                    pmix_op_cbfunc_t cbfunc, void *cbdata);`
+pub fn server_disconnect_nb(
+    _handle: &PmixServerHandle,
+    procs: &[Proc],
+    info: &[Info],
+    callback: FenceNbCallbackWrapper,
+) -> Result<(), PmixStatus> {
+    if procs.is_empty() {
+        return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
+    }
+
+    let cb_box: *mut FenceNbCallbackWrapper = Box::into_raw(Box::new(callback));
+
+    extern "C" fn disconnect_nb_callback_bridge(status: i32, cbdata: *mut c_void) {
+        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut FenceNbCallbackWrapper) };
+        let pmix_status = PmixStatus::from_raw(status);
+        (cb_wrapper.callback)(pmix_status);
+    }
+
+    let procs_ptr = unsafe {
+        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
+    };
+
+    let (info_ptr, ninfo) = if info.is_empty() {
+        (ptr::null(), 0)
+    } else {
+        (
+            unsafe {
+                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
+            },
+            info.len(),
+        )
+    };
+
+    let status = unsafe {
+        ffi::PMIx_Disconnect_nb(
+            procs_ptr,
+            procs.len(),
+            info_ptr,
+            ninfo,
+            Some(disconnect_nb_callback_bridge),
+            cb_box as *mut c_void,
+        )
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(())
+    } else {
+        unsafe { let _ = Box::from_raw(cb_box); }
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Spawn — spawn processes (server context)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Spawn processes from a server context.
+///
+/// This wraps `PMIx_Spawn` to be called from a server context.
+/// Delegates to [`crate::process_mgmt::spawn`] for the actual implementation.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `job_info` — job-level directives.
+/// * `apps` — applications to spawn.
+///
+/// # Returns
+/// * `Ok(String)` — the namespace of the spawned job.
+/// * `Err(PmixStatus)` — spawn failed.
+///
+/// # C API
+/// `pmix_status_t PMIx_Spawn(const pmix_info_t job_info[], size_t ninfo,
+///                            const pmix_app_t apps[], size_t napps,
+///                            char nspace[]);`
+pub fn server_spawn(
+    _handle: &PmixServerHandle,
+    job_info: &[Info],
+    apps: &[crate::process_mgmt::PmixApp],
+) -> Result<String, PmixStatus> {
+    crate::process_mgmt::spawn(job_info, apps)
+}
+
+/// Non-blocking spawn from a server context.
+///
+/// Delegates to [`crate::process_mgmt::spawn_nb`] for the actual implementation.
+///
+/// # C API
+/// `pmix_status_t PMIx_Spawn_nb(const pmix_info_t job_info[], size_t ninfo,
+///                               const pmix_app_t apps[], size_t napps,
+///                               pmix_spawn_cbfunc_t cbfunc, void *cbdata);`
+pub fn server_spawn_nb(
+    _handle: &PmixServerHandle,
+    job_info: &[Info],
+    apps: &[crate::process_mgmt::PmixApp],
+    callback: crate::process_mgmt::SpawnCallbackWrapper,
+) -> Result<(), PmixStatus> {
+    crate::process_mgmt::spawn_nb(job_info, apps, callback)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_tool_attach_to_server — tool attach (server context)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Attach a tool to a server from a server context.
+///
+/// This wraps `PMIx_tool_attach_to_server` to be called from a server context.
+/// Delegates to [`crate::tool::tool_attach_to_server`] for the actual implementation.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `myproc` — optional process identity for the tool.
+/// * `want_server` — whether to request the server's identity.
+/// * `info` — directives for the attach operation.
+///
+/// # Returns
+/// * `Ok((Option<PmixToolHandle>, Option<PmixServerHandle>))` — tool and/or server handles.
+/// * `Err(PmixStatus)` — attach failed.
+///
+/// # C API
+/// `pmix_status_t PMIx_tool_attach_to_server(pmix_proc_t *myproc, pmix_proc_t *server,
+///                                            pmix_info_t info[], size_t ninfo);`
+pub fn server_tool_attach_to_server(
+    _handle: &PmixServerHandle,
+    myproc: Option<&Proc>,
+    want_server: bool,
+    info: &Info,
+) -> Result<(Option<crate::tool::PmixToolHandle>, Option<crate::tool::PmixServerHandle>), PmixStatus> {
+    crate::tool::tool_attach_to_server(myproc, want_server, info)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Get_credential — get credential (server context)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Retrieve a credential from a server context.
+///
+/// This wraps `PMIx_Get_credential` to be called from a server context.
+/// Delegates to [`crate::security::get_credential`] for the actual implementation.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `info` — directives specifying which credential to retrieve.
+///
+/// # Returns
+/// * `Ok(PmixCredential)` — the requested credential.
+/// * `Err(PmixStatus)` — credential retrieval failed.
+///
+/// # C API
+/// `pmix_status_t PMIx_Get_credential(const pmix_info_t info[], size_t ninfo,
+///                                     pmix_byte_object_t *credential);`
+pub fn server_get_credential(
+    _handle: &PmixServerHandle,
+    info: &[Info],
+) -> Result<PmixCredential, PmixStatus> {
+    crate::security::get_credential(info)
 }
