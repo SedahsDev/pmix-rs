@@ -47,7 +47,7 @@
 //! pmix_status_t PMIx_server_finalize(void);
 //! ```
 
-use crate::{Info, PmixStatus, Proc, ffi};
+use crate::{ffi, Info, PmixError, PmixOwnedValue, PmixStatus, Proc};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_void;
 use std::ptr;
@@ -3372,6 +3372,239 @@ pub fn server_deregister_resources(
         // will never be invoked.
         let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
         registry.remove(&req_id);
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_publish — publish key-value data through the server
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Publish key-value data to the PMIx key-value store.
+///
+/// This wraps `PMIx_Publish` to be called from a server context. The data
+/// is published under the given namespace and key, making it available for
+/// lookup by other processes.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `nspace` — the namespace to publish under.
+/// * `key_val` — the key-value pair to publish (wrapped in an `Info`).
+///
+/// # Returns
+/// * `Ok(PmixStatus)` — data published successfully.
+/// * `Err(PmixStatus)` — publish failed.
+///
+/// # C API
+/// `pmix_status_t PMIx_Publish(const pmix_info_t info[], size_t ninfo)`
+pub fn server_publish(
+    _handle: &PmixServerHandle,
+    _nspace: &str,
+    key_val: &Info,
+) -> Result<PmixStatus, PmixStatus> {
+    let (info_ptr, ninfo) = if key_val.len > 0 {
+        (key_val.handle as *const ffi::pmix_info_t, key_val.len)
+    } else {
+        (ptr::null(), 0)
+    };
+
+    let status = unsafe {
+        // SAFETY: PMIx_Publish is a synchronous PMIx API call. The info
+        // pointer is valid for the duration of the call. PMIx does not
+        // retain the pointer after this call returns.
+        ffi::PMIx_Publish(info_ptr, ninfo)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(pmix_status)
+    } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_lookup — lookup published key-value data
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Lookup a published key in the PMIx key-value store.
+///
+/// This wraps `PMIx_Lookup` to be called from a server context.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `nspace` — the namespace to look up in.
+/// * `key` — the key to look up.
+/// * `info` — optional directives (e.g., timeout).
+///
+/// # Returns
+/// * `Ok(PmixOwnedValue)` — the value associated with the key.
+/// * `Err(PmixStatus)` — lookup failed (e.g., key not found).
+///
+/// # C API
+/// `pmix_status_t PMIx_Lookup(pmix_pdata_t data[], size_t ndata, ...)`
+pub fn server_lookup(
+    _handle: &PmixServerHandle,
+    _nspace: &str,
+    key: &str,
+    _info: &[Info],
+) -> Result<PmixOwnedValue, PmixStatus> {
+    // Build a single pmix_pdata_t for the lookup.
+    let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::zeroed() };
+
+    // Copy the key into pdata.key.
+    let key_bytes = key.as_bytes();
+    let klen = key_bytes.len().min(511);
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            key_bytes.as_ptr(),
+            pdata.key.as_mut_ptr() as *mut u8,
+            klen,
+        );
+        pdata.key[klen] = 0;
+    }
+
+    // Initialize the proc field as wildcard.
+    pdata.proc_.rank = ffi::PMIX_RANK_WILDCARD as u32;
+
+    // Zero the value so PMIx writes into it.
+    unsafe {
+        std::ptr::write_bytes(&mut pdata.value, 0, 1);
+    }
+
+    // Construct using the PMIx constructor.
+    unsafe { ffi::PMIx_Pdata_construct(&mut pdata) };
+
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = if !_info.is_empty() && _info[0].len > 0 {
+        (_info[0].handle as *const ffi::pmix_info_t, _info[0].len)
+    } else {
+        (ptr::null(), 0)
+    };
+
+    // Call the FFI function.
+    let status = unsafe {
+        // SAFETY: PMIx_Lookup is a synchronous PMIx API call. The pdata
+        // is valid for the duration of the call. PMIx writes the proc
+        // and value fields.
+        ffi::PMIx_Lookup(&mut pdata, 1, info_ptr, ninfo)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+
+    // Check for success or not-found.
+    if pmix_status == PmixStatus::Known(PmixError::Success) {
+        // Extract the value.
+        let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
+        if pdata.value.type_ != pmix_undef {
+            // Take ownership of the value.
+            let val = unsafe { ptr::read(&pdata.value) };
+            // Destruct the pdata.
+            unsafe { ffi::PMIx_Pdata_destruct(&mut pdata) };
+            Ok(PmixOwnedValue { inner: val })
+        } else {
+            unsafe { ffi::PMIx_Pdata_destruct(&mut pdata) };
+            Err(PmixStatus::Known(PmixError::ErrNotFound))
+        }
+    } else {
+        // Clean up.
+        unsafe {
+            crate::free_value(&mut pdata.value);
+            ffi::PMIx_Pdata_destruct(&mut pdata);
+        }
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_delete — delete (unpublish) key-value data
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Delete (unpublish) a key from the PMIx key-value store.
+///
+/// This wraps `PMIx_Unpublish` to be called from a server context.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `nspace` — the namespace to delete from.
+/// * `key` — the key to delete.
+///
+/// # Returns
+/// * `Ok(PmixStatus)` — key deleted successfully.
+/// * `Err(PmixStatus)` — delete failed.
+///
+/// # C API
+/// `pmix_status_t PMIx_Unpublish(char **keys, ...)`
+pub fn server_delete(
+    _handle: &PmixServerHandle,
+    _nspace: &str,
+    key: &str,
+) -> Result<PmixStatus, PmixStatus> {
+    // Convert key to C string.
+    let cstring = std::ffi::CString::new(key).map_err(|_| PmixStatus::Known(PmixError::Error))?;
+
+    // Build NULL-terminated array.
+    let mut key_ptrs: Vec<*mut std::os::raw::c_char> = Vec::with_capacity(2);
+    key_ptrs.push(cstring.as_ptr() as *mut std::os::raw::c_char);
+    key_ptrs.push(ptr::null_mut());
+
+    let status = unsafe {
+        // SAFETY: PMIx_Unpublish is a synchronous PMIx API call.
+        // keys_ptr is a valid NULL-terminated array of C strings.
+        ffi::PMIx_Unpublish(key_ptrs.as_mut_ptr(), ptr::null(), 0)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(pmix_status)
+    } else {
+        Err(pmix_status)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_server_fence — synchronization fence
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Execute a synchronization fence operation.
+///
+/// This wraps `PMIx_Fence` to be called from a server context. The fence
+/// ensures that all prior publish/lookup operations are visible before
+/// the fence returns.
+///
+/// # Parameters
+/// * `handle` — the server handle returned by [`server_init`].
+/// * `info` — optional directives (e.g., timeout).
+/// * `timeout` — timeout in seconds (0 means no timeout).
+///
+/// # Returns
+/// * `Ok(PmixStatus)` — fence completed successfully.
+/// * `Err(PmixStatus)` — fence failed or timed out.
+///
+/// # C API
+/// `pmix_status_t PMIx_Fence(const pmix_proc_t procs[], size_t nprocs, ...)`
+pub fn server_fence(
+    _handle: &PmixServerHandle,
+    _info: &[Info],
+    _timeout: i32,
+) -> Result<PmixStatus, PmixStatus> {
+    // Prepare info parameters.
+    let (info_ptr, ninfo) = if !_info.is_empty() && _info[0].len > 0 {
+        (_info[0].handle as *const ffi::pmix_info_t, _info[0].len)
+    } else {
+        (ptr::null(), 0)
+    };
+
+    let status = unsafe {
+        // SAFETY: PMIx_Fence is a synchronous PMIx API call.
+        // We pass null procs and 0 nprocs to fence all processes.
+        ffi::PMIx_Fence(ptr::null(), 0, info_ptr, ninfo)
+    };
+
+    let pmix_status = PmixStatus::from_raw(status);
+    if pmix_status.is_success() {
+        Ok(pmix_status)
+    } else {
         Err(pmix_status)
     }
 }
