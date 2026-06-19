@@ -5,14 +5,31 @@
 //! serialization pipeline: pack values into a buffer, then unload the buffer
 //! into a byte object for transport (e.g., over the network).
 //!
-//! Unlike `PMIx_Data_pack` and `PMIx_Data_unpack`, `PMIx_Data_unload`
-//! operates entirely in user space and does NOT require `PMIx_Init`.
+//! `PMIx_Data_load` and `PMIx_Data_unload` require `PMIx_Init` — the C
+//! implementation checks the initialization state before operating. Run FFI
+//! integration tests under the DVM:
+//! ```bash
+//! prterun -np 1 cargo test --test data_serialization_Data_unload -- --ignored --test-threads=1
+//! ```
 //!
 //! # C API
 //! `pmix_status_t PMIx_Data_unload(pmix_data_buffer_t *buffer, pmix_byte_object_t *payload)`
 
-use pmix::PmixStatus;
+use std::sync::OnceLock;
+
+use pmix::{init, PmixStatus};
 use pmix::data_serialization::*;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Singleton PMIx init — PMIx can only be initialized once per process.
+// The FFI integration tests below all share this single context.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
+
+fn ensure_init() -> &'static pmix::Context {
+    PMIX_CTX.get_or_init(|| init(None).expect("PMIx_Init failed — run under prterun"))
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API surface — compile-only type checks (no FFI call, no PMIx_Init needed)
@@ -117,13 +134,15 @@ fn test_byte_object_from_large_vec() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PMIx_Data_unload — no PMIx_Init required
+// PMIx_Data_unload — requires PMIx_Init (marked #[ignore])
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// data_unload from a freshly created (empty) buffer.
 /// PMIx may return success with an empty payload or an error — both are valid.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_empty_buffer() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let result = data_unload(&buf);
     match result {
@@ -144,7 +163,9 @@ fn test_unload_empty_buffer() {
 /// This is the core test: load raw bytes into a buffer, then unload them
 /// and verify the payload matches the original.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_unload_roundtrip() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original = vec![10u8, 20, 30, 40, 50, 60, 70, 80];
@@ -161,7 +182,9 @@ fn test_load_unload_roundtrip() {
 
 /// data_load then data_unload with a larger payload (1024 bytes).
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_unload_large_payload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
@@ -178,7 +201,9 @@ fn test_load_unload_large_payload() {
 
 /// data_load then data_unload with a single byte.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_unload_single_byte() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original = vec![42u8];
@@ -191,7 +216,9 @@ fn test_load_unload_single_byte() {
 
 /// data_load then data_unload with all zero bytes.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_unload_all_zeros() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original = vec![0u8; 64];
@@ -204,7 +231,9 @@ fn test_load_unload_all_zeros() {
 
 /// data_load then data_unload with all 0xFF bytes.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_unload_all_0xff() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original = vec![0xFFu8; 128];
@@ -217,7 +246,9 @@ fn test_load_unload_all_0xff() {
 
 /// data_load then data_unload with alternating pattern.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_unload_alternating_pattern() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original: Vec<u8> = (0..256)
@@ -233,7 +264,9 @@ fn test_load_unload_alternating_pattern() {
 /// PMIx_Data_unload is destructive — it clears the buffer after unloading.
 /// A second unload on the same buffer returns an empty payload (buffer is now empty).
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_is_destructive() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -263,7 +296,9 @@ fn test_unload_is_destructive() {
 /// data_unload returns an owned PmixByteObject — the returned object
 /// should be independent of the buffer and survive buffer release.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_returns_owned_payload() {
+    let _ctx = ensure_init();
     let payload;
     {
         let buf = data_buffer_create().expect("create buffer");
@@ -283,7 +318,9 @@ fn test_unload_returns_owned_payload() {
 
 /// data_load replaces buffer content, then data_unload should reflect the new content.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_replace_then_unload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     // First load
@@ -304,7 +341,9 @@ fn test_load_replace_then_unload() {
 /// data_unload payload survives buffer drop — the returned byte object
 /// owns its memory independently of the buffer.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_payload_survives_buffer_drop() {
+    let _ctx = ensure_init();
     let payload;
     {
         let buf = data_buffer_create().expect("create buffer");
@@ -322,12 +361,14 @@ fn test_unload_payload_survives_buffer_drop() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PmixDataBuffer interaction — no PMIx_Init required
+// PmixDataBuffer interaction — requires PMIx_Init (marked #[ignore])
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Buffer bytes_used increases after data_load, and data_unload recovers the data.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_buffer_bytes_used_after_load_unload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     assert_eq!(buf.bytes_used(), 0, "new buffer should have 0 bytes used");
 
@@ -341,7 +382,9 @@ fn test_buffer_bytes_used_after_load_unload() {
 
 /// Multiple buffers can each be loaded and unloaded independently.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_multiple_buffers_load_unload() {
+    let _ctx = ensure_init();
     let buf1 = data_buffer_create().expect("create buf1");
     let buf2 = data_buffer_create().expect("create buf2");
 
@@ -360,7 +403,9 @@ fn test_multiple_buffers_load_unload() {
 
 /// data_unload with a buffer that has boundary-size payload (1 byte).
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_minimal_payload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![0x00u8]);
     data_load(&buf, &payload).expect("load");
@@ -371,7 +416,9 @@ fn test_unload_minimal_payload() {
 
 /// data_unload with a buffer that has boundary-size payload (255 bytes).
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_255_byte_payload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original: Vec<u8> = (0..255).map(|i| i as u8).collect();
     let payload = PmixByteObject::from(original.clone());
@@ -383,7 +430,9 @@ fn test_unload_255_byte_payload() {
 
 /// data_unload with a very large payload (64KB).
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_64kb_payload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
     let payload = PmixByteObject::from(original.clone());
@@ -426,7 +475,9 @@ fn test_pmix_status_debug() {
 /// Full roundtrip chain: load into buf1, unload to payload, load into buf2, unload again.
 /// Simulates the sender-receiver transport pattern.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_transport_chain() {
+    let _ctx = ensure_init();
     // Sender side
     let sender_buf = data_buffer_create().expect("create sender buffer");
     let original = vec![0xDEu8, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE];
@@ -450,7 +501,9 @@ fn test_transport_chain() {
 
 /// Two sequential transport chains with different data should not interfere.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_two_transport_chains() {
+    let _ctx = ensure_init();
     // Chain 1
     let buf1 = data_buffer_create().expect("create buf1");
     let data1 = vec![1u8, 2, 3];

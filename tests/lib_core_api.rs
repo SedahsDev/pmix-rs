@@ -51,6 +51,7 @@ fn test_progress_no_panic() {
 
 /// tool_init succeeds with a running daemon (replaces test_init_with_daemon).
 #[test]
+#[ignore = "requires PMIx daemon — run under prterun"]
 fn test_tool_init_with_daemon() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
@@ -61,6 +62,7 @@ fn test_tool_init_with_daemon() {
 
 /// tool_init returns a handle with valid namespace and rank.
 #[test]
+#[ignore = "requires PMIx daemon — run under prterun"]
 fn test_tool_init_returns_valid_handle() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
@@ -74,6 +76,7 @@ fn test_tool_init_returns_valid_handle() {
 
 /// tool_init with Info succeeds.
 #[test]
+#[ignore = "requires PMIx daemon — run under prterun"]
 fn test_tool_init_with_info() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
@@ -95,6 +98,7 @@ fn test_tool_finalize_after_init() {
 
 /// tool_init -> tool_finalize cycle is idempotent.
 #[test]
+#[ignore = "requires PMIx daemon — run under prterun"]
 fn test_tool_init_finalize_cycle() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
@@ -107,6 +111,7 @@ fn test_tool_init_finalize_cycle() {
 
 /// tool_init ref counting — two inits need two finalizes.
 #[test]
+#[ignore = "requires PMIx daemon — run under prterun"]
 fn test_tool_init_ref_count() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
@@ -119,6 +124,7 @@ fn test_tool_init_ref_count() {
 
 /// tool_is_initialized returns true after tool_init.
 #[test]
+#[ignore = "requires PMIx daemon — run under prterun"]
 fn test_tool_initialized_after_init() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
@@ -132,6 +138,7 @@ fn test_tool_initialized_after_init() {
 
 /// tool_init_minimal succeeds with a running daemon.
 #[test]
+#[ignore = "requires PMIx daemon — run under prterun"]
 fn test_tool_init_minimal() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");

@@ -1,10 +1,25 @@
 //! Tests for `PmixDataBuffer` — construction, accessors, and lifecycle.
 //!
-//! These tests exercise the Rust-side wrapper without requiring PMIx_Init.
-//! They verify buffer creation, accessor methods, release semantics,
-//! and edge cases like double-release protection.
+//! Most tests exercise the Rust-side wrapper without requiring PMIx_Init.
+//! Tests that call `data_load` or `data_unload` need PMIx_Init and are
+//! marked `#[ignore]` — run them under prterun:
+//! ```bash
+//! prterun -np 1 cargo test --test data_serialization_PmixDataBuffer -- --ignored --test-threads=1
+//! ```
 
-use pmix::data_serialization::*;
+use std::sync::OnceLock;
+
+use pmix::{init, data_serialization::*};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Singleton PMIx init — PMIx can only be initialized once per process.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
+
+fn ensure_init() -> &'static pmix::Context {
+    PMIX_CTX.get_or_init(|| init(None).expect("PMIx_Init failed — run under prterun"))
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Buffer creation
@@ -174,17 +189,20 @@ fn test_buffer_with_byte_object() {
 
 /// Empty byte object can be loaded into buffer.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_empty_payload_into_buffer() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let empty_payload = PmixByteObject::new();
     let result = data_load(&buf, &empty_payload);
-    // Loading empty payload should succeed
     assert!(result.is_ok());
 }
 
 /// data_unload on empty buffer returns empty byte object.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_empty_buffer() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = data_unload(&buf).expect("unload empty buffer");
     assert!(payload.is_empty());

@@ -1,16 +1,31 @@
 //! Tests for `PMIx_Data_pack`, `PMIx_Data_unpack`, `PMIx_Data_load`,
 //! `PMIx_Data_unload`, `PMIx_Data_copy`, and buffer management.
 //!
-//! Note: PMIx_Data_pack, PMIx_Data_unpack, and PMIx_Data_copy_payload
-//! require PMIx_Init to have been called (they need pmix_globals.mypeer).
-//! These are marked #[ignore] and should be run with a PMIx environment.
+//! Note: PMIx_Data_pack, PMIx_Data_unpack, PMIx_Data_copy_payload,
+//! PMIx_Data_load, and PMIx_Data_unload all require PMIx_Init to have
+//! been called. These are marked #[ignore] and should be run with a PMIx
+//! environment:
+//! ```bash
+//! prterun -np 1 cargo test --test data_serialization_Data_pack -- --ignored --test-threads=1
+//! ```
 //!
-//! PMIx_Data_buffer_create, PMIx_Data_buffer_release, PMIx_Data_load,
-//! and PMIx_Data_unload operate entirely in user space and do NOT require
-//! PMIx_Init — these tests run normally.
+//! PMIx_Data_buffer_create and PMIx_Data_buffer_release operate entirely
+//! in user space and do NOT require PMIx_Init — these tests run normally.
 
-use pmix::PmixDataType;
+use std::sync::OnceLock;
+
+use pmix::{init, PmixDataType};
 use pmix::data_serialization::*;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Singleton PMIx init — PMIx can only be initialized once per process.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
+
+fn ensure_init() -> &'static pmix::Context {
+    PMIX_CTX.get_or_init(|| init(None).expect("PMIx_Init failed — run under prterun"))
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Buffer management — no PMIx_Init required
@@ -132,25 +147,27 @@ fn test_proc_ref_long_namespace() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PMIx_Data_load — no PMIx_Init required
+// PMIx_Data_load — requires PMIx_Init (marked #[ignore])
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// data_load into empty buffer succeeds with empty payload.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_empty_payload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::new();
     let result = data_load(&buf, &payload);
-    // Loading empty payload should succeed (nothing to load)
     assert!(result.is_ok(), "loading empty payload should succeed");
 }
 
 /// data_load into buffer and verify bytes_used increases.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_payload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
-    // Create a payload with some bytes
     let bytes = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
     let payload = PmixByteObject::from(bytes);
     assert_eq!(payload.size(), 8);
@@ -161,41 +178,34 @@ fn test_load_payload() {
 }
 
 /// data_load replaces buffer content (DESTRUCT then set up).
-/// Note: PMIx_Data_load destructs the buffer first, so it replaces, not appends.
-/// Also, it steals the payload pointer, so the payload is empty after the call.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_replaces_buffer() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let payload1 = PmixByteObject::from(vec![1u8, 2, 3]);
     let size1 = payload1.size();
 
     data_load(&buf, &payload1).expect("load first");
-    assert_eq!(
-        buf.bytes_used(),
-        size1,
-        "buffer should have first payload size"
-    );
+    assert_eq!(buf.bytes_used(), size1, "buffer should have first payload size");
 
-    // Second load replaces (not appends)
     let payload2 = PmixByteObject::from(vec![4u8, 5, 6, 7, 8, 9]);
     let size2 = payload2.size();
 
     data_load(&buf, &payload2).expect("load second (replaces)");
-    assert_eq!(
-        buf.bytes_used(),
-        size2,
-        "buffer should have second payload size (replacement)"
-    );
+    assert_eq!(buf.bytes_used(), size2, "buffer should have second payload size (replacement)");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PMIx_Data_unload — no PMIx_Init required
+// PMIx_Data_unload — requires PMIx_Init (marked #[ignore])
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// data_unload from empty buffer — may succeed with empty payload or fail.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_unload_empty_buffer() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let result = data_unload(&buf);
     match result {
@@ -213,7 +223,9 @@ fn test_unload_empty_buffer() {
 
 /// data_load then data_unload should roundtrip the bytes.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_unload_roundtrip() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original = vec![10u8, 20, 30, 40, 50, 60, 70, 80];
@@ -230,7 +242,9 @@ fn test_load_unload_roundtrip() {
 
 /// data_load then data_unload with larger payload.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_load_unload_large_payload() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
     let original: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
@@ -750,7 +764,9 @@ fn test_pack_zero_values() {
 
 /// PmixByteObject payload as_slice returns readable data.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_byte_object_as_slice_readable() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let bytes = vec![0xDEu8, 0xAD, 0xBE, 0xEF];
     let payload = PmixByteObject::from(bytes);

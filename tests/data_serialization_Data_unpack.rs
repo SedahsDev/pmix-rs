@@ -9,8 +9,20 @@
 //! PmixByteObject, PmixProcRef) and buffer management run without
 //! PMIx_Init.
 
-use pmix::PmixDataType;
+use std::sync::OnceLock;
+
+use pmix::{init, PmixDataType};
 use pmix::data_serialization::*;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Singleton PMIx init — PMIx can only be initialized once per process.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
+
+fn ensure_init() -> &'static pmix::Context {
+    PMIX_CTX.get_or_init(|| init(None).expect("PMIx_Init failed — run under prterun"))
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type and buffer tests — no PMIx_Init required
@@ -41,7 +53,9 @@ fn test_proc_ref_long_namespace() {
 
 /// PmixByteObject can be created and used with data_load/data_unload.
 #[test]
+#[ignore = "requires PMIx_Init — run under prterun"]
 fn test_byte_object_roundtrip() {
+    let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original = vec![10u8, 20, 30, 40, 50, 60];
     let payload = PmixByteObject::from(original.clone());
