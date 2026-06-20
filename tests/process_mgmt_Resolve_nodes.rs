@@ -195,7 +195,7 @@ fn resolve_nodes_repeated_nspace_consistent() {
 ///
 /// This test requires a running PMIx daemon and is ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn resolve_nodes_after_init_returns_nodelist() {
     // NOTE: This test needs PMIx_Init which requires a daemon.
     // In a real PMIx environment:
@@ -213,7 +213,7 @@ fn resolve_nodes_after_init_returns_nodelist() {
 ///
 /// This test requires a running PMIx daemon and is ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn resolve_nodes_returns_comma_delimited_list() {
     // NOTE: This test needs PMIx_Init which requires a daemon.
     // In a real PMIx environment:
@@ -234,7 +234,7 @@ fn resolve_nodes_returns_comma_delimited_list() {
 ///
 /// This test requires a running PMIx daemon and is ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn resolve_nodes_nonexistent_nspace_returns_not_found() {
     // NOTE: This test needs PMIx_Init which requires a daemon.
     // In a real PMIx environment:
@@ -254,7 +254,7 @@ fn resolve_nodes_nonexistent_nspace_returns_not_found() {
 ///
 /// This test requires a running PMIx daemon and is ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn resolve_nodes_includes_local_hostname() {
     // NOTE: This test needs PMIx_Init which requires a daemon.
     // In a real PMIx environment:

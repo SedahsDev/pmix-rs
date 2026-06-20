@@ -49,7 +49,7 @@ fn test_init_fails_without_dvm() {
 
 /// pmix::init() succeeds when launched by prterun.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_succeeds_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let result = pmix::init(None);
@@ -61,7 +61,7 @@ fn test_init_succeeds_via_prterun() {
 
 /// pmix::init() returns a valid context with rank 0.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_returns_valid_context() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let context = pmix::init(None).expect("pmix::init() failed");
@@ -71,7 +71,7 @@ fn test_init_returns_valid_context() {
 
 /// pmix::utility::initialized() returns true after pmix::init().
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_initialized_after_init() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = pmix::init(None).expect("pmix::init() failed");
@@ -83,7 +83,7 @@ fn test_initialized_after_init() {
 
 /// pmix::init() with Info succeeds via prterun.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_with_info_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let info = InfoBuilder::new().build();
@@ -96,7 +96,7 @@ fn test_init_with_info_via_prterun() {
 
 /// pmix::init() context provides valid proc namespace.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_proc_info() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let context = pmix::init(None).expect("pmix::init() failed");
@@ -110,7 +110,7 @@ fn test_context_proc_info() {
 
 /// pmix::init() -> finalize cycle works via prterun.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_finalize_cycle() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = pmix::init(None).expect("pmix::init() failed");

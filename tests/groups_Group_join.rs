@@ -477,21 +477,24 @@ fn group_join_nb_both_options_without_init_fail() {
 
 /// Integration: Init -> Group_construct -> Group_join (accept) -> Group_destruct.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_join_accept_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }
 
 /// Integration: Init -> Group_invite -> Group_join (decline) -> Group_destruct.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_join_decline_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }
 
 /// Integration: group_join_nb callback invocation.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_join_nb_callback_invocation() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }

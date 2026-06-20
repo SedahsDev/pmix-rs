@@ -381,21 +381,24 @@ fn group_destruct_both_variants_without_init_fail() {
 
 /// Integration: Init -> Group_construct -> Group_join -> Group_destruct.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_destruct_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }
 
 /// Integration: group_destruct_nb callback invocation.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_destruct_nb_callback_invocation() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }
 
 /// Integration: destruct a group the caller did not construct (should fail with appropriate error).
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_destruct_not_member_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }

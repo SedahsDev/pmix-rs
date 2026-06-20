@@ -131,8 +131,9 @@ fn test_fabric_callback_requires_send() {
 }
 
 #[test]
-#[ignore = "SIGSEGV — non-blocking fabric_register calls FFI without init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_nb_without_init() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("test")).expect("fabric new failed");
     let info = InfoBuilder::new().build();
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
@@ -253,8 +254,9 @@ fn test_compute_distances_without_init() {
 }
 
 #[test]
-#[ignore = "SIGSEGV — non-blocking compute_distances calls FFI without init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_without_init() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::new(None).expect("topology new failed");
     let mut cpuset = PmixCpuset::new();
     let info = InfoBuilder::new().build();

@@ -359,28 +359,32 @@ fn test_group_destruct_callback_wrapper_new() {
 
 /// group_construct success path returns Vec<Info>.
 #[test]
-#[ignore = "requires PMIx_Init — success path only works with server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See lines 63-112 in groups.rs.
 }
 
 /// group_construct_nb success path invokes callback.
 #[test]
-#[ignore = "requires PMIx_Init — callback bridge only invoked by C library"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See lines 165-229 in groups.rs.
 }
 
 /// group_destruct success path returns Ok(()).
 #[test]
-#[ignore = "requires PMIx_Init — success path only works with server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_destruct_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See lines 767-779 in groups.rs.
 }
 
 /// group_destruct_nb success path invokes callback.
 #[test]
-#[ignore = "requires PMIx_Init — callback bridge only invoked by C library"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_destruct_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See lines 825-859 in groups.rs.
 }

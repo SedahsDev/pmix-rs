@@ -442,8 +442,9 @@ fn test_buffer_initial_bytes_allocated() {
 
 /// Buffer bytes_allocated >= bytes_used always.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_allocated_ge_used_after_load() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![1u8, 2, 3, 4, 5]);
@@ -458,8 +459,9 @@ fn test_buffer_allocated_ge_used_after_load() {
 
 /// Buffer bytes_used == 0 after create, > 0 after load, == 0 after unload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_bytes_used_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     assert_eq!(buf.bytes_used(), 0, "initial state");
@@ -475,8 +477,9 @@ fn test_buffer_bytes_used_lifecycle() {
 
 /// Buffer bytes_allocated >= bytes_used after load/unload cycle.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_allocated_ge_used_after_cycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![0u8; 128]);
@@ -488,8 +491,9 @@ fn test_buffer_allocated_ge_used_after_cycle() {
 
 /// Multiple load/unload cycles on the same buffer.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_multiple_load_unload_cycles() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
@@ -507,8 +511,9 @@ fn test_multiple_load_unload_cycles() {
 
 /// Buffer remains valid after load/unload cycle.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_valid_after_load_unload() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![1u8, 2, 3]);
@@ -519,8 +524,9 @@ fn test_buffer_valid_after_load_unload() {
 
 /// Buffer is_valid after multiple load/unload cycles.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_valid_after_multiple_cycles() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     for _ in 0..10 {
@@ -533,8 +539,9 @@ fn test_buffer_valid_after_multiple_cycles() {
 
 /// Buffer Debug output after load/unload cycle.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_debug_after_cycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![1u8, 2, 3]);
@@ -578,8 +585,9 @@ fn test_multiple_buffer_create_drop_cycles() {
 
 /// Buffer create, load, unload, then drop.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_create_load_unload_drop() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     for _ in 0..10 {
         let buf = data_buffer_create().expect("create buffer");
         let payload = PmixByteObject::from(vec![1u8, 2, 3]);
@@ -775,8 +783,9 @@ fn test_proc_ref_to_raw_consistent() {
 
 /// data_load with empty payload does not change buffer state significantly.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_empty_payload_preserves_buffer() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::new();
@@ -786,8 +795,9 @@ fn test_load_empty_payload_preserves_buffer() {
 
 /// data_load then data_unload with boundary payload sizes.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_boundary_sizes() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let sizes = [1usize, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512];
     for size in sizes {
@@ -807,8 +817,9 @@ fn test_load_unload_boundary_sizes() {
 
 /// data_load payload is consumed — as_slice returns empty after load.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_consumes_payload_as_slice_empty() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![42u8, 84, 126]);
@@ -824,8 +835,9 @@ fn test_load_consumes_payload_as_slice_empty() {
 
 /// data_load with all 0x00 bytes roundtrips correctly.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_all_null_bytes() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let data = vec![0u8; 128];
@@ -837,8 +849,9 @@ fn test_load_unload_all_null_bytes() {
 
 /// data_load with all 0xFF bytes roundtrips correctly.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_all_0xff_bytes() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let data = vec![0xFFu8; 128];
@@ -850,8 +863,9 @@ fn test_load_unload_all_0xff_bytes() {
 
 /// data_load with alternating 0x00/0xFF bytes.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_alternating_null_ff() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let data: Vec<u8> = (0..256).map(|i| if i % 2 == 0 { 0x00 } else { 0xFF }).collect();
@@ -878,8 +892,9 @@ fn test_unload_empty_buffer_handling() {
 
 /// data_unload after data_unload (double unload) — buffer should be empty.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_double_unload() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![1u8, 2, 3]);
@@ -898,8 +913,9 @@ fn test_double_unload() {
 
 /// data_load replaces previous content — buffer bytes_used reflects new payload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_replaces_content_bytes_used() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
@@ -921,8 +937,9 @@ fn test_load_replaces_content_bytes_used() {
 
 /// data_load then data_unload then data_load again — buffer is reusable.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_load_reuse() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
@@ -977,8 +994,9 @@ fn test_buffer_is_valid_after_create() {
 
 /// Transport chain with single byte.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_transport_chain_single_byte() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let sender_buf = data_buffer_create().expect("create sender");
     let data = vec![42u8];
@@ -996,8 +1014,9 @@ fn test_transport_chain_single_byte() {
 
 /// Transport chain with 64KB payload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_transport_chain_64kb() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let sender_buf = data_buffer_create().expect("create sender");
     let data: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
@@ -1015,8 +1034,9 @@ fn test_transport_chain_64kb() {
 
 /// Three-buffer transport chain.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_three_buffer_transport_chain() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Buffer 1 -> Buffer 2 -> Buffer 3
     let data = vec![0xDEu8, 0xAD, 0xBE, 0xEF];
 
@@ -1037,8 +1057,9 @@ fn test_three_buffer_transport_chain() {
 
 /// Transport chain where intermediate payload is used after load (consumed).
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_transport_chain_payload_consumed() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf1 = data_buffer_create().expect("buf1");
     let data = vec![1u8, 2, 3];

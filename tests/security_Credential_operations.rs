@@ -239,8 +239,9 @@ fn test_credential_max_bytes() {
 ///   2. Wait for callback to fire
 ///   3. Verify CredentialCallback::on_complete receives credential + results
 #[test]
-#[ignore = "requires PMIx_Init — callback bridge only invoked by C library"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_credential_callback_bridge() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init to exercise the callback bridge path.
     // See lines 366-463 in security.rs.
 }
@@ -251,8 +252,9 @@ fn test_credential_callback_bridge() {
 ///   2. Wait for callback to fire
 ///   3. Verify ValidationCallback::on_complete receives status + results
 #[test]
-#[ignore = "requires PMIx_Init — callback bridge only invoked by C library"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_validation_callback_bridge() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init to exercise the callback bridge path.
     // See lines 711-768 in security.rs.
 }
@@ -262,8 +264,9 @@ fn test_validation_callback_bridge() {
 ///   1. Call get_credential after PMIx_Init
 ///   2. Verify credential bytes are properly copied and freed
 #[test]
-#[ignore = "requires PMIx_Init — internal helper only called on FFI success"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_copy_and_free_pmix_byte_object() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init to exercise the success path.
     // See lines 182-203 in security.rs.
 }
@@ -274,8 +277,9 @@ fn test_copy_and_free_pmix_byte_object() {
 ///   2. Call get_credential with valid info
 ///   3. Verify credential is returned
 #[test]
-#[ignore = "requires PMIx_Init — success path only works with server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_credential_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server.
     // See lines 273-274 in security.rs.
 }
@@ -286,8 +290,9 @@ fn test_get_credential_success() {
 ///   2. Call validate_credential with valid credential
 ///   3. Verify validation results
 #[test]
-#[ignore = "requires PMIx_Init — success path only works with server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_validate_credential_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server.
     // See lines 650-660 in security.rs.
 }

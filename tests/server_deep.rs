@@ -832,8 +832,9 @@ fn test_deregister_resources_does_not_panic() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "requires PMIx_Init as server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_server_init_then_finalize() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init failed");
@@ -842,8 +843,9 @@ fn test_server_init_then_finalize() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init as server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nspace_then_deregister() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init failed");
@@ -857,8 +859,9 @@ fn test_register_nspace_then_deregister() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init as server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_client_then_deregister() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init failed");
@@ -873,8 +876,9 @@ fn test_register_client_then_deregister() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init as server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_full_server_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init failed");

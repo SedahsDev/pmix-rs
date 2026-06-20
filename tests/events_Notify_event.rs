@@ -368,8 +368,9 @@ fn data_range_display() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn notify_event_full_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // let _ = pmix::lifecycle::init(None, &[]);
     // let proc = pmix::Proc::new("test_job", 0).unwrap();
     // let info = InfoBuilder::new().build();
@@ -405,8 +406,9 @@ fn notify_event_full_lifecycle() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn notify_event_nb_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // extern "C" fn notify_complete(status: i32, cbdata: *mut c_void) {
     //     unsafe {
     //         if !cbdata.is_null() {

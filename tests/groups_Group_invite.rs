@@ -299,21 +299,24 @@ fn group_invite_nb_numeric_group_id_without_init_fails() {
 
 /// Integration: Init -> Group_invite -> Group_join -> Group_destruct.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_invite_join_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }
 
 /// Integration: group_invite with directives (info array).
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_invite_with_directives() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }
 
 /// Integration: group_invite_nb callback invocation.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_invite_nb_callback_invocation() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     unimplemented!("requires PMIx daemon — run under pmixrun");
 }

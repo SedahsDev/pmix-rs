@@ -132,8 +132,9 @@ fn test_pack_with_empty_namespace() {
 
 /// data_pack error status is PMIX_ERR_NOT_FOUND without init.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_pack_error_status() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let val: i32 = 42;
@@ -199,8 +200,9 @@ fn test_unpack_bool_ffi_path() {
 
 /// data_unpack error is PMIX_ERR_NOT_FOUND without init.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpack_error_is_not_found() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let mut val: i32 = 0;
@@ -269,8 +271,9 @@ fn test_unpack_float_ffi_path() {
 
 /// data_load with populated payload exercises FFI call path.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_data_load_populated_payload() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![1u8, 2, 3, 4, 5]);
@@ -280,8 +283,9 @@ fn test_data_load_populated_payload() {
 
 /// data_unload on buffer with data exercises FFI call path.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_data_unload_buffer_with_data() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![10u8, 20, 30]);
@@ -294,8 +298,9 @@ fn test_data_unload_buffer_with_data() {
 
 /// data_load then data_unload roundtrip with larger payload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_roundtrip_large() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original = PmixByteObject::from(vec![1u8, 2, 3, 4, 5, 6, 7, 8]);

@@ -181,7 +181,7 @@ fn resolve_peers_return_type_is_correct() {
 ///
 /// This test requires a running PMIx daemon and is ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn resolve_peers_after_init_returns_procs() {
     // NOTE: This test needs PMIx_Init which requires a daemon.
     // In a real PMIx environment:
@@ -202,7 +202,7 @@ fn resolve_peers_after_init_returns_procs() {
 ///
 /// This test requires a running PMIx daemon and is ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn resolve_peers_specific_nspace_after_init() {
     // NOTE: This test needs PMIx_Init which requires a daemon.
     // In a real PMIx environment:
@@ -224,7 +224,7 @@ fn resolve_peers_specific_nspace_after_init() {
 ///
 /// This test requires a running PMIx daemon and is ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn resolve_peers_all_namespaces_after_init() {
     // NOTE: This test needs PMIx_Init which requires a daemon.
     // In a real PMIx environment:
@@ -245,7 +245,7 @@ fn resolve_peers_all_namespaces_after_init() {
 ///
 /// This test requires a running PMIx daemon and is ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn resolve_peers_proc_contents_after_init() {
     // NOTE: This test needs PMIx_Init which requires a daemon.
     // In a real PMIx environment:

@@ -158,16 +158,18 @@ fn test_infobuilder_collect_data() {
 // ── query_info ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_single_query() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let query = PmixQuery::new(&["test_key"]).expect("create");
     let result = query_info(&[query]);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_multiple_queries() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let q1 = PmixQuery::new(&["key1"]).expect("q1");
     let q2 = PmixQuery::new(&["key2"]).expect("q2");
     let result = query_info(&[q1, q2]);
@@ -175,15 +177,17 @@ fn test_query_info_multiple_queries() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_empty_returns_error() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = query_info(&[]);
     assert!(result.is_err());
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_result_has_len() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let query = PmixQuery::new(&["test_key"]).expect("create");
     let result = query_info(&[query]);
     match result {
@@ -198,8 +202,9 @@ fn test_query_info_result_has_len() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_with_qualifiers() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let info = InfoBuilder::new().build();
     let query = PmixQuery::new(&["test_key"]).expect("create").with_qualifiers(info);
     let result = query_info(&[query]);
@@ -209,8 +214,9 @@ fn test_query_info_with_qualifiers() {
 // ── query_info_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopQueryCb;
     impl QueryCallback for NoopQueryCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {}
@@ -221,8 +227,9 @@ fn test_query_info_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_nb_multiple_queries() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopQueryCb;
     impl QueryCallback for NoopQueryCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {}
@@ -234,8 +241,9 @@ fn test_query_info_nb_multiple_queries() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_nb_empty_returns_error() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopQueryCb;
     impl QueryCallback for NoopQueryCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {}
@@ -247,23 +255,26 @@ fn test_query_info_nb_empty_returns_error() {
 // ── log_data ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_empty() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = log_data(&[], &[]);
     assert!(result.is_ok());
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_with_data() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let data = vec![InfoBuilder::new().build()];
     let result = log_data(&data, &[]);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_with_directives() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let data = vec![InfoBuilder::new().build()];
     let dirs = vec![InfoBuilder::new().build()];
     let result = log_data(&data, &dirs);
@@ -271,8 +282,9 @@ fn test_log_data_with_directives() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_multiple_entries() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let data = vec![
         InfoBuilder::new().build(),
         InfoBuilder::new().build(),
@@ -283,8 +295,9 @@ fn test_log_data_multiple_entries() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_with_collect_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     let data = vec![builder.build()];
@@ -295,8 +308,9 @@ fn test_log_data_with_collect_info() {
 // ── log_data_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopLogCb;
     impl LogCallback for NoopLogCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -306,8 +320,9 @@ fn test_log_data_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_nb_with_data() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopLogCb;
     impl LogCallback for NoopLogCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -318,8 +333,9 @@ fn test_log_data_nb_with_data() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_nb_with_directives() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopLogCb;
     impl LogCallback for NoopLogCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -333,8 +349,9 @@ fn test_log_data_nb_with_directives() {
 // ── Lifecycle / integration ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_then_log() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let query = PmixQuery::new(&["test_key"]).expect("create");
     let _ = query_info(&[query]);
     let data = vec![InfoBuilder::new().build()];
@@ -342,8 +359,9 @@ fn test_query_then_log() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_nb_then_log_nb() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopQueryCb;
     impl QueryCallback for NoopQueryCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {}

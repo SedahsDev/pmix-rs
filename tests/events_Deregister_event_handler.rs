@@ -283,8 +283,9 @@ fn info_builder_for_events() {
 /// Requires a running PMIx server / daemon. Ignored by default.
 /// Run with: `cargo test --test events_Deregister_event_handler -- --ignored`
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn register_then_deregister_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // // Register a handler
@@ -309,8 +310,9 @@ fn register_then_deregister_lifecycle() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn register_multiple_deregister_each() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // let info = InfoBuilder::new().build();
@@ -337,8 +339,9 @@ fn register_multiple_deregister_each() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn deregister_nb_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     use std::sync::atomic::{AtomicBool, Ordering};
 
     static CB_INVOKED: AtomicBool = AtomicBool::new(false);
@@ -381,8 +384,9 @@ fn deregister_nb_lifecycle() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn deregister_before_finalize() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // let info = InfoBuilder::new().build();

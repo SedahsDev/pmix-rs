@@ -152,14 +152,14 @@ fn test_tool_init_minimal() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_with_daemon() {
     let result = pmix::init(None);
     assert!(result.is_ok(), "init should succeed with daemon");
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_returns_valid_context() {
     let context = pmix::init(None).expect("init failed");
     let rank = context.get_rank();
@@ -167,14 +167,14 @@ fn test_init_returns_valid_context() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_get_proc() {
     let context = pmix::init(None).expect("init failed");
     let _proc = context.get_proc();
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_proc_with_nspace() {
     let context = pmix::init(None).expect("init failed");
     let proc = context.proc_with_nspace(0).expect("proc_with_nspace failed");
@@ -182,7 +182,7 @@ fn test_context_proc_with_nspace() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_with_info() {
     let info = InfoBuilder::new().build();
     let result = pmix::init(Some(info));
@@ -190,7 +190,7 @@ fn test_init_with_info() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_finalize_after_init() {
     let _context = pmix::init(None).expect("init failed");
     let result = pmix::finalize(None);
@@ -198,7 +198,7 @@ fn test_finalize_after_init() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_finalize_cycle() {
     let _c1 = pmix::init(None).expect("first init failed");
     pmix::finalize(None).expect("first finalize failed");
@@ -207,7 +207,7 @@ fn test_init_finalize_cycle() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_after_init() {
     let context = pmix::init(None).expect("init failed");
     let result = pmix::fence(context.get_proc(), None);
@@ -215,7 +215,7 @@ fn test_fence_after_init() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_with_info() {
     let context = pmix::init(None).expect("init failed");
     let info = InfoBuilder::new().build();
@@ -224,14 +224,14 @@ fn test_fence_with_info() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_commit_after_init() {
     let _context = pmix::init(None).expect("init failed");
     let _result = pmix::commit();
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_put_get_commit_roundtrip() {
     let context = pmix::init(None).expect("init failed");
     let key = CString::new("test_roundtrip_key").unwrap();
@@ -251,7 +251,7 @@ fn test_put_get_commit_roundtrip() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_value_nonexistent() {
     let context = pmix::init(None).expect("init failed");
     let result = pmix::get_value(context.get_proc(), b"nonexistent_key_xyz\0", None);
@@ -259,15 +259,16 @@ fn test_get_value_nonexistent() {
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_nonexistent() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut pdata: Vec<pmix::data_ops::PmixPdata> = Vec::new();
     let result = pmix::data_ops::lookup(&mut pdata, None);
     assert!(result.is_err(), "lookup with empty data should fail");
 }
 
 #[test]
-#[ignore = "requires DVM-launched process (not external tool)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_nonexistent() {
     use pmix::data_ops::unpublish;
     let _context = pmix::init(None).expect("init failed");

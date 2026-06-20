@@ -219,16 +219,18 @@ fn test_infobuilder_collect_data() {
 // ── publish ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_publish_empty_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let info = InfoBuilder::new().build();
     let result = publish(&info);
     assert!(result.is_ok(), "publish should succeed");
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_publish_with_collect_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     let info = builder.build();
@@ -237,8 +239,9 @@ fn test_publish_with_collect_info() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_publish_multiple_times() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let info = InfoBuilder::new().build();
     for _ in 0..3 {
         let result = publish(&info);
@@ -249,8 +252,9 @@ fn test_publish_multiple_times() {
 // ── publish_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_publish_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopPublishCb;
     impl PublishCallback for NoopPublishCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -263,8 +267,9 @@ fn test_publish_nb_success() {
 // ── get ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_returns_error_without_server() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     let result = get(&proc, "nonexistent_key", None);
     // May succeed or fail depending on server — just verify no crash
@@ -272,16 +277,18 @@ fn test_get_returns_error_without_server() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_empty_key() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     let result = get(&proc, "", None);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     let info = InfoBuilder::new().build();
     let result = get(&proc, "key", Some(&info));
@@ -289,8 +296,9 @@ fn test_get_with_info() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_with_collect_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     let mut builder = InfoBuilder::new();
     builder.collect_data();
@@ -300,8 +308,9 @@ fn test_get_with_collect_info() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_multiple_keys() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     for key in &["key1", "key2", "key3"] {
         let result = get(&proc, key, None);
@@ -312,8 +321,9 @@ fn test_get_multiple_keys() {
 // ── get_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopGetCb;
     impl GetValueCallback for NoopGetCb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<pmix::PmixOwnedValue>) {}
@@ -324,8 +334,9 @@ fn test_get_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_nb_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopGetCb;
     impl GetValueCallback for NoopGetCb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<pmix::PmixOwnedValue>) {}
@@ -337,8 +348,9 @@ fn test_get_nb_with_info() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_nb_empty_key_returns_error() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopGetCb;
     impl GetValueCallback for NoopGetCb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<pmix::PmixOwnedValue>) {}
@@ -359,16 +371,18 @@ fn test_lookup_returns_results() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_empty_key() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut pdata = vec![PmixPdata::new("")];
     let result = lookup(&mut pdata, None);
     assert!(result.is_ok());
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_multiple_keys() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut pdata = vec![
         PmixPdata::new("key1"),
         PmixPdata::new("key2"),
@@ -379,16 +393,18 @@ fn test_lookup_multiple_keys() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_single_key() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut pdata = vec![PmixPdata::new("single_key")];
     let result = lookup(&mut pdata, None);
     assert!(result.is_ok());
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut pdata = vec![PmixPdata::new("info_key")];
     let info = InfoBuilder::new().build();
     let result = lookup(&mut pdata, Some(&info));
@@ -398,8 +414,9 @@ fn test_lookup_with_info() {
 // ── lookup_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopLookupCb;
     impl LookupCallback for NoopLookupCb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
@@ -409,8 +426,9 @@ fn test_lookup_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_nb_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopLookupCb;
     impl LookupCallback for NoopLookupCb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
@@ -421,8 +439,9 @@ fn test_lookup_nb_with_info() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_nb_multiple_keys() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopLookupCb;
     impl LookupCallback for NoopLookupCb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
@@ -432,8 +451,9 @@ fn test_lookup_nb_multiple_keys() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_nb_empty_keys_returns_error() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopLookupCb;
     impl LookupCallback for NoopLookupCb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
@@ -445,29 +465,33 @@ fn test_lookup_nb_empty_keys_returns_error() {
 // ── unpublish ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_no_keys() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = unpublish(None, None);
     assert!(result.is_ok());
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_single_key() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = unpublish(Some(&["test_key"]), None);
     assert!(result.is_ok());
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_multiple_keys() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = unpublish(Some(&["key1", "key2", "key3"]), None);
     assert!(result.is_ok());
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let info = InfoBuilder::new().build();
     let result = unpublish(Some(&["test_key"]), Some(&info));
     assert!(result.is_ok());
@@ -476,8 +500,9 @@ fn test_unpublish_with_info() {
 // ── unpublish_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopUnpublishCb;
     impl UnpublishCallback for NoopUnpublishCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -487,8 +512,9 @@ fn test_unpublish_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_nb_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopUnpublishCb;
     impl UnpublishCallback for NoopUnpublishCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -501,8 +527,9 @@ fn test_unpublish_nb_with_info() {
 // ── store_internal ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_store_internal_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     let value = PmixValueBuilder::new().string("test_value").expect("set").build().expect("build");
     let result = store_internal(&proc, "test_key", &value);
@@ -510,8 +537,9 @@ fn test_store_internal_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_store_internal_empty_key() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     let value = PmixValueBuilder::new().string("value").expect("set").build().expect("build");
     let result = store_internal(&proc, "", &value);
@@ -519,8 +547,9 @@ fn test_store_internal_empty_key() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_store_internal_multiple() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     for i in 0..3 {
         let value = PmixValueBuilder::new().string(&format!("value_{}", i)).expect("set").build().expect("build");
@@ -532,8 +561,9 @@ fn test_store_internal_multiple() {
 // ── fence_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_nb_empty_procs() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopFenceCb;
     impl FenceCallback for NoopFenceCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -543,8 +573,9 @@ fn test_fence_nb_empty_procs() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_nb_single_proc() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopFenceCb;
     impl FenceCallback for NoopFenceCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -555,8 +586,9 @@ fn test_fence_nb_single_proc() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_nb_multiple_procs() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopFenceCb;
     impl FenceCallback for NoopFenceCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -571,8 +603,9 @@ fn test_fence_nb_multiple_procs() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_nb_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopFenceCb;
     impl FenceCallback for NoopFenceCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -586,16 +619,18 @@ fn test_fence_nb_with_info() {
 // ── Publish/Get/Lookup/Unpublish lifecycle ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_publish_then_unpublish() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let info = InfoBuilder::new().build();
     publish(&info).expect("publish");
     unpublish(Some(&["test_key"]), None).expect("unpublish");
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_store_internal_then_get() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     let value = PmixValueBuilder::new().string("stored_value").expect("set").build().expect("build");
     store_internal(&proc, "stored_key", &value).expect("store");

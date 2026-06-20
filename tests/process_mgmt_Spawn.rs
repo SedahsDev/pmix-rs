@@ -357,8 +357,9 @@ fn spawn_negative_maxprocs_without_init_fails() {
 /// pmixrun -n 2 -- cargo test --test process_mgmt_Spawn spawn_integration -- --include-ignored
 /// ```
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn spawn_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // This would require PMIx_Init which needs a daemon.
     // In a real integration test environment:
     //
@@ -383,8 +384,9 @@ fn spawn_integration() {
 ///
 /// Ignored by default — requires PMIx daemon.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn spawn_nb_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // In a real integration test:
     //
     // 1. Use a std::sync::Arc<Mutex<>> to share state with the callback.

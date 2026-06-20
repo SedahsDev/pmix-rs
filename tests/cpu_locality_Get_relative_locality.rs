@@ -281,8 +281,9 @@ fn test_get_relative_locality_long_strings() {
 /// }
 /// ```
 #[test]
-#[ignore = "requires PMIx runtime — needs PMIx_Init to succeed"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_relative_locality_initialized_session() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // In a real PMIx session:
     // 1. Call PMIx_Init
     // 2. Get locality strings via PMIx_Get with PMIX_LOCALITY_STRING
@@ -298,8 +299,9 @@ fn test_get_relative_locality_initialized_session() {
 
 /// Test that two processes on the same node share NODE locality.
 #[test]
-#[ignore = "requires PMIx runtime — needs PMIx_Init to succeed"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_relative_locality_same_node() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = get_relative_locality("0", "0");
     match result {
         Ok(locality) => {
@@ -318,8 +320,9 @@ fn test_get_relative_locality_same_node() {
 
 /// Test that get_relative_locality correctly identifies non-local processes.
 #[test]
-#[ignore = "requires PMIx runtime — needs PMIx_Init to succeed"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_relative_locality_nonlocal() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // In a real session with processes on different nodes,
     // the NONLOCAL bit would be set.
     let result = get_relative_locality("0", "999999");

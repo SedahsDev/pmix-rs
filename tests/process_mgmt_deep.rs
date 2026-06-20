@@ -329,8 +329,9 @@ fn test_abort_does_not_panic() {
 // ── spawn ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_spawn_single_app() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let app = PmixApp::builder()
         .cmd("/bin/true")
         .maxprocs(1)
@@ -341,8 +342,9 @@ fn test_spawn_single_app() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_spawn_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let app = PmixApp::builder().cmd("/bin/true").build().expect("build");
     let info = vec![InfoBuilder::new().build()];
     let result = spawn(&info, &[app]);
@@ -350,8 +352,9 @@ fn test_spawn_with_info() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_spawn_multiple_apps() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let app1 = PmixApp::builder().cmd("/bin/true").maxprocs(1).build().expect("build");
     let app2 = PmixApp::builder().cmd("/bin/false").maxprocs(1).build().expect("build");
     let result = spawn(&[], &[app1, app2]);
@@ -361,8 +364,9 @@ fn test_spawn_multiple_apps() {
 // ── spawn_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_spawn_nb_single_app() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let app = PmixApp::builder().cmd("/bin/true").build().expect("build");
     let cb = SpawnCallbackWrapper::new(|_s, _n| {});
     let result = spawn_nb(&[], &[app], cb);
@@ -372,16 +376,18 @@ fn test_spawn_nb_single_app() {
 // ── connect ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_connect_single_proc() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("ns", 0).expect("proc");
     let result = connect(&[proc], &[]);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_connect_multiple_procs() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let p1 = Proc::new("ns", 0).expect("p1");
     let p2 = Proc::new("ns", 1).expect("p2");
     let result = connect(&[p1, p2], &[]);
@@ -389,8 +395,9 @@ fn test_connect_multiple_procs() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_connect_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("ns", 0).expect("proc");
     let info = vec![InfoBuilder::new().build()];
     let result = connect(&[proc], &info);
@@ -400,8 +407,9 @@ fn test_connect_with_info() {
 // ── connect_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_connect_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("ns", 0).expect("proc");
     let cb = ConnectCallbackWrapper::new(|_| {});
     let result = connect_nb(&[proc], &[], cb);
@@ -411,16 +419,18 @@ fn test_connect_nb_success() {
 // ── disconnect ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_disconnect_single_proc() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("ns", 0).expect("proc");
     let result = disconnect(&[proc], &[]);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_disconnect_with_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("ns", 0).expect("proc");
     let info = vec![InfoBuilder::new().build()];
     let result = disconnect(&[proc], &info);
@@ -430,8 +440,9 @@ fn test_disconnect_with_info() {
 // ── disconnect_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_disconnect_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("ns", 0).expect("proc");
     let cb = DisconnectCallbackWrapper::new(|_| {});
     let result = disconnect_nb(&[proc], &[], cb);
@@ -441,29 +452,33 @@ fn test_disconnect_nb_success() {
 // ── resolve_peers ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_resolve_peers_no_args() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = resolve_peers(None, None);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_resolve_peers_with_nodename() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = resolve_peers(Some("localhost"), None);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_resolve_peers_with_nspace() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = resolve_peers(None, Some("test_ns"));
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_resolve_peers_with_both() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = resolve_peers(Some("localhost"), Some("test_ns"));
     let _ = result;
 }
@@ -471,8 +486,9 @@ fn test_resolve_peers_with_both() {
 // ── resolve_nodes ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_resolve_nodes_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = resolve_nodes("test_ns");
     let _ = result;
 }
@@ -480,22 +496,25 @@ fn test_resolve_nodes_success() {
 // ── abort ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_abort_no_msg_no_procs() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = abort(PmixStatus::from_raw(1), None, None);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_abort_with_msg() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = abort(PmixStatus::from_raw(1), Some("test message"), None);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_abort_with_procs() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("ns", 0).expect("proc");
     let result = abort(PmixStatus::from_raw(1), None, Some(&[proc]));
     let _ = result;
@@ -504,8 +523,9 @@ fn test_abort_with_procs() {
 // ── Lifecycle ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_spawn_connect_disconnect() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let app = PmixApp::builder()
         .cmd("/bin/true")
         .maxprocs(1)

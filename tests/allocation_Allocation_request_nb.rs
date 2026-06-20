@@ -295,8 +295,9 @@ fn allocation_callback_custom_impl() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn allocation_request_nb_full_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // use std::sync::{Arc, Mutex};
@@ -328,8 +329,9 @@ fn allocation_request_nb_full_lifecycle() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn allocation_request_full_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // let results = allocation_request(PmixAllocDirective::AllocNew, &[])

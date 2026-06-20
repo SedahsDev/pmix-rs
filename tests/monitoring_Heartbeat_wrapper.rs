@@ -75,8 +75,9 @@ fn test_heartbeat_no_allocation() {
 /// heartbeat success path sends liveness signal.
 /// Requires PMIx_Init + server connection.
 #[test]
-#[ignore = "requires PMIx_Init — heartbeat success path only works with server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See line 421 in monitoring.rs.
     // The success path calls PMIx_Heartbeat() and returns Ok(()) on success.
 }
@@ -84,47 +85,53 @@ fn test_heartbeat_success() {
 /// MonitorResults::len returns the number of monitoring results.
 /// Requires PMIx_Init to exercise the success path.
 #[test]
-#[ignore = "requires PMIx_Init — MonitorResults only populated on FFI success"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_results_len() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init. See lines 70-72 in monitoring.rs.
 }
 
 /// MonitorResults::is_empty returns true when no results.
 /// Requires PMIx_Init to exercise the success path.
 #[test]
-#[ignore = "requires PMIx_Init — MonitorResults only populated on FFI success"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_results_is_empty() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init. See lines 75-77 in monitoring.rs.
 }
 
 /// MonitorResults::drop frees the PMIx info array.
 /// Requires PMIx_Init to exercise the success path.
 #[test]
-#[ignore = "requires PMIx_Init — drop only meaningful on FFI success"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_results_drop() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init. See lines 81-91 in monitoring.rs.
 }
 
 /// monitor_callback_bridge is invoked by PMIx C library on async completion.
 /// Requires PMIx_Init to exercise the callback bridge path.
 #[test]
-#[ignore = "requires PMIx_Init — callback bridge only invoked by C library"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_callback_bridge() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init. See lines 124-164 in monitoring.rs.
 }
 
 /// process_monitor success path returns MonitorResults.
 /// Requires PMIx_Init + server.
 #[test]
-#[ignore = "requires PMIx_Init — success path only works with server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See lines 253-256 in monitoring.rs.
 }
 
 /// process_monitor_nb success path registers monitoring.
 /// Requires PMIx_Init + server.
 #[test]
-#[ignore = "requires PMIx_Init — success path only works with server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See line 337 in monitoring.rs.
 }

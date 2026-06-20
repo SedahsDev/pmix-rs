@@ -233,8 +233,9 @@ fn test_infobuilder_collect_data() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("test_fabric")).expect("create");
     let result = fabric_register(&mut fabric, &[]);
     assert!(result.is_ok(), "register should succeed");
@@ -243,8 +244,9 @@ fn test_fabric_register_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_empty_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("empty_info")).expect("create");
     let result = fabric_register(&mut fabric, &[]);
     assert!(result.is_ok());
@@ -252,8 +254,9 @@ fn test_fabric_register_empty_info() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_unamed() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::unamed();
     let result = fabric_register(&mut fabric, &[]);
     assert!(result.is_ok());
@@ -261,8 +264,9 @@ fn test_fabric_register_unamed() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_twice_fails() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("double")).expect("create");
     fabric_register(&mut fabric, &[]).expect("first register");
     let result = fabric_register(&mut fabric, &[]);
@@ -270,8 +274,9 @@ fn test_fabric_register_twice_fails() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_then_update() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("update_test")).expect("create");
     fabric_register(&mut fabric, &[]).expect("register");
     let result = fabric_update(&mut fabric);
@@ -279,8 +284,9 @@ fn test_fabric_register_then_update() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_then_deregister() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("dereg_test")).expect("create");
     fabric_register(&mut fabric, &[]).expect("register");
     let result = fabric_deregister(&mut fabric);
@@ -289,24 +295,27 @@ fn test_fabric_register_then_deregister() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_deregister_unregistered() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::unamed();
     let result = fabric_deregister(&mut fabric);
     assert!(result.is_err(), "deregister unregistered should fail");
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_update_unregistered() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::unamed();
     let result = fabric_update(&mut fabric);
     assert!(result.is_err(), "update unregistered should fail");
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_update_deregister_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("lifecycle")).expect("create");
     fabric_register(&mut fabric, &[]).expect("register");
     assert!(fabric.is_registered());
@@ -316,8 +325,9 @@ fn test_fabric_register_update_deregister_lifecycle() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("nb_test")).expect("create");
     struct NoopFabricCb;
     impl FabricCallback for NoopFabricCb {
@@ -328,8 +338,9 @@ fn test_fabric_register_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_update_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("nb_update")).expect("create");
     fabric_register(&mut fabric, &[]).expect("register");
     struct NoopFabricCb;
@@ -341,8 +352,9 @@ fn test_fabric_update_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_deregister_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("nb_dereg")).expect("create");
     fabric_register(&mut fabric, &[]).expect("register");
     struct NoopFabricCb;
@@ -354,8 +366,9 @@ fn test_fabric_deregister_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_topology_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::new(Some("hwloc")).expect("create");
     let result = load_topology(&mut topo);
     assert!(result.is_ok(), "load_topology should succeed");
@@ -363,8 +376,9 @@ fn test_load_topology_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_topology_unamed() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     let result = load_topology(&mut topo);
     assert!(result.is_ok());
@@ -372,8 +386,9 @@ fn test_load_topology_unamed() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_basic() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     load_topology(&mut topo).expect("load");
     let mut cpuset = PmixCpuset::new();
@@ -382,8 +397,9 @@ fn test_compute_distances_basic() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_returns_distances() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     load_topology(&mut topo).expect("load");
     let mut cpuset = PmixCpuset::new();
@@ -395,8 +411,9 @@ fn test_compute_distances_returns_distances() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_device_distances_is_empty() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     load_topology(&mut topo).expect("load");
     let mut cpuset = PmixCpuset::new();
@@ -410,8 +427,9 @@ fn test_device_distances_is_empty() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_basic() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     load_topology(&mut topo).expect("load");
     struct NoopDistCb;
@@ -423,8 +441,9 @@ fn test_compute_distances_nb_basic() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_with_callback() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     load_topology(&mut topo).expect("load");
     struct RecordingDistCb;
@@ -436,8 +455,9 @@ fn test_compute_distances_nb_with_callback() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_multiple_fabric_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabrics: Vec<_> = (0..3)
         .map(|i| PmixFabric::new(Some(&format!("fabric_{}", i))).expect("create"))
         .collect();
@@ -453,8 +473,9 @@ fn test_multiple_fabric_lifecycle() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_index_after_register() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("index_test")).expect("create");
     assert_eq!(fabric.index(), 0);
     fabric_register(&mut fabric, &[]).expect("register");
@@ -462,8 +483,9 @@ fn test_fabric_index_after_register() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_ninfo_after_register() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = PmixFabric::new(Some("ninfo_test")).expect("create");
     assert_eq!(fabric.ninfo(), 0);
     fabric_register(&mut fabric, &[]).expect("register");
@@ -472,8 +494,9 @@ fn test_fabric_ninfo_after_register() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_with_collect_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     load_topology(&mut topo).expect("load");
     let mut cpuset = PmixCpuset::new();

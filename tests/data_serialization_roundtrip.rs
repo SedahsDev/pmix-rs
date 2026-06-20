@@ -37,8 +37,9 @@ fn ensure_init() -> &'static pmix::Context {
 
 /// Pack and unpack a bool true value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_bool_true() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: u8 = 1;
     data_pack(None, &buf, &original, 1, PmixDataType::Bool)
@@ -54,8 +55,9 @@ fn test_roundtrip_bool_true() {
 
 /// Pack and unpack a bool false value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_bool_false() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: u8 = 0;
     data_pack(None, &buf, &original, 1, PmixDataType::Bool)
@@ -71,8 +73,9 @@ fn test_roundtrip_bool_false() {
 
 /// Pack and unpack an i8 value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_i8() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: i8 = -42;
     data_pack(None, &buf, &original, 1, PmixDataType::Int8)
@@ -88,8 +91,9 @@ fn test_roundtrip_i8() {
 
 /// Pack and unpack a u8 value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_u8() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: u8 = 255;
     data_pack(None, &buf, &original, 1, PmixDataType::Uint8)
@@ -105,8 +109,9 @@ fn test_roundtrip_u8() {
 
 /// Pack and unpack an i16 value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_i16() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: i16 = -32768;
     data_pack(None, &buf, &original, 1, PmixDataType::Int16)
@@ -122,8 +127,9 @@ fn test_roundtrip_i16() {
 
 /// Pack and unpack a u16 value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_u16() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: u16 = 65535;
     data_pack(None, &buf, &original, 1, PmixDataType::Uint16)
@@ -139,8 +145,9 @@ fn test_roundtrip_u16() {
 
 /// Pack and unpack an i32 value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_i32() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: i32 = -2147483648i32;
     data_pack(None, &buf, &original, 1, PmixDataType::Int32)
@@ -156,8 +163,9 @@ fn test_roundtrip_i32() {
 
 /// Pack and unpack a u32 value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_u32() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: u32 = 4294967295;
     data_pack(None, &buf, &original, 1, PmixDataType::Uint32)
@@ -173,8 +181,9 @@ fn test_roundtrip_u32() {
 
 /// Pack and unpack an i64 value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_i64() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: i64 = -9223372036854775808i64;
     data_pack(None, &buf, &original, 1, PmixDataType::Int64)
@@ -190,8 +199,9 @@ fn test_roundtrip_i64() {
 
 /// Pack and unpack a u64 value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_u64() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: u64 = u64::MAX;
     data_pack(None, &buf, &original, 1, PmixDataType::Uint64)
@@ -207,8 +217,9 @@ fn test_roundtrip_u64() {
 
 /// Pack and unpack a f32 value (using approximate equality).
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_f32() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: f32 = 3.14159265358979f32;
     data_pack(None, &buf, &original, 1, PmixDataType::Float)
@@ -229,8 +240,9 @@ fn test_roundtrip_f32() {
 
 /// Pack and unpack a f64 value (using approximate equality).
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_f64() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: f64 = 2.718281828459045;
     data_pack(None, &buf, &original, 1, PmixDataType::Double)
@@ -251,8 +263,9 @@ fn test_roundtrip_f64() {
 
 /// Pack and unpack a String value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_string() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original = String::from("hello, PMIx!");
     data_pack(None, &buf, &original, 1, PmixDataType::String)
@@ -268,8 +281,9 @@ fn test_roundtrip_string() {
 
 /// Pack and unpack a usize value (PMIX_SIZE).
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_usize() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: usize = 1048576;
     data_pack(None, &buf, &original, 1, PmixDataType::Size)
@@ -285,8 +299,9 @@ fn test_roundtrip_usize() {
 
 /// Pack and unpack an i32 as PMIX_PID.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_pid() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: i32 = 12345;
     data_pack(None, &buf, &original, 1, PmixDataType::Pid)
@@ -302,8 +317,9 @@ fn test_roundtrip_pid() {
 
 /// Pack and unpack a u32 as PMIX_PROC_RANK.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_proc_rank() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let original: u32 = 42;
     data_pack(None, &buf, &original, 1, PmixDataType::ProcRank)
@@ -323,8 +339,9 @@ fn test_roundtrip_proc_rank() {
 
 /// Pack multiple values of the same type and unpack them in order.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_multi_same_type() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let vals: [i32; 5] = [10, 20, 30, 40, 50];
     data_pack(None, &buf, &vals, 5, PmixDataType::Int32)
@@ -340,8 +357,9 @@ fn test_roundtrip_multi_same_type() {
 
 /// Pack mixed types and unpack them in order.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_mixed_types() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
 
     let val_i32: i32 = 42;
@@ -378,8 +396,9 @@ fn test_roundtrip_mixed_types() {
 
 /// Pack 10+ values and unpack all of them.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_ten_plus_values() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
 
     let vals: [i64; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -396,8 +415,9 @@ fn test_roundtrip_ten_plus_values() {
 
 /// Pack multiple values of different types sequentially and unpack all.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_mixed_multi_types_long() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
 
     // Pack a sequence of different types
@@ -495,8 +515,9 @@ fn test_roundtrip_mixed_multi_types_long() {
 
 /// Pack an array of ints and unpack.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_array_of_ints() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let arr: [i32; 8] = [100, 200, 300, 400, 500, 600, 700, 800];
     data_pack(None, &buf, &arr, 8, PmixDataType::Int32)
@@ -512,8 +533,9 @@ fn test_roundtrip_array_of_ints() {
 
 /// Pack an array of u8 bytes and unpack.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_array_of_bytes() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let arr: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     data_pack(None, &buf, &arr, 16, PmixDataType::Uint8)
@@ -529,8 +551,9 @@ fn test_roundtrip_array_of_bytes() {
 
 /// Pack an array of f64 values and unpack with approximate equality.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_array_of_f64() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let arr: [f64; 4] = [1.1, 2.2, 3.3, 4.4];
     data_pack(None, &buf, &arr, 4, PmixDataType::Double)
@@ -554,8 +577,9 @@ fn test_roundtrip_array_of_f64() {
 
 /// Pack a struct with mixed fields (as individual values) and unpack.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_roundtrip_struct_mixed_fields() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     #[derive(Debug, PartialEq)]
     struct TestData {
         id: i32,
@@ -614,8 +638,9 @@ fn test_roundtrip_struct_mixed_fields() {
 
 /// data_copy: pack value, copy buffer, verify both buffers have same content.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_copy_pack_then_copy() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let val: i32 = 42;
     data_pack(None, &buf, &val, 1, PmixDataType::Int32).expect("pack");
@@ -636,8 +661,9 @@ fn test_copy_pack_then_copy() {
 
 /// data_copy_payload: pack values in src, copy_payload to dest, unpack from dest.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_copy_payload_roundtrip() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let src_buf = data_buffer_create().expect("create src buffer");
     let dest_buf = data_buffer_create().expect("create dest buffer");
 
@@ -658,8 +684,9 @@ fn test_copy_payload_roundtrip() {
 
 /// data_copy_payload with multiple values.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_copy_payload_multi_value() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let src_buf = data_buffer_create().expect("create src buffer");
     let dest_buf = data_buffer_create().expect("create dest buffer");
 
@@ -679,8 +706,9 @@ fn test_copy_payload_multi_value() {
 
 /// data_copy with boundary values.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_copy_boundary_values() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Copy i32::MIN
     let val: i32 = i32::MIN;
     let result = data_copy(&val, PmixDataType::Int32);
@@ -704,8 +732,9 @@ fn test_copy_boundary_values() {
 
 /// data_print for i32 produces non-empty output containing the value.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_i32_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i32 = 42;
     let output = data_print(&val, None, PmixDataType::Int32)
         .expect("data_print should succeed");
@@ -719,8 +748,9 @@ fn test_print_i32_output() {
 
 /// data_print for i64 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_i64_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i64 = 12345678901234i64;
     let output = data_print(&val, None, PmixDataType::Int64)
         .expect("data_print should succeed");
@@ -734,8 +764,9 @@ fn test_print_i64_output() {
 
 /// data_print for u32 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_u32_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: u32 = 4294967295;
     let output = data_print(&val, None, PmixDataType::Uint32)
         .expect("data_print should succeed");
@@ -744,8 +775,9 @@ fn test_print_u32_output() {
 
 /// data_print for f64 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_f64_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: f64 = 3.14159265358979;
     let output = data_print(&val, None, PmixDataType::Double)
         .expect("data_print should succeed");
@@ -754,8 +786,9 @@ fn test_print_f64_output() {
 
 /// data_print for bool produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_bool_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: u8 = 1;
     let output = data_print(&val, None, PmixDataType::Bool)
         .expect("data_print should succeed");
@@ -764,8 +797,9 @@ fn test_print_bool_output() {
 
 /// data_print for u8 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_u8_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: u8 = 255;
     let output = data_print(&val, None, PmixDataType::Uint8)
         .expect("data_print should succeed");
@@ -774,8 +808,9 @@ fn test_print_u8_output() {
 
 /// data_print for i16 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_i16_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i16 = -100;
     let output = data_print(&val, None, PmixDataType::Int16)
         .expect("data_print should succeed");
@@ -784,8 +819,9 @@ fn test_print_i16_output() {
 
 /// data_print for u16 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_u16_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: u16 = 50000;
     let output = data_print(&val, None, PmixDataType::Uint16)
         .expect("data_print should succeed");
@@ -794,8 +830,9 @@ fn test_print_u16_output() {
 
 /// data_print for i8 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_i8_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i8 = -128;
     let output = data_print(&val, None, PmixDataType::Int8)
         .expect("data_print should succeed");
@@ -804,8 +841,9 @@ fn test_print_i8_output() {
 
 /// data_print for u64 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_u64_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: u64 = 0xDEADBEEFCAFEBABE;
     let output = data_print(&val, None, PmixDataType::Uint64)
         .expect("data_print should succeed");
@@ -814,8 +852,9 @@ fn test_print_u64_output() {
 
 /// data_print for f32 produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_f32_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: f32 = 2.718f32;
     let output = data_print(&val, None, PmixDataType::Float)
         .expect("data_print should succeed");
@@ -824,8 +863,9 @@ fn test_print_f32_output() {
 
 /// data_print for usize (PMIX_SIZE) produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_usize_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: usize = 65536;
     let output = data_print(&val, None, PmixDataType::Size)
         .expect("data_print should succeed");
@@ -834,8 +874,9 @@ fn test_print_usize_output() {
 
 /// data_print for i32 as PMIX_PID produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_pid_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i32 = 99999;
     let output = data_print(&val, None, PmixDataType::Pid)
         .expect("data_print should succeed");
@@ -844,8 +885,9 @@ fn test_print_pid_output() {
 
 /// data_print for u32 as PMIX_PROC_RANK produces non-empty output.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_proc_rank_output() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: u32 = 7;
     let output = data_print(&val, None, PmixDataType::ProcRank)
         .expect("data_print should succeed");
@@ -854,8 +896,9 @@ fn test_print_proc_rank_output() {
 
 /// data_print with prefix produces output containing the prefix.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_with_prefix() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i32 = 100;
     let output = data_print(&val, Some("myval="), PmixDataType::Int32)
         .expect("data_print should succeed");
@@ -869,8 +912,9 @@ fn test_print_with_prefix() {
 
 /// data_print output contains type info.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_contains_type_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i32 = 42;
     let output = data_print(&val, None, PmixDataType::Int32)
         .expect("data_print should succeed");
@@ -889,8 +933,9 @@ fn test_print_contains_type_info() {
 /// Full round-trip: pack → unload → load → unpack using load/unload (no PMIx_Init).
 /// This exercises the load/unload path without pack/unpack FFI.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_roundtrip_basic() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf1 = data_buffer_create().expect("create buf1");
     let original = vec![10u8, 20, 30, 40, 50];
@@ -907,8 +952,9 @@ fn test_load_unload_roundtrip_basic() {
 
 /// Load → unload → load into new buffer → unload again (transport chain).
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_transport_chain() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Sender
     let sender_buf = data_buffer_create().expect("create sender buffer");
     let original: Vec<u8> = (0..256).map(|i| i as u8).collect();
@@ -932,8 +978,9 @@ fn test_load_unload_transport_chain() {
 
 /// Load/unload with empty payload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_empty() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::new();
@@ -950,8 +997,9 @@ fn test_load_unload_empty() {
 
 /// Load/unload with single byte.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_single_byte() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original = vec![0x42u8];
@@ -964,8 +1012,9 @@ fn test_load_unload_single_byte() {
 
 /// Load/unload with all-zero payload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_all_zeros() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original = vec![0u8; 128];
@@ -978,8 +1027,9 @@ fn test_load_unload_all_zeros() {
 
 /// Load/unload with all-0xFF payload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_all_0xff() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original = vec![0xFFu8; 64];
@@ -992,8 +1042,9 @@ fn test_load_unload_all_0xff() {
 
 /// Load/unload with 4KB payload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_4kb() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original: Vec<u8> = (0..4096).map(|i| (i % 256) as u8).collect();
@@ -1006,8 +1057,9 @@ fn test_load_unload_4kb() {
 
 /// Load/unload with 64KB payload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_64kb() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
@@ -1020,8 +1072,9 @@ fn test_load_unload_64kb() {
 
 /// Multiple load/unload cycles on the same buffer.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_multiple_cycles() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
 
@@ -1039,8 +1092,9 @@ fn test_load_unload_multiple_cycles() {
 
 /// Buffer remains valid after load/unload cycle.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_valid_after_load_unload() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![1u8, 2, 3]);
@@ -1087,8 +1141,9 @@ fn test_pack_i32_min_num_vals_error() {
 
 /// data_unpack from empty buffer should fail (requires PMIx_Init).
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpack_empty_buffer_error() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let mut recovered: i32 = 0;
     let mut count: i32 = 1;
@@ -1101,8 +1156,9 @@ fn test_unpack_empty_buffer_error() {
 
 /// data_unpack with wrong type — pack int, unpack as string (requires PMIx_Init).
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpack_wrong_type_error() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let buf = data_buffer_create().expect("create buffer");
     let val: i32 = 42;
     data_pack(None, &buf, &val, 1, PmixDataType::Int32)
@@ -1123,8 +1179,9 @@ fn test_unpack_wrong_type_error() {
 
 /// data_copy with unknown type should fail (requires PMIx_Init).
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_copy_unknown_type_error() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i32 = 42;
     let result = data_copy(&val, PmixDataType::Unknown);
     assert!(
@@ -1135,8 +1192,9 @@ fn test_copy_unknown_type_error() {
 
 /// data_print with empty prefix should succeed (requires PMIx_Init).
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_print_empty_prefix() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let val: i32 = 7;
     let result = data_print(&val, Some(""), PmixDataType::Int32);
     assert!(result.is_ok(), "print with empty prefix should succeed");
@@ -1144,8 +1202,9 @@ fn test_print_empty_prefix() {
 
 /// data_copy_payload with empty source should succeed (requires PMIx_Init).
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_copy_payload_empty_source() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let src_buf = data_buffer_create().expect("create src buffer");
     let dest_buf = data_buffer_create().expect("create dest buffer");
 
@@ -1486,8 +1545,9 @@ fn test_pack_zero_num_vals_idempotent() {
 
 /// Buffer bytes_used increases after load, resets after unload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_bytes_used_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     assert_eq!(buf.bytes_used(), 0, "initial state");
@@ -1502,8 +1562,9 @@ fn test_buffer_bytes_used_lifecycle() {
 
 /// Buffer bytes_allocated >= bytes_used after load.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_buffer_allocated_ge_used() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![0u8; 128]);
@@ -1518,8 +1579,9 @@ fn test_buffer_allocated_ge_used() {
 
 /// Multiple independent buffers with load/unload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_multiple_independent_buffers() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf1 = data_buffer_create().expect("buf1");
     let buf2 = data_buffer_create().expect("buf2");
@@ -1603,8 +1665,9 @@ fn test_null_buffer_debug() {
 
 /// data_load then data_unload with alternating pattern roundtrips.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_alternating_pattern() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original: Vec<u8> = (0..256)
@@ -1619,8 +1682,9 @@ fn test_load_unload_alternating_pattern() {
 
 /// Three-buffer transport chain: buf1 → buf2 → buf3.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_three_buffer_transport_chain() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf1 = data_buffer_create().expect("buf1");
     let buf2 = data_buffer_create().expect("buf2");

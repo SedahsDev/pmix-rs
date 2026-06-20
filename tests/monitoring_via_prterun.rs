@@ -65,9 +65,9 @@ fn test_heartbeat_fails_without_init() {
 /// heartbeat via DVM.
 /// Covers: heartbeat FFI call, PMIx_Heartbeat
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = pmix::monitoring::heartbeat();
     // Heartbeat may succeed or fail depending on server support
     match result {
@@ -81,9 +81,9 @@ fn test_heartbeat_via_dvm() {
 /// process_monitor via DVM.
 /// Covers: process_monitor FFI call, PMIx_Process_monitor
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor_info = pmix::InfoBuilder::new().build();
     let result = pmix::monitoring::process_monitor(
         &monitor_info,
@@ -102,9 +102,9 @@ fn test_process_monitor_via_dvm() {
 
 /// Full monitoring lifecycle via DVM.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitoring_lifecycle_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
 
     // Heartbeat
     let _ = pmix::monitoring::heartbeat();

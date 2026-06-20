@@ -67,8 +67,9 @@ fn store_internal_signature_check() {
 /// Derived from `test/test_internal.c` which stores string values and later
 /// retrieves them via `PMIx_Get`. Requires PMIx_Init.
 #[test]
-#[ignore = "requires PMIx_Init (PMIx daemon)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn store_internal_string_value() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_namespace", 0).unwrap();
     let value = build_value(
         pmix::PmixValueBuilder::new()
@@ -85,8 +86,9 @@ fn store_internal_string_value() {
 
 /// Store an integer value internally.
 #[test]
-#[ignore = "requires PMIx_Init (PMIx daemon)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn store_internal_int_value() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_namespace", 0).unwrap();
     let value = build_value(pmix::PmixValueBuilder::new().int(42));
     let result = store_internal(&proc, "test_int_key", &value);
@@ -99,8 +101,9 @@ fn store_internal_int_value() {
 
 /// Store a bool value internally.
 #[test]
-#[ignore = "requires PMIx_Init (PMIx daemon)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn store_internal_bool_value() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_namespace", 0).unwrap();
     let value = build_value(pmix::PmixValueBuilder::new().bool(true));
     let result = store_internal(&proc, "test_bool_key", &value);
@@ -113,8 +116,9 @@ fn store_internal_bool_value() {
 
 /// Store a uint64 value internally.
 #[test]
-#[ignore = "requires PMIx_Init (PMIx daemon)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn store_internal_uint64_value() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_namespace", 0).unwrap();
     let value = build_value(pmix::PmixValueBuilder::new().uint64(999_999));
     let result = store_internal(&proc, "test_uint64_key", &value);
@@ -127,8 +131,9 @@ fn store_internal_uint64_value() {
 
 /// Store a double value internally.
 #[test]
-#[ignore = "requires PMIx_Init (PMIx daemon)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn store_internal_double_value() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_namespace", 0).unwrap();
     let value = build_value(pmix::PmixValueBuilder::new().double(3.14159));
     let result = store_internal(&proc, "test_double_key", &value);
@@ -209,8 +214,9 @@ fn store_internal_max_key_length() {
 ///
 /// Derived from test_internal.c which stores multiple values in a loop.
 #[test]
-#[ignore = "requires PMIx_Init (PMIx daemon)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn store_internal_multiple_keys() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_namespace", 0).unwrap();
     for i in 0..5 {
         let key = format!("test_key:{}", i);
@@ -231,8 +237,9 @@ fn store_internal_multiple_keys() {
 
 /// Store on different proc ranks.
 #[test]
-#[ignore = "requires PMIx_Init (PMIx daemon)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn store_internal_different_ranks() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let nspace = "test_namespace";
     for rank in 0..3u32 {
         let proc = Proc::new(nspace, rank).unwrap();
@@ -266,8 +273,9 @@ fn store_internal_value_not_consumed() {
 
 /// Store_internal with wildcard rank.
 #[test]
-#[ignore = "requires PMIx_Init (PMIx daemon)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn store_internal_wildcard_rank() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // PMIX_RANK_WILDCARD = -1 (stored as u32::MAX in the C lib).
     let proc = Proc::new("test_namespace", u32::MAX).unwrap();
     let value = build_value(

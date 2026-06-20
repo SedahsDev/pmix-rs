@@ -59,7 +59,7 @@ fn test_heartbeat_fails_without_dvm() {
 
 /// pmix::monitoring::heartbeat() returns Ok(()) when DVM-launched.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_succeeds_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = pmix::init(None).expect("pmix::init() failed");
@@ -73,7 +73,7 @@ fn test_heartbeat_succeeds_via_prterun() {
 
 /// pmix::monitoring::heartbeat() can be called multiple times.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_multiple_calls() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = pmix::init(None).expect("pmix::init() failed");
@@ -91,7 +91,7 @@ fn test_heartbeat_multiple_calls() {
 
 /// pmix::utility::initialized() is true before calling heartbeat().
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_initialized_true_before_heartbeat() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = pmix::init(None).expect("pmix::init() failed");

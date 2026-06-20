@@ -266,8 +266,9 @@ fn connect_callback_wrapper_receives_status() {
 /// pmixrun -n 1 -- cargo test --test process_mgmt_Connect connect_integration -- --include-ignored
 /// ```
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn connect_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // This would require PMIx_Init which needs a daemon.
     // In a real integration test environment, we would:
     //
@@ -290,8 +291,9 @@ fn connect_integration() {
 ///
 /// Ignored by default — requires PMIx daemon.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn connect_nb_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // In a real integration test:
     //
     // 1. Call pmix::lifecycle::init(None).expect("init");

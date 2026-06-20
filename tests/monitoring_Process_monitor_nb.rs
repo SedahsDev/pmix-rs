@@ -344,8 +344,9 @@ fn test_heartbeat_return_type() {
 
 /// Full non-blocking monitoring lifecycle from simpjctrl.c.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_full_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx daemon - would build monitor info, directives,
     // call process_monitor_nb with callback, and verify callback fires.
     let cb: Box<dyn MonitorCallback> = Box::new(CalledMonitorCallback {
@@ -356,8 +357,9 @@ fn test_process_monitor_nb_full_lifecycle() {
 
 /// Test heartbeat under a real PMIx environment.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_with_daemon() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = pmix::monitoring::heartbeat();
     assert!(
         result.is_ok(),
@@ -368,8 +370,9 @@ fn test_heartbeat_with_daemon() {
 
 /// Test process_monitor_nb with file-based monitoring under a real PMIx environment.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_file_monitor_with_daemon() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let cb: Box<dyn MonitorCallback> = Box::new(CalledMonitorCallback {
         called: std::cell::Cell::new(false),
     });
@@ -379,8 +382,9 @@ fn test_process_monitor_nb_file_monitor_with_daemon() {
 /// Test that process_monitor_nb with NULL callback (fire-and-forget)
 /// is equivalent to the heartbeat pattern.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_fire_and_forget() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = pmix::monitoring::heartbeat();
     assert!(result.is_ok(), "fire-and-forget heartbeat should succeed");
 }

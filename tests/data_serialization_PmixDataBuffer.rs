@@ -189,8 +189,9 @@ fn test_buffer_with_byte_object() {
 
 /// Empty byte object can be loaded into buffer.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_empty_payload_into_buffer() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let empty_payload = PmixByteObject::new();
@@ -200,8 +201,9 @@ fn test_load_empty_payload_into_buffer() {
 
 /// data_unload on empty buffer returns empty byte object.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_unload_empty_buffer() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = data_unload(&buf).expect("unload empty buffer");

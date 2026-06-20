@@ -215,14 +215,16 @@ fn test_group_leave_nb_idempotent() {
 
 /// group_leave success path returns Ok(()).
 #[test]
-#[ignore = "requires PMIx_Init — success path only works with server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_leave_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See lines 642-668 in groups.rs.
 }
 
 /// group_leave_nb success path invokes callback.
 #[test]
-#[ignore = "requires PMIx_Init — callback bridge only invoked by C library"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_leave_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Requires PMIx_Init + server. See lines 698-751 in groups.rs.
 }

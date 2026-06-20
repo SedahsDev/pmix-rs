@@ -92,8 +92,9 @@ fn disconnect_empty_procs_returns_bad_param() {
 /// Ignored because `PMIx_Disconnect_nb` segfaults without PMIx_Init —
 /// the library tries to invoke the callback with invalid internal state.
 #[test]
-#[ignore = "PMIx_Disconnect_nb segfaults without PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn disconnect_nb_without_init_fails() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_namespace", u32::MAX).expect("create proc");
     let callback = DisconnectCallbackWrapper::new(|_status| {
         // This callback should NOT be called on synchronous failure.
@@ -132,8 +133,9 @@ fn disconnect_nb_empty_procs_returns_bad_param() {
 ///
 /// Ignored because `PMIx_Disconnect_nb` segfaults without PMIx_Init.
 #[test]
-#[ignore = "PMIx_Disconnect_nb segfaults without PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn disconnect_nb_multiple_procs_without_init_fails() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc1 = Proc::new("test_ns", u32::MAX).expect("create proc1");
     let proc2 = Proc::new("other_ns", 0).expect("create proc2");
     let callback = DisconnectCallbackWrapper::new(|_status| {
@@ -314,8 +316,9 @@ fn disconnect_wildcard_rank_without_init_fails() {
 /// pmixrun -n 1 -- cargo test --test process_mgmt_Disconnect disconnect_integration -- --include-ignored
 /// ```
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn disconnect_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // This would require PMIx_Init which needs a daemon.
     // In a real integration test environment, we would:
     //
@@ -340,8 +343,9 @@ fn disconnect_integration() {
 ///
 /// Ignored by default — requires PMIx daemon.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn disconnect_nb_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // In a real integration test:
     //
     // 1. Call pmix::lifecycle::init(None).expect("init");
@@ -366,8 +370,9 @@ fn disconnect_nb_integration() {
 /// a different error (e.g., PMIX_ERR_NOT_SUPPORTED), so we just check
 /// that it returns an error.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn disconnect_without_prior_connect_returns_error() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // In a real integration test:
     //
     // 1. Call pmix::lifecycle::init(None).expect("init");

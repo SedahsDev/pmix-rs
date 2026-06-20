@@ -467,8 +467,9 @@ fn test_compute_distances_callback_is_object_safe() {
 /// compute_distances_nb without loaded topology — FFI call is ignored
 /// because it segfaults without PMIx init.
 #[test]
-#[ignore = "SIGSEGV — FFI calls PMIx_Compute_distances_nb without init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_without_loaded_topology() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     let mut cpuset = PmixCpuset::new();
     struct NopCb;
@@ -498,8 +499,9 @@ fn test_compute_distances_nb_callback_with_state() {
 
 /// compute_distances_nb with empty info compiles.
 #[test]
-#[ignore = "SIGSEGV — FFI calls PMIx_Compute_distances_nb without init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_empty_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::unamed();
     let mut cpuset = PmixCpuset::new();
     struct NopCb;
@@ -512,8 +514,9 @@ fn test_compute_distances_nb_empty_info() {
 
 /// compute_distances_nb with sourced topology compiles.
 #[test]
-#[ignore = "SIGSEGV — FFI calls PMIx_Compute_distances_nb without init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_sourced_topology() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = PmixTopology::new(Some("hwloc")).unwrap();
     let mut cpuset = PmixCpuset::new();
     struct NopCb;

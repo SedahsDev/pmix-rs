@@ -8,8 +8,9 @@ use pmix::utility::get_attribute_name;
 /// `PMIx_Get_attribute_name` returns a known attribute name for a valid
 /// attribute string. Requires PMIx initialization.
 #[test]
-#[ignore = "requires PMIx initialization"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_known() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = get_attribute_name("pmix.hostname");
     assert!(
         result.is_ok(),
@@ -21,8 +22,9 @@ fn get_attribute_name_known() {
 /// `PMIx_Get_attribute_name` returns Ok for any string — it returns the
 /// input unchanged if the attribute is not found. Requires PMIx init.
 #[test]
-#[ignore = "requires PMIx initialization"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_unknown_returns_input() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = get_attribute_name("nonexistent.attribute.xyz");
     assert!(
         result.is_ok(),
@@ -33,8 +35,9 @@ fn get_attribute_name_unknown_returns_input() {
 
 /// `PMIx_Get_attribute_name` returns a non-empty string. Requires PMIx init.
 #[test]
-#[ignore = "requires PMIx initialization"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_non_empty() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = get_attribute_name("pmix.hostname").unwrap();
     assert!(
         !result.is_empty(),

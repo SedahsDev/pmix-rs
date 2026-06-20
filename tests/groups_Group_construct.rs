@@ -561,8 +561,9 @@ fn group_destruct_callback_wrapper_construction() {
 /// pmixrun -n 2 -- cargo test --test groups_Group_construct group_construct_integration -- --include-ignored
 /// ```
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_construct_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // In a real integration test environment:
     //
     // 1. Call pmix::lifecycle::init(None).expect("init");
@@ -586,8 +587,9 @@ fn group_construct_integration() {
 ///
 /// Ignored by default — requires PMIx daemon.
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn group_invite_join_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // In a real integration test:
     //
     // 1. Leader calls pmix::lifecycle::init(None).expect("init");

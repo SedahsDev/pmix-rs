@@ -204,8 +204,9 @@ fn abort_empty_proc_slice_without_init_fails() {
 /// pmixrun -n 2 -- cargo test --test process_mgmt_Abort abort_integration -- --include-ignored
 /// ```
 #[test]
-#[ignore = "requires PMIx_Init with a running PMIx daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn abort_integration() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // This would require PMIx_Init which needs a daemon.
     // The safe approach is to skip this in unit test mode.
     // In a real integration test environment, we would:

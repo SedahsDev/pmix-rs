@@ -44,7 +44,7 @@ fn test_progress_no_panic_without_dvm() {
 
 /// pmix::progress() does not panic/crash when DVM-launched.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_progress_no_crash_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = pmix::init(None).expect("pmix::init() failed");
@@ -55,7 +55,7 @@ fn test_progress_no_crash_via_prterun() {
 
 /// pmix::progress() can be called multiple times safely.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_progress_multiple_calls() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = pmix::init(None).expect("pmix::init() failed");
@@ -67,7 +67,7 @@ fn test_progress_multiple_calls() {
 
 /// pmix::utility::initialized() is true before and after calling progress().
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_initialized_before_and_after_progress() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = pmix::init(None).expect("pmix::init() failed");

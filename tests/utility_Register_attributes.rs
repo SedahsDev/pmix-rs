@@ -137,32 +137,36 @@ fn test_register_attributes_many_attributes() {
 
 /// Successful registration after PMIx_Init.
 #[test]
-#[ignore = "requires PMIx_Init and running PMIx server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = register_attributes("PMIx_Get", &["pmix.get.timeout"]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
 
 /// Duplicate registration returns PMIX_ERR_REPEAT_ATTR_REGISTRATION.
 #[test]
-#[ignore = "requires PMIx_Init and running PMIx server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_duplicate() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = register_attributes("PMIx_Get", &["attr1"]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
 
 /// Registration with empty attrs list is valid after init.
 #[test]
-#[ignore = "requires PMIx_Init and running PMIx server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_empty_after_init() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = register_attributes("PMIx_Get", &[] as &[&str]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
 
 /// Registration with special attribute names after init.
 #[test]
-#[ignore = "requires PMIx_Init and running PMIx server"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_special_attrs() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let attrs = &[
         "pmix.get.timeout",
         "pmix.get.scope",
@@ -190,8 +194,9 @@ fn test_register_attributes_server_functions() {
 
 /// Registration for tool-side functions.
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_tool_functions() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let tool_functions = ["PMIx_Connect", "PMIx_Disconnect", "PMIx_Notify_event"];
     for func in tool_functions {
         let result = register_attributes(func, &["attr1"]);

@@ -214,9 +214,9 @@ fn test_fabric_drop_unregistered() {
 
 /// PmixFabric::new via DVM with shared context.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_new_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let fabric = pmix::fabric::PmixFabric::new(Some("dvm-test")).expect("new failed");
     assert_eq!(fabric.name(), Some("dvm-test"));
     assert!(!fabric.is_registered());
@@ -224,9 +224,9 @@ fn test_fabric_new_via_dvm() {
 
 /// PmixFabric::unamed via DVM.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_unamed_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let fabric = pmix::fabric::PmixFabric::unamed();
     assert_eq!(fabric.name(), None);
     assert!(!fabric.is_registered());
@@ -235,9 +235,9 @@ fn test_fabric_unamed_via_dvm() {
 /// fabric_register success path via DVM.
 /// Covers: fabric_register FFI call, PMIx_Fabric_register
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_success_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = pmix::fabric::PmixFabric::new(Some("register-test")).expect("new failed");
     assert!(!fabric.is_registered());
     if pmix::fabric::fabric_register(&mut fabric, &[]).is_ok() {
@@ -249,9 +249,9 @@ fn test_fabric_register_success_via_dvm() {
 /// fabric_update via DVM.
 /// Covers: fabric_update FFI call, PMIx_Fabric_update
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_update_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = pmix::fabric::PmixFabric::unamed();
     if pmix::fabric::fabric_register(&mut fabric, &[]).is_ok() {
         let _ = pmix::fabric::fabric_update(&mut fabric);
@@ -262,9 +262,9 @@ fn test_fabric_update_via_dvm() {
 /// fabric_deregister via DVM.
 /// Covers: fabric_deregister FFI call, PMIx_Fabric_deregister
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_deregister_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut fabric = pmix::fabric::PmixFabric::new(Some("dereg-test")).expect("new failed");
     if pmix::fabric::fabric_register(&mut fabric, &[]).is_ok() {
         assert!(fabric.is_registered());
@@ -280,9 +280,9 @@ fn test_fabric_deregister_via_dvm() {
 /// Covers: fabric_register_nb FFI call, PMIx_Fabric_register_nb
 /// NOTE: Must be run individually — async callback corrupts PMIx state for subsequent tests.
 #[test]
-#[ignore = "requires prterun launch (run individually)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_nb_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     use pmix::fabric::FabricCallback;
 
     struct TestCallback;
@@ -302,9 +302,9 @@ fn test_fabric_register_nb_via_dvm() {
 /// Covers: fabric_update_nb FFI call, PMIx_Fabric_update_nb
 /// NOTE: Must be run individually — async callback corrupts PMIx state for subsequent tests.
 #[test]
-#[ignore = "requires prterun launch (run individually)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_update_nb_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     use pmix::fabric::FabricCallback;
 
     struct UpdateCallback;
@@ -323,9 +323,9 @@ fn test_fabric_update_nb_via_dvm() {
 /// Covers: fabric_deregister_nb FFI call, PMIx_Fabric_deregister_nb
 /// NOTE: Must be run individually — async callback corrupts PMIx state for subsequent tests.
 #[test]
-#[ignore = "requires prterun launch (run individually)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_deregister_nb_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     use pmix::fabric::FabricCallback;
 
     struct DeregCallback;
@@ -343,9 +343,9 @@ fn test_fabric_deregister_nb_via_dvm() {
 /// Covers: load_topology FFI call, PMIx_Topology_load
 /// NOTE: Must be run individually — PMIx library state corruption when run after compute_distances_nb.
 #[test]
-#[ignore = "requires prterun launch (run individually)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_topology_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = pmix::fabric::PmixTopology::unamed();
     let _ = pmix::fabric::load_topology(&mut topo);
 }
@@ -354,9 +354,9 @@ fn test_load_topology_via_dvm() {
 /// Covers: compute_distances FFI call, PMIx_Topology_compute_distances
 /// NOTE: Must be run individually — PMIx library state corruption when run after compute_distances_nb.
 #[test]
-#[ignore = "requires prterun launch (run individually)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut topo = pmix::fabric::PmixTopology::unamed();
     let mut cpuset = pmix::fabric::PmixCpuset::new();
     // compute_distances requires a loaded topology — load first to avoid FFI crash
@@ -370,9 +370,9 @@ fn test_compute_distances_via_dvm() {
 /// Covers: compute_distances_nb FFI call, PMIx_Topology_compute_distances_nb
 /// NOTE: Must be run individually — async callback corrupts PMIx state for subsequent tests.
 #[test]
-#[ignore = "requires prterun launch (run individually)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     use pmix::fabric::ComputeDistancesCallback;
 
     struct DistCallback;
@@ -396,9 +396,9 @@ fn test_compute_distances_nb_via_dvm() {
 /// PmixCpuset::as_mut_ptr via DVM.
 /// Covers: PmixCpuset::as_mut_ptr
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_cpuset_as_mut_ptr_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut cpuset = pmix::fabric::PmixCpuset::new();
     let ptr = cpuset.as_mut_ptr();
     assert!(!ptr.is_null(), "cpuset as_mut_ptr should be non-null");
@@ -407,9 +407,9 @@ fn test_cpuset_as_mut_ptr_via_dvm() {
 /// Full lifecycle: new -> register -> update -> deregister -> drop.
 /// Covers: complete fabric lifecycle with all FFI paths
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_full_lifecycle_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
 
     // 1. Create fabric
     let mut fabric =
@@ -438,9 +438,9 @@ fn test_fabric_full_lifecycle_via_dvm() {
 /// Topology + compute distances lifecycle via DVM.
 /// NOTE: Must be run individually — PMIx library state corruption in batch mode.
 #[test]
-#[ignore = "requires prterun launch (run individually)"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_topology_compute_distances_lifecycle_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
 
     let mut topo = pmix::fabric::PmixTopology::unamed();
     let mut cpuset = pmix::fabric::PmixCpuset::new();

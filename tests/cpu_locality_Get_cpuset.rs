@@ -216,8 +216,9 @@ fn test_get_cpuset_simpfabric_pattern() {
 /// Test that get_cpuset follows the same init-check pattern as the C impl.
 /// The C code checks `pmix_globals.init_cntr <= 0` and returns PMIX_ERR_INIT.
 #[test]
-#[ignore = "requires PMIx runtime — needs PMIx_Init to succeed"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_cpuset_initialized_session() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // This test would require a full PMIx session to be initialized.
     // In a real integration test, we would:
     // 1. Call PMIx_Init
@@ -237,8 +238,9 @@ fn test_get_cpuset_initialized_session() {
 /// In a real PMIx session, Process and Thread may return different cpusets
 /// if the thread has been bound to a different CPU set.
 #[test]
-#[ignore = "requires PMIx runtime — needs PMIx_Init to succeed"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_cpuset_process_vs_thread() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut cpuset_proc = PmixCpuset::new();
     let mut cpuset_thread = PmixCpuset::new();
 

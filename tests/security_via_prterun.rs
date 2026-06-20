@@ -112,9 +112,9 @@ fn test_validate_credential_fails_without_init() {
 /// get_credential via DVM.
 /// Covers: get_credential FFI call, PMIx_Get_credential
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_credential_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = pmix::security::get_credential(&[]);
     // May succeed or fail depending on security system availability
     // The important thing is that the FFI path is exercised
@@ -134,9 +134,9 @@ fn test_get_credential_via_dvm() {
 /// validate_credential via DVM with empty credential.
 /// Covers: validate_credential FFI call, PMIx_Validate_credential
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_validate_credential_empty_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let cred = pmix::security::PmixCredential::empty();
     let result = pmix::security::validate_credential(&cred, &[]);
     // Empty credential should fail validation
@@ -146,9 +146,9 @@ fn test_validate_credential_empty_via_dvm() {
 /// validate_credential via DVM with non-empty credential.
 /// Covers: validate_credential FFI call with actual data
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_validate_credential_nonempty_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let cred = pmix::security::PmixCredential::from_bytes(&[1, 2, 3, 4, 5]);
     let result = pmix::security::validate_credential(&cred, &[]);
     // May succeed or fail depending on credential validity
@@ -167,9 +167,9 @@ fn test_validate_credential_nonempty_via_dvm() {
 /// Full credential lifecycle: get -> validate via DVM.
 /// Covers: complete credential flow
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_credential_lifecycle_via_dvm() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
 
     // Try to get a credential
     let result = pmix::security::get_credential(&[]);

@@ -299,8 +299,9 @@ fn data_range_variants_compile() {
 /// Requires a running PMIx server / daemon. Ignored by default.
 /// Run with: `cargo test --test events_Register_event_handler -- --ignored`
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn register_deregister_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // NOTE: This test would call PMIx_Init first, but we don't have a
     // lifecycle module exposed in the public API yet. The test is here
     // as a template for when PMIx_Init is available.
@@ -319,8 +320,9 @@ fn register_deregister_lifecycle() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn register_with_codes_deregister_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Same as above but with specific event codes.
     // let _ = pmix::lifecycle::init(None, &[]);
     // let codes = vec![PmixStatus::Known(PmixError::ErrJobAborted)];
@@ -336,8 +338,9 @@ fn register_with_codes_deregister_lifecycle() {
 ///
 /// Requires a running PMIx server / daemon. Ignored by default.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn notify_event_lifecycle() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // let _ = pmix::lifecycle::init(None, &[]);
     // let proc = pmix::Proc::new("", 0).unwrap();
     // let info = InfoBuilder::new().build();

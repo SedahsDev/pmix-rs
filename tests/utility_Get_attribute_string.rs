@@ -28,8 +28,9 @@ use pmix::utility::{get_attribute_name, get_attribute_string};
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_string_known_key_returns_ok() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // "pmix.host" is a well-known PMIx attribute key.
     let result = get_attribute_string("pmix.host");
     assert!(
@@ -51,8 +52,9 @@ fn get_attribute_string_known_key_returns_ok() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_string_unknown_key_returns_input() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let input = "pmix.nonexistent.attribute.xyz";
     let result = get_attribute_string(input);
     assert!(
@@ -72,8 +74,9 @@ fn get_attribute_string_unknown_key_returns_input() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_string_various_keys() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let keys = [
         "pmix.host",
         "pmix.nprocs",
@@ -105,8 +108,9 @@ fn get_attribute_string_various_keys() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_string_is_deterministic() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let key = "pmix.host";
     let first = get_attribute_string(key).unwrap();
     let second = get_attribute_string(key).unwrap();
@@ -120,8 +124,9 @@ fn get_attribute_string_is_deterministic() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_string_distinct_for_different_keys() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let host = get_attribute_string("pmix.host").unwrap();
     let nprocs = get_attribute_string("pmix.nprocs").unwrap();
     // Even if both are returned unchanged (library not initialized),
@@ -158,8 +163,9 @@ fn get_attribute_string_returns_result_string() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_known_string_returns_ok() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // Try a descriptive attribute string — the library may or may not have
     // it registered depending on initialization state.
     let result = get_attribute_name("host name");
@@ -182,8 +188,9 @@ fn get_attribute_name_known_string_returns_ok() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_unknown_string_returns_input() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let input = "this.is.not.a.registered.attribute.string";
     let result = get_attribute_name(input);
     assert!(
@@ -202,8 +209,9 @@ fn get_attribute_name_unknown_string_returns_input() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_is_deterministic() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let input = "pmix.host";
     let first = get_attribute_name(input).unwrap();
     let second = get_attribute_name(input).unwrap();
@@ -230,8 +238,9 @@ fn get_attribute_name_returns_result_string() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_string_short_key() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = get_attribute_string("a");
     assert!(
         result.is_ok(),
@@ -249,8 +258,9 @@ fn get_attribute_string_short_key() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_string_special_chars() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let key = "pmix.job.id";
     let result = get_attribute_string(key);
     assert!(
@@ -268,8 +278,9 @@ fn get_attribute_string_special_chars() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_string_case_insensitive() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let lower = get_attribute_string("pmix.host").unwrap();
     let upper = get_attribute_string("PMIX.HOST").unwrap();
     // Both should return the same canonical string (either the registered
@@ -284,8 +295,9 @@ fn get_attribute_string_case_insensitive() {
 ///
 /// Requires PMIx to be initialized (PMIx_Init called).
 #[test]
-#[ignore] // requires PMIx_Init
+#[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_edge_cases() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let keys = ["a", "pmix.job.id", "PMIX.HOST"];
     for key in &keys {
         let result = get_attribute_name(key);

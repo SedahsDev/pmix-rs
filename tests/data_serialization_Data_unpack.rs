@@ -53,8 +53,9 @@ fn test_proc_ref_long_namespace() {
 
 /// PmixByteObject can be created and used with data_load/data_unload.
 #[test]
-#[ignore = "requires PMIx_Init — run under prterun"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_byte_object_roundtrip() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original = vec![10u8, 20, 30, 40, 50, 60];

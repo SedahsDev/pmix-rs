@@ -70,27 +70,26 @@ fn test_server_handle_exists() {
 
 /// Verify we're running under DVM.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_dvm_launch_detected() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     assert!(is_dvm_launched());
 }
 
 /// Context provides valid proc info via DVM.
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_via_dvm() {
-    assert!(ensure_pmix_init());
-    let context = PMIX_CONTEXT.get().unwrap().as_ref().unwrap();
+    let context = pmix::init(None).expect("pmix::init failed");
     let proc = context.get_proc();
     assert_eq!(proc.get_rank(), 0);
 }
 
 /// tool_finalize is safe to call (even if tool was never initialized).
 #[test]
-#[ignore = "requires prterun launch"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_tool_finalize_safe() {
-    assert!(ensure_pmix_init());
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     // tool_finalize without prior tool_init should handle gracefully
     // This covers the tool_finalize code path
 }

@@ -105,16 +105,18 @@ fn test_heartbeat_multiple_does_not_panic() {
 // ── process_monitor ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_empty_directives() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
     let result = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::ErrNotFound), &[]);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_with_directives() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
     let dirs = vec![InfoBuilder::new().build()];
     let result = process_monitor(
@@ -126,16 +128,18 @@ fn test_process_monitor_with_directives() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_success_error_code() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
     let result = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::Success), &[]);
     let _ = result;
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_timeout_error_code() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
     let result = process_monitor(
         &monitor,
@@ -146,8 +150,9 @@ fn test_process_monitor_timeout_error_code() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_multiple_directives() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
     let dirs = vec![
         InfoBuilder::new().build(),
@@ -158,8 +163,9 @@ fn test_process_monitor_multiple_directives() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_result_has_len() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
     let result = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::ErrNotFound), &[]);
     match result {
@@ -174,8 +180,9 @@ fn test_process_monitor_result_has_len() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_with_collect_info() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     let monitor = builder.build();
@@ -186,8 +193,9 @@ fn test_process_monitor_with_collect_info() {
 // ── process_monitor_nb ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopMonitorCb;
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
@@ -203,8 +211,9 @@ fn test_process_monitor_nb_success() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_with_directives() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopMonitorCb;
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
@@ -221,8 +230,9 @@ fn test_process_monitor_nb_with_directives() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_success_error_code() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopMonitorCb;
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
@@ -238,8 +248,9 @@ fn test_process_monitor_nb_success_error_code() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_multiple_callbacks() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopMonitorCb;
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
@@ -259,15 +270,17 @@ fn test_process_monitor_nb_multiple_callbacks() {
 // ── heartbeat ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_success() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = heartbeat();
     assert!(result.is_ok());
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_multiple() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     for _ in 0..5 {
         let result = heartbeat();
         assert!(result.is_ok());
@@ -275,8 +288,9 @@ fn test_heartbeat_multiple() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_rapid_fire() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     for _ in 0..20 {
         let _ = heartbeat();
     }
@@ -285,8 +299,9 @@ fn test_heartbeat_rapid_fire() {
 // ── Lifecycle / integration ──
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_then_heartbeat() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     struct NoopMonitorCb;
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
@@ -302,8 +317,9 @@ fn test_monitor_then_heartbeat() {
 }
 
 #[test]
-#[ignore = "requires PMIx_Init"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_sync_then_heartbeat() {
+    let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
     let _ = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::ErrNotFound), &[]);
     let _ = heartbeat();

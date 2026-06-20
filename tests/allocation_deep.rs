@@ -1151,7 +1151,7 @@ fn allocation_request_error_is_known() {
 
 /// Full allocation_request lifecycle with PMIx_Init.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn allocation_request_full_lifecycle() {
     // With PMIx_Init, allocation_request should be accepted.
     // The actual result depends on the resource manager.
@@ -1163,7 +1163,7 @@ fn allocation_request_full_lifecycle() {
 
 /// Full allocation_request_nb lifecycle with PMIx_Init.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn allocation_request_nb_full_lifecycle() {
     struct Cb;
     impl AllocationCallback for Cb {
@@ -1177,7 +1177,7 @@ fn allocation_request_nb_full_lifecycle() {
 
 /// Full job_control lifecycle with PMIx_Init.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn job_control_full_lifecycle() {
     // let _ = pmix::init(None);
     // let result = job_control(&[], &[]);
@@ -1187,7 +1187,7 @@ fn job_control_full_lifecycle() {
 
 /// Full job_control_nb lifecycle with PMIx_Init.
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn job_control_nb_full_lifecycle() {
     struct Cb;
     impl JobControlCallback for Cb {
@@ -1201,7 +1201,7 @@ fn job_control_nb_full_lifecycle() {
 
 /// allocation_request with InfoBuilder-created info (requires PMIx_Init).
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn allocation_request_with_info() {
     // let _ = pmix::init(None);
     // let info = InfoBuilder::new().build();
@@ -1212,7 +1212,7 @@ fn allocation_request_with_info() {
 
 /// job_control with InfoBuilder-created directives (requires PMIx_Init).
 #[test]
-#[ignore = "requires PMIx_Init with running daemon"]
+#[ignore = "requires DVM-launched process (prterun)"]
 fn job_control_with_info() {
     // let _ = pmix::init(None);
     // let directives = InfoBuilder::new().build();
