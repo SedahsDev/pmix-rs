@@ -134,44 +134,6 @@ fn test_tool_finalize_after_init() {
     let _ = handle;
 }
 
-/// tool_init -> tool_finalize is idempotent (can re-init after finalize).
-///
-/// Ignored: openpmix 6.1.0 does not support multiple init/finalize cycles
-/// in the same process. After the first tool_finalize, subsequent tool_init
-/// calls return PMIX_ERR_INIT.
-#[test]
-#[ignore = "openpmix 6.1.0 does not support multiple init/finalize cycles per process"]
-fn test_tool_init_finalize_cycle() {
-    let _lock = daemon_helper::daemon_lock().expect("daemon lock");
-    let uri = daemon_helper::read_uri().expect("PMIx daemon not available");
-    let info = info_with_string_key("pmix.srvr.uri", &uri);
-    let h1 = tool_init(None, &info).expect("first init failed");
-    tool_finalize(h1).expect("first finalize failed");
-
-    let h2 = tool_init(None, &info).expect("second init failed");
-    tool_finalize(h2).expect("second finalize failed");
-}
-
-/// tool_init increments ref count, two finalizes needed.
-///
-/// Ignored: openpmix 6.1.0 does not support multiple concurrent tool_init
-/// calls in the same process. The second tool_init returns PMIX_ERR_INIT.
-#[test]
-#[ignore = "openpmix 6.1.0 does not support multiple concurrent tool_init calls"]
-fn test_tool_init_ref_count() {
-    let _lock = daemon_helper::daemon_lock().expect("daemon lock");
-    let uri = daemon_helper::read_uri().expect("PMIx daemon not available");
-    let info = info_with_string_key("pmix.srvr.uri", &uri);
-    let h1 = tool_init(None, &info).expect("first init failed");
-    let h2 = tool_init(None, &info).expect("second init failed");
-
-    // First finalize should succeed (ref count goes to 1, not 0).
-    tool_finalize(h1).expect("first finalize failed");
-
-    // Second finalize should succeed (ref count goes to 0).
-    tool_finalize(h2).expect("second finalize failed");
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // tool_attach_to_server — live daemon tests
 // ─────────────────────────────────────────────────────────────────────────────
