@@ -2950,6 +2950,39 @@ impl InfoBuilder {
     }
 }
 
+/// Create an `Info` array with a single string key/value pair, bypassing
+/// the 13-byte key limit of `InfoBuilder::add()`.
+///
+/// This is useful for keys like `"pmix.srvr.uri"` (14 bytes) which don't
+/// fit in `InfoBuilder::add(key: &'static [u8; 13])`.
+pub fn info_with_string_key(key: &str, value: &str) -> Info {
+    let info_ptr = unsafe { PMIx_Info_create(1) };
+    let key_cstr = CString::new(key).expect("key must not contain null bytes");
+    let value_cstr = CString::new(value).expect("value must not contain null bytes");
+    unsafe {
+        let status = PMIx_Info_load(
+            info_ptr,
+            key_cstr.as_ptr(),
+            value_cstr.as_ptr() as *const c_void,
+            PMIX_STRING as pmix_data_type_t,
+        );
+        if status != PMIX_SUCCESS as i32 {
+            panic!(
+                "PMIx_Info_load failed for key {}: {}",
+                key, status
+            );
+        }
+    }
+    // Leak the CString allocations — the PMIx library copies the data
+    // internally and the Info handle is managed by the library.
+    std::mem::forget(key_cstr);
+    std::mem::forget(value_cstr);
+    Info {
+        handle: info_ptr,
+        len: 1,
+    }
+}
+
 pub struct Context {
     pub(crate) proc: Proc,
 }

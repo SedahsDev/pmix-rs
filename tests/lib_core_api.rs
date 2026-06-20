@@ -7,9 +7,9 @@
 mod daemon_helper;
 
 use pmix::{
-    InfoBuilder, PmixDataRange, PmixDataType, PmixError, PmixJobState, PmixLinkState,
-    PmixPayload, PmixPersistence, PmixProcState, PmixScope, PmixStatus,
-    PmixValueBuilder, PmixEnvar, PmixTimeval,
+    info_with_string_key, InfoBuilder, PmixDataRange, PmixDataType, PmixEnvar, PmixError, PmixJobState, PmixLinkState,
+    PmixPayload, PmixPersistence, PmixProcState, PmixScope, PmixStatus, PmixTimeval,
+    PmixValueBuilder,
 };
 use std::ffi::CString;
 
@@ -89,8 +89,8 @@ fn test_tool_init_with_info() {
 #[test]
 fn test_tool_finalize_after_init() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
-    let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
-    let info = InfoBuilder::new().build();
+    let uri = daemon_helper::read_uri().expect("PMIx daemon not available");
+    let info = info_with_string_key("pmix.srvr.uri", &uri);
     let handle = pmix::tool::tool_init(None, &info).expect("tool_init failed");
     let result = pmix::tool::tool_finalize(handle);
     assert!(result.is_ok(), "tool_finalize should succeed after init");

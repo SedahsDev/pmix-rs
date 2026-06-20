@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 fn main() {
     // Tell cargo to look for shared libraries in the specified directory
-    println!("cargo:rustc-link-search=/lib64/");
+    println!("cargo:rustc-link-search=/home/bzf/projects/prrte/scratch/install/lib");
 
     // Tell cargo to tell rustc to link the system bzip2
     // shared library.
@@ -20,7 +20,7 @@ fn main() {
         // badness without the flag which tells bindgen to repeat that
         // trick with the rust enums
         .rustified_enum(".*")
-        .clang_arg("-I/usr/lib/x86_64-linux-gnu/pmix2/include/")
+        .clang_arg("-I/home/bzf/projects/prrte/scratch/install/include/")
         //.clang_arg("-I../../")
         //.clang_arg("-I../../src/")
         // Annotate ucs_status_t and ucs_status_ptr_t as #[must_use]

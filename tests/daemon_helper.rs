@@ -27,7 +27,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use pmix::tool::{tool_init, PmixToolHandle};
-use pmix::InfoBuilder;
+use pmix::{info_with_string_key, Info, InfoBuilder};
 
 /// Default path where the systemd PRTE service writes its URI.
 const DEFAULT_URI_FILE: &str = "/run/user/1000/prte/uri";
@@ -57,12 +57,19 @@ pub fn daemon_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
 // Shared tool handle (initialized once, finalized at process exit)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Read the PRTE URI from the URI file or `PMIX_SERVER_URI` env var.
-fn read_uri() -> Result<String, String> {
-    // Try env var first (set by test harness)
-    if let Ok(uri) = env::var("PMIX_SERVER_URI") {
-        if !uri.is_empty() {
-            return Ok(uri);
+/// Read the PRTE URI from the URI file or `PMIX_SERVER_URIv61` env var.
+///
+/// openpmix 6.1.0 checks versioned env vars (PMIX_SERVER_URIv61, PMIX_SERVER_URIv51,
+/// PMIX_SERVER_URI3, etc.) via `pmix_ptl_base_check_server_uris()`. The
+/// unversioned `PMIX_SERVER_URI` is NOT checked by the library.
+pub fn read_uri() -> Result<String, String> {
+    // Try versioned env var first (set by test harness or PRRTE)
+    // PMIX_SERVER_URIv61 matches our PRRTE 4.1.0 / openpmix 6.1.0 setup
+    for key in &["PMIX_SERVER_URIv61", "PMIX_SERVER_URIv51", "PMIX_SERVER_URIv41"] {
+        if let Ok(uri) = env::var(key) {
+            if !uri.is_empty() {
+                return Ok(uri);
+            }
         }
     }
 
@@ -94,6 +101,18 @@ fn read_uri() -> Result<String, String> {
     Ok(uri)
 }
 
+/// Return an `Info` array containing the `pmix.srvr.uri` key with the
+/// daemon's URI value. This bypasses the 13-byte key limit of `InfoBuilder::add()`
+/// by using `info_with_string_key()` which accepts arbitrary-length string keys.
+///
+/// Use this for `tool_init()` calls that need to connect to the running daemon.
+pub fn get_tool_init_info() -> Info {
+    let uri = read_uri().unwrap_or_else(|e| {
+        panic!("Cannot read PRTE URI for tool_init: {}", e);
+    });
+    info_with_string_key("pmix.srvr.uri", &uri)
+}
+
 /// Singleton tool handle, initialized once for the entire test binary.
 ///
 /// The handle is created on first call and lives until process exit,
@@ -111,8 +130,20 @@ static INIT_FAILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 /// Returns `Err` if the daemon is unavailable or `tool_init` failed.
 /// The handle is initialized lazily on first call and reused for all
 /// subsequent calls in the same test binary.
+///
+/// Thread-safe: uses the global daemon mutex to serialize initialization,
+/// preventing the race where multiple threads all see `SHARED_TOOL` as None
+/// and try to call `tool_init` concurrently.
 pub fn get_tool_handle() -> Result<&'static PmixToolHandle, String> {
-    // Fast path: already initialized
+    // Fast path: already initialized (lock-free)
+    if let Some(handle) = SHARED_TOOL.get() {
+        return Ok(handle);
+    }
+
+    // Slow path: acquire lock to serialize initialization
+    let _lock = daemon_lock()?;
+
+    // Double-check after acquiring lock
     if let Some(handle) = SHARED_TOOL.get() {
         return Ok(handle);
     }
@@ -126,7 +157,9 @@ pub fn get_tool_handle() -> Result<&'static PmixToolHandle, String> {
         }
     };
 
-    let info = InfoBuilder::new().build();
+    // Pass the URI via PMIX_SERVER_URI info key. This works with openpmix 6.1.0
+    // where the env var approach (PMIX_SERVER_URIv61) does not.
+    let info = info_with_string_key("pmix.srvr.uri", &uri);
 
     match tool_init(None, &info) {
         Ok(handle) => {
@@ -154,7 +187,7 @@ pub fn daemon_available() -> bool {
 // Legacy API (kept for backward compatibility, but prefer get_tool_handle)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Guard that restores `PMIX_SERVER_URI` to its previous value on drop.
+/// Guard that restores `PMIX_SERVER_URIv61` to its previous value on drop.
 ///
 /// Deprecated: use `get_tool_handle()` instead, which manages the URI
 /// internally.
@@ -166,15 +199,19 @@ impl Drop for DaemonGuard {
     fn drop(&mut self) {
         unsafe {
             match &self.previous {
-                Some(val) => env::set_var("PMIX_SERVER_URI", val),
-                None => env::remove_var("PMIX_SERVER_URI"),
+                Some(val) => env::set_var("PMIX_SERVER_URIv61", val),
+                None => env::remove_var("PMIX_SERVER_URIv61"),
             }
         }
     }
 }
 
-/// Read the PRTE URI file and set `PMIX_SERVER_URI`. Returns a guard that
+/// Read the PRTE URI file and set `PMIX_SERVER_URIv61`. Returns a guard that
 /// restores the previous value on drop.
+///
+/// openpmix 6.1.0 checks versioned env vars (PMIX_SERVER_URIv61, PMIX_SERVER_URIv51,
+/// etc.) via `pmix_ptl_base_check_server_uris()`. The unversioned
+/// `PMIX_SERVER_URI` is NOT checked by the library.
 ///
 /// Deprecated: use `get_tool_handle()` instead.
 pub fn connect_to_daemon() -> Result<DaemonGuard, String> {
@@ -182,8 +219,8 @@ pub fn connect_to_daemon() -> Result<DaemonGuard, String> {
 
     let previous;
     unsafe {
-        previous = env::var("PMIX_SERVER_URI").ok();
-        env::set_var("PMIX_SERVER_URI", &uri);
+        previous = env::var("PMIX_SERVER_URIv61").ok();
+        env::set_var("PMIX_SERVER_URIv61", &uri);
     }
 
     Ok(DaemonGuard { previous })
