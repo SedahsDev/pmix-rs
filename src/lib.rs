@@ -2860,6 +2860,25 @@ impl PmixOwnedValue {
     pub fn size(&self) -> usize {
         unsafe { self.inner.data.size }
     }
+
+    /// Read the value as a u32.
+    pub fn uint32(&self) -> u32 {
+        unsafe { self.inner.data.uint32 }
+    }
+
+    /// Read the value as a u64.
+    pub fn uint64(&self) -> u64 {
+        unsafe { self.inner.data.uint64 }
+    }
+
+    /// Read the byte object as a Vec<u8> copy.
+    pub fn bytes_copy(&self) -> Vec<u8> {
+        let (ptr, len) = self.bytes();
+        if ptr.is_null() || len == 0 {
+            return Vec::new();
+        }
+        unsafe { std::slice::from_raw_parts(ptr as *const u8, len).to_vec() }
+    }
 }
 
 impl Drop for PmixOwnedValue {
