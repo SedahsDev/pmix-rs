@@ -8,8 +8,8 @@
 mod daemon_helper;
 
 use pmix::process_mgmt::{
-    abort, connect, connect_nb, disconnect, disconnect_nb, resolve_nodes, resolve_peers, spawn,
-    spawn_nb, ConnectCallbackWrapper, DisconnectCallbackWrapper, PmixApp, SpawnCallbackWrapper,
+    ConnectCallbackWrapper, DisconnectCallbackWrapper, PmixApp, SpawnCallbackWrapper, abort,
+    connect, connect_nb, disconnect, disconnect_nb, resolve_nodes, resolve_peers, spawn, spawn_nb,
 };
 use pmix::{InfoBuilder, PmixError, PmixStatus, Proc};
 

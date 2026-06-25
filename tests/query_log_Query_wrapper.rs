@@ -11,7 +11,7 @@
 //!   - query_info_nb (lines 414-457) — callback reg + FFI + cleanup
 
 use pmix::query_log::*;
-use pmix::{PmixStatus, InfoBuilder};
+use pmix::{InfoBuilder, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixQuery::new — constructor
@@ -148,7 +148,12 @@ fn test_query_info_nb_empty() {
         }
     }
     let queries: Vec<PmixQuery> = vec![];
-    let result = query_info_nb(&queries, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = query_info_nb(
+        &queries,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),
@@ -173,7 +178,12 @@ fn test_query_info_nb_with_queries() {
     }
     let query = PmixQuery::new(&["test_key"]).unwrap();
     let queries = vec![query];
-    let result = query_info_nb(&queries, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = query_info_nb(
+        &queries,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),

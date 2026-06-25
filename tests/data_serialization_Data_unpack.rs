@@ -11,8 +11,8 @@
 
 use std::sync::OnceLock;
 
-use pmix::{init, PmixDataType};
 use pmix::data_serialization::*;
+use pmix::{PmixDataType, init};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton PMIx init — PMIx can only be initialized once per process.

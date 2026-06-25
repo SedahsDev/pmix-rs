@@ -16,8 +16,7 @@
 mod daemon_helper;
 
 use pmix::server::{
-    is_server_initialized, server_finalize, server_init, server_init_minimal,
-    PmixServerModule,
+    PmixServerModule, is_server_initialized, server_finalize, server_init, server_init_minimal,
 };
 use pmix::{InfoBuilder, PmixStatus};
 
@@ -153,7 +152,10 @@ fn test_server_module_default_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    assert!(module.abort.is_none(), "default module should have no callbacks");
+    assert!(
+        module.abort.is_none(),
+        "default module should have no callbacks"
+    );
     assert!(module.fence_nb.is_none());
     assert!(module.publish.is_none());
     assert!(module.lookup.is_none());

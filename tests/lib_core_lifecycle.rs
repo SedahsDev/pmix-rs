@@ -9,8 +9,8 @@
 //! IMPORTANT: Do NOT call `PMIx_Get_attribute_string` or
 //! `PMIx_Get_attribute_name` — they crash with SIGSEGV without `PMIx_Init`.
 
-use pmix::{finalize, get_version, init, InfoBuilder, PmixError, PmixStatus};
 use pmix::utility::initialized;
+use pmix::{InfoBuilder, PmixError, PmixStatus, finalize, get_version, init};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // get_version — safe, no init needed
@@ -19,7 +19,10 @@ use pmix::utility::initialized;
 /// `get_version` returns a non-empty version string.
 #[test]
 fn get_version_returns_non_empty() {
-    assert!(!get_version().is_empty(), "get_version should return non-empty string");
+    assert!(
+        !get_version().is_empty(),
+        "get_version should return non-empty string"
+    );
 }
 
 /// `get_version` returns a string containing digits (version numbers).
@@ -41,7 +44,11 @@ fn get_version_returns_static_str() {
 /// `get_version` is deterministic — repeated calls return the same value.
 #[test]
 fn get_version_is_deterministic() {
-    assert_eq!(get_version(), get_version(), "get_version must be deterministic");
+    assert_eq!(
+        get_version(),
+        get_version(),
+        "get_version must be deterministic"
+    );
 }
 
 /// `get_version` returns printable ASCII and spaces only.
@@ -52,7 +59,9 @@ fn get_version_is_printable_ascii() {
         assert!(
             c.is_ascii_graphic() || c == ' ' || c == '\t',
             "get_version char at pos {} is not printable ASCII: {:?} (U+{:04X})",
-            i, c, c as u32
+            i,
+            c,
+            c as u32
         );
     }
 }
@@ -85,7 +94,11 @@ fn get_version_can_extract_major_version() {
         .split(|c: char| !c.is_ascii_digit())
         .find(|s| !s.is_empty())
         .unwrap_or("");
-    assert!(!major.is_empty(), "could not extract major version from '{}'", version);
+    assert!(
+        !major.is_empty(),
+        "could not extract major version from '{}'",
+        version
+    );
     let major_num: u32 = major.parse().expect("major version should be a number");
     assert!(major_num > 0, "major version should be positive");
 }
@@ -112,10 +125,15 @@ fn get_version_can_extract_major_minor_version() {
     assert!(
         dot_count > 0,
         "could not extract major.minor from '{}' (got '{}')",
-        version, segment
+        version,
+        segment
     );
     let parts: Vec<&str> = segment.split('.').collect();
-    assert!(parts.len() >= 2, "expected at least major.minor, got '{}'", segment);
+    assert!(
+        parts.len() >= 2,
+        "expected at least major.minor, got '{}'",
+        segment
+    );
     let _major: u32 = parts[0].parse().expect("major should parse");
     let _minor: u32 = parts[1].parse().expect("minor should parse");
 }
@@ -197,14 +215,20 @@ fn initialized_returns_consistent_value() {
 /// `init(None)` without DVM returns `Err`.
 #[test]
 fn init_without_dvm_returns_err() {
-    assert!(init(None).is_err(), "init(None) without DVM should return Err");
+    assert!(
+        init(None).is_err(),
+        "init(None) without DVM should return Err"
+    );
 }
 
 /// `init(Some(info))` without DVM returns `Err`.
 #[test]
 fn init_with_info_without_dvm_returns_err() {
     let info = InfoBuilder::new().build();
-    assert!(init(Some(info)).is_err(), "init(Some(info)) without DVM should return Err");
+    assert!(
+        init(Some(info)).is_err(),
+        "init(Some(info)) without DVM should return Err"
+    );
 }
 
 /// `init(None)` error is a known PMIx error (not a random code).
@@ -227,14 +251,20 @@ fn init_without_dvm_error_is_known() {
 #[test]
 fn init_does_not_panic_on_error() {
     let result = std::panic::catch_unwind(|| init(None));
-    assert!(result.is_ok(), "init(None) should not panic, it should return Err");
+    assert!(
+        result.is_ok(),
+        "init(None) should not panic, it should return Err"
+    );
 }
 
 /// `init` with empty InfoBuilder also returns error without DVM.
 #[test]
 fn init_with_empty_info_returns_err() {
     let info = InfoBuilder::new().build();
-    assert!(init(Some(info)).is_err(), "init with empty InfoBuilder should fail without DVM");
+    assert!(
+        init(Some(info)).is_err(),
+        "init with empty InfoBuilder should fail without DVM"
+    );
 }
 
 /// `init` with `collect_data` info also returns error without DVM.
@@ -243,7 +273,10 @@ fn init_with_collect_data_info_returns_err() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     let info = builder.build();
-    assert!(init(Some(info)).is_err(), "init with collect_data info should fail without DVM");
+    assert!(
+        init(Some(info)).is_err(),
+        "init with collect_data info should fail without DVM"
+    );
 }
 
 /// Multiple `init` calls in a row all return the same error type.
@@ -445,7 +478,10 @@ fn init_with_info_then_finalize_with_info() {
     let info2 = InfoBuilder::new().build();
 
     let init_result = init(Some(info1));
-    assert!(init_result.is_err(), "init with info should fail without DVM");
+    assert!(
+        init_result.is_err(),
+        "init with info should fail without DVM"
+    );
 
     let _fin_result = finalize(Some(info2));
     // finalize should complete without crashing
@@ -464,7 +500,10 @@ fn errinit_raw_value_is_negative_31() {
 /// `PmixError::ErrInit` is an error (not success).
 #[test]
 fn errinit_is_error() {
-    assert!(PmixError::ErrInit.is_error(), "PmixError::ErrInit should be an error");
+    assert!(
+        PmixError::ErrInit.is_error(),
+        "PmixError::ErrInit should be an error"
+    );
     assert!(
         !PmixError::ErrInit.is_success(),
         "PmixError::ErrInit should not be success"
@@ -611,7 +650,10 @@ fn safe_functions_work_before_any_lifecycle() {
 #[test]
 fn get_version_works_after_failed_init() {
     let _ = init(None);
-    assert!(!get_version().is_empty(), "get_version should work after failed init");
+    assert!(
+        !get_version().is_empty(),
+        "get_version should work after failed init"
+    );
 }
 
 /// `initialized()` works after failed init and failed finalize.

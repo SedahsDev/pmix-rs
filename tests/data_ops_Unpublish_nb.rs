@@ -1,7 +1,7 @@
 //! Integration tests for `PMIx_Unpublish_nb` via the safe `unpublish_nb()` wrapper.
 
-use pmix::data_ops::{unpublish_nb, UnpublishCallback};
 use pmix::PmixStatus;
+use pmix::data_ops::{UnpublishCallback, unpublish_nb};
 
 #[test]
 fn unpublish_nb_compiles() {
@@ -10,7 +10,10 @@ fn unpublish_nb_compiles() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let result = unpublish_nb(None, None, Box::new(TestCallback));
-    assert!(result.is_err(), "unpublish_nb should fail without PMIx_Init");
+    assert!(
+        result.is_err(),
+        "unpublish_nb should fail without PMIx_Init"
+    );
     assert_eq!(result.unwrap_err().to_raw(), -31, "should be PMIX_ERR_INIT");
 }
 

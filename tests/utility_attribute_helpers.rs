@@ -14,7 +14,7 @@
 
 use pmix::utility::{generate_ppn, generate_regex, register_attributes};
 use pmix::utility::{get_attribute_name, get_attribute_string};
-use pmix::{get_version, PmixError, PmixStatus};
+use pmix::{PmixError, PmixStatus, get_version};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // get_version — PMIx library version string
@@ -24,7 +24,10 @@ use pmix::{get_version, PmixError, PmixStatus};
 #[test]
 fn test_get_version_non_empty() {
     let version = get_version();
-    assert!(!version.is_empty(), "get_version should return a non-empty string");
+    assert!(
+        !version.is_empty(),
+        "get_version should return a non-empty string"
+    );
 }
 
 /// `get_version` returns a string containing digits (typical semver format).
@@ -90,8 +93,19 @@ fn test_get_version_major_version() {
     // Version is e.g. "OpenPMIx 5.0.7a1..." — find first digit sequence
     let major = version
         .split(|c: char| c.is_whitespace() || c == '.' || c == '-')
-        .find(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
-        .and_then(|s| s.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u32>().ok());
+        .find(|s| {
+            s.chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        })
+        .and_then(|s| {
+            s.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse::<u32>()
+                .ok()
+        });
     assert!(
         major.is_some(),
         "get_version('{}') should contain a parseable version number",
@@ -127,7 +141,11 @@ fn test_get_attribute_string_return_type() {
 fn test_get_attribute_string_simple_key() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = get_attribute_string("pmix.host");
-    assert!(result.is_ok(), "simple key should return Ok, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "simple key should return Ok, got {:?}",
+        result
+    );
 }
 
 /// `get_attribute_string` returns `Ok` for well-known PMIx attribute keys.
@@ -225,7 +243,11 @@ fn test_get_attribute_string_distinct_outputs() {
 fn test_get_attribute_string_short_key() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = get_attribute_string("a");
-    assert!(result.is_ok(), "short key should return Ok, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "short key should return Ok, got {:?}",
+        result
+    );
     assert_eq!(
         result.unwrap(),
         "a",
@@ -268,7 +290,11 @@ fn test_get_attribute_string_long_key() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let key = "pmix.server.app_info.app.1.executable.name";
     let result = get_attribute_string(key);
-    assert!(result.is_ok(), "long key should return Ok, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "long key should return Ok, got {:?}",
+        result
+    );
 }
 
 /// `get_attribute_string` error implements Debug and Display.
@@ -314,7 +340,11 @@ fn test_get_attribute_name_return_type() {
 fn test_get_attribute_name_simple_string() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let result = get_attribute_name("host name");
-    assert!(result.is_ok(), "simple string should return Ok, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "simple string should return Ok, got {:?}",
+        result
+    );
 }
 
 /// `get_attribute_name` returns `Ok` for a known attribute string.
@@ -390,10 +420,17 @@ fn test_get_attribute_name_long_string() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let input = "this is a very long descriptive attribute string that probably does not exist";
     let result = get_attribute_name(input);
-    assert!(result.is_ok(), "long string should return Ok, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "long string should return Ok, got {:?}",
+        result
+    );
     // Should return the input unchanged since it's not registered.
     let output = result.unwrap();
-    assert_eq!(output, input, "unregistered long string should be returned unchanged");
+    assert_eq!(
+        output, input,
+        "unregistered long string should be returned unchanged"
+    );
 }
 
 /// `get_attribute_name` error implements Debug and Display.
@@ -457,11 +494,7 @@ fn test_attribute_roundtrip_known_keys() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_attribute_roundtrip_unknown_keys() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
-    let unknown_keys = [
-        "pmix.fake.attr",
-        "nonexistent.key.xyz",
-        "a",
-    ];
+    let unknown_keys = ["pmix.fake.attr", "nonexistent.key.xyz", "a"];
     for key in &unknown_keys {
         let canonical = get_attribute_string(key).unwrap();
         let back = get_attribute_name(&canonical).unwrap();
@@ -606,7 +639,10 @@ fn test_generate_regex_short_nodes() {
     let result = generate_regex(nodes);
     assert!(result.is_ok(), "should succeed for short node names");
     let regex = result.unwrap();
-    assert!(!regex.is_empty(), "regex should not be empty for short names");
+    assert!(
+        !regex.is_empty(),
+        "regex should not be empty for short names"
+    );
 }
 
 /// `generate_regex` is deterministic — same input always produces same output.
@@ -650,7 +686,10 @@ fn test_generate_regex_single_host() {
     let result = generate_regex("localhost");
     assert!(result.is_ok(), "should succeed for a single hostname");
     let regex = result.unwrap();
-    assert!(!regex.is_empty(), "regex should not be empty for a single host");
+    assert!(
+        !regex.is_empty(),
+        "regex should not be empty for a single host"
+    );
 }
 
 /// `generate_regex` output starts with a known format prefix.
@@ -701,7 +740,10 @@ fn test_generate_regex_mixed_names() {
     let result = generate_regex(nodes);
     assert!(result.is_ok(), "should succeed for mixed names");
     let regex = result.unwrap();
-    assert!(!regex.is_empty(), "regex should not be empty for mixed names");
+    assert!(
+        !regex.is_empty(),
+        "regex should not be empty for mixed names"
+    );
 }
 
 /// `generate_regex` handles nodes with underscores.
@@ -844,7 +886,10 @@ fn test_generate_ppn_error_display() {
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_ppn_semicolon_ranges() {
     let result = generate_ppn("0-3;4-7;8,9,10");
-    assert!(result.is_ok(), "should succeed for semicolon-separated ranges");
+    assert!(
+        result.is_ok(),
+        "should succeed for semicolon-separated ranges"
+    );
     let ppn = result.unwrap();
     assert!(!ppn.is_empty(), "ppn should not be empty");
 }
@@ -873,7 +918,10 @@ fn test_generate_ppn_deterministic() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_ppn_many_ranks() {
-    let ranks: String = (0..100).map(|i| format!("{}", i)).collect::<Vec<_>>().join(",");
+    let ranks: String = (0..100)
+        .map(|i| format!("{}", i))
+        .collect::<Vec<_>>()
+        .join(",");
     let result = generate_ppn(&ranks);
     assert!(result.is_ok(), "should succeed for 100 ranks");
     let ppn = result.unwrap();
@@ -1156,7 +1204,11 @@ fn test_error_comparability_across_functions() {
     let ppn_err = generate_ppn("0-3").unwrap_err();
 
     // Both should be ErrInit (-31) since nothing is initialized.
-    assert_eq!(regex_err.to_raw(), -31, "generate_regex should return ErrInit");
+    assert_eq!(
+        regex_err.to_raw(),
+        -31,
+        "generate_regex should return ErrInit"
+    );
     assert_eq!(ppn_err.to_raw(), -31, "generate_ppn should return ErrInit");
 
     // They should be equal to each other.

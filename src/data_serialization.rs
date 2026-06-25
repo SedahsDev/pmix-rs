@@ -50,7 +50,7 @@
 //! - `pmix_data_buffer_t *PMIx_Data_buffer_create(void)`
 //! - `void PMIx_Data_buffer_release(pmix_data_buffer_t *buffer)`
 
-use crate::{ffi, PmixDataType, PmixStatus};
+use crate::{PmixDataType, PmixStatus, ffi};
 use std::ptr;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1150,5 +1150,72 @@ pub fn data_decompress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
             unsafe { libc::free(out_bytes as *mut libc::c_void) };
         }
         Err(PmixStatus::from_raw(-27)) // PMIX_ERR_BAD_PARAM
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_byte_object_new() {
+        let obj = PmixByteObject::new();
+        assert!(obj.is_empty());
+        assert_eq!(obj.size(), 0);
+        assert!(obj.as_slice().is_empty());
+    }
+
+    #[test]
+    fn test_byte_object_debug() {
+        let obj = PmixByteObject::new();
+        let s = format!("{:?}", obj);
+        assert!(s.contains("PmixByteObject"));
+    }
+
+    #[test]
+    fn test_proc_ref_new() {
+        let _ref = PmixProcRef::new("test_ns", 42);
+    }
+
+    #[test]
+    fn test_data_buffer_debug_null() {
+        let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
+        let s = format!("{:?}", buf);
+        assert!(s.contains("null"));
+        assert!(!buf.is_valid());
+    }
+
+    #[test]
+    fn test_data_buffer_bytes_on_null() {
+        let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
+        assert_eq!(buf.bytes_allocated(), 0);
+        assert_eq!(buf.bytes_used(), 0);
+        assert!(buf.as_mut_ptr().is_null());
+    }
+
+    #[test]
+    fn test_data_compress_empty() {
+        if let Ok(result) = data_compress(&[]) {
+            assert!(result.len() < 100);
+        }
+    }
+
+    #[test]
+    fn test_data_compress_decompress_roundtrip() {
+        let data = b"hello world this is a test of compression";
+        if let Ok(compressed) = data_compress(data) {
+            if let Ok(decompressed) = data_decompress(&compressed) {
+                assert_eq!(decompressed, *data);
+            }
+        }
+    }
+
+    #[test]
+    fn test_data_buffer_create() {
+        if let Ok(buf) = data_buffer_create() {
+            assert!(buf.is_valid());
+            assert_eq!(buf.bytes_allocated(), 0);
+            assert_eq!(buf.bytes_used(), 0);
+        }
     }
 }

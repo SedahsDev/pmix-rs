@@ -7,7 +7,9 @@
 
 mod daemon_helper;
 
-use pmix::monitoring::{process_monitor, process_monitor_nb, heartbeat, MonitorCallback, MonitorResults};
+use pmix::monitoring::{
+    MonitorCallback, MonitorResults, heartbeat, process_monitor, process_monitor_nb,
+};
 use pmix::{InfoBuilder, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +69,10 @@ fn test_process_monitor_before_init() {
     let monitor_info = InfoBuilder::new().build();
     let result = process_monitor(&monitor_info, PmixStatus::Known(PmixError::Success), &[]);
     // Before init this returns ErrInit — after shared handle init, behavior depends on PMIx state
-    assert!(result.is_err(), "process_monitor should fail without proper setup");
+    assert!(
+        result.is_err(),
+        "process_monitor should fail without proper setup"
+    );
 }
 
 #[test]
@@ -78,14 +83,25 @@ fn test_process_monitor_nb_before_init() {
     }
     let monitor_info = InfoBuilder::new().build();
     let cb: Box<dyn MonitorCallback> = Box::new(DummyCb);
-    let result = process_monitor_nb(&monitor_info, PmixStatus::Known(PmixError::Success), &[], cb);
-    assert!(result.is_err(), "process_monitor_nb should fail without proper setup");
+    let result = process_monitor_nb(
+        &monitor_info,
+        PmixStatus::Known(PmixError::Success),
+        &[],
+        cb,
+    );
+    assert!(
+        result.is_err(),
+        "process_monitor_nb should fail without proper setup"
+    );
 }
 
 #[test]
 fn test_heartbeat_before_init() {
     let result = heartbeat();
-    assert!(result.is_err(), "heartbeat should fail without proper setup");
+    assert!(
+        result.is_err(),
+        "heartbeat should fail without proper setup"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,7 +134,11 @@ fn test_monitoring_all_ffi_operations() {
 
     // ── 2. process_monitor with MonitorHeartbeatAlert ──
     let monitor_info = InfoBuilder::new().build();
-    let monitor_result = process_monitor(&monitor_info, PmixStatus::Known(PmixError::MonitorHeartbeatAlert), &directives);
+    let monitor_result = process_monitor(
+        &monitor_info,
+        PmixStatus::Known(PmixError::MonitorHeartbeatAlert),
+        &directives,
+    );
     match &monitor_result {
         Ok(results) => {
             let len = results.len();
@@ -146,7 +166,12 @@ fn test_monitoring_all_ffi_operations() {
     let cb: Box<dyn MonitorCallback> = Box::new(TestMonitorCb {
         called: std::sync::atomic::AtomicBool::new(false),
     });
-    let nb_result = process_monitor_nb(&monitor_info, PmixStatus::Known(PmixError::Success), &directives, cb);
+    let nb_result = process_monitor_nb(
+        &monitor_info,
+        PmixStatus::Known(PmixError::Success),
+        &directives,
+        cb,
+    );
     match &nb_result {
         Ok(()) => {}
         Err(status) => {
@@ -159,7 +184,11 @@ fn test_monitoring_all_ffi_operations() {
     }
 
     // ── 4. MonitorResults::len() and is_empty() ──
-    let monitor_result2 = process_monitor(&monitor_info, PmixStatus::Known(PmixError::Success), &directives);
+    let monitor_result2 = process_monitor(
+        &monitor_info,
+        PmixStatus::Known(PmixError::Success),
+        &directives,
+    );
     if let Ok(results) = monitor_result2 {
         let len = results.len();
         let is_empty = results.is_empty();
@@ -167,14 +196,23 @@ fn test_monitoring_all_ffi_operations() {
     }
 
     // ── 5. Full workflow: process_monitor + process_monitor_nb + heartbeat ──
-    let _ = process_monitor(&monitor_info, PmixStatus::Known(PmixError::Success), &directives);
+    let _ = process_monitor(
+        &monitor_info,
+        PmixStatus::Known(PmixError::Success),
+        &directives,
+    );
 
     struct DummyMonitorCb;
     impl MonitorCallback for DummyMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
     }
     let cb2: Box<dyn MonitorCallback> = Box::new(DummyMonitorCb);
-    let _ = process_monitor_nb(&monitor_info, PmixStatus::Known(PmixError::Success), &directives, cb2);
+    let _ = process_monitor_nb(
+        &monitor_info,
+        PmixStatus::Known(PmixError::Success),
+        &directives,
+        cb2,
+    );
 
     let _ = heartbeat();
 }

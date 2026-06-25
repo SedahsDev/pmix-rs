@@ -3,15 +3,16 @@
 //! Tests for PmixDeviceDistance and DeviceDistances construction, accessors,
 //! Debug, and type traits. Uses test constructors — no FFI required.
 
-use pmix::fabric::{DeviceDistances, PmixDeviceDistance};
 use pmix::PmixDeviceType;
+use pmix::fabric::{DeviceDistances, PmixDeviceDistance};
 
 // ── PmixDeviceDistance construction tests ──
 
 /// Test creating a PmixDeviceDistance with GPU type.
 #[test]
 fn test_device_distance_new_gpu() {
-    let dist = PmixDeviceDistance::test_new("gpu-uuid-123", "/dev/nvidia0", PmixDeviceType::Gpu, 10, 20);
+    let dist =
+        PmixDeviceDistance::test_new("gpu-uuid-123", "/dev/nvidia0", PmixDeviceType::Gpu, 10, 20);
     assert_eq!(dist.uuid(), "gpu-uuid-123");
     assert_eq!(dist.osname(), "/dev/nvidia0");
     assert_eq!(dist.device_type(), PmixDeviceType::Gpu);
@@ -31,7 +32,13 @@ fn test_device_distance_new_network() {
 /// Test creating a PmixDeviceDistance with UnknownType (0x00).
 #[test]
 fn test_device_distance_unknown_type() {
-    let dist = PmixDeviceDistance::test_new("unknown-uuid", "unknown-dev", PmixDeviceType::UnknownType, 0, 0);
+    let dist = PmixDeviceDistance::test_new(
+        "unknown-uuid",
+        "unknown-dev",
+        PmixDeviceType::UnknownType,
+        0,
+        0,
+    );
     assert_eq!(dist.device_type(), PmixDeviceType::UnknownType);
     assert_eq!(dist.mindist(), 0);
     assert_eq!(dist.maxdist(), 0);
@@ -49,7 +56,13 @@ fn test_device_distance_empty_strings() {
 /// Test creating a PmixDeviceDistance with Unknown(u64) type.
 #[test]
 fn test_device_distance_unknown_custom() {
-    let dist = PmixDeviceDistance::test_new("custom-uuid", "custom-dev", PmixDeviceType::Unknown(0xFF), 42, 84);
+    let dist = PmixDeviceDistance::test_new(
+        "custom-uuid",
+        "custom-dev",
+        PmixDeviceType::Unknown(0xFF),
+        42,
+        84,
+    );
     assert_eq!(dist.device_type(), PmixDeviceType::Unknown(0xFF));
 }
 
@@ -66,7 +79,13 @@ fn test_device_distance_debug() {
 /// Test that PmixDeviceDistance is Clone.
 #[test]
 fn test_device_distance_clone() {
-    let dist = PmixDeviceDistance::test_new("clone-uuid", "clone-dev", PmixDeviceType::OpenFabrics, 7, 14);
+    let dist = PmixDeviceDistance::test_new(
+        "clone-uuid",
+        "clone-dev",
+        PmixDeviceType::OpenFabrics,
+        7,
+        14,
+    );
     let cloned = dist.clone();
     assert_eq!(cloned.uuid(), dist.uuid());
     assert_eq!(cloned.osname(), dist.osname());
@@ -137,7 +156,13 @@ fn test_device_distances_accessor() {
 /// Test DeviceDistances Debug implementation.
 #[test]
 fn test_device_distances_debug() {
-    let distances = vec![PmixDeviceDistance::test_new("dbg-uuid", "dbg-dev", PmixDeviceType::Coproc, 42, 84)];
+    let distances = vec![PmixDeviceDistance::test_new(
+        "dbg-uuid",
+        "dbg-dev",
+        PmixDeviceType::Coproc,
+        42,
+        84,
+    )];
     let dd = DeviceDistances::test_new(distances);
     let debug_str = format!("{:?}", dd);
     assert!(!debug_str.is_empty());
@@ -147,7 +172,13 @@ fn test_device_distances_debug() {
 /// Test DeviceDistances drop with entries (raw_ptr is null, should be no-op).
 #[test]
 fn test_device_distances_drop() {
-    let distances = vec![PmixDeviceDistance::test_new("drop-uuid", "drop-dev", PmixDeviceType::Gpu, 1, 2)];
+    let distances = vec![PmixDeviceDistance::test_new(
+        "drop-uuid",
+        "drop-dev",
+        PmixDeviceType::Gpu,
+        1,
+        2,
+    )];
     let _dd = DeviceDistances::test_new(distances);
 }
 

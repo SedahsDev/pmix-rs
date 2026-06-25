@@ -9,7 +9,7 @@
 //!
 //! Tests that require PMIx_Init are marked #[ignore] with clear rationale.
 
-use pmix::fabric::{fabric_update_nb, FabricCallback, PmixFabric};
+use pmix::fabric::{FabricCallback, PmixFabric, fabric_update_nb};
 use pmix::{PmixError, PmixStatus};
 use std::sync::{Arc, Mutex};
 
@@ -149,10 +149,7 @@ fn test_recording_update_callback_is_send() {
 /// update_nb has the correct function signature.
 #[test]
 fn test_update_nb_signature() {
-    fn _check_sig(
-        _f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
-    ) {
-    }
+    fn _check_sig(_f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>) {}
     _check_sig(fabric_update_nb);
 }
 

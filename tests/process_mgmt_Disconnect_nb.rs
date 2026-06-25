@@ -1,13 +1,16 @@
 //! Integration tests for `PMIx_Disconnect_nb` via the safe `disconnect_nb()` wrapper.
 
-use pmix::process_mgmt::{disconnect_nb, DisconnectCallbackWrapper};
 use pmix::PmixStatus;
+use pmix::process_mgmt::{DisconnectCallbackWrapper, disconnect_nb};
 
 #[test]
 fn disconnect_nb_compiles() {
     let wrapper = DisconnectCallbackWrapper::new(|_status| {});
     let result = disconnect_nb(&[], &[], wrapper);
-    assert!(result.is_err(), "disconnect_nb should fail without PMIx_Init");
+    assert!(
+        result.is_err(),
+        "disconnect_nb should fail without PMIx_Init"
+    );
 }
 
 #[test]

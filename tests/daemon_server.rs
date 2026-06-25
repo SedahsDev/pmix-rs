@@ -9,30 +9,20 @@
 //!   cargo test --test daemon_server
 
 use pmix::server::{
-    server_init, server_init_minimal, server_finalize,
-    server_register_nspace, server_deregister_nspace,
-    server_register_client, server_deregister_client,
-    server_setup_fork, server_dmodex_request,
-    server_setup_application, server_setup_local_support,
-    server_iof_deliver, server_collect_inventory, server_deliver_inventory,
-    server_generate_locality_string, server_generate_cpuset_string,
-    server_define_process_set, server_delete_process_set,
-    server_register_resources, server_deregister_resources,
-    server_publish, server_lookup, server_delete,
-    server_fence, server_fence_nb,
-    server_connect, server_connect_nb,
-    server_disconnect, server_disconnect_nb,
-    server_spawn, server_spawn_nb,
-    server_tool_attach_to_server, server_get_credential,
-    is_server_initialized,
-    PmixServerModule, PmixServerHandle,
-    RegisterNspaceCallback, DeregisterNspaceCallback,
-    RegisterClientCallback, DeregisterClientCallback,
-    DmodexRequestCallback, SetupApplicationCallback,
-    SetupLocalSupportCallback, IOFDeliverCallback,
-    CollectInventoryCallback, CollectInventoryResults,
-    DeliverInventoryCallback, RegisterResourcesCallback,
-    DeregisterResourcesCallback, FenceNbCallbackWrapper,
+    CollectInventoryCallback, CollectInventoryResults, DeliverInventoryCallback,
+    DeregisterClientCallback, DeregisterNspaceCallback, DeregisterResourcesCallback,
+    DmodexRequestCallback, FenceNbCallbackWrapper, IOFDeliverCallback, PmixServerHandle,
+    PmixServerModule, RegisterClientCallback, RegisterNspaceCallback, RegisterResourcesCallback,
+    SetupApplicationCallback, SetupLocalSupportCallback, is_server_initialized,
+    server_collect_inventory, server_connect, server_connect_nb, server_define_process_set,
+    server_delete, server_delete_process_set, server_deliver_inventory, server_deregister_client,
+    server_deregister_nspace, server_deregister_resources, server_disconnect, server_disconnect_nb,
+    server_dmodex_request, server_fence, server_fence_nb, server_finalize,
+    server_generate_cpuset_string, server_generate_locality_string, server_get_credential,
+    server_init, server_init_minimal, server_iof_deliver, server_lookup, server_publish,
+    server_register_client, server_register_nspace, server_register_resources,
+    server_setup_application, server_setup_fork, server_setup_local_support, server_spawn,
+    server_spawn_nb, server_tool_attach_to_server,
 };
 use pmix::{IOFChannelFlags, InfoBuilder, PmixError, PmixStatus, Proc};
 
@@ -259,8 +249,13 @@ fn test_server_tool_attach_to_server_type() {
         Option<&pmix::Proc>,
         bool,
         &pmix::Info,
-    ) -> Result<(Option<pmix::tool::PmixToolHandle>, Option<pmix::tool::PmixServerHandle>), PmixStatus> =
-        server_tool_attach_to_server;
+    ) -> Result<
+        (
+            Option<pmix::tool::PmixToolHandle>,
+            Option<pmix::tool::PmixServerHandle>,
+        ),
+        PmixStatus,
+    > = server_tool_attach_to_server;
 }
 
 #[test]

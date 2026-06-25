@@ -23,10 +23,7 @@ fn ensure_pmix_init() -> bool {
     if pmix::utility::initialized() {
         return true;
     }
-    PMIX_CONTEXT
-        .set(pmix::init(None).ok())
-        .is_ok()
-        && PMIX_CONTEXT.get().unwrap().is_some()
+    PMIX_CONTEXT.set(pmix::init(None).ok()).is_ok() && PMIX_CONTEXT.get().unwrap().is_some()
 }
 
 fn is_dvm_launched() -> bool {

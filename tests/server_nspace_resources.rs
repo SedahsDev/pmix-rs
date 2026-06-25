@@ -21,7 +21,7 @@ use pmix::server::{
     server_register_resources, server_setup_application, server_setup_fork,
     server_setup_local_support,
 };
-use pmix::{InfoBuilder, Proc, PmixStatus};
+use pmix::{InfoBuilder, PmixStatus, Proc};
 use std::panic::catch_unwind;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -36,8 +36,12 @@ fn test_register_nspace_signature() {
         impl RegisterNspaceCallback for Dummy {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let _f: fn(&str, i32, &pmix::Info, Box<dyn RegisterNspaceCallback>) -> Result<(), PmixStatus> =
-            server_register_nspace;
+        let _f: fn(
+            &str,
+            i32,
+            &pmix::Info,
+            Box<dyn RegisterNspaceCallback>,
+        ) -> Result<(), PmixStatus> = server_register_nspace;
     }
 }
 
@@ -49,10 +53,11 @@ fn test_register_nspace_no_panic_valid_params() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let info = InfoBuilder::new().build();
-    let result = catch_unwind(|| {
-        server_register_nspace("job.12345", 4, &info, Box::new(Dummy))
-    });
-    assert!(result.is_ok(), "server_register_nspace must not panic with valid params");
+    let result = catch_unwind(|| server_register_nspace("job.12345", 4, &info, Box::new(Dummy)));
+    assert!(
+        result.is_ok(),
+        "server_register_nspace must not panic with valid params"
+    );
 }
 
 /// server_register_nspace does not panic with zero procs.
@@ -63,10 +68,11 @@ fn test_register_nspace_no_panic_zero_procs() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let info = InfoBuilder::new().build();
-    let result = catch_unwind(|| {
-        server_register_nspace("job.00000", 0, &info, Box::new(Dummy))
-    });
-    assert!(result.is_ok(), "server_register_nspace must not panic with zero procs");
+    let result = catch_unwind(|| server_register_nspace("job.00000", 0, &info, Box::new(Dummy)));
+    assert!(
+        result.is_ok(),
+        "server_register_nspace must not panic with zero procs"
+    );
 }
 
 /// server_register_nspace with NUL byte in nspace returns error (no panic).
@@ -92,8 +98,7 @@ fn test_register_nspace_return_type() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let info = InfoBuilder::new().build();
-    let _result: Result<(), PmixStatus> =
-        server_register_nspace("test", 1, &info, Box::new(Dummy));
+    let _result: Result<(), PmixStatus> = server_register_nspace("test", 1, &info, Box::new(Dummy));
 }
 
 /// RegisterNspaceCallback trait is Send.
@@ -135,7 +140,10 @@ fn test_deregister_nspace_no_panic_with_callback() {
     let result = catch_unwind(|| {
         server_deregister_nspace("job.12345", Some(Box::new(Dummy)));
     });
-    assert!(result.is_ok(), "server_deregister_nspace must not panic with callback");
+    assert!(
+        result.is_ok(),
+        "server_deregister_nspace must not panic with callback"
+    );
 }
 
 /// server_deregister_nspace does not panic in blocking mode (None callback).
@@ -144,7 +152,10 @@ fn test_deregister_nspace_no_panic_blocking() {
     let result = catch_unwind(|| {
         server_deregister_nspace("job.12345", None);
     });
-    assert!(result.is_ok(), "server_deregister_nspace must not panic in blocking mode");
+    assert!(
+        result.is_ok(),
+        "server_deregister_nspace must not panic in blocking mode"
+    );
 }
 
 /// server_deregister_nspace with NUL byte invokes callback with error (no panic).
@@ -166,7 +177,10 @@ fn test_deregister_nspace_nul_byte_no_callback() {
     let result = catch_unwind(|| {
         server_deregister_nspace("bad\x00nspace", None);
     });
-    assert!(result.is_ok(), "must not panic on NUL byte with no callback");
+    assert!(
+        result.is_ok(),
+        "must not panic on NUL byte with no callback"
+    );
 }
 
 /// DeregisterNspaceCallback trait is Send.
@@ -207,10 +221,11 @@ fn test_register_resources_no_panic_valid_params() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let info = InfoBuilder::new().build();
-    let result = catch_unwind(|| {
-        server_register_resources(&info, Box::new(Dummy))
-    });
-    assert!(result.is_ok(), "server_register_resources must not panic with valid params");
+    let result = catch_unwind(|| server_register_resources(&info, Box::new(Dummy)));
+    assert!(
+        result.is_ok(),
+        "server_register_resources must not panic with valid params"
+    );
 }
 
 /// server_register_resources returns Result type.
@@ -283,10 +298,11 @@ fn test_deregister_resources_no_panic_valid_params() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let info = InfoBuilder::new().build();
-    let result = catch_unwind(|| {
-        server_deregister_resources(&info, Box::new(Dummy))
-    });
-    assert!(result.is_ok(), "server_deregister_resources must not panic with valid params");
+    let result = catch_unwind(|| server_deregister_resources(&info, Box::new(Dummy)));
+    assert!(
+        result.is_ok(),
+        "server_deregister_resources must not panic with valid params"
+    );
 }
 
 /// server_deregister_resources returns Result type.
@@ -346,11 +362,8 @@ fn test_deregister_resources_callback_receives_status() {
 #[test]
 fn test_setup_application_signature() {
     fn _check_sig() {
-        let _f: fn(
-            &str,
-            &pmix::Info,
-            Box<dyn SetupApplicationCallback>,
-        ) -> Result<(), PmixStatus> = server_setup_application;
+        let _f: fn(&str, &pmix::Info, Box<dyn SetupApplicationCallback>) -> Result<(), PmixStatus> =
+            server_setup_application;
     }
 }
 
@@ -362,10 +375,11 @@ fn test_setup_application_no_panic_valid_params() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
     let info = InfoBuilder::new().build();
-    let result = catch_unwind(|| {
-        server_setup_application("job.12345", &info, Box::new(Dummy))
-    });
-    assert!(result.is_ok(), "server_setup_application must not panic with valid params");
+    let result = catch_unwind(|| server_setup_application("job.12345", &info, Box::new(Dummy)));
+    assert!(
+        result.is_ok(),
+        "server_setup_application must not panic with valid params"
+    );
 }
 
 /// server_setup_application returns Result type.
@@ -419,11 +433,7 @@ fn test_setup_application_callback_receives_status_and_info() {
         called: std::sync::Arc<std::sync::Mutex<bool>>,
     }
     impl SetupApplicationCallback for Capture {
-        fn on_complete(
-            self: Box<Self>,
-            status: PmixStatus,
-            info: Vec<(String, String)>,
-        ) {
+        fn on_complete(self: Box<Self>, status: PmixStatus, info: Vec<(String, String)>) {
             *self.called.lock().unwrap() = true;
             let _ = status.is_success();
             let _ = info.len();
@@ -445,8 +455,7 @@ fn test_setup_application_callback_receives_status_and_info() {
 #[test]
 fn test_setup_fork_signature() {
     fn _check_sig() {
-        let _f: fn(&Proc, Option<Vec<&str>>) -> Result<Vec<String>, PmixStatus> =
-            server_setup_fork;
+        let _f: fn(&Proc, Option<Vec<&str>>) -> Result<Vec<String>, PmixStatus> = server_setup_fork;
     }
 }
 
@@ -454,20 +463,23 @@ fn test_setup_fork_signature() {
 #[test]
 fn test_setup_fork_no_panic_valid_params() {
     let proc = Proc::new("job.12345", 0).expect("proc creation failed");
-    let result = catch_unwind(|| {
-        server_setup_fork(&proc, None)
-    });
-    assert!(result.is_ok(), "server_setup_fork must not panic with valid params");
+    let result = catch_unwind(|| server_setup_fork(&proc, None));
+    assert!(
+        result.is_ok(),
+        "server_setup_fork must not panic with valid params"
+    );
 }
 
 /// server_setup_fork does not panic with initial env vars.
 #[test]
 fn test_setup_fork_no_panic_with_env() {
     let proc = Proc::new("job.12345", 0).expect("proc creation failed");
-    let result = catch_unwind(|| {
-        server_setup_fork(&proc, Some(vec!["PATH=/usr/bin", "HOME=/tmp"]))
-    });
-    assert!(result.is_ok(), "server_setup_fork must not panic with env vars");
+    let result =
+        catch_unwind(|| server_setup_fork(&proc, Some(vec!["PATH=/usr/bin", "HOME=/tmp"])));
+    assert!(
+        result.is_ok(),
+        "server_setup_fork must not panic with env vars"
+    );
 }
 
 /// server_setup_fork returns Result<Vec<String>, PmixStatus>.
@@ -509,7 +521,11 @@ fn test_setup_fork_various_ranks() {
         let proc = Proc::new("test_ns", rank).expect("proc creation failed");
         assert_eq!(proc.get_rank(), rank);
         let result = server_setup_fork(&proc, None);
-        assert!(result.is_err(), "rank {} should fail without server init", rank);
+        assert!(
+            result.is_err(),
+            "rank {} should fail without server init",
+            rank
+        );
     }
 }
 
@@ -537,10 +553,11 @@ fn test_setup_local_support_no_panic_valid_params() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let info = InfoBuilder::new().build();
-    let result = catch_unwind(|| {
-        server_setup_local_support("job.12345", &info, Box::new(Dummy))
-    });
-    assert!(result.is_ok(), "server_setup_local_support must not panic with valid params");
+    let result = catch_unwind(|| server_setup_local_support("job.12345", &info, Box::new(Dummy)));
+    assert!(
+        result.is_ok(),
+        "server_setup_local_support must not panic with valid params"
+    );
 }
 
 /// server_setup_local_support returns Result type.
@@ -621,9 +638,7 @@ fn test_all_seven_functions_no_panic() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let info = InfoBuilder::new().build();
-    let r = catch_unwind(|| {
-        server_register_nspace("job.12345", 4, &info, Box::new(DummyRegNs))
-    });
+    let r = catch_unwind(|| server_register_nspace("job.12345", 4, &info, Box::new(DummyRegNs)));
     assert!(r.is_ok(), "register_nspace panicked");
 
     // --- deregister_nspace ---
@@ -641,9 +656,7 @@ fn test_all_seven_functions_no_panic() {
     impl RegisterResourcesCallback for DummyRegRes {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let r = catch_unwind(|| {
-        server_register_resources(&info, Box::new(DummyRegRes))
-    });
+    let r = catch_unwind(|| server_register_resources(&info, Box::new(DummyRegRes)));
     assert!(r.is_ok(), "register_resources panicked");
 
     // --- deregister_resources ---
@@ -651,9 +664,7 @@ fn test_all_seven_functions_no_panic() {
     impl DeregisterResourcesCallback for DummyDeregRes {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let r = catch_unwind(|| {
-        server_deregister_resources(&info, Box::new(DummyDeregRes))
-    });
+    let r = catch_unwind(|| server_deregister_resources(&info, Box::new(DummyDeregRes)));
     assert!(r.is_ok(), "deregister_resources panicked");
 
     // --- setup_application ---
@@ -661,16 +672,12 @@ fn test_all_seven_functions_no_panic() {
     impl SetupApplicationCallback for DummySetupApp {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
-    let r = catch_unwind(|| {
-        server_setup_application("job.12345", &info, Box::new(DummySetupApp))
-    });
+    let r = catch_unwind(|| server_setup_application("job.12345", &info, Box::new(DummySetupApp)));
     assert!(r.is_ok(), "setup_application panicked");
 
     // --- setup_fork ---
     let proc = Proc::new("job.12345", 0).expect("proc creation failed");
-    let r = catch_unwind(|| {
-        server_setup_fork(&proc, None)
-    });
+    let r = catch_unwind(|| server_setup_fork(&proc, None));
     assert!(r.is_ok(), "setup_fork panicked");
 
     // --- setup_local_support ---
@@ -678,9 +685,8 @@ fn test_all_seven_functions_no_panic() {
     impl SetupLocalSupportCallback for DummySetupLocal {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let r = catch_unwind(|| {
-        server_setup_local_support("job.12345", &info, Box::new(DummySetupLocal))
-    });
+    let r =
+        catch_unwind(|| server_setup_local_support("job.12345", &info, Box::new(DummySetupLocal)));
     assert!(r.is_ok(), "setup_local_support panicked");
 }
 

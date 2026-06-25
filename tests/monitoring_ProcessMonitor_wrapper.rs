@@ -11,7 +11,7 @@
 //!   - heartbeat (lines 379-421) — FFI call + error path
 
 use pmix::monitoring::*;
-use pmix::{InfoBuilder, PmixStatus, PmixError};
+use pmix::{InfoBuilder, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // process_monitor — synchronous process monitoring
@@ -30,7 +30,11 @@ fn test_process_monitor_empty_directives() {
 fn test_process_monitor_with_directives() {
     let monitor = InfoBuilder::new().build();
     let directive = InfoBuilder::new().build();
-    let result = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[directive]);
+    let result = process_monitor(
+        &monitor,
+        PmixStatus::Known(PmixError::Success),
+        &[directive],
+    );
     assert!(result.is_err());
 }
 
@@ -96,7 +100,9 @@ fn test_process_monitor_nb_empty_directives() {
         &monitor,
         PmixStatus::Known(PmixError::Success),
         &[],
-        Box::new(Cb { c: Arc::clone(&called) }),
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
     );
     assert!(result.is_err());
     assert!(
@@ -126,7 +132,9 @@ fn test_process_monitor_nb_with_directives() {
         &monitor,
         PmixStatus::Known(PmixError::Success),
         &[directive],
-        Box::new(Cb { c: Arc::clone(&called) }),
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
     );
     assert!(result.is_err());
     assert!(
@@ -157,7 +165,9 @@ fn test_process_monitor_nb_multiple_directives() {
         &monitor,
         PmixStatus::Known(PmixError::Success),
         &[d1, d2],
-        Box::new(Cb { c: Arc::clone(&called) }),
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
     );
     assert!(result.is_err());
     assert!(
@@ -186,14 +196,18 @@ fn test_process_monitor_nb_deterministic() {
         &monitor,
         PmixStatus::Known(PmixError::Success),
         &[],
-        Box::new(Cb { c: Arc::clone(&called) }),
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
     );
     let called2 = Arc::new(AtomicBool::new(false));
     let r2 = process_monitor_nb(
         &monitor,
         PmixStatus::Known(PmixError::Success),
         &[],
-        Box::new(Cb { c: Arc::clone(&called2) }),
+        Box::new(Cb {
+            c: Arc::clone(&called2),
+        }),
     );
     assert_eq!(r1.is_err(), r2.is_err());
     assert!(!called.load(Ordering::SeqCst));
@@ -220,7 +234,9 @@ fn test_process_monitor_nb_error_status() {
         &monitor,
         PmixStatus::Known(PmixError::ErrNotFound),
         &[],
-        Box::new(Cb { c: Arc::clone(&called) }),
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
     );
     assert!(result.is_err());
     assert!(!called.load(Ordering::SeqCst));

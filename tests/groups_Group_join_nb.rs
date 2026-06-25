@@ -1,6 +1,6 @@
 //! Integration tests for `PMIx_Group_join_nb` via the safe `group_join_nb()` wrapper.
 
-use pmix::groups::{group_join_nb, GroupJoinCallbackWrapper, pmix_group_opt_t};
+use pmix::groups::{GroupJoinCallbackWrapper, group_join_nb, pmix_group_opt_t};
 use pmix::{Info, Proc};
 
 #[test]

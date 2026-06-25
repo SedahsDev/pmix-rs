@@ -8,10 +8,10 @@
 mod daemon_helper;
 
 use pmix::query_log::{
-    query_info, query_info_nb, log_data, log_data_nb,
-    QueryCallback, LogCallback, PmixQuery, QueryResults,
+    LogCallback, PmixQuery, QueryCallback, QueryResults, log_data, log_data_nb, query_info,
+    query_info_nb,
 };
-use pmix::{InfoBuilder, PmixError, PmixStatus, Info};
+use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Standalone type-check tests (always run, no daemon needed)
@@ -34,11 +34,7 @@ fn test_log_data_type() {
 
 #[test]
 fn test_log_data_nb_type() {
-    let _f: fn(
-        &[Info],
-        &[Info],
-        Box<dyn LogCallback>,
-    ) -> Result<(), PmixStatus> = log_data_nb;
+    let _f: fn(&[Info], &[Info], Box<dyn LogCallback>) -> Result<(), PmixStatus> = log_data_nb;
 }
 
 #[test]
@@ -75,7 +71,8 @@ impl QueryCallback for TestQueryCallback {
     fn on_complete(self: Box<Self>, status: PmixStatus, results: QueryResults) {
         self.called.store(true, std::sync::atomic::Ordering::SeqCst);
         *self.status.lock().unwrap() = Some(status);
-        self.result_count.store(results.len(), std::sync::atomic::Ordering::SeqCst);
+        self.result_count
+            .store(results.len(), std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -115,9 +112,8 @@ fn test_pmix_query_new_multiple_keys() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _ = daemon_helper::get_tool_handle().expect("shared tool handle");
 
-    let query = PmixQuery::new(&["pmix.version", "pmix.client.attrs"]).expect(
-        "PmixQuery::new with multiple keys",
-    );
+    let query = PmixQuery::new(&["pmix.version", "pmix.client.attrs"])
+        .expect("PmixQuery::new with multiple keys");
     let _ = query;
 }
 
@@ -160,11 +156,7 @@ fn test_query_log_all_ffi_operations() {
     let _handle = daemon_helper::get_tool_handle().expect("shared tool handle");
 
     // ── 1. query_info with various keys ──
-    let keys = vec![
-        "pmix.version",
-        "pmix.client.attrs",
-        "pmix.system.tools",
-    ];
+    let keys = vec!["pmix.version", "pmix.client.attrs", "pmix.system.tools"];
 
     for key in &keys {
         let q = PmixQuery::new(&[key]).expect("PmixQuery::new");
@@ -174,7 +166,12 @@ fn test_query_log_all_ffi_operations() {
             Ok(results) => {
                 let len = results.len();
                 let empty = results.is_empty();
-                assert_eq!(empty, len == 0, "is_empty should match len == 0 for key={}", key);
+                assert_eq!(
+                    empty,
+                    len == 0,
+                    "is_empty should match len == 0 for key={}",
+                    key
+                );
                 println!("query '{}' -> len={}, is_empty={}", key, len, empty);
             }
             Err(status) => {

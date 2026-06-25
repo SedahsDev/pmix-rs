@@ -19,7 +19,7 @@
 mod daemon_helper;
 
 use pmix::process_mgmt::{PmixApp, SpawnCallbackWrapper};
-use pmix::server::{server_finalize, server_init, server_spawn, server_spawn_nb, PmixServerModule};
+use pmix::server::{PmixServerModule, server_finalize, server_init, server_spawn, server_spawn_nb};
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
 
 // Dummy callbacks for testing module with callbacks set.
@@ -34,11 +34,8 @@ extern "C" fn dummy_callback() {}
 /// (Compile-time type check — verifies the function is callable.)
 #[test]
 fn test_server_spawn_type_check() {
-    let _f: fn(
-        &pmix::server::PmixServerHandle,
-        &[Info],
-        &[PmixApp],
-    ) -> Result<String, PmixStatus> = server_spawn;
+    let _f: fn(&pmix::server::PmixServerHandle, &[Info], &[PmixApp]) -> Result<String, PmixStatus> =
+        server_spawn;
 }
 
 /// server_spawn_nb signature returns Result<(), PmixStatus> and accepts SpawnCallbackWrapper.
@@ -65,21 +62,34 @@ fn test_pmix_app_builder_constructible() {
 /// PmixApp::builder() with cmd is constructible.
 #[test]
 fn test_pmix_app_builder_with_cmd() {
-    let app = PmixApp::builder().cmd("/bin/echo").build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .build()
+        .expect("valid app");
     assert_eq!(app.cmd(), Some("/bin/echo"));
 }
 
 /// PmixApp::builder() with args is constructible.
 #[test]
 fn test_pmix_app_builder_with_args() {
-    let app = PmixApp::builder().cmd("/bin/echo").arg("hello").arg("world").build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .arg("hello")
+        .arg("world")
+        .build()
+        .expect("valid app");
     assert_eq!(app.argv().len(), 2);
 }
 
 /// PmixApp::builder() with cwd and maxprocs is constructible.
 #[test]
 fn test_pmix_app_builder_with_cwd_maxprocs() {
-    let app = PmixApp::builder().cmd("/bin/echo").cwd("/tmp").maxprocs(4).build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .cwd("/tmp")
+        .maxprocs(4)
+        .build()
+        .expect("valid app");
     assert_eq!(app.cwd(), Some("/tmp"));
     assert_eq!(app.maxprocs(), 4);
 }
@@ -87,7 +97,11 @@ fn test_pmix_app_builder_with_cwd_maxprocs() {
 /// PmixApp::builder() with env is constructible.
 #[test]
 fn test_pmix_app_builder_with_env() {
-    let app = PmixApp::builder().cmd("/bin/echo").env("FOO=bar").build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .env("FOO=bar")
+        .build()
+        .expect("valid app");
     assert_eq!(app.env_vars().len(), 1);
 }
 
@@ -116,7 +130,11 @@ fn test_server_spawn_with_daemon() {
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let app = PmixApp::builder().cmd("/bin/echo").maxprocs(1).build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
     let apps = vec![app];
     let job_info = vec![InfoBuilder::new().build()];
 
@@ -141,7 +159,12 @@ fn test_server_spawn_with_job_info_with_daemon() {
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let app = PmixApp::builder().cmd("/bin/sleep").arg("1").maxprocs(1).build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/sleep")
+        .arg("1")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
     let apps = vec![app];
     let job_info = vec![InfoBuilder::new().build()];
 
@@ -165,8 +188,16 @@ fn test_server_spawn_multiple_apps_with_daemon() {
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let app1 = PmixApp::builder().cmd("/bin/echo").maxprocs(1).build().expect("valid app");
-    let app2 = PmixApp::builder().cmd("/bin/true").maxprocs(1).build().expect("valid app");
+    let app1 = PmixApp::builder()
+        .cmd("/bin/echo")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
+    let app2 = PmixApp::builder()
+        .cmd("/bin/true")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
     let apps = vec![app1, app2];
     let job_info = vec![InfoBuilder::new().build()];
 
@@ -190,7 +221,11 @@ fn test_server_spawn_err_unreach_with_daemon() {
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let app = PmixApp::builder().cmd("/bin/echo").maxprocs(1).build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
     let apps = vec![app];
     let job_info = vec![InfoBuilder::new().build()];
 
@@ -217,7 +252,11 @@ fn test_server_spawn_returns_result_string_with_daemon() {
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let app = PmixApp::builder().cmd("/bin/echo").maxprocs(1).build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
     let apps = vec![app];
     let job_info = vec![InfoBuilder::new().build()];
 
@@ -244,7 +283,11 @@ fn test_server_spawn_nb_with_daemon() {
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let app = PmixApp::builder().cmd("/bin/echo").maxprocs(1).build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
     let apps = vec![app];
     let job_info = vec![InfoBuilder::new().build()];
 
@@ -271,7 +314,12 @@ fn test_server_spawn_nb_with_job_info_with_daemon() {
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let app = PmixApp::builder().cmd("/bin/echo").arg("test").maxprocs(1).build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .arg("test")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
     let apps = vec![app];
     let job_info = vec![InfoBuilder::new().build()];
 
@@ -298,7 +346,11 @@ fn test_server_spawn_with_callbacks_module_with_daemon() {
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let app = PmixApp::builder().cmd("/bin/echo").maxprocs(1).build().expect("valid app");
+    let app = PmixApp::builder()
+        .cmd("/bin/echo")
+        .maxprocs(1)
+        .build()
+        .expect("valid app");
     let apps = vec![app];
     let job_info = vec![InfoBuilder::new().build()];
 

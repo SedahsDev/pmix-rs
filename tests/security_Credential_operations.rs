@@ -36,7 +36,12 @@ fn test_credential_results_via_callback_not_invoked() {
         }
     }
     let info: Vec<pmix::Info> = vec![];
-    let result = get_credential_nb(&info, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = get_credential_nb(
+        &info,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     // On immediate FFI failure, callback is not invoked
     assert!(result.is_err());
     assert!(!called.load(Ordering::SeqCst));
@@ -145,7 +150,12 @@ fn test_get_credential_nb_multiple_info() {
     }
     let info1 = InfoBuilder::new().build();
     let info2 = InfoBuilder::new().build();
-    let result = get_credential_nb(&[info1, info2], Box::new(Cb { c: Arc::clone(&called) }));
+    let result = get_credential_nb(
+        &[info1, info2],
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(!called.load(Ordering::SeqCst));
 }
@@ -172,7 +182,13 @@ fn test_validate_credential_nb_multiple_info() {
     let info1 = InfoBuilder::new().build();
     let info2 = InfoBuilder::new().build();
     let cred = PmixCredential::from_bytes(&[1, 2, 3]);
-    let result = validate_credential_nb(&cred, &[info1, info2], Box::new(Cb { c: Arc::clone(&called) }));
+    let result = validate_credential_nb(
+        &cred,
+        &[info1, info2],
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(!called.load(Ordering::SeqCst));
 }
@@ -194,7 +210,13 @@ fn test_validate_credential_nb_empty_cred() {
     }
     let info: Vec<pmix::Info> = vec![];
     let cred = PmixCredential::empty();
-    let result = validate_credential_nb(&cred, &info, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = validate_credential_nb(
+        &cred,
+        &info,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(!called.load(Ordering::SeqCst));
 }

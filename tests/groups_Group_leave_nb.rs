@@ -1,13 +1,16 @@
 //! Integration tests for `PMIx_Group_leave_nb` via the safe `group_leave_nb()` wrapper.
 
-use pmix::groups::{group_leave_nb, GroupLeaveCallbackWrapper};
 use pmix::PmixStatus;
+use pmix::groups::{GroupLeaveCallbackWrapper, group_leave_nb};
 
 #[test]
 fn group_leave_nb_compiles() {
     let wrapper = GroupLeaveCallbackWrapper::new(|_status| {});
     let result = group_leave_nb("test_group", &[], wrapper);
-    assert!(result.is_err(), "group_leave_nb should fail without PMIx_Init");
+    assert!(
+        result.is_err(),
+        "group_leave_nb should fail without PMIx_Init"
+    );
 }
 
 #[test]

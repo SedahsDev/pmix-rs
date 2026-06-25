@@ -13,8 +13,8 @@
 //! * Panic safety of all public entry points
 
 use pmix::fabric::{
-    compute_distances, compute_distances_nb, load_topology, ComputeDistancesCallback,
-    DeviceDistances, PmixCpuset, PmixDeviceDistance, PmixTopology,
+    ComputeDistancesCallback, DeviceDistances, PmixCpuset, PmixDeviceDistance, PmixTopology,
+    compute_distances, compute_distances_nb, load_topology,
 };
 use pmix::{PmixDeviceType, PmixStatus};
 
@@ -60,7 +60,11 @@ fn test_topology_loaded_starts_false_all_constructors() {
 fn test_topology_debug_contains_struct_name() {
     let topo = PmixTopology::unamed();
     let s = format!("{:?}", topo);
-    assert!(s.contains("PmixTopology"), "debug should mention struct name: {}", s);
+    assert!(
+        s.contains("PmixTopology"),
+        "debug should mention struct name: {}",
+        s
+    );
 }
 
 /// PmixTopology Debug output for a sourced topology contains the source.
@@ -213,7 +217,11 @@ fn test_device_type_display_unknown_type() {
 #[test]
 fn test_device_type_display_unknown_variant() {
     let s = format!("{}", PmixDeviceType::Unknown(0x99));
-    assert!(s.contains("UNKNOWN DEVICE TYPE"), "unexpected display: {}", s);
+    assert!(
+        s.contains("UNKNOWN DEVICE TYPE"),
+        "unexpected display: {}",
+        s
+    );
 }
 
 /// PmixDeviceType implements Debug.
@@ -589,9 +597,7 @@ fn test_device_distances_not_send() {
 /// load_topology signature: takes &mut PmixTopology, returns Result<(), PmixStatus>.
 #[test]
 fn test_load_topology_signature() {
-    fn _check_sig(
-        f: impl Fn(&mut PmixTopology) -> Result<(), PmixStatus>,
-    ) {
+    fn _check_sig(f: impl Fn(&mut PmixTopology) -> Result<(), PmixStatus>) {
         let _ = f;
     }
     _check_sig(load_topology);
@@ -601,8 +607,11 @@ fn test_load_topology_signature() {
 #[test]
 fn test_compute_distances_signature() {
     fn _check_sig(
-        f: impl Fn(&mut PmixTopology, &mut PmixCpuset, &[pmix::Info])
-            -> Result<DeviceDistances, PmixStatus>,
+        f: impl Fn(
+            &mut PmixTopology,
+            &mut PmixCpuset,
+            &[pmix::Info],
+        ) -> Result<DeviceDistances, PmixStatus>,
     ) {
         let _ = f;
     }
@@ -668,8 +677,7 @@ fn test_device_type_variants_distinct() {
             assert_ne!(
                 types[i], types[j],
                 "{:?} should not equal {:?}",
-                types[i],
-                types[j]
+                types[i], types[j]
             );
         }
     }

@@ -848,3 +848,46 @@ pub fn validate_credential_nb(
         Err(pmix_status)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_credential_from_bytes() {
+        let cred = PmixCredential::from_bytes(b"test credential data");
+        assert_eq!(cred.as_bytes(), b"test credential data");
+        assert_eq!(cred.len(), 20);
+        assert!(!cred.is_empty());
+    }
+
+    #[test]
+    fn test_credential_from_vec() {
+        let data = vec![1u8, 2, 3, 4, 5];
+        let cred = PmixCredential::from_vec(data.clone());
+        assert_eq!(cred.as_bytes(), &data);
+        assert_eq!(cred.len(), 5);
+    }
+
+    #[test]
+    fn test_credential_empty() {
+        let cred = PmixCredential::empty();
+        assert!(cred.is_empty());
+        assert_eq!(cred.len(), 0);
+        assert!(cred.as_bytes().is_empty());
+    }
+
+    #[test]
+    fn test_credential_as_raw() {
+        let cred = PmixCredential::from_bytes(b"test");
+        let ptr = cred.as_raw();
+        assert!(!ptr.is_null());
+    }
+
+    #[test]
+    fn test_validation_results_empty() {
+        let results = ValidationResults::empty();
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+}

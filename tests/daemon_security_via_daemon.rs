@@ -9,8 +9,8 @@
 mod daemon_helper;
 
 use pmix::security::{
-    get_credential, get_credential_nb, validate_credential, validate_credential_nb,
     CredentialCallback, CredentialResults, PmixCredential, ValidationCallback, ValidationResults,
+    get_credential, get_credential_nb, validate_credential, validate_credential_nb,
 };
 use pmix::{InfoBuilder, PmixError, PmixStatus};
 
@@ -114,8 +114,7 @@ fn test_credential_callback_trait_object() {
 fn test_validation_callback_trait_object() {
     struct TestValCb;
     impl ValidationCallback for TestValCb {
-        fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {
-        }
+        fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {}
     }
     let _cb: Box<dyn ValidationCallback> = Box::new(TestValCb);
 }

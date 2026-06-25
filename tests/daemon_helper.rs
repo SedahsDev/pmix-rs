@@ -26,8 +26,8 @@ use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
 
-use pmix::tool::{tool_init, PmixToolHandle};
-use pmix::{info_with_string_key, Info, InfoBuilder};
+use pmix::tool::{PmixToolHandle, tool_init};
+use pmix::{Info, InfoBuilder, info_with_string_key};
 
 /// Default path where the systemd PRTE service writes its URI.
 const DEFAULT_URI_FILE: &str = "/run/user/1000/prte/uri";
@@ -65,7 +65,11 @@ pub fn daemon_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
 pub fn read_uri() -> Result<String, String> {
     // Try versioned env var first (set by test harness or PRRTE)
     // PMIX_SERVER_URIv61 matches our PRRTE 4.1.0 / openpmix 6.1.0 setup
-    for key in &["PMIX_SERVER_URIv61", "PMIX_SERVER_URIv51", "PMIX_SERVER_URIv41"] {
+    for key in &[
+        "PMIX_SERVER_URIv61",
+        "PMIX_SERVER_URIv51",
+        "PMIX_SERVER_URIv41",
+    ] {
         if let Ok(uri) = env::var(key) {
             if !uri.is_empty() {
                 return Ok(uri);
@@ -169,7 +173,9 @@ pub fn get_tool_handle() -> Result<&'static PmixToolHandle, String> {
             );
             // Store it — Drop will call tool_finalize at process exit
             SHARED_TOOL.set(handle).ok();
-            SHARED_TOOL.get().ok_or_else(|| "tool_init did not store handle".to_string())
+            SHARED_TOOL
+                .get()
+                .ok_or_else(|| "tool_init did not store handle".to_string())
         }
         Err(e) => {
             INIT_FAILED.set(true).ok();

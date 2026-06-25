@@ -206,7 +206,9 @@ fn test_query_info_result_has_len() {
 fn test_query_info_with_qualifiers() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let info = InfoBuilder::new().build();
-    let query = PmixQuery::new(&["test_key"]).expect("create").with_qualifiers(info);
+    let query = PmixQuery::new(&["test_key"])
+        .expect("create")
+        .with_qualifiers(info);
     let result = query_info(&[query]);
     let _ = result;
 }

@@ -7,9 +7,9 @@
 mod daemon_helper;
 
 use pmix::{
-    info_with_string_key, InfoBuilder, PmixDataRange, PmixDataType, PmixEnvar, PmixError, PmixJobState, PmixLinkState,
+    InfoBuilder, PmixDataRange, PmixDataType, PmixEnvar, PmixError, PmixJobState, PmixLinkState,
     PmixPayload, PmixPersistence, PmixProcState, PmixScope, PmixStatus, PmixTimeval,
-    PmixValueBuilder,
+    PmixValueBuilder, info_with_string_key,
 };
 use std::ffi::CString;
 
@@ -177,7 +177,9 @@ fn test_context_get_proc() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_proc_with_nspace() {
     let context = pmix::init(None).expect("init failed");
-    let proc = context.proc_with_nspace(0).expect("proc_with_nspace failed");
+    let proc = context
+        .proc_with_nspace(0)
+        .expect("proc_with_nspace failed");
     assert_eq!(proc.get_rank(), 0);
 }
 
@@ -289,12 +291,18 @@ fn test_pmix_status_success() {
 
 #[test]
 fn test_pmix_status_from_raw_zero() {
-    assert_eq!(PmixStatus::from_raw(0), PmixStatus::Known(PmixError::Success));
+    assert_eq!(
+        PmixStatus::from_raw(0),
+        PmixStatus::Known(PmixError::Success)
+    );
 }
 
 #[test]
 fn test_pmix_status_from_raw_known() {
-    assert_eq!(PmixStatus::from_raw(-1), PmixStatus::Known(PmixError::Error));
+    assert_eq!(
+        PmixStatus::from_raw(-1),
+        PmixStatus::Known(PmixError::Error)
+    );
 }
 
 #[test]
@@ -484,7 +492,11 @@ fn test_value_builder_bool() {
 
 #[test]
 fn test_value_builder_string() {
-    let value = PmixValueBuilder::new().string("hello").unwrap().build().unwrap();
+    let value = PmixValueBuilder::new()
+        .string("hello")
+        .unwrap()
+        .build()
+        .unwrap();
     // PMIX_STRING
     assert_eq!(value.type_tag(), 3);
 }

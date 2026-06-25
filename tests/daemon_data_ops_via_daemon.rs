@@ -9,12 +9,11 @@
 mod daemon_helper;
 
 use pmix::data_ops::{
-    publish, publish_nb, get, get_nb, lookup, lookup_nb, unpublish, unpublish_nb,
-    store_internal, fence_nb,
-    PublishCallback, GetValueCallback, LookupCallback, UnpublishCallback, FenceCallback,
-    PmixPdata,
+    FenceCallback, GetValueCallback, LookupCallback, PmixPdata, PublishCallback, UnpublishCallback,
+    fence_nb, get, get_nb, lookup, lookup_nb, publish, publish_nb, store_internal, unpublish,
+    unpublish_nb,
 };
-use pmix::server::{server_finalize, server_init, PmixServerModule};
+use pmix::server::{PmixServerModule, server_finalize, server_init};
 use pmix::{InfoBuilder, PmixError, PmixOwnedValue, PmixStatus, PmixValueBuilder, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -20,9 +20,7 @@
 
 mod daemon_helper;
 
-use pmix::server::{
-    server_finalize, server_init, server_tool_attach_to_server, PmixServerModule,
-};
+use pmix::server::{PmixServerModule, server_finalize, server_init, server_tool_attach_to_server};
 use pmix::{InfoBuilder, PmixStatus, Proc};
 
 // Dummy callbacks for testing module with callbacks set.
@@ -44,7 +42,10 @@ fn test_server_tool_attach_to_server_type_check() {
         bool,
         &pmix::Info,
     ) -> Result<
-        (Option<pmix::tool::PmixToolHandle>, Option<pmix::tool::PmixServerHandle>),
+        (
+            Option<pmix::tool::PmixToolHandle>,
+            Option<pmix::tool::PmixServerHandle>,
+        ),
         PmixStatus,
     > = server_tool_attach_to_server;
 }
@@ -187,7 +188,10 @@ fn test_server_tool_attach_err_unreach_with_daemon() {
 
     let attach_info = InfoBuilder::new().build();
     let result = server_tool_attach_to_server(&handle, None, false, &attach_info);
-    assert!(result.is_err(), "server_tool_attach_to_server should return Err");
+    assert!(
+        result.is_err(),
+        "server_tool_attach_to_server should return Err"
+    );
     let err = result.unwrap_err();
     assert_eq!(
         err,
@@ -211,7 +215,10 @@ fn test_server_tool_attach_returns_tuple_with_daemon() {
 
     let attach_info = InfoBuilder::new().build();
     let result: Result<
-        (Option<pmix::tool::PmixToolHandle>, Option<pmix::tool::PmixServerHandle>),
+        (
+            Option<pmix::tool::PmixToolHandle>,
+            Option<pmix::tool::PmixServerHandle>,
+        ),
         PmixStatus,
     > = server_tool_attach_to_server(&handle, None, false, &attach_info);
     assert!(

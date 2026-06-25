@@ -2,8 +2,8 @@
 //!
 //! These tests verify the function compiles and returns errors without init.
 
-use pmix::events::{register_event_handler_nb, HandlerRegCbFn, NotificationFn};
 use pmix::InfoBuilder;
+use pmix::events::{HandlerRegCbFn, NotificationFn, register_event_handler_nb};
 
 /// `register_event_handler_nb` compiles with correct signature.
 #[test]

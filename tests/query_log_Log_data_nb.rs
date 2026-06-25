@@ -1,7 +1,7 @@
 //! Integration tests for `PMIx_Log_data_nb` via the safe `log_data_nb()` wrapper.
 
-use pmix::query_log::{log_data_nb, LogCallback};
 use pmix::PmixStatus;
+use pmix::query_log::{LogCallback, log_data_nb};
 
 #[test]
 fn log_data_nb_compiles() {

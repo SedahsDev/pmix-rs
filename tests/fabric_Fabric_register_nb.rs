@@ -9,9 +9,7 @@
 //! fabric_deregister_nb has `!fabric.registered` guard → safe in user-space.
 //! Callback trait tests, type checks, and signature tests are also safe.
 
-use pmix::fabric::{
-    fabric_deregister_nb, fabric_register_nb, FabricCallback, PmixFabric,
-};
+use pmix::fabric::{FabricCallback, PmixFabric, fabric_deregister_nb, fabric_register_nb};
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
 use std::sync::{Arc, Mutex};
 
@@ -129,7 +127,10 @@ fn test_register_nb_no_panic_unamed() {
     }));
     // Result may be Err (no server) or Ok (server present).
     // Key point: no panic.
-    assert!(result.is_ok(), "register_nb must not panic on unamed fabric");
+    assert!(
+        result.is_ok(),
+        "register_nb must not panic on unamed fabric"
+    );
 }
 
 /// register_nb with recording callback — requires PMIx server.
@@ -203,7 +204,10 @@ fn test_deregister_nb_no_panic_unamed() {
         let mut f = PmixFabric::unamed();
         fabric_deregister_nb(&mut f, Box::new(NopCallback))
     }));
-    assert!(result.is_ok(), "deregister_nb must not panic on unamed fabric");
+    assert!(
+        result.is_ok(),
+        "deregister_nb must not panic on unamed fabric"
+    );
 }
 
 /// deregister_nb error is an error status.
@@ -212,7 +216,10 @@ fn test_deregister_nb_error_is_error_status() {
     let mut fabric = PmixFabric::unamed();
     let result = fabric_deregister_nb(&mut fabric, Box::new(NopCallback));
     let err = result.unwrap_err();
-    assert!(err.is_error(), "deregister_nb error must be an error status");
+    assert!(
+        err.is_error(),
+        "deregister_nb error must be an error status"
+    );
 }
 
 /// deregister_nb preserves fabric state after error.

@@ -23,7 +23,7 @@
 use std::sync::OnceLock;
 
 use pmix::data_serialization::*;
-use pmix::{init, PmixDataType, PmixError, PmixStatus};
+use pmix::{PmixDataType, PmixError, PmixStatus, init};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton PMIx init — PMIx can only be initialized once per process.
@@ -51,7 +51,11 @@ fn test_roundtrip_load_unload_basic() {
     data_load(&buf, &payload).expect("load");
 
     let recovered = data_unload(&buf).expect("unload");
-    assert_eq!(recovered.as_slice(), &original, "round-trip should preserve data");
+    assert_eq!(
+        recovered.as_slice(),
+        &original,
+        "round-trip should preserve data"
+    );
 }
 
 /// Load → unload → load → unload double round-trip on the same buffer.
@@ -124,7 +128,11 @@ fn test_roundtrip_two_buffer_transport() {
     data_load(&receiver_buf, &transport).expect("receiver load");
     let final_payload = data_unload(&receiver_buf).expect("receiver unload");
 
-    assert_eq!(final_payload.as_slice(), &original, "transport chain preserved data");
+    assert_eq!(
+        final_payload.as_slice(),
+        &original,
+        "transport chain preserved data"
+    );
 }
 
 /// Three-hop transport chain: buf1 → buf2 → buf3 → verify.
@@ -150,7 +158,11 @@ fn test_roundtrip_three_hop_transport() {
     data_load(&buf3, &payload2).expect("load into buf3");
     let final_payload = data_unload(&buf3).expect("unload from buf3");
 
-    assert_eq!(final_payload.as_slice(), &original, "three-hop chain preserved data");
+    assert_eq!(
+        final_payload.as_slice(),
+        &original,
+        "three-hop chain preserved data"
+    );
 }
 
 /// Round-trip with empty payload.
@@ -165,7 +177,10 @@ fn test_roundtrip_empty_payload() {
 
     let recovered = data_unload(&buf);
     match recovered {
-        Ok(p) => assert!(p.as_slice().is_empty(), "empty round-trip should yield empty"),
+        Ok(p) => assert!(
+            p.as_slice().is_empty(),
+            "empty round-trip should yield empty"
+        ),
         Err(_) => {
             // Some PMIx versions may error on empty buffer unload — acceptable
         }
@@ -363,8 +378,8 @@ fn test_roundtrip_pack_unload_load_unpack_i32() {
 
     let mut out: i32 = 0;
     let mut count: i32 = 1;
-    let unpacked = data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Int32)
-        .expect("unpack");
+    let unpacked =
+        data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Int32).expect("unpack");
     assert_eq!(unpacked, 1);
     assert_eq!(out, 42, "round-trip should preserve i32 value");
 }
@@ -406,8 +421,10 @@ fn test_roundtrip_pack_unload_load_unpack_multiple() {
 #[ignore]
 fn test_roundtrip_pack_unload_load_unpack_u8_array() {
     let buf1 = data_buffer_create().expect("create buf1");
-    let bytes: [u8; 16] = [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
-                           0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0];
+    let bytes: [u8; 16] = [
+        0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE,
+        0xF0,
+    ];
     data_pack(None, &buf1, &bytes, 16, PmixDataType::Uint8).expect("pack bytes");
 
     let payload = data_unload(&buf1).expect("unload");
@@ -417,8 +434,7 @@ fn test_roundtrip_pack_unload_load_unpack_u8_array() {
 
     let mut out: [u8; 16] = [0; 16];
     let mut count: i32 = 16;
-    data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Uint8)
-        .expect("unpack bytes");
+    data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Uint8).expect("unpack bytes");
     assert_eq!(count, 16);
     assert_eq!(out, bytes);
 }
@@ -438,8 +454,7 @@ fn test_roundtrip_pack_unload_load_unpack_i64() {
 
     let mut out: i64 = 0;
     let mut count: i32 = 1;
-    data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Int64)
-        .expect("unpack i64");
+    data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Int64).expect("unpack i64");
     assert_eq!(out, val, "i64 round-trip should preserve value");
 }
 
@@ -458,9 +473,11 @@ fn test_roundtrip_pack_unload_load_unpack_double() {
 
     let mut out: f64 = 0.0;
     let mut count: i32 = 1;
-    data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Double)
-        .expect("unpack double");
-    assert!((out - val).abs() < 1e-10, "double round-trip should preserve value");
+    data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Double).expect("unpack double");
+    assert!(
+        (out - val).abs() < 1e-10,
+        "double round-trip should preserve value"
+    );
 }
 
 /// Multi-hop pack/unload/load/unpack chain with different types.
@@ -489,8 +506,7 @@ fn test_roundtrip_multi_hop_mixed_types() {
     let mut out_float: f64 = 0.0;
     let mut count: i32 = 1;
 
-    data_unpack(None, &buf3, &mut out_int, &mut count, PmixDataType::Int32)
-        .expect("unpack int");
+    data_unpack(None, &buf3, &mut out_int, &mut count, PmixDataType::Int32).expect("unpack int");
     data_unpack(None, &buf3, &mut out_float, &mut count, PmixDataType::Float)
         .expect("unpack float");
 
@@ -508,7 +524,11 @@ fn test_compress_empty_returns_bad_param() {
     let result = data_compress(&[]);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.to_raw(), -27, "empty input should return PMIX_ERR_BAD_PARAM (-27)");
+    assert_eq!(
+        err.to_raw(),
+        -27,
+        "empty input should return PMIX_ERR_BAD_PARAM (-27)"
+    );
     assert!(
         matches!(err, PmixStatus::Known(PmixError::ErrBadParam)),
         "error should be Known(ErrBadParam)"
@@ -585,7 +605,11 @@ fn test_compress_zeros_ratio() {
         data.len()
     );
     let ratio = compressed.len() as f64 / data.len() as f64;
-    assert!(ratio < 0.01, "zero compression ratio should be very low, got {:.4}", ratio);
+    assert!(
+        ratio < 0.01,
+        "zero compression ratio should be very low, got {:.4}",
+        ratio
+    );
 }
 
 /// Compress 1K block of compressible repeating pattern.
@@ -615,7 +639,11 @@ fn test_compress_10k_compressible() {
         data.len()
     );
     let ratio = compressed.len() as f64 / data.len() as f64;
-    assert!(ratio < 0.1, "10K compression ratio should be < 0.1, got {:.4}", ratio);
+    assert!(
+        ratio < 0.1,
+        "10K compression ratio should be < 0.1, got {:.4}",
+        ratio
+    );
 }
 
 /// Compress small data (5 bytes) — may fail due to overhead.
@@ -653,7 +681,10 @@ fn test_compress_uniform_0xff_ratio() {
 #[test]
 fn test_compress_decompress_roundtrip_empty_errors() {
     assert!(data_compress(&[]).is_err(), "compress empty should error");
-    assert!(data_decompress(&[]).is_err(), "decompress empty should error");
+    assert!(
+        data_decompress(&[]).is_err(),
+        "decompress empty should error"
+    );
 }
 
 /// Compress → decompress → verify identical for zeros.
@@ -663,7 +694,10 @@ fn test_compress_decompress_roundtrip_zeros() {
     let original = vec![0u8; 4096];
     let compressed = data_compress(&original).expect("compress");
     let decompressed = data_decompress(&compressed).expect("decompress");
-    assert_eq!(decompressed, original, "zeros round-trip should be identical");
+    assert_eq!(
+        decompressed, original,
+        "zeros round-trip should be identical"
+    );
 }
 
 /// Compress → decompress round-trip for 1 byte (if compressible).
@@ -824,7 +858,10 @@ fn test_embed_buffer_independence_drop_child() {
 
     // Parent should still work after child is gone
     let recovered = data_unload(&parent_buf).expect("unload parent");
-    assert!(!recovered.as_slice().is_empty(), "parent should have data after embed");
+    assert!(
+        !recovered.as_slice().is_empty(),
+        "parent should have data after embed"
+    );
 }
 
 /// Embed child into parent, drop child buffer, unpack from parent.
@@ -849,7 +886,10 @@ fn test_embed_parent_unpack_after_child_drop() {
     let mut count: i32 = 1;
     data_unpack(None, &parent_buf, &mut out, &mut count, PmixDataType::Int32)
         .expect("unpack from parent");
-    assert_eq!(out, 12345, "parent should contain child's data after child dropped");
+    assert_eq!(
+        out, 12345,
+        "parent should contain child's data after child dropped"
+    );
 }
 
 /// Embed the same payload into multiple buffers — payload independence.
@@ -1020,7 +1060,11 @@ fn test_load_unload_with_consumed_payload() {
     assert!(payload.is_empty(), "payload consumed after load");
 
     let recovered = data_unload(&buf).expect("unload");
-    assert_eq!(recovered.as_slice(), &original, "round-trip should preserve data");
+    assert_eq!(
+        recovered.as_slice(),
+        &original,
+        "round-trip should preserve data"
+    );
 }
 
 /// Buffer bytes_used increases after load, resets after unload.
@@ -1067,7 +1111,10 @@ fn test_buffer_valid_after_load_unload_cycle() {
     let payload = PmixByteObject::from(vec![1u8, 2, 3]);
     data_load(&buf, &payload).expect("load");
     let _recovered = data_unload(&buf).expect("unload");
-    assert!(buf.is_valid(), "buffer should remain valid after load/unload");
+    assert!(
+        buf.is_valid(),
+        "buffer should remain valid after load/unload"
+    );
 }
 
 /// Multiple load/unload cycles on the same buffer.

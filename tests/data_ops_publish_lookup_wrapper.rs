@@ -59,16 +59,26 @@ fn test_publish_nb_no_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let called = Arc::new(AtomicBool::new(false));
-    struct Cb { c: Arc<AtomicBool> }
+    struct Cb {
+        c: Arc<AtomicBool>,
+    }
     impl PublishCallback for Cb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {
             self.c.store(true, Ordering::SeqCst);
         }
     }
     let info = pmix::InfoBuilder::new().build();
-    let result = publish_nb(&info, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = publish_nb(
+        &info,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
-    assert!(!called.load(Ordering::SeqCst), "callback should not be invoked on immediate failure");
+    assert!(
+        !called.load(Ordering::SeqCst),
+        "callback should not be invoked on immediate failure"
+    );
 }
 
 /// publish_nb with empty Info returns error.
@@ -159,16 +169,28 @@ fn test_get_nb_no_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let called = Arc::new(AtomicBool::new(false));
-    struct Cb { c: Arc<AtomicBool> }
+    struct Cb {
+        c: Arc<AtomicBool>,
+    }
     impl GetValueCallback for Cb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<pmix::PmixOwnedValue>) {
             self.c.store(true, Ordering::SeqCst);
         }
     }
     let proc = Proc::new("test_ns", 0).unwrap();
-    let result = get_nb(&proc, "test_key", None, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = get_nb(
+        &proc,
+        "test_key",
+        None,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
-    assert!(!called.load(Ordering::SeqCst), "callback should not be invoked on immediate failure");
+    assert!(
+        !called.load(Ordering::SeqCst),
+        "callback should not be invoked on immediate failure"
+    );
 }
 
 /// get_nb with Info returns error.
@@ -215,7 +237,12 @@ fn test_get_nb_different_ranks() {
         let proc = Proc::new("test_ns", rank).unwrap();
         struct Cb;
         impl GetValueCallback for Cb {
-            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<pmix::PmixOwnedValue>) {}
+            fn on_result(
+                self: Box<Self>,
+                _status: PmixStatus,
+                _value: Option<pmix::PmixOwnedValue>,
+            ) {
+            }
         }
         let result = get_nb(&proc, "key", None, Box::new(Cb));
         assert!(result.is_err());
@@ -286,16 +313,31 @@ fn test_lookup_nb_no_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let called = Arc::new(AtomicBool::new(false));
-    struct Cb { c: Arc<AtomicBool> }
+    struct Cb {
+        c: Arc<AtomicBool>,
+    }
     impl LookupCallback for Cb {
-        fn on_result(self: Box<Self>, _status: PmixStatus, _results: Vec<pmix::data_ops::PmixPdata>) {
+        fn on_result(
+            self: Box<Self>,
+            _status: PmixStatus,
+            _results: Vec<pmix::data_ops::PmixPdata>,
+        ) {
             self.c.store(true, Ordering::SeqCst);
         }
     }
     let keys = vec!["test_key"];
-    let result = lookup_nb(&keys, None, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = lookup_nb(
+        &keys,
+        None,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
-    assert!(!called.load(Ordering::SeqCst), "callback should not be invoked on immediate failure");
+    assert!(
+        !called.load(Ordering::SeqCst),
+        "callback should not be invoked on immediate failure"
+    );
 }
 
 /// lookup_nb with Info returns error.
@@ -305,7 +347,12 @@ fn test_lookup_nb_with_info() {
     let info = pmix::InfoBuilder::new().build();
     struct Cb;
     impl LookupCallback for Cb {
-        fn on_result(self: Box<Self>, _status: PmixStatus, _results: Vec<pmix::data_ops::PmixPdata>) {}
+        fn on_result(
+            self: Box<Self>,
+            _status: PmixStatus,
+            _results: Vec<pmix::data_ops::PmixPdata>,
+        ) {
+        }
     }
     let result = lookup_nb(&keys, Some(&info), Box::new(Cb));
     assert!(result.is_err());
@@ -316,7 +363,12 @@ fn test_lookup_nb_with_info() {
 fn test_lookup_nb_empty_keys() {
     struct Cb;
     impl LookupCallback for Cb {
-        fn on_result(self: Box<Self>, _status: PmixStatus, _results: Vec<pmix::data_ops::PmixPdata>) {}
+        fn on_result(
+            self: Box<Self>,
+            _status: PmixStatus,
+            _results: Vec<pmix::data_ops::PmixPdata>,
+        ) {
+        }
     }
     let keys: Vec<&str> = vec![];
     let result = lookup_nb(&keys, None, Box::new(Cb));
@@ -329,7 +381,12 @@ fn test_lookup_nb_multiple_keys() {
     let keys = vec!["key1", "key2", "key3"];
     struct Cb;
     impl LookupCallback for Cb {
-        fn on_result(self: Box<Self>, _status: PmixStatus, _results: Vec<pmix::data_ops::PmixPdata>) {}
+        fn on_result(
+            self: Box<Self>,
+            _status: PmixStatus,
+            _results: Vec<pmix::data_ops::PmixPdata>,
+        ) {
+        }
     }
     let result = lookup_nb(&keys, None, Box::new(Cb));
     assert!(result.is_err());
@@ -395,15 +452,26 @@ fn test_unpublish_nb_no_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let called = Arc::new(AtomicBool::new(false));
-    struct Cb { c: Arc<AtomicBool> }
+    struct Cb {
+        c: Arc<AtomicBool>,
+    }
     impl UnpublishCallback for Cb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let result = unpublish_nb(Some(&["test_key"]), None, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = unpublish_nb(
+        Some(&["test_key"]),
+        None,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
-    assert!(!called.load(Ordering::SeqCst), "callback should not be invoked on immediate failure");
+    assert!(
+        !called.load(Ordering::SeqCst),
+        "callback should not be invoked on immediate failure"
+    );
 }
 
 /// unpublish_nb with Info returns error.
@@ -440,16 +508,27 @@ fn test_fence_nb_no_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let called = Arc::new(AtomicBool::new(false));
-    struct Cb { c: Arc<AtomicBool> }
+    struct Cb {
+        c: Arc<AtomicBool>,
+    }
     impl FenceCallback for Cb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {
             self.c.store(true, Ordering::SeqCst);
         }
     }
     let procs: Vec<Proc> = Vec::new();
-    let result = fence_nb(&procs, None, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = fence_nb(
+        &procs,
+        None,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
-    assert!(!called.load(Ordering::SeqCst), "callback should not be invoked on immediate failure");
+    assert!(
+        !called.load(Ordering::SeqCst),
+        "callback should not be invoked on immediate failure"
+    );
 }
 
 /// fence_nb with Info returns error.
@@ -530,16 +609,20 @@ fn test_store_internal_empty_key() {
 #[test]
 fn test_store_internal_various_types() {
     let proc = Proc::new("test_ns", 0).unwrap();
-    
+
     let val_int = build_value(pmix::PmixValueBuilder::new().int(42));
     assert!(store_internal(&proc, "key_int", &val_int).is_err());
-    
-    let val_str = build_value(pmix::PmixValueBuilder::new().string("hello").expect("string"));
+
+    let val_str = build_value(
+        pmix::PmixValueBuilder::new()
+            .string("hello")
+            .expect("string"),
+    );
     assert!(store_internal(&proc, "key_str", &val_str).is_err());
-    
+
     let val_bool = build_value(pmix::PmixValueBuilder::new().bool(true));
     assert!(store_internal(&proc, "key_bool", &val_bool).is_err());
-    
+
     let val_double = build_value(pmix::PmixValueBuilder::new().double(3.14));
     assert!(store_internal(&proc, "key_double", &val_double).is_err());
 }

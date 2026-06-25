@@ -9,7 +9,10 @@ use pmix::get_version;
 #[test]
 fn get_version_returns_non_empty() {
     let version = get_version();
-    assert!(!version.is_empty(), "get_version should return non-empty string");
+    assert!(
+        !version.is_empty(),
+        "get_version should return non-empty string"
+    );
 }
 
 /// `get_version` returns a string matching typical version format (e.g. "4.1.1").

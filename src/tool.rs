@@ -793,3 +793,18 @@ pub fn tool_set_server(server: &Proc, info: &Info) -> Result<(), PmixStatus> {
 pub fn tool_is_connected() -> bool {
     unsafe { ffi::PMIx_tool_is_connected() }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_tool_initialized_default() {
+        assert!(!is_tool_initialized());
+    }
+
+    #[test]
+    fn test_tool_is_connected_default() {
+        assert!(!tool_is_connected());
+    }
+}

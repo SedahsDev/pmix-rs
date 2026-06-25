@@ -1,5 +1,5 @@
-use pmix::data_ops::*;
 use pmix::PmixStatus;
+use pmix::data_ops::*;
 
 #[test]
 fn test_publish_without_init() {

@@ -5,10 +5,10 @@
 //! These are pure unit tests — no FFI calls that require a daemon.
 
 use pmix::{
-    BuilderError, InfoBuilder, InfoFlags, IOFChannelFlags, PmixAllocDirective, PmixDataRange,
-    PmixDataType, PmixDeviceType, PmixEnvar, PmixError, PmixJobState, PmixLinkState,
-    PmixPayload, PmixPersistence, PmixProcState, PmixScope, PmixStatus, PmixTimeval,
-    PmixValueBuilder, Proc, ValueError,
+    BuilderError, IOFChannelFlags, InfoBuilder, InfoFlags, PmixAllocDirective, PmixDataRange,
+    PmixDataType, PmixDeviceType, PmixEnvar, PmixError, PmixJobState, PmixLinkState, PmixPayload,
+    PmixPersistence, PmixProcState, PmixScope, PmixStatus, PmixTimeval, PmixValueBuilder, Proc,
+    ValueError,
 };
 use std::ffi::CString;
 
@@ -121,8 +121,14 @@ fn test_pmix_status_from_raw_all_known() {
 
 #[test]
 fn test_pmix_status_from_raw_unknown() {
-    assert!(matches!(PmixStatus::from_raw(9999), PmixStatus::Unknown(9999)));
-    assert!(matches!(PmixStatus::from_raw(-9999), PmixStatus::Unknown(-9999)));
+    assert!(matches!(
+        PmixStatus::from_raw(9999),
+        PmixStatus::Unknown(9999)
+    ));
+    assert!(matches!(
+        PmixStatus::from_raw(-9999),
+        PmixStatus::Unknown(-9999)
+    ));
 }
 
 #[test]
@@ -252,7 +258,11 @@ fn test_pmix_error_name_all_variants() {
     for e in names {
         let name = e.name();
         assert!(!name.is_empty(), "name() for {:?} should not be empty", e);
-        assert!(name.starts_with("PMIX_"), "name should start with PMIX_: {}", name);
+        assert!(
+            name.starts_with("PMIX_"),
+            "name should start with PMIX_: {}",
+            name
+        );
     }
 }
 
@@ -397,7 +407,10 @@ fn test_pmix_proc_state_from_raw_all() {
     assert_eq!(PmixProcState::from_raw(54), PmixProcState::AbortedBySig);
     assert_eq!(PmixProcState::from_raw(55), PmixProcState::TermWoSync);
     assert_eq!(PmixProcState::from_raw(56), PmixProcState::CommFailed);
-    assert_eq!(PmixProcState::from_raw(57), PmixProcState::SensorBoundExceeded);
+    assert_eq!(
+        PmixProcState::from_raw(57),
+        PmixProcState::SensorBoundExceeded
+    );
     assert_eq!(PmixProcState::from_raw(58), PmixProcState::CalledAbort);
     assert_eq!(PmixProcState::from_raw(59), PmixProcState::HeartbeatFailed);
     assert_eq!(PmixProcState::from_raw(60), PmixProcState::Migrating);
@@ -475,7 +488,10 @@ fn test_pmix_job_state_from_raw_all() {
     assert_eq!(PmixJobState::from_raw(5), PmixJobState::Connected);
     assert_eq!(PmixJobState::from_raw(15), PmixJobState::Unterminated);
     assert_eq!(PmixJobState::from_raw(20), PmixJobState::Terminated);
-    assert_eq!(PmixJobState::from_raw(50), PmixJobState::TerminatedWithError);
+    assert_eq!(
+        PmixJobState::from_raw(50),
+        PmixJobState::TerminatedWithError
+    );
     assert_eq!(PmixJobState::from_raw(99), PmixJobState::Unknown(99));
 }
 
@@ -538,7 +554,10 @@ fn test_pmix_device_type_from_raw_all() {
     assert_eq!(PmixDeviceType::from_raw(0x08), PmixDeviceType::OpenFabrics);
     assert_eq!(PmixDeviceType::from_raw(0x10), PmixDeviceType::Dma);
     assert_eq!(PmixDeviceType::from_raw(0x20), PmixDeviceType::Coproc);
-    assert_eq!(PmixDeviceType::from_raw(0xFF), PmixDeviceType::Unknown(0xFF));
+    assert_eq!(
+        PmixDeviceType::from_raw(0xFF),
+        PmixDeviceType::Unknown(0xFF)
+    );
 }
 
 #[test]
@@ -592,7 +611,10 @@ fn test_pmix_persistence_to_raw_all() {
 #[test]
 fn test_pmix_persistence_display() {
     assert_eq!(format!("{}", PmixPersistence::Indefinite), "INDEFINITE");
-    assert_eq!(format!("{}", PmixPersistence::FirstRead), "DELETE ON FIRST ACCESS");
+    assert_eq!(
+        format!("{}", PmixPersistence::FirstRead),
+        "DELETE ON FIRST ACCESS"
+    );
     assert_eq!(format!("{}", PmixPersistence::Invalid), "INVALID");
     let unk = format!("{}", PmixPersistence::Unknown(42));
     assert!(unk.contains("UNKNOWN"));
@@ -847,10 +869,7 @@ fn test_iof_channel_flags_bitor() {
 
 #[test]
 fn test_iof_channel_flags_display() {
-    assert_eq!(
-        format!("{}", IOFChannelFlags::NO_CHANNELS),
-        "NO_CHANNELS"
-    );
+    assert_eq!(format!("{}", IOFChannelFlags::NO_CHANNELS), "NO_CHANNELS");
     assert_eq!(format!("{}", IOFChannelFlags::STDIN), "STDIN");
     let combined = IOFChannelFlags::STDIN | IOFChannelFlags::STDOUT;
     let s = format!("{}", combined);
@@ -869,9 +888,7 @@ fn test_iof_channel_flags_display() {
 #[test]
 fn test_builder_error_variants() {
     // KeyContainsNul
-    let nul_err = BuilderError::KeyContainsNul(
-        CString::new("test\0inner").unwrap_err(),
-    );
+    let nul_err = BuilderError::KeyContainsNul(CString::new("test\0inner").unwrap_err());
     let msg = format!("{}", nul_err);
     assert!(msg.contains("NUL"));
 
@@ -893,9 +910,7 @@ fn test_builder_error_variants() {
 
 #[test]
 fn test_builder_error_error_trait() {
-    let nul_err = BuilderError::KeyContainsNul(
-        CString::new("test\0inner").unwrap_err(),
-    );
+    let nul_err = BuilderError::KeyContainsNul(CString::new("test\0inner").unwrap_err());
     let err: &dyn std::error::Error = &nul_err;
     assert!(err.source().is_some());
 
@@ -916,9 +931,7 @@ fn test_builder_error_from_nul() {
 #[test]
 fn test_value_error_variants() {
     // ContainsNul
-    let nul_err = ValueError::ContainsNul(
-        CString::new("test\0inner").unwrap_err(),
-    );
+    let nul_err = ValueError::ContainsNul(CString::new("test\0inner").unwrap_err());
     let msg = format!("{}", nul_err);
     assert!(msg.contains("NUL"));
 
@@ -933,9 +946,7 @@ fn test_value_error_variants() {
 
 #[test]
 fn test_value_error_error_trait() {
-    let nul_err = ValueError::ContainsNul(
-        CString::new("test\0inner").unwrap_err(),
-    );
+    let nul_err = ValueError::ContainsNul(CString::new("test\0inner").unwrap_err());
     let err: &dyn std::error::Error = &nul_err;
     assert!(err.source().is_some());
 
@@ -986,9 +997,18 @@ fn test_pmix_timeval_clone_copy() {
 
 #[test]
 fn test_pmix_timeval_partial_eq() {
-    let tv1 = PmixTimeval { tv_sec: 100, tv_usec: 500 };
-    let tv2 = PmixTimeval { tv_sec: 100, tv_usec: 500 };
-    let tv3 = PmixTimeval { tv_sec: 200, tv_usec: 500 };
+    let tv1 = PmixTimeval {
+        tv_sec: 100,
+        tv_usec: 500,
+    };
+    let tv2 = PmixTimeval {
+        tv_sec: 100,
+        tv_usec: 500,
+    };
+    let tv3 = PmixTimeval {
+        tv_sec: 200,
+        tv_usec: 500,
+    };
     assert_eq!(tv1, tv2);
     assert_ne!(tv1, tv3);
 }
@@ -1076,7 +1096,6 @@ fn test_info_flags_bitor_assign() {
 
 #[test]
 fn test_pmix_payload_type_tag_all_variants() {
-    
     // Undef
     assert_eq!(PmixPayload::Undef.type_tag(), PmixDataType::Undef as u16);
 
@@ -1087,10 +1106,7 @@ fn test_pmix_payload_type_tag_all_variants() {
     );
 
     // Byte
-    assert_eq!(
-        PmixPayload::Byte(42).type_tag(),
-        PmixDataType::Byte as u16
-    );
+    assert_eq!(PmixPayload::Byte(42).type_tag(), PmixDataType::Byte as u16);
 
     // String
     assert_eq!(
@@ -1105,22 +1121,13 @@ fn test_pmix_payload_type_tag_all_variants() {
     );
 
     // Pid
-    assert_eq!(
-        PmixPayload::Pid(1234).type_tag(),
-        PmixDataType::Pid as u16
-    );
+    assert_eq!(PmixPayload::Pid(1234).type_tag(), PmixDataType::Pid as u16);
 
     // Int
-    assert_eq!(
-        PmixPayload::Int(-42).type_tag(),
-        PmixDataType::Int as u16
-    );
+    assert_eq!(PmixPayload::Int(-42).type_tag(), PmixDataType::Int as u16);
 
     // Int8
-    assert_eq!(
-        PmixPayload::Int8(-5).type_tag(),
-        PmixDataType::Int8 as u16
-    );
+    assert_eq!(PmixPayload::Int8(-5).type_tag(), PmixDataType::Int8 as u16);
 
     // Int16
     assert_eq!(
@@ -1141,10 +1148,7 @@ fn test_pmix_payload_type_tag_all_variants() {
     );
 
     // Uint
-    assert_eq!(
-        PmixPayload::Uint(42).type_tag(),
-        PmixDataType::Uint as u16
-    );
+    assert_eq!(PmixPayload::Uint(42).type_tag(), PmixDataType::Uint as u16);
 
     // Uint8
     assert_eq!(
@@ -1211,10 +1215,7 @@ fn test_pmix_payload_type_tag_all_variants() {
     );
 
     // Scope
-    assert_eq!(
-        PmixPayload::Scope(3).type_tag(),
-        PmixDataType::Scope as u16
-    );
+    assert_eq!(PmixPayload::Scope(3).type_tag(), PmixDataType::Scope as u16);
 
     // DataRange
     assert_eq!(
@@ -1349,7 +1350,10 @@ fn test_value_builder_uint16() {
 
 #[test]
 fn test_value_builder_uint64() {
-    let v = PmixValueBuilder::new().uint64(18446744073709551615).build().unwrap();
+    let v = PmixValueBuilder::new()
+        .uint64(18446744073709551615)
+        .build()
+        .unwrap();
     assert_eq!(v.type_tag(), PmixDataType::Uint64 as u16);
 }
 
@@ -1475,8 +1479,7 @@ fn test_value_builder_build_raw_missing() {
 
 #[test]
 fn test_value_builder_string_array() {
-    let (val, keys) =
-        PmixValueBuilder::string_array(&["pmix.timeout", "pmix.collect"]).unwrap();
+    let (val, keys) = PmixValueBuilder::string_array(&["pmix.timeout", "pmix.collect"]).unwrap();
     assert_eq!(val.type_tag(), PmixDataType::DataArray as u16);
     let _ptr: *const *const std::ffi::c_char = keys.as_ptr();
 }

@@ -3,7 +3,7 @@
 //! User-space tests for fabric_register/fabric_deregister that exercise
 //! the error paths without requiring prterun.
 
-use pmix::fabric::{fabric_deregister, fabric_register, PmixFabric};
+use pmix::fabric::{PmixFabric, fabric_deregister, fabric_register};
 
 /// Test that fabric_register on a named fabric returns error without PMIx server.
 #[test]

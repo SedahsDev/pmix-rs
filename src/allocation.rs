@@ -973,13 +973,7 @@ pub fn session_control(
             // output variables. However, the C API says passing NULL cbfunc
             // makes it blocking with return status as the indicator.
             let status = unsafe {
-                ffi::PMIx_Session_control(
-                    session_id,
-                    directives_ptr,
-                    ndirs,
-                    None,
-                    ptr::null_mut(),
-                )
+                ffi::PMIx_Session_control(session_id, directives_ptr, ndirs, None, ptr::null_mut())
             };
 
             let pmix_status = PmixStatus::from_raw(status);

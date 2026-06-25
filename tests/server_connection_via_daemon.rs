@@ -10,9 +10,8 @@
 mod daemon_helper;
 
 use pmix::server::{
-    server_connect, server_connect_nb, server_disconnect, server_disconnect_nb,
-    server_finalize, server_init, FenceNbCallbackWrapper,
-    PmixServerModule,
+    FenceNbCallbackWrapper, PmixServerModule, server_connect, server_connect_nb, server_disconnect,
+    server_disconnect_nb, server_finalize, server_init,
 };
 use pmix::{InfoBuilder, PmixStatus, Proc};
 
@@ -22,20 +21,14 @@ use pmix::{InfoBuilder, PmixStatus, Proc};
 
 #[test]
 fn test_server_connect_type_check() {
-    let _f: fn(
-        &pmix::server::PmixServerHandle,
-        &[Proc],
-        &[pmix::Info],
-    ) -> Result<(), PmixStatus> = server_connect;
+    let _f: fn(&pmix::server::PmixServerHandle, &[Proc], &[pmix::Info]) -> Result<(), PmixStatus> =
+        server_connect;
 }
 
 #[test]
 fn test_server_disconnect_type_check() {
-    let _f: fn(
-        &pmix::server::PmixServerHandle,
-        &[Proc],
-        &[pmix::Info],
-    ) -> Result<(), PmixStatus> = server_disconnect;
+    let _f: fn(&pmix::server::PmixServerHandle, &[Proc], &[pmix::Info]) -> Result<(), PmixStatus> =
+        server_disconnect;
 }
 
 #[test]
@@ -86,7 +79,10 @@ fn test_server_connect_empty_procs_with_daemon() {
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_connect(&handle, &[], &[]);
-    assert!(result.is_err(), "server_connect with empty procs should return Err");
+    assert!(
+        result.is_err(),
+        "server_connect with empty procs should return Err"
+    );
 
     server_finalize(handle).expect("server_finalize");
 }
@@ -159,7 +155,10 @@ fn test_server_disconnect_empty_procs_with_daemon() {
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_disconnect(&handle, &[], &[]);
-    assert!(result.is_err(), "server_disconnect with empty procs should return Err");
+    assert!(
+        result.is_err(),
+        "server_disconnect with empty procs should return Err"
+    );
 
     server_finalize(handle).expect("server_finalize");
 }

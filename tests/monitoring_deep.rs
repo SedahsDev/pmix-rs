@@ -109,7 +109,11 @@ fn test_heartbeat_multiple_does_not_panic() {
 fn test_process_monitor_empty_directives() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
-    let result = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::ErrNotFound), &[]);
+    let result = process_monitor(
+        &monitor,
+        PmixStatus::Known(pmix::PmixError::ErrNotFound),
+        &[],
+    );
     let _ = result;
 }
 
@@ -154,11 +158,12 @@ fn test_process_monitor_timeout_error_code() {
 fn test_process_monitor_multiple_directives() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
-    let dirs = vec![
-        InfoBuilder::new().build(),
-        InfoBuilder::new().build(),
-    ];
-    let result = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::ErrNotFound), &dirs);
+    let dirs = vec![InfoBuilder::new().build(), InfoBuilder::new().build()];
+    let result = process_monitor(
+        &monitor,
+        PmixStatus::Known(pmix::PmixError::ErrNotFound),
+        &dirs,
+    );
     let _ = result;
 }
 
@@ -167,7 +172,11 @@ fn test_process_monitor_multiple_directives() {
 fn test_process_monitor_result_has_len() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
-    let result = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::ErrNotFound), &[]);
+    let result = process_monitor(
+        &monitor,
+        PmixStatus::Known(pmix::PmixError::ErrNotFound),
+        &[],
+    );
     match result {
         Ok(results) => {
             let _ = results.len();
@@ -186,7 +195,11 @@ fn test_process_monitor_with_collect_info() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     let monitor = builder.build();
-    let result = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::ErrNotFound), &[]);
+    let result = process_monitor(
+        &monitor,
+        PmixStatus::Known(pmix::PmixError::ErrNotFound),
+        &[],
+    );
     let _ = result;
 }
 
@@ -321,6 +334,10 @@ fn test_monitor_then_heartbeat() {
 fn test_monitor_sync_then_heartbeat() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor = InfoBuilder::new().build();
-    let _ = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::ErrNotFound), &[]);
+    let _ = process_monitor(
+        &monitor,
+        PmixStatus::Known(pmix::PmixError::ErrNotFound),
+        &[],
+    );
     let _ = heartbeat();
 }

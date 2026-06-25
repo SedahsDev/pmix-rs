@@ -15,8 +15,8 @@
 mod daemon_helper;
 
 use pmix::server::{
-    server_fence, server_fence_nb, server_finalize, server_init, FenceNbCallbackWrapper,
-    PmixServerModule,
+    FenceNbCallbackWrapper, PmixServerModule, server_fence, server_fence_nb, server_finalize,
+    server_init,
 };
 use pmix::{InfoBuilder, PmixStatus};
 
@@ -81,7 +81,10 @@ fn test_server_fence_with_daemon() {
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_fence(&handle, &[], 0);
-    assert!(result.is_err(), "server_fence from server context should return Err");
+    assert!(
+        result.is_err(),
+        "server_fence from server context should return Err"
+    );
 
     server_finalize(handle).expect("server_finalize");
 }
@@ -98,7 +101,10 @@ fn test_server_fence_with_timeout_with_daemon() {
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_fence(&handle, &[], 30);
-    assert!(result.is_err(), "server_fence with timeout should return Err");
+    assert!(
+        result.is_err(),
+        "server_fence with timeout should return Err"
+    );
 
     server_finalize(handle).expect("server_finalize");
 }
@@ -115,7 +121,10 @@ fn test_server_fence_returns_pmix_status_with_daemon() {
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result: Result<PmixStatus, PmixStatus> = server_fence(&handle, &[], 0);
-    assert!(result.is_err(), "server_fence should return Err(PmixStatus)");
+    assert!(
+        result.is_err(),
+        "server_fence should return Err(PmixStatus)"
+    );
 
     server_finalize(handle).expect("server_finalize");
 }

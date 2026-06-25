@@ -13,8 +13,8 @@
 mod daemon_helper;
 
 use pmix::tool::{
-    is_tool_initialized, tool_attach_to_server, tool_disconnect, tool_finalize, tool_get_servers,
-    tool_init, tool_set_server, PmixServerHandle, PmixToolHandle,
+    PmixServerHandle, PmixToolHandle, is_tool_initialized, tool_attach_to_server, tool_disconnect,
+    tool_finalize, tool_get_servers, tool_init, tool_set_server,
 };
 use pmix::{Info, InfoBuilder, PmixStatus, Proc};
 
@@ -100,7 +100,8 @@ fn test_attach_to_server_signature() {
         Option<&Proc>,
         bool,
         &Info,
-    ) -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus>;
+    )
+        -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus>;
     let _: AttachFn = tool_attach_to_server;
 }
 
@@ -476,10 +477,7 @@ fn test_get_servers_with_init_returns_valid_procs() {
     for server in &servers {
         // Each server proc should have a namespace
         let nspace = server.nspace();
-        assert!(
-            nspace.is_some(),
-            "Server proc should have a namespace"
-        );
+        assert!(nspace.is_some(), "Server proc should have a namespace");
     }
 }
 
@@ -490,7 +488,10 @@ fn test_get_servers_with_init_multiple_calls() {
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
     for _ in 0..3 {
         let result = tool_get_servers();
-        assert!(result.is_ok(), "tool_get_servers should succeed multiple times");
+        assert!(
+            result.is_ok(),
+            "tool_get_servers should succeed multiple times"
+        );
     }
 }
 
@@ -636,7 +637,10 @@ fn test_tool_initialized_after_disconnect() {
     let _ = tool_disconnect(&proc);
 
     // Tool should still be initialized
-    assert!(is_tool_initialized(), "Should still be initialized after disconnect");
+    assert!(
+        is_tool_initialized(),
+        "Should still be initialized after disconnect"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -725,10 +729,7 @@ fn test_concurrent_get_servers_safe() {
         threads.push(std::thread::spawn(|| {
             // tool_get_servers is safe to call concurrently after init
             let result = tool_get_servers();
-            assert!(
-                result.is_ok(),
-                "Concurrent tool_get_servers should succeed"
-            );
+            assert!(result.is_ok(), "Concurrent tool_get_servers should succeed");
             result
         }));
     }
@@ -752,11 +753,7 @@ fn test_attach_without_init_error_code() {
     match result {
         Err(status) => {
             let raw = status.to_raw();
-            assert!(
-                raw < 0,
-                "Error should be negative (raw={})",
-                raw
-            );
+            assert!(raw < 0, "Error should be negative (raw={})", raw);
         }
         Ok(_) => panic!("Expected Err"),
     }
@@ -773,11 +770,7 @@ fn test_get_servers_without_init_error_code() {
     match result {
         Err(status) => {
             let raw = status.to_raw();
-            assert!(
-                raw < 0,
-                "Error should be negative (raw={})",
-                raw
-            );
+            assert!(raw < 0, "Error should be negative (raw={})", raw);
         }
         Ok(_) => panic!("Expected Err"),
     }
@@ -792,11 +785,7 @@ fn test_set_server_without_init_error_code() {
     match result {
         Err(status) => {
             let raw = status.to_raw();
-            assert!(
-                raw < 0,
-                "Error should be negative (raw={})",
-                raw
-            );
+            assert!(raw < 0, "Error should be negative (raw={})", raw);
         }
         Ok(_) => panic!("Expected Err"),
     }
@@ -810,11 +799,7 @@ fn test_disconnect_without_init_error_code() {
     match result {
         Err(status) => {
             let raw = status.to_raw();
-            assert!(
-                raw < 0,
-                "Error should be negative (raw={})",
-                raw
-            );
+            assert!(raw < 0, "Error should be negative (raw={})", raw);
         }
         Ok(_) => panic!("Expected Err"),
     }
@@ -916,14 +901,23 @@ fn test_is_tool_initialized_transitions() {
 
     // Do some operations
     let _ = tool_get_servers();
-    assert!(is_tool_initialized(), "Should still be true after get_servers");
+    assert!(
+        is_tool_initialized(),
+        "Should still be true after get_servers"
+    );
 
     let proc = Proc::new("test", 0).unwrap();
     let _ = tool_disconnect(&proc);
-    assert!(is_tool_initialized(), "Should still be true after disconnect");
+    assert!(
+        is_tool_initialized(),
+        "Should still be true after disconnect"
+    );
 
     let _ = tool_set_server(handle.proc(), &info);
-    assert!(is_tool_initialized(), "Should still be true after set_server");
+    assert!(
+        is_tool_initialized(),
+        "Should still be true after set_server"
+    );
 
     tool_finalize(handle);
 }

@@ -423,3 +423,38 @@ pub fn heartbeat() -> Result<(), PmixStatus> {
         Err(pmix_status)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_monitor_callback_trait_object() {
+        struct DummyMonitor;
+        impl MonitorCallback for DummyMonitor {
+            fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
+        }
+        let callback: Box<dyn MonitorCallback> = Box::new(DummyMonitor);
+        let _ = callback;
+    }
+
+    #[test]
+    fn test_monitor_results_len() {
+        let results = MonitorResults {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        assert_eq!(results.len(), 0);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_monitor_results_nonempty() {
+        let results = MonitorResults {
+            handle: std::ptr::null_mut(),
+            len: 5,
+        };
+        assert_eq!(results.len(), 5);
+        assert!(!results.is_empty());
+    }
+}

@@ -150,7 +150,12 @@ fn test_get_credential_nb_empty_info() {
         }
     }
     let info: Vec<pmix::Info> = vec![];
-    let result = get_credential_nb(&info, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = get_credential_nb(
+        &info,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),
@@ -179,7 +184,12 @@ fn test_get_credential_nb_with_info() {
         }
     }
     let info = InfoBuilder::new().build();
-    let result = get_credential_nb(&[info], Box::new(Cb { c: Arc::clone(&called) }));
+    let result = get_credential_nb(
+        &[info],
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),
@@ -249,7 +259,13 @@ fn test_validate_credential_nb_empty() {
     }
     let info: Vec<pmix::Info> = vec![];
     let cred = PmixCredential::empty();
-    let result = validate_credential_nb(&cred, &info, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = validate_credential_nb(
+        &cred,
+        &info,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),
@@ -274,7 +290,13 @@ fn test_validate_credential_nb_with_data() {
     }
     let info: Vec<pmix::Info> = vec![];
     let cred = PmixCredential::from_bytes(&[1, 2, 3]);
-    let result = validate_credential_nb(&cred, &info, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = validate_credential_nb(
+        &cred,
+        &info,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),

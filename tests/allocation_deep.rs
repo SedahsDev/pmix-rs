@@ -36,11 +36,26 @@ fn alloc_directive_standard_roundtrip() {
 /// from_raw maps all standard raw values to the correct variant.
 #[test]
 fn alloc_directive_from_raw_standard() {
-    assert_eq!(PmixAllocDirective::from_raw(1), PmixAllocDirective::AllocNew);
-    assert_eq!(PmixAllocDirective::from_raw(2), PmixAllocDirective::AllocExtend);
-    assert_eq!(PmixAllocDirective::from_raw(3), PmixAllocDirective::AllocRelease);
-    assert_eq!(PmixAllocDirective::from_raw(4), PmixAllocDirective::AllocReacquire);
-    assert_eq!(PmixAllocDirective::from_raw(128), PmixAllocDirective::AllocExternal);
+    assert_eq!(
+        PmixAllocDirective::from_raw(1),
+        PmixAllocDirective::AllocNew
+    );
+    assert_eq!(
+        PmixAllocDirective::from_raw(2),
+        PmixAllocDirective::AllocExtend
+    );
+    assert_eq!(
+        PmixAllocDirective::from_raw(3),
+        PmixAllocDirective::AllocRelease
+    );
+    assert_eq!(
+        PmixAllocDirective::from_raw(4),
+        PmixAllocDirective::AllocReacquire
+    );
+    assert_eq!(
+        PmixAllocDirective::from_raw(128),
+        PmixAllocDirective::AllocExternal
+    );
 }
 
 /// from_raw(0) produces Unknown(0) — zero is not a valid directive.
@@ -54,10 +69,22 @@ fn alloc_directive_from_raw_zero_is_unknown() {
 #[test]
 fn alloc_directive_from_raw_boundary_unknown() {
     // Values adjacent to known directives
-    assert!(matches!(PmixAllocDirective::from_raw(0), PmixAllocDirective::Unknown(0)));
-    assert!(matches!(PmixAllocDirective::from_raw(5), PmixAllocDirective::Unknown(5)));
-    assert!(matches!(PmixAllocDirective::from_raw(127), PmixAllocDirective::Unknown(127)));
-    assert!(matches!(PmixAllocDirective::from_raw(129), PmixAllocDirective::Unknown(129)));
+    assert!(matches!(
+        PmixAllocDirective::from_raw(0),
+        PmixAllocDirective::Unknown(0)
+    ));
+    assert!(matches!(
+        PmixAllocDirective::from_raw(5),
+        PmixAllocDirective::Unknown(5)
+    ));
+    assert!(matches!(
+        PmixAllocDirective::from_raw(127),
+        PmixAllocDirective::Unknown(127)
+    ));
+    assert!(matches!(
+        PmixAllocDirective::from_raw(129),
+        PmixAllocDirective::Unknown(129)
+    ));
 }
 
 /// Unknown variant preserves arbitrary values through roundtrip.
@@ -78,10 +105,22 @@ fn alloc_directive_unknown_roundtrip() {
 #[test]
 fn alloc_directive_display_all_variants() {
     assert_eq!(format!("{}", PmixAllocDirective::AllocNew), "ALLOC_NEW");
-    assert_eq!(format!("{}", PmixAllocDirective::AllocExtend), "ALLOC_EXTEND");
-    assert_eq!(format!("{}", PmixAllocDirective::AllocRelease), "ALLOC_RELEASE");
-    assert_eq!(format!("{}", PmixAllocDirective::AllocReacquire), "ALLOC_REAQUIRE");
-    assert_eq!(format!("{}", PmixAllocDirective::AllocExternal), "ALLOC_EXTERNAL");
+    assert_eq!(
+        format!("{}", PmixAllocDirective::AllocExtend),
+        "ALLOC_EXTEND"
+    );
+    assert_eq!(
+        format!("{}", PmixAllocDirective::AllocRelease),
+        "ALLOC_RELEASE"
+    );
+    assert_eq!(
+        format!("{}", PmixAllocDirective::AllocReacquire),
+        "ALLOC_REAQUIRE"
+    );
+    assert_eq!(
+        format!("{}", PmixAllocDirective::AllocExternal),
+        "ALLOC_EXTERNAL"
+    );
     assert_eq!(
         format!("{}", PmixAllocDirective::Unknown(42)),
         "UNKNOWN_DIRECTIVE (42)"
@@ -108,9 +147,18 @@ fn alloc_directive_derives_clone_copy_hash() {
     assert_eq!(b, c);
 
     // PartialEq + Eq
-    assert_ne!(PmixAllocDirective::AllocNew, PmixAllocDirective::AllocExtend);
-    assert_eq!(PmixAllocDirective::Unknown(1), PmixAllocDirective::Unknown(1));
-    assert_ne!(PmixAllocDirective::Unknown(1), PmixAllocDirective::Unknown(2));
+    assert_ne!(
+        PmixAllocDirective::AllocNew,
+        PmixAllocDirective::AllocExtend
+    );
+    assert_eq!(
+        PmixAllocDirective::Unknown(1),
+        PmixAllocDirective::Unknown(1)
+    );
+    assert_ne!(
+        PmixAllocDirective::Unknown(1),
+        PmixAllocDirective::Unknown(2)
+    );
 
     // Hash — insert into HashSet
     use std::collections::HashSet;
@@ -638,7 +686,10 @@ fn job_ctrl_action_exhaustive_match() {
     }
     assert_eq!(describe(&PmixJobCtrlAction::Pause), "pause");
     assert_eq!(describe(&PmixJobCtrlAction::Signal(1)), "signal");
-    assert_eq!(describe(&PmixJobCtrlAction::Cancel("".to_string())), "cancel");
+    assert_eq!(
+        describe(&PmixJobCtrlAction::Cancel("".to_string())),
+        "cancel"
+    );
 }
 
 /// Signal with different signal numbers.

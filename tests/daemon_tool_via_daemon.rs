@@ -9,9 +9,9 @@
 mod daemon_helper;
 
 use pmix::tool::{
-    tool_init, tool_init_minimal, tool_finalize, tool_is_connected,
-    tool_attach_to_server, tool_disconnect, tool_connect_to_server,
-    tool_get_servers, tool_set_server, is_tool_initialized,
+    is_tool_initialized, tool_attach_to_server, tool_connect_to_server, tool_disconnect,
+    tool_finalize, tool_get_servers, tool_init, tool_init_minimal, tool_is_connected,
+    tool_set_server,
 };
 use pmix::{InfoBuilder, PmixError, PmixStatus, Proc};
 
@@ -49,7 +49,7 @@ fn test_tool_is_connected_type() {
 
 #[test]
 fn test_tool_attach_to_server_type() {
-    use pmix::tool::{PmixToolHandle, PmixServerHandle};
+    use pmix::tool::{PmixServerHandle, PmixToolHandle};
     let _f: fn(
         Option<&Proc>,
         bool,
@@ -99,7 +99,10 @@ fn test_tool_all_ffi_operations() {
 
     // ── is_tool_initialized ──
     let initialized = is_tool_initialized();
-    assert!(initialized, "tool should be initialized after shared handle init");
+    assert!(
+        initialized,
+        "tool should be initialized after shared handle init"
+    );
 
     // ── tool_is_connected ──
     let connected = tool_is_connected();

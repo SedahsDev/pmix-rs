@@ -47,8 +47,8 @@
 //! pmix_status_t PMIx_server_finalize(void);
 //! ```
 
-use crate::{ffi, Info, PmixError, PmixOwnedValue, PmixStatus, Proc};
 use crate::security::PmixCredential;
+use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
@@ -2891,7 +2891,9 @@ pub fn server_generate_cpuset_string(
         if cpuset_string_ptr.is_null() {
             return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
         }
-        let s = CStr::from_ptr(cpuset_string_ptr).to_string_lossy().into_owned();
+        let s = CStr::from_ptr(cpuset_string_ptr)
+            .to_string_lossy()
+            .into_owned();
         // PMIx_server_generate_cpuset_string allocates with asprintf/strdup;
         // free with libc::free.
         libc::free(cpuset_string_ptr as *mut std::os::raw::c_void);
@@ -3068,7 +3070,8 @@ pub trait RegisterResourcesCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending register_resources callbacks.
-type RegisterResourcesRegistry = std::collections::HashMap<usize, Box<dyn RegisterResourcesCallback>>;
+type RegisterResourcesRegistry =
+    std::collections::HashMap<usize, Box<dyn RegisterResourcesCallback>>;
 static REGISTER_RESOURCES_REGISTRY: LazyLock<Mutex<RegisterResourcesRegistry>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
@@ -3229,7 +3232,8 @@ pub trait DeregisterResourcesCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending deregister_resources callbacks.
-type DeregisterResourcesRegistry = std::collections::HashMap<usize, Box<dyn DeregisterResourcesCallback>>;
+type DeregisterResourcesRegistry =
+    std::collections::HashMap<usize, Box<dyn DeregisterResourcesCallback>>;
 static DEREGISTER_RESOURCES_REGISTRY: LazyLock<Mutex<DeregisterResourcesRegistry>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
@@ -3241,7 +3245,10 @@ static DEREGISTER_RESOURCES_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex
 /// Called by PMIx when the non-blocking resource deregistration completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered closure and invoke it with the result status.
-extern "C" fn deregister_resources_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+extern "C" fn deregister_resources_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -3457,16 +3464,12 @@ pub fn server_lookup(
     let key_bytes = key.as_bytes();
     let klen = key_bytes.len().min(511);
     unsafe {
-        std::ptr::copy_nonoverlapping(
-            key_bytes.as_ptr(),
-            pdata.key.as_mut_ptr() as *mut u8,
-            klen,
-        );
+        std::ptr::copy_nonoverlapping(key_bytes.as_ptr(), pdata.key.as_mut_ptr() as *mut u8, klen);
         pdata.key[klen] = 0;
     }
 
     // Initialize the proc field as wildcard.
-    pdata.proc_.rank = ffi::PMIX_RANK_WILDCARD as u32;
+    pdata.proc_.rank = ffi::PMIX_RANK_WILDCARD;
 
     // Zero the value so PMIx writes into it.
     unsafe {
@@ -3688,7 +3691,9 @@ pub fn server_fence_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        unsafe { let _ = Box::from_raw(cb_box); }
+        unsafe {
+            let _ = Box::from_raw(cb_box);
+        }
         Err(pmix_status)
     }
 }
@@ -3805,7 +3810,9 @@ pub fn server_connect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        unsafe { let _ = Box::from_raw(cb_box); }
+        unsafe {
+            let _ = Box::from_raw(cb_box);
+        }
         Err(pmix_status)
     }
 }
@@ -3918,7 +3925,9 @@ pub fn server_disconnect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        unsafe { let _ = Box::from_raw(cb_box); }
+        unsafe {
+            let _ = Box::from_raw(cb_box);
+        }
         Err(pmix_status)
     }
 }
@@ -3997,7 +4006,13 @@ pub fn server_tool_attach_to_server(
     myproc: Option<&Proc>,
     want_server: bool,
     info: &Info,
-) -> Result<(Option<crate::tool::PmixToolHandle>, Option<crate::tool::PmixServerHandle>), PmixStatus> {
+) -> Result<
+    (
+        Option<crate::tool::PmixToolHandle>,
+        Option<crate::tool::PmixServerHandle>,
+    ),
+    PmixStatus,
+> {
     crate::tool::tool_attach_to_server(myproc, want_server, info)
 }
 
@@ -4026,4 +4041,53 @@ pub fn server_get_credential(
     info: &[Info],
 ) -> Result<PmixCredential, PmixStatus> {
     crate::security::get_credential(info)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_server_module_default() {
+        let module = PmixServerModule::default();
+        assert!(module.client_connected.is_none());
+        assert!(module.client_finalized.is_none());
+        assert!(module.abort.is_none());
+    }
+
+    #[test]
+    fn test_server_module_all_fields_none() {
+        let module = PmixServerModule::default();
+        assert!(module.fence_nb.is_none());
+        assert!(module.direct_modex.is_none());
+        assert!(module.publish.is_none());
+        assert!(module.lookup.is_none());
+        assert!(module.unpublish.is_none());
+        assert!(module.spawn.is_none());
+        assert!(module.connect.is_none());
+        assert!(module.disconnect.is_none());
+        assert!(module.register_events.is_none());
+        assert!(module.deregister_events.is_none());
+        assert!(module.listener.is_none());
+        assert!(module.notify_event.is_none());
+        assert!(module.query.is_none());
+        assert!(module.tool_connected.is_none());
+        assert!(module.log.is_none());
+    }
+
+    #[test]
+    fn test_server_module_additional_fields() {
+        let module = PmixServerModule::default();
+        assert!(module.allocate.is_none());
+        assert!(module.job_control.is_none());
+        assert!(module.monitor.is_none());
+        assert!(module.get_credential.is_none());
+        assert!(module.validate_credential.is_none());
+        assert!(module.iof_pull.is_none());
+        assert!(module.push_stdin.is_none());
+        assert!(module.group.is_none());
+        assert!(module.fabric.is_none());
+        assert!(module.client_connected2.is_none());
+        assert!(module.session_control.is_none());
+    }
 }

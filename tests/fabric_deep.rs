@@ -450,7 +450,12 @@ fn test_compute_distances_nb_with_callback() {
     impl ComputeDistancesCallback for RecordingDistCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _distances: DeviceDistances) {}
     }
-    let result = compute_distances_nb(&mut topo, &mut PmixCpuset::new(), &[], Box::new(RecordingDistCb));
+    let result = compute_distances_nb(
+        &mut topo,
+        &mut PmixCpuset::new(),
+        &[],
+        Box::new(RecordingDistCb),
+    );
     assert!(result.is_ok());
 }
 
@@ -479,7 +484,10 @@ fn test_fabric_index_after_register() {
     let mut fabric = PmixFabric::new(Some("index_test")).expect("create");
     assert_eq!(fabric.index(), 0);
     fabric_register(&mut fabric, &[]).expect("register");
-    assert!(fabric.index() > 0, "index should be assigned after register");
+    assert!(
+        fabric.index() > 0,
+        "index should be assigned after register"
+    );
 }
 
 #[test]

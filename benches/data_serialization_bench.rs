@@ -8,7 +8,7 @@
 //! cargo bench --bench data_serialization_bench
 //! ```
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use pmix::data_serialization::*;
 
 // ─────────────────────────────────────────────────────────────────────────────

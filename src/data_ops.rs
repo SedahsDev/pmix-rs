@@ -374,11 +374,7 @@ pub fn get_nb(
 /// # C API
 /// `pmix_status_t PMIx_Get(const pmix_proc_t *proc, const char key[],`
 /// `  const pmix_info_t info[], size_t ninfo, pmix_value_t **val)`
-pub fn get(
-    proc: &Proc,
-    key: &str,
-    info: Option<&Info>,
-) -> Result<PmixOwnedValue, PmixStatus> {
+pub fn get(proc: &Proc, key: &str, info: Option<&Info>) -> Result<PmixOwnedValue, PmixStatus> {
     // Prepare key as C string.
     let key_c = match CString::new(key) {
         Ok(c) => c,
@@ -1321,5 +1317,73 @@ pub fn fence_nb(
         let mut registry = FENCE_REGISTRY.lock().unwrap();
         registry.remove(&req_id);
         Err(pmix_status)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pdata_new() {
+        let pdata = PmixPdata::new("test_key");
+        assert_eq!(pdata.key, "test_key");
+        assert!(pdata.value.is_none());
+    }
+
+    #[test]
+    fn test_pdata_proc() {
+        let pdata = PmixPdata::new("test_key");
+        let _ = &pdata.proc;
+    }
+
+    #[test]
+    fn test_publish_callback_trait_object() {
+        struct DummyPublish;
+        impl PublishCallback for DummyPublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let callback: Box<dyn PublishCallback> = Box::new(DummyPublish);
+        let _ = callback;
+    }
+
+    #[test]
+    fn test_lookup_callback_trait_object() {
+        struct DummyLookup;
+        impl LookupCallback for DummyLookup {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
+        }
+        let callback: Box<dyn LookupCallback> = Box::new(DummyLookup);
+        let _ = callback;
+    }
+
+    #[test]
+    fn test_unpublish_callback_trait_object() {
+        struct DummyUnpublish;
+        impl UnpublishCallback for DummyUnpublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let callback: Box<dyn UnpublishCallback> = Box::new(DummyUnpublish);
+        let _ = callback;
+    }
+
+    #[test]
+    fn test_fence_callback_trait_object() {
+        struct DummyFence;
+        impl FenceCallback for DummyFence {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let callback: Box<dyn FenceCallback> = Box::new(DummyFence);
+        let _ = callback;
+    }
+
+    #[test]
+    fn test_get_value_callback_trait_object() {
+        struct DummyGetValue;
+        impl GetValueCallback for DummyGetValue {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
+        }
+        let callback: Box<dyn GetValueCallback> = Box::new(DummyGetValue);
+        let _ = callback;
     }
 }

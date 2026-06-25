@@ -7,7 +7,7 @@
 //! FFI tests that require PMIx_Init are marked #[ignore].
 
 use pmix::data_ops::*;
-use pmix::{InfoBuilder, PmixStatus, Proc, PmixValueBuilder};
+use pmix::{InfoBuilder, PmixStatus, PmixValueBuilder, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixPdata construction (safe without PMIx_Init)
@@ -117,7 +117,11 @@ fn test_proc_new_various_ranks() {
 
 #[test]
 fn test_value_builder_string() {
-    let value = PmixValueBuilder::new().string("hello").expect("set string").build().expect("build");
+    let value = PmixValueBuilder::new()
+        .string("hello")
+        .expect("set string")
+        .build()
+        .expect("build");
     let _ = value;
 }
 
@@ -147,8 +151,16 @@ fn test_value_builder_string_nul_rejected() {
 
 #[test]
 fn test_value_builder_multiple_independent() {
-    let v1 = PmixValueBuilder::new().string("a").expect("s1").build().expect("b1");
-    let v2 = PmixValueBuilder::new().string("b").expect("s2").build().expect("b2");
+    let v1 = PmixValueBuilder::new()
+        .string("a")
+        .expect("s1")
+        .build()
+        .expect("b1");
+    let v2 = PmixValueBuilder::new()
+        .string("b")
+        .expect("s2")
+        .build()
+        .expect("b2");
     let _ = (&v1, &v2);
 }
 
@@ -531,7 +543,11 @@ fn test_unpublish_nb_with_info() {
 fn test_store_internal_success() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
-    let value = PmixValueBuilder::new().string("test_value").expect("set").build().expect("build");
+    let value = PmixValueBuilder::new()
+        .string("test_value")
+        .expect("set")
+        .build()
+        .expect("build");
     let result = store_internal(&proc, "test_key", &value);
     assert!(result.is_ok());
 }
@@ -541,7 +557,11 @@ fn test_store_internal_success() {
 fn test_store_internal_empty_key() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
-    let value = PmixValueBuilder::new().string("value").expect("set").build().expect("build");
+    let value = PmixValueBuilder::new()
+        .string("value")
+        .expect("set")
+        .build()
+        .expect("build");
     let result = store_internal(&proc, "", &value);
     let _ = result;
 }
@@ -552,7 +572,11 @@ fn test_store_internal_multiple() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
     for i in 0..3 {
-        let value = PmixValueBuilder::new().string(&format!("value_{}", i)).expect("set").build().expect("build");
+        let value = PmixValueBuilder::new()
+            .string(&format!("value_{}", i))
+            .expect("set")
+            .build()
+            .expect("build");
         let result = store_internal(&proc, &format!("key_{}", i), &value);
         assert!(result.is_ok());
     }
@@ -632,7 +656,11 @@ fn test_publish_then_unpublish() {
 fn test_store_internal_then_get() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let proc = Proc::new("test_ns", 0).expect("create");
-    let value = PmixValueBuilder::new().string("stored_value").expect("set").build().expect("build");
+    let value = PmixValueBuilder::new()
+        .string("stored_value")
+        .expect("set")
+        .build()
+        .expect("build");
     store_internal(&proc, "stored_key", &value).expect("store");
     let result = get(&proc, "stored_key", None);
     let _ = result;

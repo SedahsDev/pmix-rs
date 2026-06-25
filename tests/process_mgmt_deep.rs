@@ -70,9 +70,7 @@ fn test_builder_envs_batch() {
 
 #[test]
 fn test_builder_nul_in_cmd() {
-    let result = PmixApp::builder()
-        .cmd("bad\x00cmd")
-        .build();
+    let result = PmixApp::builder().cmd("bad\x00cmd").build();
     assert!(result.is_err());
 }
 
@@ -135,10 +133,7 @@ fn test_builder_maxprocs_negative() {
 
 #[test]
 fn test_builder_unicode_cmd() {
-    let app = PmixApp::builder()
-        .cmd("/path/αβγ")
-        .build()
-        .expect("build");
+    let app = PmixApp::builder().cmd("/path/αβγ").build().expect("build");
     assert_eq!(app.cmd(), Some("/path/αβγ"));
 }
 
@@ -355,8 +350,16 @@ fn test_spawn_with_info() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_spawn_multiple_apps() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
-    let app1 = PmixApp::builder().cmd("/bin/true").maxprocs(1).build().expect("build");
-    let app2 = PmixApp::builder().cmd("/bin/false").maxprocs(1).build().expect("build");
+    let app1 = PmixApp::builder()
+        .cmd("/bin/true")
+        .maxprocs(1)
+        .build()
+        .expect("build");
+    let app2 = PmixApp::builder()
+        .cmd("/bin/false")
+        .maxprocs(1)
+        .build()
+        .expect("build");
     let result = spawn(&[], &[app1, app2]);
     let _ = result;
 }

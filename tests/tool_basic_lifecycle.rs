@@ -15,8 +15,8 @@
 //! All tests compile and pass without daemon/prterun.
 
 use pmix::tool::{
-    is_tool_initialized, tool_finalize, tool_init, tool_init_minimal,
-    PmixServerHandle, PmixToolHandle,
+    PmixServerHandle, PmixToolHandle, is_tool_initialized, tool_finalize, tool_init,
+    tool_init_minimal,
 };
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus, Proc};
 
@@ -120,7 +120,9 @@ fn test_tool_init_minimal_consistent_result() {
             first_ok,
             result.is_ok(),
             "tool_init_minimal should be consistent: call 0 = {}, call {} = {}",
-            first_ok, i, result.is_ok()
+            first_ok,
+            i,
+            result.is_ok()
         );
     }
 }
@@ -204,7 +206,9 @@ fn test_tool_init_consistent_result() {
             first_ok,
             result.is_ok(),
             "tool_init should be consistent: call 0 = {}, call {} = {}",
-            first_ok, i, result.is_ok()
+            first_ok,
+            i,
+            result.is_ok()
         );
     }
 }
@@ -360,7 +364,10 @@ fn test_pmix_status_roundtrip() {
     let original = PmixStatus::Known(PmixError::ErrInit);
     let raw = original.to_raw();
     let recovered = PmixStatus::from_raw(raw);
-    assert_eq!(original, recovered, "PmixStatus round-trip must be lossless");
+    assert_eq!(
+        original, recovered,
+        "PmixStatus round-trip must be lossless"
+    );
 }
 
 /// PmixStatus implements Display.
@@ -368,21 +375,30 @@ fn test_pmix_status_roundtrip() {
 fn test_pmix_status_display() {
     let status = PmixStatus::Known(PmixError::ErrInit);
     let display = format!("{}", status);
-    assert!(!display.is_empty(), "Display for PmixStatus should not be empty");
+    assert!(
+        !display.is_empty(),
+        "Display for PmixStatus should not be empty"
+    );
 }
 
 /// PmixStatus::known() returns Some for known variants.
 #[test]
 fn test_pmix_status_known_returns_some() {
     let status = PmixStatus::Known(PmixError::ErrInit);
-    assert!(status.known().is_some(), "known() should return Some for Known variants");
+    assert!(
+        status.known().is_some(),
+        "known() should return Some for Known variants"
+    );
 }
 
 /// PmixStatus::known() returns None for Unknown variants.
 #[test]
 fn test_pmix_status_unknown_returns_none() {
     let status = PmixStatus::Unknown(-99999);
-    assert!(status.known().is_none(), "known() should return None for Unknown variants");
+    assert!(
+        status.known().is_none(),
+        "known() should return None for Unknown variants"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -430,7 +446,9 @@ fn test_lifecycle_multiple_inits_consistent() {
             first_ok,
             result.is_ok(),
             "tool_init should be consistent: call 0 = {}, call {} = {}",
-            first_ok, i, result.is_ok()
+            first_ok,
+            i,
+            result.is_ok()
         );
     }
 
@@ -677,21 +695,10 @@ fn test_error_path_tool_init_minimal_without_daemon() {
                 "error must not be success: {:?}",
                 status
             );
-            assert!(
-                status.is_error(),
-                "error must be negative: {:?}",
-                status
-            );
+            assert!(status.is_error(), "error must be negative: {:?}", status);
             let raw = status.to_raw();
-            assert!(
-                raw < 0,
-                "error raw value should be negative: {}",
-                raw
-            );
-            assert_ne!(
-                raw, 0,
-                "error raw value must not be 0 (PMIX_SUCCESS)"
-            );
+            assert!(raw < 0, "error raw value should be negative: {}", raw);
+            assert_ne!(raw, 0, "error raw value must not be 0 (PMIX_SUCCESS)");
             // Error should be a known variant.
             assert!(
                 status.known().is_some(),
@@ -719,17 +726,9 @@ fn test_error_path_tool_init_without_daemon() {
                 "error must not be success: {:?}",
                 status
             );
-            assert!(
-                status.is_error(),
-                "error must be negative: {:?}",
-                status
-            );
+            assert!(status.is_error(), "error must be negative: {:?}", status);
             let raw = status.to_raw();
-            assert!(
-                raw < 0,
-                "error raw value should be negative: {}",
-                raw
-            );
+            assert!(raw < 0, "error raw value should be negative: {}", raw);
         }
         Ok(handle) => {
             // Daemon is available — clean up.
@@ -767,10 +766,7 @@ fn test_success_path_handle_debug_output() {
     let result = tool_init(None, &info);
     if let Ok(handle) = result {
         let debug = format!("{:?}", handle);
-        assert!(
-            !debug.is_empty(),
-            "handle debug output should not be empty"
-        );
+        assert!(!debug.is_empty(), "handle debug output should not be empty");
         assert!(
             debug.contains("PmixToolHandle"),
             "debug output should contain struct name"
@@ -825,10 +821,7 @@ fn test_success_path_flag_state_tracking() {
     let info = InfoBuilder::new().build();
     let result = tool_init(None, &info);
     if let Ok(handle) = result {
-        assert!(
-            is_tool_initialized(),
-            "flag should be true after init"
-        );
+        assert!(is_tool_initialized(), "flag should be true after init");
         tool_finalize(handle).expect("finalize should succeed");
         assert!(
             !is_tool_initialized(),

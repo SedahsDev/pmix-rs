@@ -857,3 +857,39 @@ pub fn group_destruct_nb(
         Err(pmix_status)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_group_construct_callback_wrapper() {
+        let wrapper =
+            GroupConstructCallbackWrapper::new(|_status: PmixStatus, _info: Vec<Info>| {});
+        let _ = std::sync::Arc::new(wrapper);
+    }
+
+    #[test]
+    fn test_group_invite_callback_wrapper() {
+        let wrapper = GroupInviteCallbackWrapper::new(|_status: PmixStatus, _info: Vec<Info>| {});
+        let _ = std::sync::Arc::new(wrapper);
+    }
+
+    #[test]
+    fn test_group_join_callback_wrapper() {
+        let wrapper = GroupJoinCallbackWrapper::new(|_status: PmixStatus, _info: Vec<Info>| {});
+        let _ = std::sync::Arc::new(wrapper);
+    }
+
+    #[test]
+    fn test_group_leave_callback_wrapper() {
+        let wrapper = GroupLeaveCallbackWrapper::new(|_status: PmixStatus| {});
+        let _ = std::sync::Arc::new(wrapper);
+    }
+
+    #[test]
+    fn test_group_destruct_callback_wrapper() {
+        let wrapper = GroupDestructCallbackWrapper::new(|_status: PmixStatus| {});
+        let _ = std::sync::Arc::new(wrapper);
+    }
+}

@@ -249,7 +249,10 @@ fn group_construct_multi_procs_without_init() {
         Proc::new("ns_b", 0).expect("proc c"),
     ];
     let result = group_construct("multi_group", &procs, &[]);
-    assert!(result.is_err(), "group_construct with multiple procs without init should fail");
+    assert!(
+        result.is_err(),
+        "group_construct with multiple procs without init should fail"
+    );
 }
 
 /// group_construct with single proc at max rank without init fails.
@@ -257,7 +260,10 @@ fn group_construct_multi_procs_without_init() {
 fn group_construct_max_rank_without_init() {
     let proc = Proc::new("test_ns", u32::MAX).expect("create proc");
     let result = group_construct("solo_group", &[proc], &[]);
-    assert!(result.is_err(), "group_construct with max rank without init should fail");
+    assert!(
+        result.is_err(),
+        "group_construct with max rank without init should fail"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -303,7 +309,10 @@ fn group_construct_nb_without_init_fails() {
         panic!("callback should not be invoked on synchronous failure");
     });
     let result = group_construct_nb("my_group", &[proc], &[], callback);
-    assert!(result.is_err(), "group_construct_nb without init should fail");
+    assert!(
+        result.is_err(),
+        "group_construct_nb without init should fail"
+    );
 }
 
 /// group_construct_nb error is a valid negative status code.
@@ -375,7 +384,10 @@ fn group_destruct_nb_without_init_fails() {
         panic!("callback should not be invoked on synchronous failure");
     });
     let result = group_destruct_nb("my_group", &[], callback);
-    assert!(result.is_err(), "group_destruct_nb without init should fail");
+    assert!(
+        result.is_err(),
+        "group_destruct_nb without init should fail"
+    );
 }
 
 /// group_destruct_nb error is a valid negative status code.
@@ -434,7 +446,10 @@ fn group_invite_multi_procs_without_init() {
         Proc::new("ns_b", 1).expect("proc b"),
     ];
     let result = group_invite("invite_group", &procs, &[]);
-    assert!(result.is_err(), "group_invite with multiple procs without init should fail");
+    assert!(
+        result.is_err(),
+        "group_invite with multiple procs without init should fail"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -516,23 +531,44 @@ fn group_join_empty_group_id() {
 #[test]
 fn group_join_accept_without_init() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join("my_group", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
-    assert!(result.is_err(), "group_join accept without init should fail");
+    let result = group_join(
+        "my_group",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        &[],
+    );
+    assert!(
+        result.is_err(),
+        "group_join accept without init should fail"
+    );
 }
 
 /// group_join with DECLINE option without init fails.
 #[test]
 fn group_join_decline_without_init() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join("my_group", &leader, pmix_group_opt_t::PMIX_GROUP_DECLINE, &[]);
-    assert!(result.is_err(), "group_join decline without init should fail");
+    let result = group_join(
+        "my_group",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_DECLINE,
+        &[],
+    );
+    assert!(
+        result.is_err(),
+        "group_join decline without init should fail"
+    );
 }
 
 /// group_join error is a valid negative status code.
 #[test]
 fn group_join_error_is_valid_status() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join("my_group", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+    let result = group_join(
+        "my_group",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        &[],
+    );
     let err = extract_err(result);
     assert!(err.to_raw() < 0, "error status should be negative");
 }
@@ -548,7 +584,13 @@ fn group_join_nb_empty_group_id() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb("", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[], callback);
+    let result = group_join_nb(
+        "",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        &[],
+        callback,
+    );
     let err = extract_err(result);
     assert_eq!(
         err,
@@ -564,8 +606,17 @@ fn group_join_nb_accept_without_init() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb("my_group", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[], callback);
-    assert!(result.is_err(), "group_join_nb accept without init should fail");
+    let result = group_join_nb(
+        "my_group",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        &[],
+        callback,
+    );
+    assert!(
+        result.is_err(),
+        "group_join_nb accept without init should fail"
+    );
 }
 
 /// group_join_nb with DECLINE option without init fails.
@@ -575,8 +626,17 @@ fn group_join_nb_decline_without_init() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb("my_group", &leader, pmix_group_opt_t::PMIX_GROUP_DECLINE, &[], callback);
-    assert!(result.is_err(), "group_join_nb decline without init should fail");
+    let result = group_join_nb(
+        "my_group",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_DECLINE,
+        &[],
+        callback,
+    );
+    assert!(
+        result.is_err(),
+        "group_join_nb decline without init should fail"
+    );
 }
 
 /// group_join_nb error is a valid negative status code.
@@ -586,7 +646,13 @@ fn group_join_nb_error_is_valid_status() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked");
     });
-    let result = group_join_nb("my_group", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[], callback);
+    let result = group_join_nb(
+        "my_group",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        &[],
+        callback,
+    );
     let err = extract_err(result);
     assert!(err.to_raw() < 0, "error status should be negative");
 }
@@ -691,7 +757,12 @@ fn group_invite_no_panic_on_valid_params() {
 #[test]
 fn group_join_no_panic_on_valid_params() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let _result = group_join("valid_group", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+    let _result = group_join(
+        "valid_group",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        &[],
+    );
 }
 
 /// group_leave should not panic with valid parameters.
@@ -728,7 +799,13 @@ fn group_invite_nb_no_panic_on_valid_params() {
 fn group_join_nb_no_panic_on_valid_params() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {});
-    let _result = group_join_nb("valid_group", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[], callback);
+    let _result = group_join_nb(
+        "valid_group",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        &[],
+        callback,
+    );
 }
 
 /// group_leave_nb should not panic with valid parameters.
@@ -776,29 +853,44 @@ fn all_nb_functions_reject_empty_group_id() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
 
     let construct_nb_err = extract_err(group_construct_nb(
-        "", &[proc], &[],
+        "",
+        &[proc],
+        &[],
         GroupConstructCallbackWrapper::new(|_, _| {}),
     ));
     let destruct_nb_err = unwrap_err_result(group_destruct_nb(
-        "", &[],
+        "",
+        &[],
         GroupDestructCallbackWrapper::new(|_| {}),
     ));
     let invite_nb_err = extract_err(group_invite_nb(
-        "", &[proc2], &[],
+        "",
+        &[proc2],
+        &[],
         GroupInviteCallbackWrapper::new(|_, _| {}),
     ));
     let join_nb_err = extract_err(group_join_nb(
-        "", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[],
+        "",
+        &leader,
+        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        &[],
         GroupJoinCallbackWrapper::new(|_, _| {}),
     ));
     let leave_nb_err = unwrap_err_result(group_leave_nb(
-        "", &[],
+        "",
+        &[],
         GroupLeaveCallbackWrapper::new(|_| {}),
     ));
 
     let expected = PmixStatus::Known(PmixError::ErrBadParam);
-    assert_eq!(construct_nb_err, expected, "group_construct_nb empty group_id");
-    assert_eq!(destruct_nb_err, expected, "group_destruct_nb empty group_id");
+    assert_eq!(
+        construct_nb_err, expected,
+        "group_construct_nb empty group_id"
+    );
+    assert_eq!(
+        destruct_nb_err, expected,
+        "group_destruct_nb empty group_id"
+    );
     assert_eq!(invite_nb_err, expected, "group_invite_nb empty group_id");
     assert_eq!(join_nb_err, expected, "group_join_nb empty group_id");
     assert_eq!(leave_nb_err, expected, "group_leave_nb empty group_id");
@@ -811,7 +903,10 @@ fn error_status_equality_checks() {
 
     let err1 = extract_err(group_construct("", &[proc], &[]));
     let err2 = PmixStatus::Known(PmixError::ErrBadParam);
-    assert_eq!(err1, err2, "PmixStatus equality should work for ErrBadParam");
+    assert_eq!(
+        err1, err2,
+        "PmixStatus equality should work for ErrBadParam"
+    );
     assert_eq!(err1.to_raw(), -27, "ErrBadParam raw value should be -27");
 }
 

@@ -12,8 +12,8 @@
 //! and parameter validation that the Rust wrappers perform before reaching FFI.
 
 use pmix::fabric::{
-    fabric_deregister, fabric_deregister_nb, fabric_register, fabric_register_nb, fabric_update,
-    fabric_update_nb, FabricCallback, PmixFabric,
+    FabricCallback, PmixFabric, fabric_deregister, fabric_deregister_nb, fabric_register,
+    fabric_register_nb, fabric_update, fabric_update_nb,
 };
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
 
@@ -51,10 +51,19 @@ fn test_register_same_fabric_twice() {
     let result2 = fabric_register(&mut fabric, &[]);
 
     // Without a server, both calls fail.
-    assert!(result1.is_err(), "first register should fail without server");
-    assert!(result2.is_err(), "second register should also fail without server");
+    assert!(
+        result1.is_err(),
+        "first register should fail without server"
+    );
+    assert!(
+        result2.is_err(),
+        "second register should also fail without server"
+    );
     // Both should return the same error.
-    assert_eq!(result1, result2, "duplicate register errors should be identical");
+    assert_eq!(
+        result1, result2,
+        "duplicate register errors should be identical"
+    );
 }
 
 /// Register the same fabric twice with directives — idempotent error.
@@ -139,7 +148,10 @@ fn test_register_twice_then_deregister() {
 fn test_register_with_empty_directives() {
     let mut fabric = PmixFabric::unamed();
     let result = fabric_register(&mut fabric, &[]);
-    assert!(result.is_err(), "register with empty directives fails without server");
+    assert!(
+        result.is_err(),
+        "register with empty directives fails without server"
+    );
     assert!(!fabric.is_registered());
 }
 
@@ -515,9 +527,7 @@ fn test_pmix_fabric_debug_trait() {
 /// fabric_register has the correct function signature.
 #[test]
 fn test_fabric_register_signature() {
-    fn _check_sig(
-        _f: fn(&mut PmixFabric, &[Info]) -> Result<(), PmixStatus>,
-    ) {}
+    fn _check_sig(_f: fn(&mut PmixFabric, &[Info]) -> Result<(), PmixStatus>) {}
     _check_sig(fabric_register);
 }
 
@@ -540,25 +550,22 @@ fn test_fabric_deregister_signature() {
 fn test_fabric_register_nb_signature() {
     fn _check_sig(
         _f: fn(&mut PmixFabric, &[Info], Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
-    ) {}
+    ) {
+    }
     _check_sig(fabric_register_nb);
 }
 
 /// fabric_update_nb has the correct function signature.
 #[test]
 fn test_fabric_update_nb_signature() {
-    fn _check_sig(
-        _f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
-    ) {}
+    fn _check_sig(_f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>) {}
     _check_sig(fabric_update_nb);
 }
 
 /// fabric_deregister_nb has the correct function signature.
 #[test]
 fn test_fabric_deregister_nb_signature() {
-    fn _check_sig(
-        _f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
-    ) {}
+    fn _check_sig(_f: fn(&mut PmixFabric, Box<dyn FabricCallback>) -> Result<(), PmixStatus>) {}
     _check_sig(fabric_deregister_nb);
 }
 
@@ -677,7 +684,11 @@ fn test_pmix_status_display() {
     let err = PmixStatus::Known(PmixError::ErrBadParam);
     let display = format!("{}", err);
     assert!(!display.is_empty());
-    assert!(display.contains("BAD_PARAM") || display.contains("bad_param") || display.contains("BadParam"));
+    assert!(
+        display.contains("BAD_PARAM")
+            || display.contains("bad_param")
+            || display.contains("BadParam")
+    );
 }
 
 /// PmixError Debug works for ErrBadParam.

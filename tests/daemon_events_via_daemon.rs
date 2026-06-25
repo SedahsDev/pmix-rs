@@ -9,12 +9,10 @@
 mod daemon_helper;
 
 use pmix::events::{
-    deregister_event_handler, deregister_event_handler_nb,
-    notify_event, notify_event_nb,
-    register_event_handler, register_event_handler_nb,
-    HandlerRegCbFn, NotificationFn, OpCbFn,
+    HandlerRegCbFn, NotificationFn, OpCbFn, deregister_event_handler, deregister_event_handler_nb,
+    notify_event, notify_event_nb, register_event_handler, register_event_handler_nb,
 };
-use pmix::server::{server_finalize, server_init, PmixServerModule};
+use pmix::server::{PmixServerModule, server_finalize, server_init};
 use pmix::{InfoBuilder, PmixDataRange, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,11 +53,8 @@ fn test_register_event_handler_nb_type() {
 
 #[test]
 fn test_deregister_event_handler_nb_type() {
-    let _f: fn(
-        usize,
-        OpCbFn,
-        *mut std::os::raw::c_void,
-    ) -> Result<(), PmixStatus> = deregister_event_handler_nb;
+    let _f: fn(usize, OpCbFn, *mut std::os::raw::c_void) -> Result<(), PmixStatus> =
+        deregister_event_handler_nb;
 }
 
 #[test]

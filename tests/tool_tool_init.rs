@@ -8,10 +8,10 @@
 mod daemon_helper;
 
 use pmix::tool::{
-    is_tool_initialized, tool_attach_to_server, tool_disconnect, tool_finalize, tool_init,
-    tool_init_minimal, PmixServerHandle, PmixToolHandle,
+    PmixServerHandle, PmixToolHandle, is_tool_initialized, tool_attach_to_server, tool_disconnect,
+    tool_finalize, tool_init, tool_init_minimal,
 };
-use pmix::{info_with_string_key, InfoBuilder, PmixStatus};
+use pmix::{InfoBuilder, PmixStatus, info_with_string_key};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixToolHandle — structure and traits
@@ -143,7 +143,8 @@ fn test_tool_finalize_after_init() {
 #[test]
 #[ignore = "requires PMIx server with attach support"]
 fn test_tool_attach_to_server_with_daemon() {
-    let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available — start prte service");
+    let _guard =
+        daemon_helper::connect_to_daemon().expect("PMIx daemon not available — start prte service");
     let info = InfoBuilder::new().build();
     let _handle = tool_init(None, &info).expect("tool_init failed");
     let result = tool_attach_to_server(None, true, &info);
@@ -159,7 +160,8 @@ fn test_tool_attach_to_server_with_daemon() {
 #[test]
 #[ignore = "requires PMIx server with attach support"]
 fn test_tool_attach_to_server_returns_handles() {
-    let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available — start prte service");
+    let _guard =
+        daemon_helper::connect_to_daemon().expect("PMIx daemon not available — start prte service");
     let info = InfoBuilder::new().build();
     let _handle = tool_init(None, &info).expect("tool_init failed");
     let (tool_handle, server_handle) =
@@ -168,7 +170,10 @@ fn test_tool_attach_to_server_returns_handles() {
     // If tool_handle is Some, it should have a valid namespace.
     if let Some(th) = tool_handle {
         let nspace = th.proc().nspace();
-        assert!(nspace.is_some() || true, "tool handle may or may not have nspace");
+        assert!(
+            nspace.is_some() || true,
+            "tool handle may or may not have nspace"
+        );
     }
     // If server_handle is Some, it should have a valid namespace.
     if let Some(sh) = server_handle {

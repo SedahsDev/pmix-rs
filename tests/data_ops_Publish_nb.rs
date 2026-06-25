@@ -1,6 +1,6 @@
 //! Integration tests for `PMIx_Publish_nb` via the safe `publish_nb()` wrapper.
 
-use pmix::data_ops::{publish_nb, PublishCallback};
+use pmix::data_ops::{PublishCallback, publish_nb};
 use pmix::{InfoBuilder, PmixStatus};
 
 /// `publish_nb` function compiles with correct signature.
@@ -40,5 +40,8 @@ fn publish_nb_callback_not_invoked_on_failure() {
     let info = InfoBuilder::new().build();
     let result = publish_nb(&info, Box::new(NoInvokeCallback));
     assert!(result.is_err());
-    assert!(!INVOKED.load(Ordering::SeqCst), "callback should not be invoked on failure");
+    assert!(
+        !INVOKED.load(Ordering::SeqCst),
+        "callback should not be invoked on failure"
+    );
 }

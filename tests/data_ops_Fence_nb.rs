@@ -4,7 +4,7 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (PMIx_Init) are marked `#[ignore]`.
 
-use pmix::data_ops::{fence_nb, FenceCallback};
+use pmix::data_ops::{FenceCallback, fence_nb};
 use pmix::{InfoBuilder, PmixError, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,8 +147,7 @@ fn fence_nb_returns_result_type() {
     }
 
     let procs: &[Proc] = &[];
-    let result: Result<(), PmixStatus> =
-        fence_nb(procs, None, Box::new(ResultTypeCallback));
+    let result: Result<(), PmixStatus> = fence_nb(procs, None, Box::new(ResultTypeCallback));
 
     match result {
         Ok(()) => panic!("should not succeed without init"),

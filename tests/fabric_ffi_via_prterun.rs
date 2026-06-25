@@ -24,9 +24,7 @@ fn ensure_pmix_init() -> bool {
     if !is_dvm_launched() {
         return false;
     }
-    PMIX_CONTEXT
-        .set(pmix::init(None).ok())
-        .is_ok() && PMIX_CONTEXT.get().unwrap().is_some()
+    PMIX_CONTEXT.set(pmix::init(None).ok()).is_ok() && PMIX_CONTEXT.get().unwrap().is_some()
 }
 
 /// Check if launched by prterun.
@@ -412,8 +410,7 @@ fn test_fabric_full_lifecycle_via_dvm() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
 
     // 1. Create fabric
-    let mut fabric =
-        pmix::fabric::PmixFabric::new(Some("lifecycle-test")).expect("new failed");
+    let mut fabric = pmix::fabric::PmixFabric::new(Some("lifecycle-test")).expect("new failed");
     assert!(!fabric.is_registered());
     assert_eq!(fabric.name(), Some("lifecycle-test"));
 

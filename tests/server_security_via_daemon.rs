@@ -18,7 +18,7 @@
 
 mod daemon_helper;
 
-use pmix::server::{server_finalize, server_get_credential, server_init, PmixServerModule};
+use pmix::server::{PmixServerModule, server_finalize, server_get_credential, server_init};
 use pmix::{InfoBuilder, PmixStatus};
 
 // Dummy callbacks for testing module with callbacks set.
@@ -49,7 +49,10 @@ fn test_pmix_credential_type_exists() {
 #[test]
 fn test_pmix_credential_empty_constructible() {
     let cred = pmix::security::PmixCredential::empty();
-    assert!(cred.as_bytes().is_empty(), "empty credential should have no bytes");
+    assert!(
+        cred.as_bytes().is_empty(),
+        "empty credential should have no bytes"
+    );
 }
 
 /// PmixCredential::from_bytes is constructible.

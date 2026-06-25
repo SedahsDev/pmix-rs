@@ -1816,10 +1816,15 @@ mod tests {
             // Not running as a test — skip
         } else if result {
             // Running under prterun — PMIx is already initialized, which is fine.
-            eprintln!("test_initialized_before_init_is_false: PMIx already initialized (DVM-launched), accepting true");
+            eprintln!(
+                "test_initialized_before_init_is_false: PMIx already initialized (DVM-launched), accepting true"
+            );
         } else {
             // Standalone — should be false.
-            assert!(!result, "PMIx_Initialized should return false before PMIx_Init");
+            assert!(
+                !result,
+                "PMIx_Initialized should return false before PMIx_Init"
+            );
         }
     }
 
@@ -2357,13 +2362,15 @@ mod tests {
         );
         // PMIx returns "AVAIL TO PROCESSES IN SAME ALLOCATION ONLY" — check for "allocation"
         assert!(
-            session.to_lowercase().contains("allocation") || session.to_lowercase().contains("same"),
+            session.to_lowercase().contains("allocation")
+                || session.to_lowercase().contains("same"),
             "Session range string should describe allocation scope, got '{}'",
             session
         );
         // PMIx returns "AVAIL TO ANYONE WITH AUTHORIZATION" — check for "anyone" or "authorization"
         assert!(
-            global.to_lowercase().contains("anyone") || global.to_lowercase().contains("authorization"),
+            global.to_lowercase().contains("anyone")
+                || global.to_lowercase().contains("authorization"),
             "Global range string should describe global availability, got '{}'",
             global
         );
@@ -3282,64 +3289,82 @@ mod tests {
     #[test]
     #[ignore = "requires PMIx_server_init"]
     fn test_generate_ppn_basic() {
-         // server_init may fail if not running as a server process — skip gracefully.
-         let _handle = match crate::server::server_init_minimal(None) {
-             Ok(h) => h,
-             Err(_) => {
-                 eprintln!("test_generate_ppn_basic: server_init failed, skipping");
-                 return;
-             }
-         };
-         let result = generate_ppn("0;1;2");
-         // Under prterun without a real job, generate_ppn may return an error.
-         // If it succeeds, verify the result. If it fails, skip gracefully.
-         if let Ok(ppn) = result {
-             assert!(!ppn.is_empty(), "generate_ppn should return a non-empty string");
-         } else {
-             eprintln!("test_generate_ppn_basic: generate_ppn returned {:?}, skipping (no job context)", result);
-             return;
-         }
-     }
+        // server_init may fail if not running as a server process — skip gracefully.
+        let _handle = match crate::server::server_init_minimal(None) {
+            Ok(h) => h,
+            Err(_) => {
+                eprintln!("test_generate_ppn_basic: server_init failed, skipping");
+                return;
+            }
+        };
+        let result = generate_ppn("0;1;2");
+        // Under prterun without a real job, generate_ppn may return an error.
+        // If it succeeds, verify the result. If it fails, skip gracefully.
+        if let Ok(ppn) = result {
+            assert!(
+                !ppn.is_empty(),
+                "generate_ppn should return a non-empty string"
+            );
+        } else {
+            eprintln!(
+                "test_generate_ppn_basic: generate_ppn returned {:?}, skipping (no job context)",
+                result
+            );
+            return;
+        }
+    }
 
-     /// `generate_ppn` with range notation produces a compressed result.
-     #[test]
-     #[ignore = "requires PMIx_server_init"]
-     fn test_generate_ppn_range_notation() {
-         let _handle = match crate::server::server_init_minimal(None) {
-             Ok(h) => h,
-             Err(_) => {
-                 eprintln!("test_generate_ppn_range_notation: server_init failed, skipping");
-                 return;
-             }
-         };
-         let result = generate_ppn("0-3;4-7;8,9,10");
-         if let Ok(ppn) = result {
-             assert!(!ppn.is_empty(), "generate_ppn should return a non-empty string");
-         } else {
-             eprintln!("test_generate_ppn_range_notation: generate_ppn returned {:?}, skipping", result);
-             return;
-         }
-     }
+    /// `generate_ppn` with range notation produces a compressed result.
+    #[test]
+    #[ignore = "requires PMIx_server_init"]
+    fn test_generate_ppn_range_notation() {
+        let _handle = match crate::server::server_init_minimal(None) {
+            Ok(h) => h,
+            Err(_) => {
+                eprintln!("test_generate_ppn_range_notation: server_init failed, skipping");
+                return;
+            }
+        };
+        let result = generate_ppn("0-3;4-7;8,9,10");
+        if let Ok(ppn) = result {
+            assert!(
+                !ppn.is_empty(),
+                "generate_ppn should return a non-empty string"
+            );
+        } else {
+            eprintln!(
+                "test_generate_ppn_range_notation: generate_ppn returned {:?}, skipping",
+                result
+            );
+            return;
+        }
+    }
 
-     /// `generate_ppn` with a single node (no semicolons) should succeed.
-     #[test]
-     #[ignore = "requires PMIx_server_init"]
-     fn test_generate_ppn_single_node() {
-         let _handle = match crate::server::server_init_minimal(None) {
-             Ok(h) => h,
-             Err(_) => {
-                 eprintln!("test_generate_ppn_single_node: server_init failed, skipping");
-                 return;
-             }
-         };
-         let result = generate_ppn("0");
-         if let Ok(ppn) = result {
-             assert!(!ppn.is_empty(), "generate_ppn should handle single node (no semicolons)");
-         } else {
-             eprintln!("test_generate_ppn_single_node: generate_ppn returned {:?}, skipping", result);
-             return;
-         }
-     }
+    /// `generate_ppn` with a single node (no semicolons) should succeed.
+    #[test]
+    #[ignore = "requires PMIx_server_init"]
+    fn test_generate_ppn_single_node() {
+        let _handle = match crate::server::server_init_minimal(None) {
+            Ok(h) => h,
+            Err(_) => {
+                eprintln!("test_generate_ppn_single_node: server_init failed, skipping");
+                return;
+            }
+        };
+        let result = generate_ppn("0");
+        if let Ok(ppn) = result {
+            assert!(
+                !ppn.is_empty(),
+                "generate_ppn should handle single node (no semicolons)"
+            );
+        } else {
+            eprintln!(
+                "test_generate_ppn_single_node: generate_ppn returned {:?}, skipping",
+                result
+            );
+            return;
+        }
+    }
 
     /// `generate_ppn` returns PMIX_ERR_BAD_PARAM for input containing null bytes.
     #[test]
@@ -3435,7 +3460,10 @@ mod tests {
         if let Ok(ppn) = result {
             assert!(!ppn.is_empty(), "result should not be empty");
         } else {
-            eprintln!("test_generate_ppn_many_procs: generate_ppn returned {:?}, skipping", result);
+            eprintln!(
+                "test_generate_ppn_many_procs: generate_ppn returned {:?}, skipping",
+                result
+            );
             return;
         }
     }
@@ -3457,7 +3485,10 @@ mod tests {
         if let Ok(ppn) = result {
             assert!(!ppn.is_empty(), "result should not be empty");
         } else {
-            eprintln!("test_generate_ppn_irregular: generate_ppn returned {:?}, skipping", result);
+            eprintln!(
+                "test_generate_ppn_irregular: generate_ppn returned {:?}, skipping",
+                result
+            );
             return;
         }
     }
@@ -3482,7 +3513,10 @@ mod tests {
                 ppn
             );
         } else {
-            eprintln!("test_generate_ppn_prefix: generate_ppn returned {:?}, skipping", result);
+            eprintln!(
+                "test_generate_ppn_prefix: generate_ppn returned {:?}, skipping",
+                result
+            );
             return;
         }
     }

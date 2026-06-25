@@ -20,9 +20,8 @@
 //! 12. alloc_directive_string
 
 use pmix::{
-    utility::*, IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType,
-    PmixDeviceType, PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope,
-    PmixStatus,
+    IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType,
+    PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus, utility::*,
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -32,14 +31,22 @@ use pmix::{
 #[test]
 fn error_string_success() {
     let result = error_string(PmixStatus::from_raw(0));
-    assert!(result.is_ok(), "error_string(SUCCESS) should return Ok, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "error_string(SUCCESS) should return Ok, got {:?}",
+        result
+    );
     assert!(!result.unwrap().is_empty());
 }
 
 #[test]
 fn error_string_generic_error() {
     let result = error_string(PmixStatus::from_raw(-1));
-    assert!(result.is_ok(), "error_string(ERROR) should return Ok, got {:?}", result);
+    assert!(
+        result.is_ok(),
+        "error_string(ERROR) should return Ok, got {:?}",
+        result
+    );
 }
 
 #[test]
@@ -47,47 +54,29 @@ fn error_string_all_known_error_codes() {
     // Every known PmixError variant, grouped by category
     let codes: Vec<i32> = vec![
         // Success / informational
-        0,
-        // Base error codes
+        0, // Base error codes
         -1, -3, -4, -5, -6, -8, -11, -12, -15, -16, -18, -19, -20, -21, -23, -24, -25, -27, -28,
-        -29, -31, -32,
-        // Data / lookup errors
+        -29, -31, -32, // Data / lookup errors
         -46, -47, -49, -50, -51, -52, -53, -58, -59, -60, -61, -62,
         // Job-control event codes
-        -106, -107, -108,
-        // Monitoring alert codes
-        -109, -110,
-        // Fabric / network event codes
-        -113,
-        // Internal / registration errors
-        -144,
-        // Job lifecycle event codes
-        -145,
-        // Operational-state codes
-        -156, -157, -158,
-        // Attribute / registration errors
-        -171,
-        // I/O-forwarding codes
-        -172, -173,
-        // Fabric status codes
-        -175, -176,
-        // Job-level error codes
+        -106, -107, -108, // Monitoring alert codes
+        -109, -110, // Fabric / network event codes
+        -113, // Internal / registration errors
+        -144, // Job lifecycle event codes
+        -145, // Operational-state codes
+        -156, -157, -158, // Attribute / registration errors
+        -171, // I/O-forwarding codes
+        -172, -173, // Fabric status codes
+        -175, -176, // Job-level error codes
         -177, -178, -179, -180, -181, -182, -183, -184, -185, -186, -187, -188, -189, -190,
         // Job-lifecycle event codes
-        -191, -192, -193,
-        // Process-level error codes
-        -200, -201,
-        // System-event codes
-        -230, -231, -232,
-        // Additional job-level errors
-        -233, -234, -235,
-        // System-event "other" range
-        -330,
-        // Event-handler return codes
-        -331, -332, -333, -334,
-        // Per-process error codes
-        -400, -401, -402, -403, -404,
-        // External boundary
+        -191, -192, -193, // Process-level error codes
+        -200, -201, // System-event codes
+        -230, -231, -232, // Additional job-level errors
+        -233, -234, -235, // System-event "other" range
+        -330, // Event-handler return codes
+        -331, -332, -333, -334, // Per-process error codes
+        -400, -401, -402, -403, -404, // External boundary
         -3000,
     ];
     for code in codes {
@@ -123,7 +112,10 @@ fn error_string_unknown_status() {
 fn error_string_distinct() {
     let success = error_string(PmixStatus::from_raw(0)).unwrap();
     let error = error_string(PmixStatus::from_raw(-1)).unwrap();
-    assert_ne!(success, error, "SUCCESS and ERROR must produce different strings");
+    assert_ne!(
+        success, error,
+        "SUCCESS and ERROR must produce different strings"
+    );
 }
 
 #[test]
@@ -172,7 +164,11 @@ fn data_type_string_scalar_types() {
             ty,
             result
         );
-        assert!(!result.unwrap().is_empty(), "data_type_string({:?}) should not be empty", ty);
+        assert!(
+            !result.unwrap().is_empty(),
+            "data_type_string({:?}) should not be empty",
+            ty
+        );
     }
 }
 
@@ -237,7 +233,11 @@ fn data_type_string_composite_types() {
             ty,
             result
         );
-        assert!(!result.unwrap().is_empty(), "data_type_string({:?}) should not be empty", ty);
+        assert!(
+            !result.unwrap().is_empty(),
+            "data_type_string({:?}) should not be empty",
+            ty
+        );
     }
 }
 
@@ -295,7 +295,11 @@ fn data_range_string_all_defined() {
             v,
             result
         );
-        assert!(!result.unwrap().is_empty(), "data_range_string({:?}) should not be empty", v);
+        assert!(
+            !result.unwrap().is_empty(),
+            "data_range_string({:?}) should not be empty",
+            v
+        );
     }
 }
 
@@ -849,7 +853,10 @@ fn info_directives_string_distinct() {
 fn info_directives_string_deterministic() {
     let first = info_directives_string(InfoFlags::REQD).unwrap();
     let second = info_directives_string(InfoFlags::REQD).unwrap();
-    assert_eq!(first, second, "info_directives_string must be deterministic");
+    assert_eq!(
+        first, second,
+        "info_directives_string must be deterministic"
+    );
 }
 
 #[test]
@@ -890,7 +897,10 @@ fn alloc_directive_string_unknown() {
 fn alloc_directive_string_deterministic() {
     let first = alloc_directive_string(PmixAllocDirective::AllocDirective).unwrap();
     let second = alloc_directive_string(PmixAllocDirective::AllocDirective).unwrap();
-    assert_eq!(first, second, "alloc_directive_string must be deterministic");
+    assert_eq!(
+        first, second,
+        "alloc_directive_string must be deterministic"
+    );
 }
 
 #[test]
@@ -908,17 +918,47 @@ fn all_string_converters_handle_zero_values() {
     assert!(error_string(PmixStatus::from_raw(0)).unwrap().is_empty() == false);
     assert!(data_type_string(PmixDataType::Undef).unwrap().is_empty() == false);
     assert!(data_range_string(PmixDataRange::Undef).unwrap().is_empty() == false);
-    assert!(persistence_string(PmixPersistence::Indefinite).unwrap().is_empty() == false);
+    assert!(
+        persistence_string(PmixPersistence::Indefinite)
+            .unwrap()
+            .is_empty()
+            == false
+    );
     assert!(scope_string(PmixScope::Undef).unwrap().is_empty() == false);
     assert!(proc_state_string(PmixProcState::Undef).unwrap().is_empty() == false);
     assert!(job_state_string(PmixJobState::Undef).unwrap().is_empty() == false);
-    assert!(link_state_string(PmixLinkState::UnknownState).unwrap().is_empty() == false);
-    assert!(iof_channel_string(IOFChannelFlags::NO_CHANNELS).unwrap().is_empty() == false);
-    assert!(device_type_string(PmixDeviceType::UnknownType).unwrap().is_empty() == false);
+    assert!(
+        link_state_string(PmixLinkState::UnknownState)
+            .unwrap()
+            .is_empty()
+            == false
+    );
+    assert!(
+        iof_channel_string(IOFChannelFlags::NO_CHANNELS)
+            .unwrap()
+            .is_empty()
+            == false
+    );
+    assert!(
+        device_type_string(PmixDeviceType::UnknownType)
+            .unwrap()
+            .is_empty()
+            == false
+    );
     // InfoFlags::default() is empty bitflags (0x0)
-    assert!(info_directives_string(InfoFlags::default()).unwrap().is_empty() == false);
+    assert!(
+        info_directives_string(InfoFlags::default())
+            .unwrap()
+            .is_empty()
+            == false
+    );
     // alloc_directive_string has no zero variant — use the known one
-    assert!(alloc_directive_string(PmixAllocDirective::AllocDirective).unwrap().is_empty() == false);
+    assert!(
+        alloc_directive_string(PmixAllocDirective::AllocDirective)
+            .unwrap()
+            .is_empty()
+            == false
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -989,7 +1029,10 @@ fn all_string_converters_produce_distinct_outputs() {
     {
         let known = alloc_directive_string(PmixAllocDirective::AllocDirective).unwrap();
         let unknown = alloc_directive_string(PmixAllocDirective::Unknown(0)).unwrap();
-        assert!(!known.is_empty(), "AllocDirective string should not be empty");
+        assert!(
+            !known.is_empty(),
+            "AllocDirective string should not be empty"
+        );
         assert!(!unknown.is_empty(), "Unknown(0) string should not be empty");
     }
 }

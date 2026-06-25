@@ -1,7 +1,7 @@
 //! Integration tests for `PMIx_Query_info_nb` via the safe `query_info_nb()` wrapper.
 
-use pmix::query_log::{query_info_nb, QueryCallback, QueryResults};
 use pmix::PmixStatus;
+use pmix::query_log::{QueryCallback, QueryResults, query_info_nb};
 
 #[test]
 fn query_info_nb_compiles() {
@@ -10,7 +10,10 @@ fn query_info_nb_compiles() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {}
     }
     let result = query_info_nb(&[], Box::new(TestCallback));
-    assert!(result.is_err(), "query_info_nb should fail without PMIx_Init");
+    assert!(
+        result.is_err(),
+        "query_info_nb should fail without PMIx_Init"
+    );
 }
 
 #[test]

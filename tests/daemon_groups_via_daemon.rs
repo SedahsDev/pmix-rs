@@ -9,12 +9,12 @@
 mod daemon_helper;
 
 use pmix::groups::{
-    group_construct, group_construct_nb, group_destruct, group_destruct_nb, group_invite,
-    group_invite_nb, group_join, group_join_nb, group_leave, group_leave_nb,
     GroupConstructCallbackWrapper, GroupDestructCallbackWrapper, GroupInviteCallbackWrapper,
-    GroupJoinCallbackWrapper, GroupLeaveCallbackWrapper, pmix_group_opt_t,
+    GroupJoinCallbackWrapper, GroupLeaveCallbackWrapper, group_construct, group_construct_nb,
+    group_destruct, group_destruct_nb, group_invite, group_invite_nb, group_join, group_join_nb,
+    group_leave, group_leave_nb, pmix_group_opt_t,
 };
-use pmix::server::{server_finalize, server_init, PmixServerModule};
+use pmix::server::{PmixServerModule, server_finalize, server_init};
 use pmix::{InfoBuilder, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────

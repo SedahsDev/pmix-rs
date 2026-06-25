@@ -10,8 +10,8 @@
 
 use std::sync::OnceLock;
 
-use pmix::{init, data_serialization::*};
 use pmix::PmixDataType;
+use pmix::{data_serialization::*, init};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton PMIx init — PMIx can only be initialized once per process.
@@ -22,7 +22,6 @@ static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
 fn ensure_init() -> &'static pmix::Context {
     PMIX_CTX.get_or_init(|| init(None).expect("PMIx_Init failed — run under prterun"))
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // data_pack — FFI wrapper exercise (various types, target=None)

@@ -3,7 +3,7 @@
 //! User-space tests for fabric_update that exercise the error paths
 //! without requiring prterun.
 
-use pmix::fabric::{fabric_update, PmixFabric};
+use pmix::fabric::{PmixFabric, fabric_update};
 
 /// Test that fabric_update on an unregistered fabric returns error.
 #[test]

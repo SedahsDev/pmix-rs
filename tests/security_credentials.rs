@@ -58,8 +58,7 @@ impl CredentialCallback for RecordingCredentialCallback {
 struct NoOpValidationCallback;
 
 impl ValidationCallback for NoOpValidationCallback {
-    fn on_complete(self: Box<Self>, _status: pmix::PmixStatus, _results: ValidationResults) {
-    }
+    fn on_complete(self: Box<Self>, _status: pmix::PmixStatus, _results: ValidationResults) {}
 }
 
 /// Validation callback that records status and result count via Arc<Mutex>.
@@ -318,8 +317,7 @@ fn credential_callback_closure_wrapper() {
             (self.0)(status, credential, results);
         }
     }
-    let _cb: Box<dyn CredentialCallback> =
-        Box::new(ClosureCallback(|_, _, _| {}));
+    let _cb: Box<dyn CredentialCallback> = Box::new(ClosureCallback(|_, _, _| {}));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,10 +342,8 @@ fn validation_callback_is_send() {
 fn validation_callback_with_state() {
     let status = std::sync::Arc::new(std::sync::Mutex::new(None));
     let result_len = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let _cb: Box<dyn ValidationCallback> = Box::new(RecordingValidationCallback {
-        status,
-        result_len,
-    });
+    let _cb: Box<dyn ValidationCallback> =
+        Box::new(RecordingValidationCallback { status, result_len });
 }
 
 /// ValidationCallback can be implemented via a closure wrapper.
@@ -458,10 +454,7 @@ fn get_credential_nb_callback_not_called_on_reject() {
     });
 
     let result = get_credential_nb(&info, callback);
-    assert!(
-        result.is_err(),
-        "Expected error when PMIx not initialized"
-    );
+    assert!(result.is_err(), "Expected error when PMIx not initialized");
 
     // Callback should not have been invoked (registry cleaned up on error).
     assert!(
@@ -955,7 +948,10 @@ fn get_credential_with_server() {
     let result = get_credential(&info);
     match result {
         Ok(cred) => {
-            assert!(!cred.is_empty(), "Credential from server should not be empty");
+            assert!(
+                !cred.is_empty(),
+                "Credential from server should not be empty"
+            );
         }
         Err(status) => {
             panic!("get_credential failed with server: {:?}", status);

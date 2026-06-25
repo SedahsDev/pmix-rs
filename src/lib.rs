@@ -2201,10 +2201,7 @@ impl Proc {
         unsafe {
             PMIx_Load_nspace(handle.nspace.as_mut_ptr(), c_name.as_ptr());
         }
-        Ok(Proc {
-            handle,
-            len: 1,
-        })
+        Ok(Proc { handle, len: 1 })
     }
 
     pub fn new_with_nspace(&self, rank: u32) -> Result<Self, NulError> {
@@ -2218,10 +2215,7 @@ impl Proc {
             let src_handle = self.handle;
             PMIx_Load_nspace(handle.nspace.as_mut_ptr(), src_handle.nspace.as_ptr());
         }
-        Ok(Proc {
-            handle,
-            len: 1,
-        })
+        Ok(Proc { handle, len: 1 })
     }
 
     pub fn get_rank(&self) -> u32 {
@@ -2986,10 +2980,7 @@ pub fn info_with_string_key(key: &str, value: &str) -> Info {
             PMIX_STRING as pmix_data_type_t,
         );
         if status != PMIX_SUCCESS as i32 {
-            panic!(
-                "PMIx_Info_load failed for key {}: {}",
-                key, status
-            );
+            panic!("PMIx_Info_load failed for key {}: {}", key, status);
         }
     }
     // Leak the CString allocations — the PMIx library copies the data
@@ -3038,12 +3029,8 @@ pub fn init(info: Option<Info>) -> Result<Context, PmixError> {
     let proc: pmix_proc_t;
     let mut uninit_proc = mem::MaybeUninit::<pmix_proc_t>::uninit();
     let status = match info {
-        Some(info) => unsafe {
-            PMIx_Init(uninit_proc.as_mut_ptr(), info.handle, info.len)
-        },
-        None => unsafe {
-            PMIx_Init(uninit_proc.as_mut_ptr(), ptr::null_mut(), 0)
-        },
+        Some(info) => unsafe { PMIx_Init(uninit_proc.as_mut_ptr(), info.handle, info.len) },
+        None => unsafe { PMIx_Init(uninit_proc.as_mut_ptr(), ptr::null_mut(), 0) },
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -3151,9 +3138,7 @@ pub fn fence(proc: &Proc, info: Option<Info>) -> Result<(), pmix_status_t> {
         None => (ptr::null_mut(), 0),
     };
 
-    let status = unsafe {
-        PMIx_Fence(proc_handle, nprocs, info_handle, ninfos)
-    };
+    let status = unsafe { PMIx_Fence(proc_handle, nprocs, info_handle, ninfos) };
     if status as u32 == PMIX_SUCCESS {
         Ok(())
     } else {
@@ -3176,12 +3161,8 @@ pub fn progress() {
 
 pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
     let status = match info {
-        Some(x) => unsafe {
-            PMIx_Finalize(x.handle, x.len)
-        },
-        None => unsafe {
-            PMIx_Finalize(ptr::null_mut(), 0)
-        },
+        Some(x) => unsafe { PMIx_Finalize(x.handle, x.len) },
+        None => unsafe { PMIx_Finalize(ptr::null_mut(), 0) },
     };
     if status as u32 == PMIX_SUCCESS {
         Result::Ok(())

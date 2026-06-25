@@ -1,7 +1,7 @@
 //! Integration tests for `PMIx_Lookup_nb` via the safe `lookup_nb()` wrapper.
 
-use pmix::data_ops::{lookup_nb, LookupCallback, PmixPdata};
 use pmix::PmixStatus;
+use pmix::data_ops::{LookupCallback, PmixPdata, lookup_nb};
 
 #[test]
 fn lookup_nb_compiles() {

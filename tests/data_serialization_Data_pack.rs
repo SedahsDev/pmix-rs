@@ -14,8 +14,8 @@
 
 use std::sync::OnceLock;
 
-use pmix::{init, PmixDataType};
 use pmix::data_serialization::*;
+use pmix::{PmixDataType, init};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton PMIx init — PMIx can only be initialized once per process.
@@ -191,13 +191,21 @@ fn test_load_replaces_buffer() {
     let size1 = payload1.size();
 
     data_load(&buf, &payload1).expect("load first");
-    assert_eq!(buf.bytes_used(), size1, "buffer should have first payload size");
+    assert_eq!(
+        buf.bytes_used(),
+        size1,
+        "buffer should have first payload size"
+    );
 
     let payload2 = PmixByteObject::from(vec![4u8, 5, 6, 7, 8, 9]);
     let size2 = payload2.size();
 
     data_load(&buf, &payload2).expect("load second (replaces)");
-    assert_eq!(buf.bytes_used(), size2, "buffer should have second payload size (replacement)");
+    assert_eq!(
+        buf.bytes_used(),
+        size2,
+        "buffer should have second payload size (replacement)"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

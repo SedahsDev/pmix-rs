@@ -4,9 +4,9 @@
 //! Focus: PmixServerModule fields, server_init with custom module, IOF channel edge cases,
 //! CollectInventoryResults, callback wrapper compile checks, panic safety, FFI lifecycle.
 
+use pmix::data_serialization::PmixByteObject;
 use pmix::server::*;
 use pmix::{IOFChannelFlags, InfoBuilder, PmixStatus, Proc};
-use pmix::data_serialization::PmixByteObject;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixServerModule tests
@@ -475,13 +475,7 @@ fn test_iof_deliver_combined_channels() {
     let bo = PmixByteObject::new();
     let info = InfoBuilder::new().build();
     let channel = IOFChannelFlags::STDOUT | IOFChannelFlags::STDERR;
-    let result = server_iof_deliver(
-        &proc,
-        channel,
-        &bo,
-        &info,
-        Box::new(TestIOFDeliverCb),
-    );
+    let result = server_iof_deliver(&proc, channel, &bo, &info, Box::new(TestIOFDeliverCb));
     assert!(result.is_err() || result.is_ok());
 }
 
@@ -736,8 +730,9 @@ fn test_setup_application_does_not_panic() {
 #[test]
 fn test_setup_local_support_does_not_panic() {
     let info = InfoBuilder::new().build();
-    let result =
-        std::panic::catch_unwind(|| server_setup_local_support("test", &info, Box::new(TestSetupLocalCb)));
+    let result = std::panic::catch_unwind(|| {
+        server_setup_local_support("test", &info, Box::new(TestSetupLocalCb))
+    });
     assert!(result.is_ok());
 }
 

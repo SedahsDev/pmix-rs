@@ -7,7 +7,7 @@
 //! are marked `#[ignore]`.
 
 use pmix::monitoring::{
-    heartbeat, process_monitor, process_monitor_nb, MonitorCallback, MonitorResults,
+    MonitorCallback, MonitorResults, heartbeat, process_monitor, process_monitor_nb,
 };
 use pmix::{InfoBuilder, PmixError, PmixStatus};
 
@@ -133,7 +133,11 @@ fn test_process_monitor_signature() {
 fn test_process_monitor_without_daemon_returns_err() {
     let monitor = InfoBuilder::new().build();
     let directives: &[pmix::Info] = &[];
-    let result = process_monitor(&monitor, PmixStatus::Known(PmixError::MonitorHeartbeatAlert), directives);
+    let result = process_monitor(
+        &monitor,
+        PmixStatus::Known(PmixError::MonitorHeartbeatAlert),
+        directives,
+    );
     assert!(
         result.is_err(),
         "process_monitor should fail without daemon: {:?}",

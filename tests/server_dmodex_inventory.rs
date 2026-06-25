@@ -19,12 +19,11 @@ use pmix::data_serialization::PmixByteObject;
 use pmix::fabric::PmixCpuset;
 use pmix::server::{
     CollectInventoryCallback, CollectInventoryResults, DeliverInventoryCallback,
-    DmodexRequestCallback, IOFDeliverCallback, server_collect_inventory,
-    server_deliver_inventory, server_delete_process_set, server_dmodex_request,
-    server_define_process_set, server_generate_cpuset_string, server_generate_locality_string,
-    server_iof_deliver,
+    DmodexRequestCallback, IOFDeliverCallback, server_collect_inventory, server_define_process_set,
+    server_delete_process_set, server_deliver_inventory, server_dmodex_request,
+    server_generate_cpuset_string, server_generate_locality_string, server_iof_deliver,
 };
-use pmix::{Info, InfoBuilder, IOFChannelFlags, PmixError, PmixStatus, Proc};
+use pmix::{IOFChannelFlags, Info, InfoBuilder, PmixError, PmixStatus, Proc};
 
 // ============================================================================
 // 1. server_dmodex_request — compile-time signature & callback trait checks
@@ -182,7 +181,7 @@ fn dmodex_request_error_is_err_init_variant() {
 #[test]
 #[ignore = "requires PMIx_server_init and running PMIx daemon"]
 fn dmodex_request_with_initialized_server() {
-    use pmix::server::{server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init_minimal};
     struct Cb;
     impl DmodexRequestCallback for Cb {
         fn on_complete(self: Box<Self>, _: PmixStatus, _: Vec<u8>) {}
@@ -312,7 +311,7 @@ fn collect_inventory_multiple_callback_types() {
 #[test]
 #[ignore = "requires PMIx_server_init and running PMIx daemon"]
 fn collect_inventory_with_initialized_server() {
-    use pmix::server::{server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init_minimal};
     struct Cb;
     impl CollectInventoryCallback for Cb {
         fn on_complete(&self, _: PmixStatus, _: CollectInventoryResults) {}
@@ -445,7 +444,7 @@ fn deliver_inventory_callback_status_discrimination() {
 #[test]
 #[ignore = "requires PMIx_server_init and running PMIx daemon"]
 fn deliver_inventory_with_initialized_server() {
-    use pmix::server::{server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init_minimal};
     struct Nop;
     impl DeliverInventoryCallback for Nop {
         fn on_complete(self: Box<Self>, _: PmixStatus) {}
@@ -483,9 +482,7 @@ fn define_process_set_single_member() {
 /// server_define_process_set callable with multi-member proc slice.
 #[test]
 fn define_process_set_multiple_members() {
-    let members: Vec<Proc> = (0..5)
-        .map(|r| Proc::new("test_ns", r).unwrap())
-        .collect();
+    let members: Vec<Proc> = (0..5).map(|r| Proc::new("test_ns", r).unwrap()).collect();
     let _result: Result<(), PmixStatus> = server_define_process_set(&members, "pset_multi");
 }
 
@@ -535,7 +532,7 @@ fn define_process_set_proc_set_rank() {
 #[test]
 #[ignore = "requires PMIx_server_init and running PMIx daemon"]
 fn define_process_set_with_initialized_server() {
-    use pmix::server::{server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init_minimal};
     let module = PmixServerModule::default();
     let _handle = server_init_minimal(Some(&module)).expect("server_init");
     let proc = Proc::new("test_ns", 0).unwrap();
@@ -588,7 +585,7 @@ fn delete_process_set_status_equality() {
 #[test]
 #[ignore = "requires PMIx_server_init and running PMIx daemon"]
 fn delete_process_set_with_initialized_server() {
-    use pmix::server::{server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init_minimal};
     let module = PmixServerModule::default();
     let _handle = server_init_minimal(Some(&module)).expect("server_init");
     let _ = server_delete_process_set("pset1");
@@ -651,7 +648,7 @@ fn generate_cpuset_string_err_take_next_option_value() {
 #[test]
 #[ignore = "requires PMIx_server_init and running PMIx daemon"]
 fn generate_cpuset_string_with_initialized_server() {
-    use pmix::server::{server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init_minimal};
     let module = PmixServerModule::default();
     let _handle = server_init_minimal(Some(&module)).expect("server_init");
     let mut cpuset = PmixCpuset::new();
@@ -693,7 +690,7 @@ fn generate_locality_string_err_not_found_value() {
 #[test]
 #[ignore = "requires PMIx_server_init and running PMIx daemon"]
 fn generate_locality_string_with_initialized_server() {
-    use pmix::server::{server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init_minimal};
     let module = PmixServerModule::default();
     let _handle = server_init_minimal(Some(&module)).expect("server_init");
     let mut cpuset = PmixCpuset::new();
@@ -885,11 +882,11 @@ fn iof_deliver_consistent_result() {
     let source = Proc::new("test_ns", 0).unwrap();
     let bo = PmixByteObject::from(b"data".to_vec());
     let info = InfoBuilder::new().build();
-    let first = server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop))
-        .is_ok();
+    let first =
+        server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop)).is_ok();
     for _ in 0..4 {
-        let result = server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop))
-            .is_ok();
+        let result =
+            server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop)).is_ok();
         assert_eq!(result, first, "results should be consistent");
     }
 }
@@ -945,7 +942,7 @@ fn iof_deliver_callback_error_codes() {
 #[test]
 #[ignore = "requires PMIx_server_init and running PMIx daemon"]
 fn iof_deliver_with_initialized_server() {
-    use pmix::server::{server_init_minimal, PmixServerModule};
+    use pmix::server::{PmixServerModule, server_init_minimal};
     struct Nop;
     impl IOFDeliverCallback for Nop {
         fn on_complete(self: Box<Self>, _: PmixStatus) {}

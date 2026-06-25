@@ -5,8 +5,8 @@
 //! the reason "requires PMIx_Init". Non-ignored tests cover the
 //! `PmixPrintOutput` wrapper type which is pure Rust.
 
-use pmix::data_serialization::*;
 use pmix::PmixDataType;
+use pmix::data_serialization::*;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixPrintOutput — pure Rust, safe without PMIx_Init

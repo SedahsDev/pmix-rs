@@ -16,8 +16,17 @@ fn data_range_string_all_defined() {
     ];
     for v in values {
         let result = data_range_string(v);
-        assert!(result.is_ok(), "data_range_string({:?}) should return Ok, got {:?}", v, result);
-        assert!(!result.unwrap().is_empty(), "data_range_string({:?}) should not be empty", v);
+        assert!(
+            result.is_ok(),
+            "data_range_string({:?}) should return Ok, got {:?}",
+            v,
+            result
+        );
+        assert!(
+            !result.unwrap().is_empty(),
+            "data_range_string({:?}) should not be empty",
+            v
+        );
     }
 }
 

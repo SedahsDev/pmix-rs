@@ -1,6 +1,6 @@
 //! Integration tests for `PMIx_Notify_event_nb`.
 
-use pmix::events::{notify_event_nb, OpCbFn};
+use pmix::events::{OpCbFn, notify_event_nb};
 use pmix::{InfoBuilder, PmixDataRange, PmixError, PmixStatus, Proc};
 
 #[test]

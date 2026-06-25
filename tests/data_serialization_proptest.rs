@@ -8,7 +8,7 @@
 //! prterun -np 1 cargo test --test data_serialization_proptest -- --ignored --test-threads=1
 //! ```
 
-use pmix::{data_serialization::*, init, PmixDataType};
+use pmix::{PmixDataType, data_serialization::*, init};
 use proptest::prelude::*;
 use std::sync::OnceLock;
 

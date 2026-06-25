@@ -670,3 +670,60 @@ pub fn log_data_nb(
         Err(pmix_status)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pmix_query_new() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        assert!(!query._keys.is_empty());
+    }
+
+    #[test]
+    fn test_pmix_query_empty_keys() {
+        let result = PmixQuery::new(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_query_results_empty() {
+        let results = QueryResults {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_query_results_nonempty() {
+        let results = QueryResults {
+            handle: std::ptr::null_mut(),
+            len: 3,
+        };
+        assert!(!results.is_empty());
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_query_callback_trait_object() {
+        struct DummyQuery;
+        impl QueryCallback for DummyQuery {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {}
+        }
+        let callback: Box<dyn QueryCallback> = Box::new(DummyQuery);
+        let _ = callback;
+    }
+
+    #[test]
+    fn test_log_callback_trait_object() {
+        struct DummyLog;
+        impl LogCallback for DummyLog {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let callback: Box<dyn LogCallback> = Box::new(DummyLog);
+        let _ = callback;
+    }
+}

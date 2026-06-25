@@ -23,8 +23,8 @@
 
 use std::sync::OnceLock;
 
-use pmix::{init, data_serialization::*};
 use pmix::{PmixDataType, PmixError, PmixStatus};
+use pmix::{data_serialization::*, init};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton PMIx init — PMIx can only be initialized once per process.
@@ -35,7 +35,6 @@ static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
 fn ensure_init() -> &'static pmix::Context {
     PMIX_CTX.get_or_init(|| init(None).expect("PMIx_Init failed — run under prterun"))
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixPrintOutput — runtime behavior (no FFI needed)
@@ -169,7 +168,9 @@ fn test_pack_error_display() {
     let display = format!("{}", err);
     assert!(!display.is_empty(), "error Display should not be empty");
     assert!(
-        display.contains("BadParam") || display.contains("bad_param") || display.contains("BAD_PARAM"),
+        display.contains("BadParam")
+            || display.contains("bad_param")
+            || display.contains("BAD_PARAM"),
         "error Display should mention bad param, got: {}",
         display
     );
@@ -519,7 +520,10 @@ fn test_buffer_valid_after_load_unload() {
     let payload = PmixByteObject::from(vec![1u8, 2, 3]);
     data_load(&buf, &payload).expect("load");
     let _recovered = data_unload(&buf).expect("unload");
-    assert!(buf.is_valid(), "buffer should still be valid after load/unload");
+    assert!(
+        buf.is_valid(),
+        "buffer should still be valid after load/unload"
+    );
 }
 
 /// Buffer is_valid after multiple load/unload cycles.
@@ -556,7 +560,10 @@ fn test_buffer_debug_after_cycle() {
 fn test_buffer_as_mut_ptr_non_null() {
     let buf = data_buffer_create().expect("create buffer");
     let ptr = buf.as_mut_ptr();
-    assert!(!ptr.is_null(), "as_mut_ptr should return non-null for valid buffer");
+    assert!(
+        !ptr.is_null(),
+        "as_mut_ptr should return non-null for valid buffer"
+    );
 }
 
 /// Buffer as_mut_ptr is consistent across calls.
@@ -683,7 +690,11 @@ fn test_status_to_raw_roundtrip_unknown() {
 fn test_status_is_success_for_positive_codes() {
     for code in [1, 100, 999] {
         let status = PmixStatus::from_raw(code);
-        assert!(status.is_success(), "positive code {} should be success", code);
+        assert!(
+            status.is_success(),
+            "positive code {} should be success",
+            code
+        );
     }
 }
 
@@ -799,7 +810,9 @@ fn test_load_empty_payload_preserves_buffer() {
 fn test_load_unload_boundary_sizes() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
-    let sizes = [1usize, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512];
+    let sizes = [
+        1usize, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 511, 512,
+    ];
     for size in sizes {
         let buf = data_buffer_create().expect("create buffer");
         let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
@@ -828,7 +841,10 @@ fn test_load_consumes_payload_as_slice_empty() {
     data_load(&buf, &payload).expect("load");
 
     // Payload should be consumed
-    assert!(payload.as_slice().is_empty(), "payload should be empty after load");
+    assert!(
+        payload.as_slice().is_empty(),
+        "payload should be empty after load"
+    );
     assert!(payload.is_empty());
     assert_eq!(payload.size(), 0);
 }
@@ -868,7 +884,9 @@ fn test_load_unload_alternating_null_ff() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
-    let data: Vec<u8> = (0..256).map(|i| if i % 2 == 0 { 0x00 } else { 0xFF }).collect();
+    let data: Vec<u8> = (0..256)
+        .map(|i| if i % 2 == 0 { 0x00 } else { 0xFF })
+        .collect();
     let payload = PmixByteObject::from(data.clone());
     data_load(&buf, &payload).expect("load");
     let recovered = data_unload(&buf).expect("unload");
@@ -1309,8 +1327,7 @@ fn test_data_copy_payload_signature() {
 /// Verify data_print signature.
 #[test]
 fn test_data_print_signature() {
-    let _: fn(&i32, Option<&str>, PmixDataType) -> Result<PmixPrintOutput, PmixStatus> =
-        data_print;
+    let _: fn(&i32, Option<&str>, PmixDataType) -> Result<PmixPrintOutput, PmixStatus> = data_print;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

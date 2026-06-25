@@ -393,8 +393,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
             let n = app.argv.len();
             // Allocate null-terminated pointer array via libc::calloc.
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>())
-                    as *mut *mut c_char
+                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").unwrap());
@@ -411,8 +410,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
         } else {
             let n = app.env.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>())
-                    as *mut *mut c_char
+                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").unwrap());
@@ -593,8 +591,7 @@ pub fn spawn_nb(
         } else {
             let n = app.argv.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>())
-                    as *mut *mut c_char
+                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").unwrap());
@@ -610,8 +607,7 @@ pub fn spawn_nb(
         } else {
             let n = app.env.len();
             let ptrs: *mut *mut c_char = unsafe {
-                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>())
-                    as *mut *mut c_char
+                libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").unwrap());
@@ -1274,4 +1270,74 @@ pub fn resolve_nodes(nspace: &str) -> Result<String, PmixStatus> {
     };
 
     Ok(node_list_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pmix_app_builder_new() {
+        let app = PmixAppBuilder::new().build().unwrap();
+        assert_eq!(app.cmd(), None);
+        assert!(app.argv().is_empty());
+    }
+
+    #[test]
+    fn test_pmix_app_builder_cmd() {
+        let app = PmixAppBuilder::new().cmd("/bin/echo").build().unwrap();
+        assert_eq!(app.cmd(), Some("/bin/echo"));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_arg() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/echo")
+            .arg("hello")
+            .build()
+            .unwrap();
+        assert_eq!(app.argv().len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_args() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/echo")
+            .args(vec!["arg1".to_string(), "arg2".to_string()])
+            .build()
+            .unwrap();
+        assert_eq!(app.argv().len(), 2);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_env() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/echo")
+            .env("FOO=bar")
+            .build()
+            .unwrap();
+        assert_eq!(app.env_vars().len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_cwd() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/echo")
+            .cwd("/tmp")
+            .build()
+            .unwrap();
+        assert_eq!(app.cwd(), Some("/tmp"));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_maxprocs() {
+        let app = PmixAppBuilder::new().maxprocs(4).build().unwrap();
+        assert_eq!(app.maxprocs(), 4);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_nul_error() {
+        let result = PmixAppBuilder::new().cmd("has\0null").build();
+        assert!(result.is_err());
+    }
 }

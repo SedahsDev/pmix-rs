@@ -23,8 +23,8 @@
 mod daemon_helper;
 
 use pmix::server::{
-    server_delete, server_fence, server_finalize, server_init, server_lookup, server_publish,
-    PmixServerModule,
+    PmixServerModule, server_delete, server_fence, server_finalize, server_init, server_lookup,
+    server_publish,
 };
 use pmix::{InfoBuilder, PmixError, PmixStatus};
 

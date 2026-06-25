@@ -5,9 +5,9 @@
 //! they do NOT require a running daemon.
 
 use pmix::fabric::{
+    ComputeDistancesCallback, FabricCallback, PmixCpuset, PmixFabric, PmixTopology,
     compute_distances, compute_distances_nb, fabric_deregister, fabric_deregister_nb,
     fabric_register, fabric_register_nb, fabric_update, fabric_update_nb, load_topology,
-    ComputeDistancesCallback, FabricCallback, PmixCpuset, PmixFabric, PmixTopology,
 };
 use pmix::{InfoBuilder, PmixStatus};
 
@@ -231,7 +231,12 @@ fn test_load_topology_without_init() {
 fn test_compute_distances_callback_requires_send() {
     struct TestDistCb;
     impl ComputeDistancesCallback for TestDistCb {
-        fn on_complete(self: Box<Self>, _status: PmixStatus, _distances: pmix::fabric::DeviceDistances) {}
+        fn on_complete(
+            self: Box<Self>,
+            _status: PmixStatus,
+            _distances: pmix::fabric::DeviceDistances,
+        ) {
+        }
     }
     fn assert_send<T: ComputeDistancesCallback>()
     where
@@ -263,7 +268,12 @@ fn test_compute_distances_nb_without_init() {
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
     struct TestDistCb;
     impl ComputeDistancesCallback for TestDistCb {
-        fn on_complete(self: Box<Self>, _status: PmixStatus, _distances: pmix::fabric::DeviceDistances) {}
+        fn on_complete(
+            self: Box<Self>,
+            _status: PmixStatus,
+            _distances: pmix::fabric::DeviceDistances,
+        ) {
+        }
     }
     let cb: Box<dyn ComputeDistancesCallback> = Box::new(TestDistCb);
     assert!(

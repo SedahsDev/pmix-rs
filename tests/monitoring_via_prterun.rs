@@ -7,8 +7,8 @@
 //! prterun -np 1 cargo test --test monitoring_via_prterun -- --include-ignored --test-threads=1
 //! ```
 
-use pmix::monitoring;
 use pmix::PmixStatus;
+use pmix::monitoring;
 use std::sync::OnceLock;
 
 static PMIX_CONTEXT: OnceLock<Option<pmix::Context>> = OnceLock::new();
@@ -44,7 +44,8 @@ fn test_monitor_results_empty() {
 fn test_process_monitor_fails_without_init() {
     if !is_dvm_launched() {
         let monitor_info = pmix::InfoBuilder::new().build();
-        let result = pmix::monitoring::process_monitor(&monitor_info, PmixStatus::from_raw(-46), &[]);
+        let result =
+            pmix::monitoring::process_monitor(&monitor_info, PmixStatus::from_raw(-46), &[]);
         assert!(result.is_err());
     }
 }
@@ -85,11 +86,7 @@ fn test_heartbeat_via_dvm() {
 fn test_process_monitor_via_dvm() {
     let _ctx = pmix::init(None).expect("pmix::init failed");
     let monitor_info = pmix::InfoBuilder::new().build();
-    let result = pmix::monitoring::process_monitor(
-        &monitor_info,
-        PmixStatus::from_raw(-46),
-        &[],
-    );
+    let result = pmix::monitoring::process_monitor(&monitor_info, PmixStatus::from_raw(-46), &[]);
     match result {
         Ok(results) => {
             assert!(results.len() >= 0);
@@ -111,9 +108,5 @@ fn test_monitoring_lifecycle_via_dvm() {
 
     // Process monitor
     let monitor_info = pmix::InfoBuilder::new().build();
-    let _ = pmix::monitoring::process_monitor(
-        &monitor_info,
-        PmixStatus::from_raw(-46),
-        &[],
-    );
+    let _ = pmix::monitoring::process_monitor(&monitor_info, PmixStatus::from_raw(-46), &[]);
 }

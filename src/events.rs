@@ -531,3 +531,26 @@ pub fn notify_event_nb(
     let st = PmixStatus::from_raw(raw_status);
     if st.is_success() { Ok(()) } else { Err(st) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_event_handler_ref_type() {
+        let ref_: EventHandlerRef = 42;
+        assert_eq!(ref_, 42);
+    }
+
+    #[test]
+    fn test_notification_fn_none() {
+        let fn_: NotificationFn = None;
+        assert!(fn_.is_none());
+    }
+
+    #[test]
+    fn test_op_cb_fn_none() {
+        let fn_: OpCbFn = None;
+        assert!(fn_.is_none());
+    }
+}

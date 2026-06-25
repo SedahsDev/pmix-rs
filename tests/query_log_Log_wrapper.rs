@@ -97,7 +97,13 @@ fn test_log_data_nb_empty() {
     }
     let data: Vec<pmix::Info> = vec![];
     let directives: Vec<pmix::Info> = vec![];
-    let result = log_data_nb(&data, &directives, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = log_data_nb(
+        &data,
+        &directives,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),
@@ -123,7 +129,13 @@ fn test_log_data_nb_with_data() {
     let info = InfoBuilder::new().build();
     let data = vec![info];
     let directives: Vec<pmix::Info> = vec![];
-    let result = log_data_nb(&data, &directives, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = log_data_nb(
+        &data,
+        &directives,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),
@@ -149,7 +161,13 @@ fn test_log_data_nb_with_directives() {
     let data: Vec<pmix::Info> = vec![];
     let info = InfoBuilder::new().build();
     let directives = vec![info];
-    let result = log_data_nb(&data, &directives, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = log_data_nb(
+        &data,
+        &directives,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),
@@ -176,7 +194,13 @@ fn test_log_data_nb_with_both() {
     let info2 = InfoBuilder::new().build();
     let data = vec![info1];
     let directives = vec![info2];
-    let result = log_data_nb(&data, &directives, Box::new(Cb { c: Arc::clone(&called) }));
+    let result = log_data_nb(
+        &data,
+        &directives,
+        Box::new(Cb {
+            c: Arc::clone(&called),
+        }),
+    );
     assert!(result.is_err());
     assert!(
         !called.load(Ordering::SeqCst),

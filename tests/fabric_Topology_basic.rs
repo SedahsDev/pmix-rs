@@ -100,7 +100,11 @@ fn test_topology_drop_named() {
 fn test_topology_not_send() {
     // PmixTopology contains *mut c_void and MaybeUninit — it is NOT Send.
     // We verify this by checking that the type does not implement Send.
-    fn assert_not_send<T>() where for<'a> T: Sized {}
+    fn assert_not_send<T>()
+    where
+        for<'a> T: Sized,
+    {
+    }
     // If this compiled with Arc::new(topo), it would require Send + Sync.
     // Since PmixTopology has raw pointers, we just verify construction works.
     assert_not_send::<PmixTopology>();
