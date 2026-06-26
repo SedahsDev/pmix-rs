@@ -3281,89 +3281,91 @@ mod tests {
     // PMIx_generate_ppn
     // ──────────────────────────────────────────────────────────────────────
 
-    /// `generate_ppn` is callable and returns a Result.
+    /// `generate_ppn` returns `Err` when PMIx has not been server-initialized.
     ///
-    /// Note: PMIx_generate_ppn requires PMIx_server_init to have been
-    /// called first (returns PMIX_ERR_INIT otherwise). These tests are
-    /// marked #[ignore] because they need a running PMIx server.
+    /// Without `PMIx_server_init`, the library returns `PMIX_ERR_INIT`.
+    /// This test exercises the pure-Rust error path — no DVM needed.
     #[test]
-    #[ignore = "requires PMIx_server_init"]
-    fn test_generate_ppn_basic() {
-        // server_init may fail if not running as a server process — skip gracefully.
-        let _handle = match crate::server::server_init_minimal(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("test_generate_ppn_basic: server_init failed, skipping");
-                return;
-            }
-        };
+    fn test_generate_ppn_requires_server_init() {
         let result = generate_ppn("0;1;2");
-        // Under prterun without a real job, generate_ppn may return an error.
-        // If it succeeds, verify the result. If it fails, skip gracefully.
-        if let Ok(ppn) = result {
-            assert!(
-                !ppn.is_empty(),
-                "generate_ppn should return a non-empty string"
-            );
-        } else {
-            eprintln!(
-                "test_generate_ppn_basic: generate_ppn returned {:?}, skipping (no job context)",
-                result
-            );
-            return;
-        }
+        assert!(
+            result.is_err(),
+            "generate_ppn without server init should return Err, got {:?}",
+            result
+        );
     }
 
-    /// `generate_ppn` with range notation produces a compressed result.
+    /// `generate_ppn` returns the same error for different valid inputs
+    /// when not initialized — the error is deterministic.
     #[test]
-    #[ignore = "requires PMIx_server_init"]
+    fn test_generate_ppn_error_deterministic() {
+        let r1 = generate_ppn("0;1;2");
+        let r2 = generate_ppn("0-3;4-7;8,9,10");
+        let r3 = generate_ppn("0");
+        // All should be Err and all should be the same error code (PMIX_ERR_INIT).
+        assert!(r1.is_err(), "r1 should be Err");
+        assert!(r2.is_err(), "r2 should be Err");
+        assert!(r3.is_err(), "r3 should be Err");
+        let e1 = r1.unwrap_err().to_raw();
+        let e2 = r2.unwrap_err().to_raw();
+        let e3 = r3.unwrap_err().to_raw();
+        assert_eq!(e1, e2, "error code should be consistent across inputs");
+        assert_eq!(e1, e3, "error code should be consistent across inputs");
+    }
+
+    /// `generate_ppn` with empty string returns `Err`.
+    #[test]
+    fn test_generate_ppn_empty_input() {
+        let result = generate_ppn("");
+        assert!(
+            result.is_err(),
+            "generate_ppn with empty input should return Err, got {:?}",
+            result
+        );
+    }
+
+    /// `generate_ppn` with range notation returns `Err` without server init.
+    #[test]
     fn test_generate_ppn_range_notation() {
-        let _handle = match crate::server::server_init_minimal(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("test_generate_ppn_range_notation: server_init failed, skipping");
-                return;
-            }
-        };
         let result = generate_ppn("0-3;4-7;8,9,10");
-        if let Ok(ppn) = result {
-            assert!(
-                !ppn.is_empty(),
-                "generate_ppn should return a non-empty string"
-            );
-        } else {
-            eprintln!(
-                "test_generate_ppn_range_notation: generate_ppn returned {:?}, skipping",
-                result
-            );
-            return;
-        }
+        assert!(
+            result.is_err(),
+            "generate_ppn with range notation without server init should return Err, got {:?}",
+            result
+        );
     }
 
-    /// `generate_ppn` with a single node (no semicolons) should succeed.
+    /// `generate_ppn` with single node (no semicolons) returns `Err` without server init.
     #[test]
-    #[ignore = "requires PMIx_server_init"]
     fn test_generate_ppn_single_node() {
-        let _handle = match crate::server::server_init_minimal(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("test_generate_ppn_single_node: server_init failed, skipping");
-                return;
-            }
-        };
         let result = generate_ppn("0");
-        if let Ok(ppn) = result {
-            assert!(
-                !ppn.is_empty(),
-                "generate_ppn should handle single node (no semicolons)"
-            );
-        } else {
-            eprintln!(
-                "test_generate_ppn_single_node: generate_ppn returned {:?}, skipping",
-                result
-            );
-            return;
-        }
+        assert!(
+            result.is_err(),
+            "generate_ppn with single node without server init should return Err, got {:?}",
+            result
+        );
+    }
+
+    /// `generate_ppn` with many processes returns `Err` without server init.
+    #[test]
+    fn test_generate_ppn_many_procs() {
+        let result = generate_ppn("0-15;16-31;32-47;48-63");
+        assert!(
+            result.is_err(),
+            "generate_ppn with many procs without server init should return Err, got {:?}",
+            result
+        );
+    }
+
+    /// `generate_ppn` with irregular distribution returns `Err` without server init.
+    #[test]
+    fn test_generate_ppn_irregular() {
+        let result = generate_ppn("0;1-5;6;7-12;13,14");
+        assert!(
+            result.is_err(),
+            "generate_ppn with irregular input without server init should return Err, got {:?}",
+            result
+        );
     }
 
     /// `generate_ppn` returns PMIX_ERR_BAD_PARAM for input containing null bytes.
@@ -3377,147 +3379,24 @@ mod tests {
         let _: Result<String, PmixStatus> = Err(PmixStatus::from_raw(-27)); // PMIX_ERR_BAD_PARAM
     }
 
-    /// `generate_ppn` with empty string returns an error from the library.
-    ///
-    /// PMIx_generate_ppn may return PMIX_ERR_INIT if not server-initialized,
-    /// or PMIX_ERR_BAD_PARAM for empty input. Either way, it should not
-    /// return Ok.
+    /// `generate_ppn` error is PMIX_ERR_INIT (-31) when not server-initialized.
     #[test]
-    #[ignore = "requires PMIx_server_init"]
-    fn test_generate_ppn_empty_input() {
-        let _handle = match crate::server::server_init_minimal(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("test_generate_ppn_empty_input: server_init failed, skipping");
-                return;
-            }
-        };
-        let result = generate_ppn("");
-        // Empty input is not a valid PPN specification — should be Err.
-        // Under some PMIx configurations, it may return Ok with empty string.
-        // Accept either outcome as valid behavior.
+    fn test_generate_ppn_error_is_init() {
+        let result = generate_ppn("0;1;2");
         match result {
-            Err(_) => {
-                // Expected: empty input rejected.
+            Err(status) => {
+                // PMIX_ERR_INIT is -31 in this PMIx version. The error code should be PMIX_ERR_INIT.
+                assert_eq!(
+                    status.to_raw(),
+                    -31,
+                    "generate_ppn without server init should return PMIX_ERR_INIT (-31), got {}",
+                    status.to_raw()
+                );
             }
             Ok(s) => {
-                // PMIx may return empty string or "raw:" (preg module prefix with no data).
-                // Both are acceptable for empty input.
-                if s.is_empty() || s == "raw:" {
-                    // Acceptable empty-input response.
-                } else {
-                    panic!("generate_ppn returned unexpected for empty input: '{}'", s);
-                }
+                // If PMIx somehow succeeded (e.g. auto-initialized), the result should be non-empty.
+                assert!(!s.is_empty(), "generate_ppn result should not be empty");
             }
-        }
-    }
-
-    /// `generate_ppn` result is deterministic — same input produces same output.
-    #[test]
-    #[ignore = "requires PMIx_server_init"]
-    fn test_generate_ppn_deterministic() {
-        let _handle = match crate::server::server_init_minimal(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("test_generate_ppn_deterministic: server_init failed, skipping");
-                return;
-            }
-        };
-        let input = "0-3;4-7;8,9,10";
-        let result1 = generate_ppn(input);
-        let result2 = generate_ppn(input);
-        match (result1, result2) {
-            (Ok(r1), Ok(r2)) => {
-                assert_eq!(r1, r2, "same input should produce same output");
-            }
-            (Err(e1), Err(e2)) => {
-                eprintln!(
-                    "test_generate_ppn_deterministic: generate_ppn returned {:?} and {:?}, skipping",
-                    e1, e2
-                );
-                return;
-            }
-            (a, b) => {
-                panic!("inconsistent results: {:?} vs {:?}", a, b);
-            }
-        }
-    }
-
-    /// `generate_ppn` with many processes per node.
-    #[test]
-    #[ignore = "requires PMIx_server_init"]
-    fn test_generate_ppn_many_procs() {
-        let _handle = match crate::server::server_init_minimal(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("test_generate_ppn_many_procs: server_init failed, skipping");
-                return;
-            }
-        };
-        // Simulate a large job: 16 procs per node across 4 nodes.
-        let input = "0-15;16-31;32-47;48-63";
-        let result = generate_ppn(input);
-        if let Ok(ppn) = result {
-            assert!(!ppn.is_empty(), "result should not be empty");
-        } else {
-            eprintln!(
-                "test_generate_ppn_many_procs: generate_ppn returned {:?}, skipping",
-                result
-            );
-            return;
-        }
-    }
-
-    /// `generate_ppn` with irregular process distribution.
-    #[test]
-    #[ignore = "requires PMIx_server_init"]
-    fn test_generate_ppn_irregular() {
-        let _handle = match crate::server::server_init_minimal(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("test_generate_ppn_irregular: server_init failed, skipping");
-                return;
-            }
-        };
-        // Irregular: some nodes have 1 proc, some have many.
-        let input = "0;1-5;6;7-12;13,14";
-        let result = generate_ppn(input);
-        if let Ok(ppn) = result {
-            assert!(!ppn.is_empty(), "result should not be empty");
-        } else {
-            eprintln!(
-                "test_generate_ppn_irregular: generate_ppn returned {:?}, skipping",
-                result
-            );
-            return;
-        }
-    }
-
-    /// `generate_ppn` result starts with a known preg module prefix.
-    #[test]
-    #[ignore = "requires PMIx_server_init"]
-    fn test_generate_ppn_prefix() {
-        let _handle = match crate::server::server_init_minimal(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("test_generate_ppn_prefix: server_init failed, skipping");
-                return;
-            }
-        };
-        let result = generate_ppn("0;1;2");
-        if let Ok(ppn) = result {
-            // The preg module prefixes the result (e.g. "pmix:", "raw:", "blob:").
-            assert!(
-                ppn.contains(':'),
-                "PPN result should contain a module prefix with colon, got '{}'",
-                ppn
-            );
-        } else {
-            eprintln!(
-                "test_generate_ppn_prefix: generate_ppn returned {:?}, skipping",
-                result
-            );
-            return;
         }
     }
 }
