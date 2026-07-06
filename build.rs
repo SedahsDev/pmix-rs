@@ -5,7 +5,11 @@ fn main() {
     // Tell cargo to look for shared libraries in the specified directory
     println!("cargo:rustc-link-search=/home/bzf/projects/prrte/scratch/install/lib");
 
-    // Tell cargo to tell rustc to link the system pmix shared library.
+    // Set rpath so the binary finds the prrte-bundled libpmix at runtime
+    // (not the system OpenPMIX which has GDS segfault bugs under prterun)
+    println!("cargo:rustc-link-arg=-Wl,-rpath,/home/bzf/projects/prrte/scratch/install/lib");
+
+    // Tell cargo to tell rustc to link the pmix shared library.
     println!("cargo:rustc-link-lib=pmix");
 
     println!("cargo:rerun-if-changed=wrapper.h");
