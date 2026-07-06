@@ -1235,7 +1235,6 @@ mod tests {
     /// This test will fail at the FFI level (no PMIx server), but verifies
     /// the parameter handling is correct.
     #[test]
-    #[ignore = "requires PMIx daemon"]
     fn test_fabric_register_empty_directives() {
         let mut fabric = PmixFabric::new(Some("test")).unwrap();
         let result = fabric_register(&mut fabric, &[]);
@@ -1248,7 +1247,6 @@ mod tests {
 
     /// Test that fabric_register with a named fabric doesn't crash.
     #[test]
-    #[ignore = "requires PMIx daemon"]
     fn test_fabric_register_named() {
         let mut fabric = PmixFabric::new(Some("infiniband")).unwrap();
         let result = fabric_register(&mut fabric, &[]);
@@ -1262,7 +1260,6 @@ mod tests {
 
     /// Test the full register/update/deregister lifecycle.
     #[test]
-    #[ignore = "requires PMIx daemon"]
     fn test_fabric_lifecycle() {
         let mut fabric = PmixFabric::new(Some("lifecycle_test")).unwrap();
         assert!(!fabric.is_registered());
@@ -1290,7 +1287,6 @@ mod tests {
 
     /// Test double deregister returns error.
     #[test]
-    #[ignore = "requires PMIx daemon"]
     fn test_fabric_double_deregister() {
         let mut fabric = PmixFabric::unamed();
         let _ = fabric_register(&mut fabric, &[]);
@@ -1312,7 +1308,6 @@ mod tests {
     /// full PMIx server environment (SIGSEGV in the PMIx library itself).
     /// We verify init works and skip the FFI call to avoid crashing.
     #[test]
-    #[ignore = "requires PMIx daemon — FFI crashes without full server"]
     fn test_fabric_register_nb_compiles() {
         struct NbCb;
         impl FabricCallback for NbCb {
@@ -1339,7 +1334,6 @@ mod tests {
 
     /// Test that fabric_update_nb compiles and accepts a callback.
     #[test]
-    #[ignore = "requires PMIx daemon — FFI crashes without full server"]
     fn test_fabric_update_nb_compiles() {
         struct NbCb;
         impl FabricCallback for NbCb {
@@ -1361,7 +1355,6 @@ mod tests {
 
     /// Test that fabric_deregister_nb compiles and accepts a callback.
     #[test]
-    #[ignore = "requires PMIx daemon — FFI crashes without full server"]
     fn test_fabric_deregister_nb_compiles() {
         struct NbCb;
         impl FabricCallback for NbCb {
