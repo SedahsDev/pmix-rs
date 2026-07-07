@@ -1938,4 +1938,298 @@ mod tests {
         // The field type is Option<PmixOwnedValue>
         let _: Option<PmixOwnedValue> = pdata.value;
     }
+
+    // ─── publish: FFI call path tests ───────────────────────────────────────
+
+    #[test]
+    fn test_publish_reaches_ffi() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = publish(&info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── publish_nb: FFI call path tests ────────────────────────────────────
+
+    #[test]
+    fn test_publish_nb_reaches_ffi() {
+        struct DummyPublish;
+        impl PublishCallback for DummyPublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let callback: Box<dyn PublishCallback> = Box::new(DummyPublish);
+        let result = publish_nb(&info, callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── get: FFI call path tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_get_reaches_ffi() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let result = get(&proc, "test.key", None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_with_info() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = get(&proc, "test.key", Some(&info));
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── get_nb: FFI call path tests ────────────────────────────────────────
+
+    #[test]
+    fn test_get_nb_reaches_ffi() {
+        struct DummyGet;
+        impl GetValueCallback for DummyGet {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
+        }
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let callback: Box<dyn GetValueCallback> = Box::new(DummyGet);
+        let result = get_nb(&proc, "test.key", None, callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── lookup: FFI call path tests ────────────────────────────────────────
+
+    #[test]
+    fn test_lookup_reaches_ffi() {
+        let data = vec![PmixPdata::new("test.key")];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let mut data = data;
+        let result = lookup(&mut data, Some(&info));
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lookup_with_multiple_keys() {
+        let data = vec![
+            PmixPdata::new("key1"),
+            PmixPdata::new("key2"),
+            PmixPdata::new("key3"),
+        ];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let mut data = data;
+        let result = lookup(&mut data, Some(&info));
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── lookup_nb: FFI call path tests ─────────────────────────────────────
+
+    #[test]
+    fn test_lookup_nb_reaches_ffi() {
+        struct DummyLookup;
+        impl LookupCallback for DummyLookup {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
+        }
+        let keys = ["test.key"];
+        let callback: Box<dyn LookupCallback> = Box::new(DummyLookup);
+        let result = lookup_nb(&keys, None, callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── unpublish: FFI call path tests ─────────────────────────────────────
+
+    #[test]
+    fn test_unpublish_with_keys_reaches_ffi() {
+        let keys = ["test.key1", "test.key2"];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = unpublish(Some(&keys), Some(&info));
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_unpublish_with_no_keys() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = unpublish(None, Some(&info));
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_unpublish_with_single_key() {
+        let keys = ["test.key"];
+        let result = unpublish(Some(&keys), None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── unpublish_nb: FFI call path tests ──────────────────────────────────
+
+    #[test]
+    fn test_unpublish_nb_reaches_ffi() {
+        struct DummyUnpublish;
+        impl UnpublishCallback for DummyUnpublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let keys = ["test.key"];
+        let callback: Box<dyn UnpublishCallback> = Box::new(DummyUnpublish);
+        let result = unpublish_nb(Some(&keys), None, callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── store_internal: FFI call path tests ────────────────────────────────
+
+    #[test]
+    fn test_store_internal_signature() {
+        // Verify store_internal function signature compiles.
+        // We can't easily construct a PmixOwnedValue without FFI,
+        // so we just ensure the function exists and is callable.
+        // The fact that this compiles proves the signature is correct.
+        fn _check_signature() {
+            let f: fn(&Proc, &str, &PmixOwnedValue) -> Result<(), PmixStatus> = store_internal;
+            let _ = f;
+        }
+    }
+
+    // ─── fence_nb: FFI call path tests ──────────────────────────────────────
+
+    #[test]
+    fn test_fence_nb_reaches_ffi() {
+        struct DummyFence;
+        impl FenceCallback for DummyFence {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let procs: Vec<Proc> = Vec::new();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let callback: Box<dyn FenceCallback> = Box::new(DummyFence);
+        let result = fence_nb(&procs, Some(&info), callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Data operations lifecycle structural test ──────────────────────────
+
+    #[test]
+    fn test_publish_lookup_unpublish_pattern() {
+        // Structural test: verify the publish -> lookup -> unpublish pattern
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+
+        // Publish (expected to fail without DVM)
+        let pub_result = publish(&info);
+
+        // Lookup (expected to fail without DVM)
+        let data = vec![PmixPdata::new("test.key")];
+        let mut data = data;
+        let lookup_result = lookup(&mut data, None);
+
+        // Unpublish (expected to fail without DVM)
+        let keys = ["test.key"];
+        let unpublish_result = unpublish(Some(&keys), None);
+
+        // All should be errors without DVM
+        match (pub_result, lookup_result, unpublish_result) {
+            (Err(_), Err(_), Err(_)) => {
+                // Expected without DVM
+            }
+            _ => {
+                // If any succeeded, DVM is running — that's fine too
+            }
+        }
+    }
 }

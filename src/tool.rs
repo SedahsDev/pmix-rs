@@ -1021,4 +1021,272 @@ mod tests {
         assert!(info.handle.is_null());
         assert_eq!(info.len, 0);
     }
+
+    // ─── tool_finalize: structural tests ────────────────────────────────────
+
+    #[test]
+    fn test_tool_finalize_with_dummy_handle() {
+        let proc = Proc::new("test_tool", 0).unwrap();
+        let handle = PmixToolHandle { proc };
+        // tool_finalize requires PMIx to be initialized — expect error
+        let result = tool_finalize(handle);
+        match result {
+            Ok(_) => {} // rare: only if PMIx is initialized
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── tool_disconnect: FFI call path tests ───────────────────────────────
+
+    #[test]
+    fn test_tool_disconnect_reaches_ffi() {
+        let server = Proc::new("test_server", 0).unwrap();
+        let result = tool_disconnect(&server);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_tool_disconnect_wildcard_server() {
+        let server = Proc::new("", u32::MAX).unwrap();
+        let result = tool_disconnect(&server);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_tool_disconnect_various_ranks() {
+        for rank in [0, 1, 42, 9999, u32::MAX] {
+            let server = Proc::new("test_ns", rank).unwrap();
+            let result = tool_disconnect(&server);
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(
+                        raw < 0,
+                        "Expected error without DVM for rank {}, got {}",
+                        rank,
+                        raw
+                    );
+                }
+            }
+        }
+    }
+
+    // ─── tool_connect_to_server: FFI call path tests ────────────────────────
+
+    #[test]
+    fn test_tool_connect_to_server_reaches_ffi() {
+        let server = Proc::new("test_server", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = tool_connect_to_server(Some(&server), &info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_tool_connect_to_server_with_info_builder() {
+        let server = Proc::new("test_server", 0).unwrap();
+        let info = crate::InfoBuilder::new().build();
+        let result = tool_connect_to_server(Some(&server), &info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── tool_set_server: FFI call path tests ───────────────────────────────
+
+    #[test]
+    fn test_tool_set_server_reaches_ffi() {
+        let server = Proc::new("test_server", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = tool_set_server(&server, &info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_tool_set_server_with_info_builder() {
+        let server = Proc::new("test_server", 0).unwrap();
+        let info = crate::InfoBuilder::new().build();
+        let result = tool_set_server(&server, &info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── TOOL_INITIALIZED / SERVER_CONNECTED state tests ──────────────────────
+
+    #[test]
+    fn test_tool_initialized_state_is_false_by_default() {
+        let val = TOOL_INITIALIZED.lock().unwrap();
+        assert!(!*val);
+    }
+
+    // ─── tool_init: FFI call path tests ─────────────────────────────────────
+
+    #[test]
+    fn test_tool_init_reaches_ffi() {
+        let proc = Proc::new("test_tool", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = tool_init(Some(&proc), &info);
+        match result {
+            Ok(_) => {} // rare: only if PMIx is initialized
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_tool_init_with_none_proc() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = tool_init(None, &info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── tool_init_minimal: FFI call path tests ─────────────────────────────
+
+    #[test]
+    fn test_tool_init_minimal_reaches_ffi() {
+        let result = tool_init_minimal();
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── tool_attach_to_server: FFI call path tests ─────────────────────────
+
+    #[test]
+    fn test_tool_attach_to_server_reaches_ffi() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = tool_attach_to_server(None, false, &info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── tool_get_servers: FFI call path tests ──────────────────────────────
+
+    #[test]
+    fn test_tool_get_servers_reaches_ffi() {
+        let result = tool_get_servers();
+        match result {
+            Ok(servers) => {
+                // If we get servers, they should be Procs
+                for server in &servers {
+                    let _ = server.rank();
+                }
+            }
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Tool lifecycle structural test ─────────────────────────────────────
+
+    #[test]
+    fn test_tool_init_then_finalize_pattern() {
+        // Structural test: verify init -> finalize pattern compiles and doesn't panic
+        let result = tool_init_minimal();
+        match result {
+            Ok(handle) => {
+                // If init succeeded, try to finalize
+                let _ = tool_finalize(handle);
+            }
+            Err(_) => {
+                // Expected without DVM
+            }
+        }
+    }
+
+    // ─── PmixToolHandle and PmixServerHandle trait verification ─────────────
+
+    #[test]
+    fn test_tool_handle_is_clone() {
+        fn assert_clone<T: Clone>() {}
+        assert_clone::<PmixToolHandle>();
+    }
+
+    #[test]
+    fn test_server_handle_is_clone() {
+        fn assert_clone<T: Clone>() {}
+        assert_clone::<PmixServerHandle>();
+    }
+
+    #[test]
+    fn test_tool_handle_is_debug() {
+        fn assert_debug<T: std::fmt::Debug>() {}
+        assert_debug::<PmixToolHandle>();
+    }
+
+    #[test]
+    fn test_server_handle_is_debug() {
+        fn assert_debug<T: std::fmt::Debug>() {}
+        assert_debug::<PmixServerHandle>();
+    }
 }

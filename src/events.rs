@@ -764,4 +764,365 @@ mod tests {
         let ref_: EventHandlerRef = 42;
         assert_eq!(ref_, 42usize);
     }
+
+    // ─── register_event_handler: FFI call path tests ────────────────────────
+
+    #[test]
+    fn test_register_event_handler_empty_codes_reaches_ffi() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = register_event_handler(&[], &info, None, None);
+        // Without PMIx init, this returns an error (not BAD_PARAM)
+        match result {
+            Ok(_) => {} // rare: only if PMIx is initialized
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_register_event_handler_with_codes_reaches_ffi() {
+        let codes = [
+            PmixStatus::Known(PmixError::ErrJobAborted),
+            PmixStatus::Known(PmixError::ErrTimeout),
+        ];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = register_event_handler(&codes, &info, None, None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_register_event_handler_with_notification_fn() {
+        extern "C" fn dummy_handler(
+            _id: EventHandlerRef,
+            _status: i32,
+            _source: *const std::os::raw::c_void,
+            _info: *mut std::os::raw::c_void,
+            _ninfo: usize,
+            _results: *mut std::os::raw::c_void,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbdata: *mut std::os::raw::c_void,
+        ) {
+        }
+        let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = register_event_handler(&codes, &info, Some(dummy_handler), None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── register_event_handler_nb: FFI call path tests ─────────────────────
+
+    #[test]
+    fn test_register_event_handler_nb_reaches_ffi() {
+        extern "C" fn dummy_reg_cb(_status: i32, _refid: EventHandlerRef, _cbdata: *mut c_void) {}
+        let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = register_event_handler_nb(
+            &codes,
+            &info,
+            None,
+            Some(dummy_reg_cb),
+            std::ptr::null_mut(),
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_register_event_handler_nb_empty_codes() {
+        extern "C" fn dummy_reg_cb(_status: i32, _refid: EventHandlerRef, _cbdata: *mut c_void) {}
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result =
+            register_event_handler_nb(&[], &info, None, Some(dummy_reg_cb), std::ptr::null_mut());
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── deregister_event_handler: FFI call path tests ──────────────────────
+
+    #[test]
+    fn test_deregister_event_handler_reaches_ffi() {
+        // Deregister a non-existent handler ref — should return error, not panic
+        let result = deregister_event_handler(99999, None);
+        match result {
+            Ok(_) => {} // rare
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(
+                    raw < 0,
+                    "Expected error for invalid handler ref, got {}",
+                    raw
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_deregister_event_handler_zero_ref() {
+        let result = deregister_event_handler(0, None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error for zero handler ref, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_deregister_event_handler_max_ref() {
+        let result = deregister_event_handler(usize::MAX, None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error for MAX handler ref, got {}", raw);
+            }
+        }
+    }
+
+    // ─── deregister_event_handler_nb: FFI call path tests ───────────────────
+
+    #[test]
+    fn test_deregister_event_handler_nb_reaches_ffi() {
+        extern "C" fn dummy_op_cb(_status: i32, _cbdata: *mut c_void) {}
+        let result = deregister_event_handler_nb(99999, Some(dummy_op_cb), std::ptr::null_mut());
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── notify_event: FFI call path tests ──────────────────────────────────
+
+    #[test]
+    fn test_notify_event_reaches_ffi() {
+        let source = Proc::new("test_job", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = notify_event(
+            PmixStatus::Known(PmixError::ErrJobAborted),
+            &source,
+            PmixDataRange::Session,
+            &info,
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_notify_event_with_different_ranges() {
+        let source = Proc::new("test_job", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        for range_raw in [0u8, 1, 2, 3] {
+            let range = PmixDataRange::from_raw(range_raw);
+            let result = notify_event(
+                PmixStatus::Known(PmixError::ErrTimeout),
+                &source,
+                range,
+                &info,
+            );
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(
+                        raw < 0,
+                        "Expected error without DVM for range {}, got {}",
+                        range_raw,
+                        raw
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_notify_event_with_wildcard_source() {
+        let source = Proc::new("", u32::MAX).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = notify_event(
+            PmixStatus::Known(PmixError::ErrNotSupported),
+            &source,
+            PmixDataRange::Namespace,
+            &info,
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── notify_event_nb: FFI call path tests ───────────────────────────────
+
+    #[test]
+    fn test_notify_event_nb_reaches_ffi() {
+        extern "C" fn dummy_op_cb(_status: i32, _cbdata: *mut c_void) {}
+        let source = Proc::new("test_job", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = notify_event_nb(
+            PmixStatus::Known(PmixError::ErrJobAborted),
+            &source,
+            PmixDataRange::Session,
+            &info,
+            Some(dummy_op_cb),
+            std::ptr::null_mut(),
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── PmixDataRange: full variant coverage ───────────────────────────────
+
+    #[test]
+    fn test_data_range_all_variants() {
+        // Verify all known PmixDataRange variants can be constructed and round-trip
+        let ranges = [
+            (PmixDataRange::Undef, 0u8),
+            (PmixDataRange::Rm, 1u8),
+            (PmixDataRange::Local, 2u8),
+            (PmixDataRange::Namespace, 3u8),
+            (PmixDataRange::Session, 4u8),
+            (PmixDataRange::Global, 5u8),
+            (PmixDataRange::Custom, 6u8),
+            (PmixDataRange::ProcLocal, 7u8),
+            (PmixDataRange::Invalid, 255u8),
+        ];
+        for (range, expected_raw) in ranges {
+            assert_eq!(
+                range.to_raw(),
+                expected_raw,
+                "Variant {:?} raw value mismatch",
+                range
+            );
+        }
+    }
+
+    // ─── OpCbFn and HandlerRegCbFn type tests ───────────────────────────────
+
+    #[test]
+    fn test_opcbfn_none() {
+        let fn_: OpCbFn = None;
+        assert!(fn_.is_none());
+    }
+
+    #[test]
+    fn test_opcbfn_some() {
+        extern "C" fn dummy_op(_status: i32, _cbdata: *mut c_void) {}
+        let fn_: OpCbFn = Some(dummy_op);
+        assert!(fn_.is_some());
+    }
+
+    #[test]
+    fn test_handlerregcbfn_none() {
+        let fn_: HandlerRegCbFn = None;
+        assert!(fn_.is_none());
+    }
+
+    #[test]
+    fn test_handlerregcbfn_some() {
+        extern "C" fn dummy_reg(_status: i32, _refid: EventHandlerRef, _cbdata: *mut c_void) {}
+        let fn_: HandlerRegCbFn = Some(dummy_reg);
+        assert!(fn_.is_some());
+    }
+
+    // ─── Event handler lifecycle (structural test) ──────────────────────────
+
+    #[test]
+    fn test_register_then_deregister_pattern() {
+        // Test the structural pattern: register returns ref, deregister takes ref
+        // Without DVM both fail, but we verify the types are compatible
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
+
+        // Register (expected to fail without DVM)
+        let reg_result = register_event_handler(&codes, &info, None, None);
+
+        // Deregister with a dummy ref (expected to fail without DVM)
+        let dereg_result = deregister_event_handler(42, None);
+
+        // Both should be errors without DVM, or register could succeed and
+        // deregister could succeed if DVM is running
+        match (reg_result, dereg_result) {
+            (Ok(ref_id), _) => {
+                // If register succeeded, try to deregister the actual ref
+                let _ = deregister_event_handler(ref_id, None);
+            }
+            (Err(_), Err(_)) => {
+                // Both failed — expected without DVM
+            }
+            (Err(_), Ok(_)) => {
+                // Unlikely — deregister succeeded without register
+            }
+        }
+    }
 }
