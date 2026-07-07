@@ -186,7 +186,7 @@ fn test_pmix_credential_empty_as_raw() {
 #[ignore = "daemon isolation"]
 fn test_security_all_ffi_via_daemon() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
-    let handle = daemon_helper::get_tool_handle().expect("daemon handle");
+    let _handle = daemon_helper::get_tool_handle().expect("daemon handle");
 
     let directives = vec![InfoBuilder::new().build()];
 

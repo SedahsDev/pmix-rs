@@ -13,7 +13,7 @@ use pmix::tool::{
     tool_finalize, tool_get_servers, tool_init, tool_init_minimal, tool_is_connected,
     tool_set_server,
 };
-use pmix::{InfoBuilder, PmixError, PmixStatus, Proc};
+use pmix::{InfoBuilder, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Standalone type-check tests (always run, no daemon needed)

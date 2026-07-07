@@ -1,6 +1,5 @@
 //! Integration tests for `PMIx_Spawn_nb` via the safe `spawn_nb()` wrapper.
 
-use pmix::PmixStatus;
 use pmix::process_mgmt::{PmixApp, SpawnCallbackWrapper, spawn_nb};
 
 #[test]

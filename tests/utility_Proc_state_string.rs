@@ -5,7 +5,7 @@
 //! real PMIx library — a running PMIx daemon is NOT required because
 //! `PMIx_Proc_state_string` only performs a local lookup of a static string.
 
-use pmix::{PmixProcState, PmixStatus};
+use pmix::PmixProcState;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // proc_state_string — FFI wrapper tests

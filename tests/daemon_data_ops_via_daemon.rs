@@ -14,7 +14,7 @@ use pmix::data_ops::{
     unpublish_nb,
 };
 use pmix::server::{PmixServerModule, server_finalize, server_init};
-use pmix::{InfoBuilder, PmixError, PmixOwnedValue, PmixStatus, PmixValueBuilder, Proc};
+use pmix::{InfoBuilder, PmixOwnedValue, PmixStatus, PmixValueBuilder, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Standalone type-check tests (always run, no daemon needed)

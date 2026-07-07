@@ -311,7 +311,7 @@ fn dmodex_request_various_nspace_formats() {
 fn dmodex_request_nul_in_nspace_rejected() {
     // CString::new (used inside Proc::new) rejects NUL bytes.
     // This should fail at Proc construction, not at dmodex_request.
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let _result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         Proc::new("test\0nspace", 0)
     }));
 

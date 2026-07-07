@@ -1,6 +1,5 @@
 //! Integration tests for `PMIx_Connect_nb` via the safe `connect_nb()` wrapper.
 
-use pmix::PmixStatus;
 use pmix::process_mgmt::{ConnectCallbackWrapper, connect_nb};
 
 #[test]

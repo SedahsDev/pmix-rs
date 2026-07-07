@@ -9,11 +9,11 @@
 mod daemon_helper;
 
 use pmix::data_serialization::{
-    PmixByteObject, PmixDataBuffer, data_buffer_create, data_buffer_release, data_compress,
+    PmixByteObject, data_buffer_create, data_buffer_release, data_compress,
     data_copy, data_copy_payload, data_decompress, data_embed, data_load, data_pack, data_print,
     data_unload, data_unpack,
 };
-use pmix::{InfoBuilder, PmixDataType, PmixError, PmixStatus};
+use pmix::{InfoBuilder, PmixDataType};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Daemon tests — single consolidated test using server_init/server_finalize.

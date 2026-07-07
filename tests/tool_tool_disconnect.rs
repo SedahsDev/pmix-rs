@@ -15,7 +15,7 @@
 //! tool library initialized. The tool can later reconnect using
 //! `PMIx_tool_attach_to_server`.
 
-use pmix::tool::{PmixServerHandle, PmixToolHandle, tool_attach_to_server, tool_disconnect};
+use pmix::tool::{PmixServerHandle, tool_attach_to_server, tool_disconnect};
 use pmix::{Info, InfoBuilder, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ fn test_tool_disconnect_takes_ref() {
 #[test]
 fn test_tool_disconnect_return_unit() {
     type Ret = Result<(), PmixStatus>;
-    fn _assert_same_type(r: Ret) {}
+    fn _assert_same_type(_r: Ret) {}
     let _: fn(&Proc) -> Ret = tool_disconnect;
 }
 

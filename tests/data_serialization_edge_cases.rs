@@ -1173,7 +1173,7 @@ fn test_buffer_create_independent() {
 #[test]
 fn test_buffer_create_after_release() {
     {
-        let buf = data_buffer_create().expect("buf");
+        let _buf = data_buffer_create().expect("buf");
         // Don't call data_buffer_release explicitly — Drop handles it.
         // Calling data_buffer_release(&mut buf) before Drop causes double-free
         // because the wrapper doesn't null the internal pointer.

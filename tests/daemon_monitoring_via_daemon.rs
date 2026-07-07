@@ -116,7 +116,7 @@ fn test_monitoring_all_ffi_operations() {
     let handle = daemon_helper::get_tool_handle().expect("shared tool handle");
     let _ = handle; // handle lives for the duration; we just need it initialized
 
-    let info = InfoBuilder::new().build();
+    let _info = InfoBuilder::new().build();
     let directives = vec![InfoBuilder::new().build()];
 
     // ── 1. heartbeat ──

@@ -27,7 +27,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use pmix::tool::{PmixToolHandle, tool_init};
-use pmix::{Info, InfoBuilder, info_with_string_key};
+use pmix::{Info, info_with_string_key};
 
 /// Default path where the systemd PRTE service writes its URI.
 const DEFAULT_URI_FILE: &str = "/run/user/1000/prte/uri";

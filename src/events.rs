@@ -42,7 +42,7 @@
 //! deregister_event_handler(handler_ref, None).expect("deregister failed");
 //! ```
 
-use crate::{ffi, Info, PmixDataRange, PmixError, PmixStatus, Proc};
+use crate::{Info, PmixDataRange, PmixError, PmixStatus, Proc, ffi};
 use std::ffi::CStr;
 use std::os::raw::c_void;
 use std::ptr;

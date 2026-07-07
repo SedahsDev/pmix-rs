@@ -1,6 +1,5 @@
 //! Integration tests for `PMIx_Group_leave_nb` via the safe `group_leave_nb()` wrapper.
 
-use pmix::PmixStatus;
 use pmix::groups::{GroupLeaveCallbackWrapper, group_leave_nb};
 
 #[test]

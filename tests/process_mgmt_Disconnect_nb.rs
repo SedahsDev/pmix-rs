@@ -1,6 +1,5 @@
 //! Integration tests for `PMIx_Disconnect_nb` via the safe `disconnect_nb()` wrapper.
 
-use pmix::PmixStatus;
 use pmix::process_mgmt::{DisconnectCallbackWrapper, disconnect_nb};
 
 #[test]

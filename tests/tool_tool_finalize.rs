@@ -41,7 +41,7 @@ fn test_tool_finalize_consumes_handle() {
 fn test_tool_finalize_return_unit() {
     // Verify the Ok arm carries () not a handle or other type.
     type Ret = Result<(), PmixStatus>;
-    fn _assert_same_type(r: Ret) {}
+    fn _assert_same_type(_r: Ret) {}
     // tool_finalize returns exactly this type.
     let _: fn(PmixToolHandle) -> Ret = tool_finalize;
 }

@@ -8,7 +8,6 @@
 //! ```
 
 use pmix::PmixStatus;
-use pmix::monitoring;
 use std::sync::OnceLock;
 
 static PMIX_CONTEXT: OnceLock<Option<pmix::Context>> = OnceLock::new();

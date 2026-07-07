@@ -7,7 +7,7 @@
 //! FFI tests that require PMIx_Init are marked #[ignore].
 
 use pmix::fabric::*;
-use pmix::{InfoBuilder, PmixDeviceType, PmixStatus};
+use pmix::{InfoBuilder, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixFabric construction and accessors (no PMIx_Init needed)
