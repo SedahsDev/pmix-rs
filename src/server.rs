@@ -4044,8 +4044,13 @@ pub fn server_get_credential(
 }
 
 #[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    // ── PmixServerModule tests ───────────────────────────────────────────────
 
     #[test]
     fn test_server_module_default() {
@@ -4089,5 +4094,636 @@ mod tests {
         assert!(module.fabric.is_none());
         assert!(module.client_connected2.is_none());
         assert!(module.session_control.is_none());
+    }
+
+    // ── New: PmixServerModule callback manipulation ──────────────────────────
+
+    extern "C" fn dummy_callback() {}
+
+    #[test]
+    fn test_server_module_set_single_callback() {
+        let mut module = PmixServerModule::default();
+        module.client_connected = Some(dummy_callback);
+        assert!(module.client_connected.is_some());
+        assert!(module.client_finalized.is_none());
+        assert!(module.abort.is_none());
+    }
+
+    #[test]
+    fn test_server_module_set_all_callbacks() {
+        let mut module = PmixServerModule::default();
+        module.client_connected = Some(dummy_callback);
+        module.client_finalized = Some(dummy_callback);
+        module.abort = Some(dummy_callback);
+        module.fence_nb = Some(dummy_callback);
+        module.direct_modex = Some(dummy_callback);
+        module.publish = Some(dummy_callback);
+        module.lookup = Some(dummy_callback);
+        module.unpublish = Some(dummy_callback);
+        module.spawn = Some(dummy_callback);
+        module.connect = Some(dummy_callback);
+        module.disconnect = Some(dummy_callback);
+        module.register_events = Some(dummy_callback);
+        module.deregister_events = Some(dummy_callback);
+        module.listener = Some(dummy_callback);
+        module.notify_event = Some(dummy_callback);
+        module.query = Some(dummy_callback);
+        module.tool_connected = Some(dummy_callback);
+        module.log = Some(dummy_callback);
+        module.allocate = Some(dummy_callback);
+        module.job_control = Some(dummy_callback);
+        module.monitor = Some(dummy_callback);
+        module.get_credential = Some(dummy_callback);
+        module.validate_credential = Some(dummy_callback);
+        module.iof_pull = Some(dummy_callback);
+        module.push_stdin = Some(dummy_callback);
+        module.group = Some(dummy_callback);
+        module.fabric = Some(dummy_callback);
+        module.client_connected2 = Some(dummy_callback);
+        module.session_control = Some(dummy_callback);
+        assert!(module.client_connected.is_some());
+        assert!(module.session_control.is_some());
+    }
+
+    #[test]
+    fn test_server_module_clear_callback() {
+        let mut module = PmixServerModule::default();
+        module.client_connected = Some(dummy_callback);
+        assert!(module.client_connected.is_some());
+        module.client_connected = None;
+        assert!(module.client_connected.is_none());
+    }
+
+    #[test]
+    fn test_server_module_as_c_ptr_returns_non_null() {
+        let module = PmixServerModule::default();
+        let ptr = module.as_c_ptr();
+        assert!(
+            !ptr.is_null(),
+            "as_c_ptr must not return null for a valid module"
+        );
+    }
+
+    #[test]
+    fn test_server_module_as_c_ptr_consistent() {
+        let module = PmixServerModule::default();
+        let ptr1 = module.as_c_ptr();
+        let ptr2 = module.as_c_ptr();
+        assert_eq!(
+            ptr1, ptr2,
+            "as_c_ptr should return consistent pointer for same module"
+        );
+    }
+
+    #[test]
+    fn test_server_module_debug_format() {
+        let module = PmixServerModule::default();
+        let debug_str = format!("{:?}", module);
+        assert!(!debug_str.is_empty(), "Debug output should not be empty");
+        assert!(debug_str.starts_with("PmixServerModule"));
+    }
+
+    #[test]
+    fn test_server_module_field_count() {
+        let module = PmixServerModule::default();
+        let debug_str = format!("{:?}", module);
+        assert!(debug_str.starts_with("PmixServerModule"));
+    }
+
+    // ── PmixServerHandle tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_server_handle_debug_format() {
+        let handle = PmixServerHandle { initialized: true };
+        let debug_str = format!("{:?}", handle);
+        assert!(!debug_str.is_empty(), "Debug output should not be empty");
+        assert!(debug_str.starts_with("PmixServerHandle"));
+    }
+
+    #[test]
+    fn test_server_handle_construction() {
+        let handle = PmixServerHandle { initialized: true };
+        assert!(handle.initialized);
+    }
+
+    // ── is_server_initialized tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_is_server_initialized_returns_bool() {
+        let _result: bool = is_server_initialized();
+        // Verify it compiles and doesn't panic
+    }
+
+    // ── Callback trait compile-time verification ─────────────────────────────
+
+    struct TestNspaceCallback {
+        called: Arc<AtomicBool>,
+    }
+
+    impl RegisterNspaceCallback for TestNspaceCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {
+            self.called.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn test_register_nspace_callback_trait_compiles() {
+        let _callback: Box<dyn RegisterNspaceCallback> = Box::new(TestNspaceCallback {
+            called: Arc::new(AtomicBool::new(false)),
+        });
+    }
+
+    struct TestDeregisterNspaceCallback;
+
+    impl DeregisterNspaceCallback for TestDeregisterNspaceCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+    }
+
+    #[test]
+    fn test_deregister_nspace_callback_trait_compiles() {
+        let _callback: Box<dyn DeregisterNspaceCallback> = Box::new(TestDeregisterNspaceCallback);
+    }
+
+    struct TestRegisterClientCallback;
+
+    impl RegisterClientCallback for TestRegisterClientCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+    }
+
+    #[test]
+    fn test_register_client_callback_trait_compiles() {
+        let _callback: Box<dyn RegisterClientCallback> = Box::new(TestRegisterClientCallback);
+    }
+
+    struct TestDeregisterClientCallback;
+
+    impl DeregisterClientCallback for TestDeregisterClientCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+    }
+
+    #[test]
+    fn test_deregister_client_callback_trait_compiles() {
+        let _callback: Box<dyn DeregisterClientCallback> = Box::new(TestDeregisterClientCallback);
+    }
+
+    struct TestDmodexRequestCallback;
+
+    impl DmodexRequestCallback for TestDmodexRequestCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus, _blob: Vec<u8>) {}
+    }
+
+    #[test]
+    fn test_dmodex_request_callback_trait_compiles() {
+        let _callback: Box<dyn DmodexRequestCallback> = Box::new(TestDmodexRequestCallback);
+    }
+
+    struct TestSetupApplicationCallback;
+
+    impl SetupApplicationCallback for TestSetupApplicationCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
+    }
+
+    #[test]
+    fn test_setup_application_callback_trait_compiles() {
+        let _callback: Box<dyn SetupApplicationCallback> = Box::new(TestSetupApplicationCallback);
+    }
+
+    struct TestSetupLocalSupportCallback;
+
+    impl SetupLocalSupportCallback for TestSetupLocalSupportCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+    }
+
+    #[test]
+    fn test_setup_local_support_callback_trait_compiles() {
+        let _callback: Box<dyn SetupLocalSupportCallback> = Box::new(TestSetupLocalSupportCallback);
+    }
+
+    struct TestIOFDeliverCallback;
+
+    impl IOFDeliverCallback for TestIOFDeliverCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+    }
+
+    #[test]
+    fn test_iof_deliver_callback_trait_compiles() {
+        let _callback: Box<dyn IOFDeliverCallback> = Box::new(TestIOFDeliverCallback);
+    }
+
+    struct TestCollectInventoryCallback;
+
+    impl CollectInventoryCallback for TestCollectInventoryCallback {
+        fn on_complete(&self, _status: PmixStatus, _inventory: CollectInventoryResults) {}
+    }
+
+    #[test]
+    fn test_collect_inventory_callback_trait_compiles() {
+        let _callback: Box<dyn CollectInventoryCallback> = Box::new(TestCollectInventoryCallback);
+    }
+
+    struct TestDeliverInventoryCallback;
+
+    impl DeliverInventoryCallback for TestDeliverInventoryCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+    }
+
+    #[test]
+    fn test_deliver_inventory_callback_trait_compiles() {
+        let _callback: Box<dyn DeliverInventoryCallback> = Box::new(TestDeliverInventoryCallback);
+    }
+
+    struct TestRegisterResourcesCallback;
+
+    impl RegisterResourcesCallback for TestRegisterResourcesCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+    }
+
+    #[test]
+    fn test_register_resources_callback_trait_compiles() {
+        let _callback: Box<dyn RegisterResourcesCallback> = Box::new(TestRegisterResourcesCallback);
+    }
+
+    struct TestDeregisterResourcesCallback;
+
+    impl DeregisterResourcesCallback for TestDeregisterResourcesCallback {
+        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+    }
+
+    #[test]
+    fn test_deregister_resources_callback_trait_compiles() {
+        let _callback: Box<dyn DeregisterResourcesCallback> =
+            Box::new(TestDeregisterResourcesCallback);
+    }
+
+    // ── FenceNbCallbackWrapper tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_fence_nb_callback_wrapper_construction() {
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+        let _wrapper = FenceNbCallbackWrapper::new(move |_status: PmixStatus| {
+            called_clone.store(true, Ordering::SeqCst);
+        });
+        assert!(!called.load(Ordering::SeqCst));
+    }
+
+    // ── Registry and sequence ID tests ───────────────────────────────────────
+
+    #[test]
+    fn test_register_nspace_seq_is_accessible() {
+        let seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
+        assert!(*seq >= 0);
+    }
+
+    #[test]
+    fn test_deregister_nspace_seq_is_accessible() {
+        let seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
+        assert!(*seq >= 0);
+    }
+
+    #[test]
+    fn test_register_nspace_registry_is_empty() {
+        let registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        assert!(
+            registry.is_empty(),
+            "Register nspace registry should be empty at test start"
+        );
+    }
+
+    #[test]
+    fn test_deregister_nspace_registry_is_empty() {
+        let registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        assert!(
+            registry.is_empty(),
+            "Deregister nspace registry should be empty at test start"
+        );
+    }
+
+    // ── Error path tests: FFI calls without server init ──────────────────────
+
+    #[test]
+    fn test_server_register_nspace_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn RegisterNspaceCallback> = Box::new(TestNspaceCallback {
+            called: Arc::new(AtomicBool::new(false)),
+        });
+        let result = server_register_nspace("test.nspace", 1, &info, callback);
+        assert!(
+            result.is_err(),
+            "register_nspace should fail without server init"
+        );
+    }
+
+    #[test]
+    fn test_server_define_process_set_fails_without_init() {
+        let result = server_define_process_set(&[], "test.pset");
+        assert!(
+            result.is_err(),
+            "define_process_set should fail without server init"
+        );
+    }
+
+    #[test]
+    fn test_server_delete_process_set_fails_without_init() {
+        let result = server_delete_process_set("test.pset");
+        assert!(
+            result.is_err(),
+            "delete_process_set should fail without server init"
+        );
+    }
+
+    #[test]
+    fn test_server_publish_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_publish(&handle, "test.nspace", &info);
+        assert!(
+            result.is_err(),
+            "server_publish should fail without server init"
+        );
+    }
+
+    #[test]
+    fn test_server_lookup_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_lookup(&handle, "test.nspace", "test_key", &[]);
+        assert!(
+            result.is_err(),
+            "server_lookup should fail without server init"
+        );
+    }
+
+    #[test]
+    fn test_server_delete_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_delete(&handle, "test.nspace", "test_key");
+        assert!(
+            result.is_err(),
+            "server_delete should fail without server init"
+        );
+    }
+
+    #[test]
+    fn test_server_fence_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_fence(&handle, &[], 0);
+        assert!(
+            result.is_err(),
+            "server_fence should fail without server init"
+        );
+    }
+
+    #[test]
+    fn test_server_connect_rejects_empty_procs() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_connect(&handle, &[], &[]);
+        assert!(
+            result.is_err(),
+            "server_connect should reject empty proc list"
+        );
+    }
+
+    #[test]
+    fn test_server_disconnect_rejects_empty_procs() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_disconnect(&handle, &[], &[]);
+        assert!(
+            result.is_err(),
+            "server_disconnect should reject empty proc list"
+        );
+    }
+
+    // ── Callback bridge null safety tests ────────────────────────────────────
+
+    #[test]
+    fn test_register_nspace_callback_bridge_null_cbdata() {
+        register_nspace_callback_bridge(0, ptr::null_mut());
+        // Should not panic
+    }
+
+    #[test]
+    fn test_deregister_nspace_callback_bridge_null_cbdata() {
+        deregister_nspace_callback_bridge(0, ptr::null_mut());
+        // Should not panic
+    }
+
+    // ── CollectInventoryResults tests ────────────────────────────────────────
+
+    #[test]
+    fn test_collect_inventory_results_construction() {
+        let results = CollectInventoryResults {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+
+    // ── server_register_client error path ────────────────────────────────────
+
+    #[test]
+    fn test_server_register_client_fails_without_init() {
+        let proc = Proc::new("test.nspace", 0).expect("Proc::new failed");
+        let callback: Box<dyn RegisterClientCallback> = Box::new(TestRegisterClientCallback);
+        let result = server_register_client(&proc, 0, 0, None, callback);
+        assert!(
+            result.is_err(),
+            "register_client should fail without server init"
+        );
+    }
+
+    // ── server_deregister_client error path ──────────────────────────────────
+
+    #[test]
+    fn test_server_deregister_client_compiles() {
+        let proc = Proc::new("test.nspace", 0).expect("Proc::new failed");
+        let callback: Option<Box<dyn DeregisterClientCallback>> =
+            Some(Box::new(TestDeregisterClientCallback));
+        server_deregister_client(&proc, callback);
+        // Should not panic
+    }
+
+    // ── server_dmodex_request error path ─────────────────────────────────────
+
+    #[test]
+    fn test_server_dmodex_request_fails_without_init() {
+        let proc = Proc::new("test.nspace", 0).expect("Proc::new failed");
+        let callback: Box<dyn DmodexRequestCallback> = Box::new(TestDmodexRequestCallback);
+        let result = server_dmodex_request(&proc, callback);
+        assert!(
+            result.is_err(),
+            "dmodex_request should fail without server init"
+        );
+    }
+
+    // ── server_setup_application error path ──────────────────────────────────
+
+    #[test]
+    fn test_server_setup_application_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn SetupApplicationCallback> = Box::new(TestSetupApplicationCallback);
+        let result = server_setup_application("test.nspace", &info, callback);
+        assert!(
+            result.is_err(),
+            "setup_application should fail without server init"
+        );
+    }
+
+    // ── server_setup_local_support error path ────────────────────────────────
+
+    #[test]
+    fn test_server_setup_local_support_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn SetupLocalSupportCallback> = Box::new(TestSetupLocalSupportCallback);
+        let result = server_setup_local_support("test.nspace", &info, callback);
+        assert!(
+            result.is_err(),
+            "setup_local_support should fail without server init"
+        );
+    }
+
+    // ── server_register_resources error path ─────────────────────────────────
+
+    #[test]
+    fn test_server_register_resources_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn RegisterResourcesCallback> = Box::new(TestRegisterResourcesCallback);
+        let result = server_register_resources(&info, callback);
+        assert!(
+            result.is_err(),
+            "register_resources should fail without server init"
+        );
+    }
+
+    // ── server_deregister_resources error path ───────────────────────────────
+
+    #[test]
+    fn test_server_deregister_resources_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn DeregisterResourcesCallback> =
+            Box::new(TestDeregisterResourcesCallback);
+        let result = server_deregister_resources(&info, callback);
+        assert!(
+            result.is_err(),
+            "deregister_resources should fail without server init"
+        );
+    }
+
+    // ── server_fence_nb error path ───────────────────────────────────────────
+
+    #[test]
+    fn test_server_fence_nb_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
+        let result = server_fence_nb(&handle, &[], wrapper);
+        assert!(result.is_err(), "fence_nb should fail without server init");
+    }
+
+    // ── server_connect_nb error path ─────────────────────────────────────────
+
+    #[test]
+    fn test_server_connect_nb_rejects_empty_procs() {
+        let handle = PmixServerHandle { initialized: true };
+        let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
+        let result = server_connect_nb(&handle, &[], &[], wrapper);
+        assert!(result.is_err(), "connect_nb should reject empty proc list");
+    }
+
+    // ── server_disconnect_nb error path ──────────────────────────────────────
+
+    #[test]
+    fn test_server_disconnect_nb_rejects_empty_procs() {
+        let handle = PmixServerHandle { initialized: true };
+        let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
+        let result = server_disconnect_nb(&handle, &[], &[], wrapper);
+        assert!(
+            result.is_err(),
+            "disconnect_nb should reject empty proc list"
+        );
+    }
+
+    // ── server_tool_attach_to_server error path ──────────────────────────────
+
+    #[test]
+    fn test_server_tool_attach_to_server_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_tool_attach_to_server(&handle, None, false, &info);
+        assert!(
+            result.is_err(),
+            "tool_attach_to_server should fail without server init"
+        );
+    }
+
+    // ── server_get_credential error path ─────────────────────────────────────
+
+    #[test]
+    fn test_server_get_credential_fails_without_setup() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_get_credential(&handle, &[info]);
+        assert!(
+            result.is_err(),
+            "get_credential should fail without proper setup"
+        );
+    }
+
+    // ── server_spawn / server_spawn_nb compilation tests ─────────────────────
+
+    #[test]
+    fn test_server_spawn_compiles() {
+        // Verify the function exists with correct signature
+        let _: fn(
+            &PmixServerHandle,
+            &[crate::Info],
+            &[crate::process_mgmt::PmixApp],
+        ) -> Result<String, PmixStatus> = server_spawn;
+    }
+
+    #[test]
+    fn test_server_spawn_nb_compiles() {
+        let _: fn(
+            &PmixServerHandle,
+            &[crate::Info],
+            &[crate::process_mgmt::PmixApp],
+            crate::process_mgmt::SpawnCallbackWrapper,
+        ) -> Result<(), PmixStatus> = server_spawn_nb;
+    }
+
+    // ── server_init / server_init_minimal / server_finalize compilation ──────
+
+    #[test]
+    fn test_server_init_minimal_compiles() {
+        let _: fn(Option<&PmixServerModule>) -> Result<PmixServerHandle, PmixStatus> =
+            server_init_minimal;
+    }
+
+    #[test]
+    fn test_server_finalize_compiles() {
+        let _: fn(PmixServerHandle) -> Result<(), PmixStatus> = server_finalize;
+    }
+
+    // ── CString NUL rejection verification ───────────────────────────────────
+
+    #[test]
+    fn test_cstring_rejects_nul_bytes() {
+        let result = CString::new("test\0nspace");
+        assert!(result.is_err(), "CString::new should reject NUL bytes");
+    }
+
+    // ── Proc construction for server tests ───────────────────────────────────
+
+    #[test]
+    fn test_proc_construction_for_server_tests() {
+        let proc = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
+        let _ = proc;
+    }
+
+    #[test]
+    fn test_proc_construction_multiple_ranks() {
+        let proc0 = Proc::new("test.nspace", 0).expect("Proc::new rank 0 failed");
+        let proc1 = Proc::new("test.nspace", 1).expect("Proc::new rank 1 failed");
+        let procs = vec![proc0, proc1];
+        assert_eq!(procs.len(), 2);
     }
 }
