@@ -3175,11 +3175,769 @@ pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
 mod tests {
     use super::*;
 
+    // ──────────────────────────────────────────────────────────────────────
+    // get_version
+    // ──────────────────────────────────────────────────────────────────────
+
     #[test]
     fn test_get_version() {
-        // get_version() reads a static string from the PMIx library — it
-        // does not require PMIx_Init or a running daemon.
         let ver = super::get_version();
         assert!(!ver.is_empty(), "PMIx version string should not be empty");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixError — from_raw / to_raw roundtrip and properties
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_error_from_raw_known_values() {
+        assert_eq!(PmixError::from_raw(0), Some(PmixError::Success));
+        assert_eq!(PmixError::from_raw(-1), Some(PmixError::Error));
+        assert_eq!(PmixError::from_raw(-31), Some(PmixError::ErrInit));
+        assert_eq!(PmixError::from_raw(-32), Some(PmixError::ErrNomem));
+        assert_eq!(PmixError::from_raw(-46), Some(PmixError::ErrNotFound));
+        assert_eq!(PmixError::from_raw(-47), Some(PmixError::ErrNotSupported));
+        assert_eq!(PmixError::from_raw(-24), Some(PmixError::ErrTimeout));
+        assert_eq!(PmixError::from_raw(-25), Some(PmixError::ErrUnreach));
+        assert_eq!(PmixError::from_raw(-27), Some(PmixError::ErrBadParam));
+        assert_eq!(
+            PmixError::from_raw(-171),
+            Some(PmixError::ErrRepeatAttrRegistration)
+        );
+        assert_eq!(PmixError::from_raw(-172), Some(PmixError::ErrIofFailure));
+        assert_eq!(PmixError::from_raw(-180), Some(PmixError::ErrJobCanceled));
+        assert_eq!(
+            PmixError::from_raw(-401),
+            Some(PmixError::ErrProcFailedToStart)
+        );
+        assert_eq!(PmixError::from_raw(-3000), Some(PmixError::ExternalErrBase));
+    }
+
+    #[test]
+    fn test_pmix_error_from_raw_unknown_returns_none() {
+        assert_eq!(PmixError::from_raw(-9999), None);
+        assert_eq!(PmixError::from_raw(-99999), None);
+        assert_eq!(PmixError::from_raw(42), None);
+        assert_eq!(PmixError::from_raw(1), None);
+    }
+
+    #[test]
+    fn test_pmix_error_to_raw_roundtrip() {
+        let errors: &[PmixError] = &[
+            PmixError::Success,
+            PmixError::Error,
+            PmixError::ErrInit,
+            PmixError::ErrNomem,
+            PmixError::ErrNotFound,
+            PmixError::ErrNotSupported,
+            PmixError::ErrTimeout,
+            PmixError::ErrUnreach,
+            PmixError::ErrBadParam,
+            PmixError::ErrJobCanceled,
+            PmixError::ErrProcFailedToStart,
+            PmixError::ExternalErrBase,
+        ];
+        for err in errors {
+            let raw = err.to_raw();
+            assert_eq!(
+                PmixError::from_raw(raw),
+                Some(*err),
+                "roundtrip failed for {:?}",
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn test_pmix_error_is_success() {
+        assert!(PmixError::Success.is_success());
+        assert!(!PmixError::Error.is_success());
+        assert!(!PmixError::ErrInit.is_success());
+        assert!(!PmixError::ErrNotFound.is_success());
+    }
+
+    #[test]
+    fn test_pmix_error_is_error() {
+        assert!(!PmixError::Success.is_error());
+        assert!(PmixError::Error.is_error());
+        assert!(PmixError::ErrInit.is_error());
+        assert!(PmixError::ErrNotFound.is_error());
+    }
+
+    #[test]
+    fn test_pmix_error_name_returns_valid_strings() {
+        assert_eq!(PmixError::Success.name(), "PMIX_SUCCESS");
+        assert_eq!(PmixError::Error.name(), "PMIX_ERROR");
+        assert_eq!(PmixError::ErrInit.name(), "PMIX_ERR_INIT");
+        assert_eq!(PmixError::ErrNomem.name(), "PMIX_ERR_NOMEM");
+        assert_eq!(PmixError::ErrNotFound.name(), "PMIX_ERR_NOT_FOUND");
+        assert_eq!(PmixError::ErrJobCanceled.name(), "PMIX_ERR_JOB_CANCELED");
+        assert_eq!(
+            PmixError::ErrProcFailedToStart.name(),
+            "PMIX_ERR_PROC_FAILED_TO_START"
+        );
+        assert_eq!(PmixError::ExternalErrBase.name(), "PMIX_EXTERNAL_ERR_BASE");
+        assert_eq!(PmixError::ErrTimeout.name(), "PMIX_ERR_TIMEOUT");
+        assert_eq!(PmixError::ErrUnreach.name(), "PMIX_ERR_UNREACH");
+    }
+
+    #[test]
+    fn test_pmix_error_derives() {
+        let a = PmixError::Success;
+        let b = PmixError::Success;
+        assert_eq!(a, b);
+        assert_eq!(a.clone(), b);
+        let _hash: std::collections::HashSet<PmixError> =
+            [a, PmixError::Error].iter().cloned().collect();
+        let _debug = format!("{:?}", a);
+        assert!(!_debug.is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixStatus — from_raw / to_raw / is_success / is_error / known
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_status_from_raw_known() {
+        assert_eq!(
+            PmixStatus::from_raw(0),
+            PmixStatus::Known(PmixError::Success)
+        );
+        assert_eq!(
+            PmixStatus::from_raw(-1),
+            PmixStatus::Known(PmixError::Error)
+        );
+        assert_eq!(
+            PmixStatus::from_raw(-31),
+            PmixStatus::Known(PmixError::ErrInit)
+        );
+        assert_eq!(
+            PmixStatus::from_raw(-46),
+            PmixStatus::Known(PmixError::ErrNotFound)
+        );
+    }
+
+    #[test]
+    fn test_pmix_status_from_raw_unknown() {
+        let status = PmixStatus::from_raw(-99999);
+        assert!(matches!(status, PmixStatus::Unknown(_)));
+        if let PmixStatus::Unknown(v) = status {
+            assert_eq!(v, -99999);
+        }
+    }
+
+    #[test]
+    fn test_pmix_status_to_raw() {
+        assert_eq!(PmixStatus::Known(PmixError::Success).to_raw(), 0);
+        assert_eq!(PmixStatus::Known(PmixError::Error).to_raw(), -1);
+        assert_eq!(PmixStatus::Known(PmixError::ErrInit).to_raw(), -31);
+        assert_eq!(PmixStatus::Unknown(-99999).to_raw(), -99999);
+    }
+
+    #[test]
+    fn test_pmix_status_is_success() {
+        assert!(PmixStatus::Known(PmixError::Success).is_success());
+        assert!(!PmixStatus::Known(PmixError::Error).is_success());
+        assert!(!PmixStatus::Known(PmixError::ErrInit).is_success());
+        assert!(PmixStatus::Unknown(42).is_success());
+        assert!(!PmixStatus::Unknown(-42).is_success());
+    }
+
+    #[test]
+    fn test_pmix_status_is_error() {
+        assert!(!PmixStatus::Known(PmixError::Success).is_error());
+        assert!(PmixStatus::Known(PmixError::Error).is_error());
+        assert!(PmixStatus::Known(PmixError::ErrInit).is_error());
+        assert!(!PmixStatus::Unknown(42).is_error());
+        assert!(PmixStatus::Unknown(-42).is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_known() {
+        assert!(PmixStatus::Known(PmixError::Success).known().is_some());
+        assert_eq!(
+            PmixStatus::Known(PmixError::Success).known(),
+            Some(PmixError::Success)
+        );
+        assert!(PmixStatus::Unknown(-99999).known().is_none());
+    }
+
+    #[test]
+    fn test_pmix_status_display() {
+        let s = format!("{}", PmixStatus::Known(PmixError::Success));
+        assert!(!s.is_empty());
+        let s = format!("{}", PmixStatus::Unknown(-99999));
+        assert!(s.contains("unknown"));
+    }
+
+    #[test]
+    fn test_pmix_status_from_pmix_error() {
+        let status: PmixStatus = PmixError::ErrInit.into();
+        assert_eq!(status, PmixStatus::Known(PmixError::ErrInit));
+    }
+
+    #[test]
+    fn test_pmix_status_derives() {
+        let a = PmixStatus::Known(PmixError::Success);
+        let b = PmixStatus::Known(PmixError::Success);
+        assert_eq!(a, b);
+        assert_eq!(a.clone(), b);
+        let _debug = format!("{:?}", a);
+        assert!(!_debug.is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixProcState — from_raw / to_raw / is_alive / is_terminated
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_proc_state_from_raw_known() {
+        assert_eq!(PmixProcState::from_raw(0), PmixProcState::Undef);
+        assert_eq!(PmixProcState::from_raw(5), PmixProcState::Running);
+        assert_eq!(PmixProcState::from_raw(15), PmixProcState::Unterminated);
+        assert_eq!(PmixProcState::from_raw(20), PmixProcState::Terminated);
+        assert_eq!(PmixProcState::from_raw(50), PmixProcState::Error);
+        assert_eq!(PmixProcState::from_raw(51), PmixProcState::KilledByCmd);
+        assert_eq!(PmixProcState::from_raw(52), PmixProcState::Aborted);
+        assert_eq!(PmixProcState::from_raw(53), PmixProcState::FailedToStart);
+    }
+
+    #[test]
+    fn test_pmix_proc_state_from_raw_unknown() {
+        assert!(matches!(
+            PmixProcState::from_raw(99),
+            PmixProcState::Unknown(99)
+        ));
+    }
+
+    #[test]
+    fn test_pmix_proc_state_to_raw_roundtrip() {
+        let states: &[PmixProcState] = &[
+            PmixProcState::Undef,
+            PmixProcState::Running,
+            PmixProcState::Unterminated,
+            PmixProcState::Terminated,
+            PmixProcState::Error,
+            PmixProcState::KilledByCmd,
+            PmixProcState::Aborted,
+            PmixProcState::FailedToStart,
+            PmixProcState::AbortedBySig,
+            PmixProcState::TermWoSync,
+            PmixProcState::CommFailed,
+            PmixProcState::SensorBoundExceeded,
+            PmixProcState::CalledAbort,
+            PmixProcState::HeartbeatFailed,
+            PmixProcState::Migrating,
+            PmixProcState::CannotRestart,
+            PmixProcState::TermNonZero,
+            PmixProcState::FailedToLaunch,
+        ];
+        for state in states {
+            let raw = state.to_raw();
+            assert_eq!(
+                PmixProcState::from_raw(raw),
+                *state,
+                "roundtrip failed for {:?}",
+                state
+            );
+        }
+    }
+
+    #[test]
+    fn test_pmix_proc_state_is_alive() {
+        assert!(PmixProcState::Running.is_alive());
+        assert!(PmixProcState::Unterminated.is_alive());
+        assert!(PmixProcState::Connected.is_alive());
+        assert!(!PmixProcState::Terminated.is_alive());
+        assert!(!PmixProcState::Error.is_alive());
+        assert!(!PmixProcState::Aborted.is_alive());
+        assert!(!PmixProcState::FailedToStart.is_alive());
+    }
+
+    #[test]
+    fn test_pmix_proc_state_is_terminated() {
+        assert!(PmixProcState::Terminated.is_terminated());
+        assert!(PmixProcState::Aborted.is_terminated());
+        assert!(PmixProcState::FailedToStart.is_terminated());
+        assert!(PmixProcState::KilledByCmd.is_terminated());
+        assert!(PmixProcState::AbortedBySig.is_terminated());
+        assert!(PmixProcState::TermWoSync.is_terminated());
+        assert!(PmixProcState::CommFailed.is_terminated());
+        assert!(PmixProcState::SensorBoundExceeded.is_terminated());
+        assert!(PmixProcState::CalledAbort.is_terminated());
+        assert!(PmixProcState::HeartbeatFailed.is_terminated());
+        assert!(PmixProcState::CannotRestart.is_terminated());
+        assert!(PmixProcState::TermNonZero.is_terminated());
+        assert!(PmixProcState::FailedToLaunch.is_terminated());
+        assert!(!PmixProcState::Error.is_terminated());
+        assert!(!PmixProcState::Running.is_terminated());
+        assert!(!PmixProcState::Unterminated.is_terminated());
+        assert!(!PmixProcState::Undef.is_terminated());
+        assert!(!PmixProcState::Migrating.is_terminated());
+    }
+
+    #[test]
+    fn test_pmix_proc_state_display() {
+        let s = format!("{}", PmixProcState::Running);
+        assert!(!s.is_empty());
+        let s = format!("{}", PmixProcState::Terminated);
+        assert!(!s.is_empty());
+        let s = format!("{}", PmixProcState::Unknown(99));
+        assert!(s.contains("99"));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixScope — from_raw / to_raw / display (Local/Remote/Global/Internal)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_scope_from_raw_known() {
+        assert_eq!(PmixScope::from_raw(0), PmixScope::Undef);
+        assert_eq!(PmixScope::from_raw(1), PmixScope::Local);
+        assert_eq!(PmixScope::from_raw(2), PmixScope::Remote);
+        assert_eq!(PmixScope::from_raw(3), PmixScope::Global);
+        assert_eq!(PmixScope::from_raw(4), PmixScope::Internal);
+    }
+
+    #[test]
+    fn test_pmix_scope_from_raw_unknown() {
+        assert!(matches!(PmixScope::from_raw(99), PmixScope::Unknown(99)));
+    }
+
+    #[test]
+    fn test_pmix_scope_to_raw_roundtrip() {
+        let scopes: &[PmixScope] = &[
+            PmixScope::Undef,
+            PmixScope::Local,
+            PmixScope::Remote,
+            PmixScope::Global,
+            PmixScope::Internal,
+        ];
+        for scope in scopes {
+            let raw = scope.to_raw();
+            assert_eq!(
+                PmixScope::from_raw(raw),
+                *scope,
+                "roundtrip failed for {:?}",
+                scope
+            );
+        }
+    }
+
+    #[test]
+    fn test_pmix_scope_display() {
+        assert!(!format!("{}", PmixScope::Global).is_empty());
+        assert!(!format!("{}", PmixScope::Local).is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixJobState — from_raw / to_raw / display
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_job_state_from_raw_known() {
+        assert_eq!(PmixJobState::from_raw(0), PmixJobState::Undef);
+        assert_eq!(PmixJobState::from_raw(1), PmixJobState::AwaitingAlloc);
+        assert_eq!(PmixJobState::from_raw(2), PmixJobState::LaunchUnderway);
+        assert_eq!(PmixJobState::from_raw(3), PmixJobState::Running);
+        assert_eq!(PmixJobState::from_raw(4), PmixJobState::Suspended);
+        assert_eq!(PmixJobState::from_raw(5), PmixJobState::Connected);
+        assert_eq!(PmixJobState::from_raw(15), PmixJobState::Unterminated);
+        assert_eq!(PmixJobState::from_raw(20), PmixJobState::Terminated);
+        assert_eq!(
+            PmixJobState::from_raw(50),
+            PmixJobState::TerminatedWithError
+        );
+    }
+
+    #[test]
+    fn test_pmix_job_state_from_raw_unknown() {
+        assert!(matches!(
+            PmixJobState::from_raw(99),
+            PmixJobState::Unknown(99)
+        ));
+    }
+
+    #[test]
+    fn test_pmix_job_state_to_raw_roundtrip() {
+        let states: &[PmixJobState] = &[
+            PmixJobState::Undef,
+            PmixJobState::AwaitingAlloc,
+            PmixJobState::LaunchUnderway,
+            PmixJobState::Running,
+            PmixJobState::Suspended,
+            PmixJobState::Connected,
+            PmixJobState::Unterminated,
+            PmixJobState::Terminated,
+            PmixJobState::TerminatedWithError,
+        ];
+        for state in states {
+            let raw = state.to_raw();
+            assert_eq!(
+                PmixJobState::from_raw(raw),
+                *state,
+                "roundtrip failed for {:?}",
+                state
+            );
+        }
+    }
+
+    #[test]
+    fn test_pmix_job_state_display() {
+        assert!(!format!("{}", PmixJobState::Running).is_empty());
+        assert!(!format!("{}", PmixJobState::Terminated).is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixLinkState — from_raw / to_raw / display
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_link_state_from_raw_known() {
+        assert_eq!(PmixLinkState::from_raw(0), PmixLinkState::UnknownState);
+        assert_eq!(PmixLinkState::from_raw(1), PmixLinkState::LinkDown);
+        assert_eq!(PmixLinkState::from_raw(2), PmixLinkState::LinkUp);
+    }
+
+    #[test]
+    fn test_pmix_link_state_from_raw_unknown() {
+        assert!(matches!(
+            PmixLinkState::from_raw(99),
+            PmixLinkState::Unknown(99)
+        ));
+    }
+
+    #[test]
+    fn test_pmix_link_state_to_raw_roundtrip() {
+        let states: &[PmixLinkState] = &[
+            PmixLinkState::UnknownState,
+            PmixLinkState::LinkDown,
+            PmixLinkState::LinkUp,
+        ];
+        for state in states {
+            let raw = state.to_raw();
+            assert_eq!(
+                PmixLinkState::from_raw(raw),
+                *state,
+                "roundtrip failed for {:?}",
+                state
+            );
+        }
+    }
+
+    #[test]
+    fn test_pmix_link_state_display() {
+        assert!(!format!("{}", PmixLinkState::LinkUp).is_empty());
+        assert!(!format!("{}", PmixLinkState::LinkDown).is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixDataRange — from_raw / to_raw / display
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_data_range_from_raw_known() {
+        assert_eq!(PmixDataRange::from_raw(0), PmixDataRange::Undef);
+        assert_eq!(PmixDataRange::from_raw(1), PmixDataRange::Rm);
+        assert_eq!(PmixDataRange::from_raw(2), PmixDataRange::Local);
+        assert_eq!(PmixDataRange::from_raw(3), PmixDataRange::Namespace);
+        assert_eq!(PmixDataRange::from_raw(4), PmixDataRange::Session);
+        assert_eq!(PmixDataRange::from_raw(5), PmixDataRange::Global);
+        assert_eq!(PmixDataRange::from_raw(6), PmixDataRange::Custom);
+        assert_eq!(PmixDataRange::from_raw(7), PmixDataRange::ProcLocal);
+        assert_eq!(PmixDataRange::from_raw(255), PmixDataRange::Invalid);
+    }
+
+    #[test]
+    fn test_pmix_data_range_from_raw_unknown() {
+        assert_eq!(PmixDataRange::from_raw(99), PmixDataRange::Unknown);
+    }
+
+    #[test]
+    fn test_pmix_data_range_to_raw_roundtrip() {
+        let ranges: &[PmixDataRange] = &[
+            PmixDataRange::Undef,
+            PmixDataRange::Rm,
+            PmixDataRange::Local,
+            PmixDataRange::Namespace,
+            PmixDataRange::Session,
+            PmixDataRange::Global,
+            PmixDataRange::Custom,
+            PmixDataRange::ProcLocal,
+            PmixDataRange::Invalid,
+            PmixDataRange::Unknown,
+        ];
+        for range in ranges {
+            let raw = range.to_raw();
+            assert_eq!(
+                PmixDataRange::from_raw(raw),
+                *range,
+                "roundtrip failed for {:?}",
+                range
+            );
+        }
+    }
+
+    #[test]
+    fn test_pmix_data_range_display() {
+        assert!(!format!("{}", PmixDataRange::Global).is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixAllocDirective — from_raw / to_raw / display
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_alloc_directive_from_raw_known() {
+        assert_eq!(
+            PmixAllocDirective::from_raw(43),
+            PmixAllocDirective::AllocDirective
+        );
+        assert!(matches!(
+            PmixAllocDirective::from_raw(0),
+            PmixAllocDirective::Unknown(_)
+        ));
+    }
+
+    #[test]
+    fn test_pmix_alloc_directive_to_raw_roundtrip() {
+        let d = PmixAllocDirective::AllocDirective;
+        let raw = d.to_raw();
+        assert_eq!(PmixAllocDirective::from_raw(raw), d);
+    }
+
+    #[test]
+    fn test_pmix_alloc_directive_display() {
+        assert!(!format!("{}", PmixAllocDirective::AllocDirective).is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // IOFChannelFlags — bitmask operations
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_iof_channel_flags_is_empty() {
+        assert!(IOFChannelFlags::NO_CHANNELS.is_empty());
+        assert!(!IOFChannelFlags::STDOUT.is_empty());
+        assert!(!IOFChannelFlags::ALL_CHANNELS.is_empty());
+    }
+
+    #[test]
+    fn test_iof_channel_flags_contains() {
+        assert!(IOFChannelFlags::ALL_CHANNELS.contains(IOFChannelFlags::STDOUT));
+        assert!(IOFChannelFlags::ALL_CHANNELS.contains(IOFChannelFlags::STDERR));
+        assert!(IOFChannelFlags::ALL_CHANNELS.contains(IOFChannelFlags::STDIN));
+        assert!(!IOFChannelFlags::STDOUT.contains(IOFChannelFlags::STDERR));
+        assert!(IOFChannelFlags::STDOUT.contains(IOFChannelFlags::STDOUT));
+    }
+
+    #[test]
+    fn test_iof_channel_flags_display() {
+        let s = format!("{}", IOFChannelFlags::STDOUT);
+        assert!(!s.is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // InfoFlags — bitmask operations
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_info_flags_is_empty() {
+        assert!(InfoFlags::default().is_empty());
+        assert!(!InfoFlags::REQD.is_empty());
+    }
+
+    #[test]
+    fn test_info_flags_contains() {
+        let flags = InfoFlags::REQD | InfoFlags::PERSISTENT;
+        assert!(flags.contains(InfoFlags::REQD));
+        assert!(flags.contains(InfoFlags::PERSISTENT));
+        assert!(!flags.contains(InfoFlags::QUALIFIER));
+    }
+
+    #[test]
+    fn test_info_flags_bitor() {
+        let a = InfoFlags::REQD;
+        let b = InfoFlags::PERSISTENT;
+        let c = a | b;
+        assert!(c.contains(InfoFlags::REQD));
+        assert!(c.contains(InfoFlags::PERSISTENT));
+    }
+
+    #[test]
+    fn test_info_flags_bitor_assign() {
+        let mut flags = InfoFlags::REQD;
+        flags |= InfoFlags::PERSISTENT;
+        assert!(flags.contains(InfoFlags::REQD));
+        assert!(flags.contains(InfoFlags::PERSISTENT));
+    }
+
+    #[test]
+    fn test_info_flags_raw() {
+        let flags = InfoFlags::REQD | InfoFlags::PERSISTENT;
+        assert_ne!(flags.raw(), 0);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixPayload — type_tag correctness (cast to u16 for comparison)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_payload_type_tag_scalars() {
+        assert_eq!(PmixPayload::Undef.type_tag(), PMIX_UNDEF as u16);
+        assert_eq!(PmixPayload::Bool(true).type_tag(), PMIX_BOOL as u16);
+        assert_eq!(PmixPayload::Byte(42).type_tag(), PMIX_BYTE as u16);
+        assert_eq!(PmixPayload::Size(100).type_tag(), PMIX_SIZE as u16);
+        assert_eq!(PmixPayload::Pid(1234).type_tag(), PMIX_PID as u16);
+        assert_eq!(PmixPayload::Int(42).type_tag(), PMIX_INT as u16);
+        assert_eq!(PmixPayload::Int8(8).type_tag(), PMIX_INT8 as u16);
+        assert_eq!(PmixPayload::Int16(16).type_tag(), PMIX_INT16 as u16);
+        assert_eq!(PmixPayload::Int32(32).type_tag(), PMIX_INT32 as u16);
+        assert_eq!(PmixPayload::Int64(64).type_tag(), PMIX_INT64 as u16);
+        assert_eq!(PmixPayload::Uint(42).type_tag(), PMIX_UINT as u16);
+        assert_eq!(PmixPayload::Uint8(8).type_tag(), PMIX_UINT8 as u16);
+        assert_eq!(PmixPayload::Uint16(16).type_tag(), PMIX_UINT16 as u16);
+        assert_eq!(PmixPayload::Uint32(32).type_tag(), PMIX_UINT32 as u16);
+        assert_eq!(PmixPayload::Uint64(64).type_tag(), PMIX_UINT64 as u16);
+        assert_eq!(PmixPayload::Float(1.0).type_tag(), PMIX_FLOAT as u16);
+        assert_eq!(PmixPayload::Double(1.0).type_tag(), PMIX_DOUBLE as u16);
+    }
+
+    #[test]
+    fn test_pmix_payload_type_tag_composite() {
+        assert_eq!(PmixPayload::Status(0).type_tag(), PMIX_STATUS as u16);
+        assert_eq!(PmixPayload::Rank(0).type_tag(), PMIX_PROC_RANK as u16);
+        assert_eq!(
+            PmixPayload::ByteObject(vec![1, 2, 3]).type_tag(),
+            PMIX_BYTE_OBJECT as u16
+        );
+        assert_eq!(
+            PmixPayload::Pointer(std::ptr::null_mut()).type_tag(),
+            PMIX_POINTER as u16
+        );
+    }
+
+    #[test]
+    fn test_pmix_payload_type_tag_string() {
+        let payload = PmixPayload::String(CString::new("hello").unwrap());
+        assert_eq!(payload.type_tag(), PMIX_STRING as u16);
+    }
+
+    #[test]
+    fn test_pmix_payload_type_tag_data_array() {
+        let payload = PmixPayload::DataArray {
+            elem_type: PMIX_INT as u16,
+            elements: vec![],
+        };
+        assert_eq!(payload.type_tag(), PMIX_DATA_ARRAY as u16);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixValueBuilder — build / build_raw
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_value_builder_build_uint32() {
+        let owned = PmixValueBuilder::new().uint32(42).build().unwrap();
+        drop(owned);
+    }
+
+    #[test]
+    fn test_pmix_value_builder_build_int32() {
+        let owned = PmixValueBuilder::new().int32(-42).build().unwrap();
+        drop(owned);
+    }
+
+    #[test]
+    fn test_pmix_value_builder_build_bool() {
+        let owned = PmixValueBuilder::new().bool(true).build().unwrap();
+        drop(owned);
+    }
+
+    #[test]
+    fn test_pmix_value_builder_build_string() {
+        let owned = PmixValueBuilder::new()
+            .string("hello")
+            .unwrap()
+            .build()
+            .unwrap();
+        drop(owned);
+    }
+
+    #[test]
+    fn test_pmix_value_builder_build_size() {
+        let owned = PmixValueBuilder::new().size(1024).build().unwrap();
+        drop(owned);
+    }
+
+    #[test]
+    fn test_pmix_value_builder_unbuilt_returns_error() {
+        let result = PmixValueBuilder::new().build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pmix_value_builder_build_raw_uint32() {
+        let raw_val = PmixValueBuilder::new().uint32(42).build_raw().unwrap();
+        unsafe {
+            assert_eq!(raw_val.data.uint32, 42);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixEnvar — constructor
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_envar_new() {
+        let envar = PmixEnvar::new("PATH", "/usr/bin", ':').unwrap();
+        assert_eq!(envar.separator, b':');
+    }
+
+    #[test]
+    fn test_pmix_envar_new_nul_error() {
+        let result = PmixEnvar::new("has\0null", "value", ':');
+        assert!(result.is_err());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Proc — constructor and accessors
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_proc_new() {
+        let proc = Proc::new("test_namespace", 42).unwrap();
+        assert_eq!(proc.get_rank(), 42);
+    }
+
+    #[test]
+    fn test_proc_set_rank() {
+        let mut proc = Proc::new("test_namespace", 0).unwrap();
+        proc.set_rank(99);
+        assert_eq!(proc.get_rank(), 99);
+    }
+
+    #[test]
+    fn test_proc_new_nul_error() {
+        let result = Proc::new("has\0null", 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_proc_new_with_nspace() {
+        let proc1 = Proc::new("test_ns", 0).unwrap();
+        let proc2 = proc1.new_with_nspace(5).unwrap();
+        assert_eq!(proc2.get_rank(), 5);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Constants
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_constants() {
+        assert_eq!(GLOBAL, PMIX_GLOBAL as u8);
+        assert!(!NUM_NODES.is_empty());
+        assert!(!JOB_SIZE.is_empty());
     }
 }

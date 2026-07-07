@@ -9,9 +9,9 @@
 mod daemon_helper;
 
 use pmix::data_serialization::{
-    PmixByteObject, data_buffer_create, data_buffer_release, data_compress,
-    data_copy, data_copy_payload, data_decompress, data_embed, data_load, data_pack, data_print,
-    data_unload, data_unpack,
+    PmixByteObject, data_buffer_create, data_buffer_release, data_compress, data_copy,
+    data_copy_payload, data_decompress, data_embed, data_load, data_pack, data_print, data_unload,
+    data_unpack,
 };
 use pmix::{InfoBuilder, PmixDataType};
 

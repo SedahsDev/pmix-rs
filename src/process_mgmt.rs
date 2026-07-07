@@ -1340,4 +1340,205 @@ mod tests {
         let result = PmixAppBuilder::new().cmd("has\0null").build();
         assert!(result.is_err());
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixApp — accessor tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_app_accessors_default() {
+        let app = PmixAppBuilder::new().build().unwrap();
+        assert_eq!(app.cmd(), None);
+        assert!(app.argv().is_empty());
+        assert!(app.env_vars().is_empty());
+        assert_eq!(app.cwd(), None);
+        assert_eq!(app.maxprocs(), 0);
+    }
+
+    #[test]
+    fn test_pmix_app_accessors_full() {
+        let app = PmixAppBuilder::new()
+            .cmd("/usr/bin/test")
+            .arg("--verbose")
+            .arg("--count")
+            .arg("5")
+            .env("PATH=/usr/bin")
+            .env("HOME=/root")
+            .cwd("/tmp")
+            .maxprocs(8)
+            .build()
+            .unwrap();
+        assert_eq!(app.cmd(), Some("/usr/bin/test"));
+        assert_eq!(app.argv().len(), 3);
+        assert_eq!(app.env_vars().len(), 2);
+        assert_eq!(app.cwd(), Some("/tmp"));
+        assert_eq!(app.maxprocs(), 8);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_envs() {
+        let app = PmixAppBuilder::new()
+            .envs(vec![
+                "A=1".to_string(),
+                "B=2".to_string(),
+                "C=3".to_string(),
+            ])
+            .build()
+            .unwrap();
+        assert_eq!(app.env_vars().len(), 3);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_nul_in_arg() {
+        let result = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .arg("has\0null")
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pmix_app_builder_nul_in_env() {
+        let result = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .env("KEY=\0value")
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pmix_app_builder_nul_in_cwd() {
+        let result = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .cwd("/tmp/\0bad")
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pmix_app_builder_chain_order() {
+        // Builder methods can be called in any order
+        let app = PmixAppBuilder::new()
+            .maxprocs(2)
+            .cwd("/var")
+            .cmd("/bin/ls")
+            .arg("-la")
+            .build()
+            .unwrap();
+        assert_eq!(app.cmd(), Some("/bin/ls"));
+        assert_eq!(app.maxprocs(), 2);
+        assert_eq!(app.cwd(), Some("/var"));
+        assert_eq!(app.argv().len(), 1);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // spawn() — validation tests (no DVM required)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_spawn_empty_apps_returns_bad_param() {
+        // spawn with no apps should return PMIX_ERR_BAD_PARAM
+        let result = spawn(&[], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // connect() — validation tests (no DVM required)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_connect_empty_procs_returns_bad_param() {
+        let result = connect(&[], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // disconnect() — validation tests (no DVM required)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_disconnect_empty_procs_returns_bad_param() {
+        let result = disconnect(&[], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Callback wrapper construction tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_spawn_callback_wrapper_new() {
+        let wrapper = SpawnCallbackWrapper::new(|_status, _nspace| {
+            // callback body
+        });
+        // Wrapper should be constructible — actual invocation needs DVM
+        drop(wrapper);
+    }
+
+    #[test]
+    fn test_connect_callback_wrapper_new() {
+        let wrapper = ConnectCallbackWrapper::new(|_status| {
+            // callback body
+        });
+        drop(wrapper);
+    }
+
+    #[test]
+    fn test_disconnect_callback_wrapper_new() {
+        let wrapper = DisconnectCallbackWrapper::new(|_status| {
+            // callback body
+        });
+        drop(wrapper);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // spawn_nb() — validation tests (no DVM required)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_spawn_nb_empty_apps_returns_bad_param() {
+        let wrapper = SpawnCallbackWrapper::new(|_, _| {});
+        let result = spawn_nb(&[], &[], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // connect_nb() — validation tests (no DVM required)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_connect_nb_empty_procs_returns_bad_param() {
+        let wrapper = ConnectCallbackWrapper::new(|_| {});
+        let result = connect_nb(&[], &[], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // disconnect_nb() — validation tests (no DVM required)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_disconnect_nb_empty_procs_returns_bad_param() {
+        let wrapper = DisconnectCallbackWrapper::new(|_| {});
+        let result = disconnect_nb(&[], &[], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
 }

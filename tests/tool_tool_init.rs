@@ -8,7 +8,8 @@
 mod daemon_helper;
 
 use pmix::tool::{
-    PmixServerHandle, PmixToolHandle, is_tool_initialized, tool_attach_to_server, tool_disconnect, tool_init,
+    PmixServerHandle, PmixToolHandle, is_tool_initialized, tool_attach_to_server, tool_disconnect,
+    tool_init,
 };
 use pmix::{InfoBuilder, PmixStatus};
 

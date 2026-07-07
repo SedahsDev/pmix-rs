@@ -148,29 +148,31 @@ pub unsafe extern "C" fn group_construct_callback_bridge(
     cbdata: *mut c_void,
     _release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
     _release_cbdata: *mut c_void,
-) { unsafe {
-    let cb_wrapper = Box::from_raw(cbdata as *mut GroupConstructCallbackWrapper);
-    let pmix_status = PmixStatus::from_raw(status);
+) {
+    unsafe {
+        let cb_wrapper = Box::from_raw(cbdata as *mut GroupConstructCallbackWrapper);
+        let pmix_status = PmixStatus::from_raw(status);
 
-    let rust_results: Vec<Info> = if pmix_status.is_success() {
-        if info.is_null() || ninfo == 0 {
-            Vec::new()
-        } else {
-            let mut vec = Vec::with_capacity(ninfo);
-            for i in 0..ninfo {
-                vec.push(Info {
-                    handle: info.add(i),
-                    len: 1,
-                });
+        let rust_results: Vec<Info> = if pmix_status.is_success() {
+            if info.is_null() || ninfo == 0 {
+                Vec::new()
+            } else {
+                let mut vec = Vec::with_capacity(ninfo);
+                for i in 0..ninfo {
+                    vec.push(Info {
+                        handle: info.add(i),
+                        len: 1,
+                    });
+                }
+                vec
             }
-            vec
-        }
-    } else {
-        Vec::new()
-    };
+        } else {
+            Vec::new()
+        };
 
-    (cb_wrapper.callback)(pmix_status, rust_results);
-}}
+        (cb_wrapper.callback)(pmix_status, rust_results);
+    }
+}
 
 /// Non-blocking group construct with a Rust closure callback.
 ///
@@ -351,29 +353,31 @@ pub unsafe extern "C" fn group_invite_callback_bridge(
     cbdata: *mut c_void,
     _release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
     _release_cbdata: *mut c_void,
-) { unsafe {
-    let cb_wrapper = Box::from_raw(cbdata as *mut GroupInviteCallbackWrapper);
-    let pmix_status = PmixStatus::from_raw(status);
+) {
+    unsafe {
+        let cb_wrapper = Box::from_raw(cbdata as *mut GroupInviteCallbackWrapper);
+        let pmix_status = PmixStatus::from_raw(status);
 
-    let rust_results: Vec<Info> = if pmix_status.is_success() {
-        if info.is_null() || ninfo == 0 {
-            Vec::new()
-        } else {
-            let mut vec = Vec::with_capacity(ninfo);
-            for i in 0..ninfo {
-                vec.push(Info {
-                    handle: info.add(i),
-                    len: 1,
-                });
+        let rust_results: Vec<Info> = if pmix_status.is_success() {
+            if info.is_null() || ninfo == 0 {
+                Vec::new()
+            } else {
+                let mut vec = Vec::with_capacity(ninfo);
+                for i in 0..ninfo {
+                    vec.push(Info {
+                        handle: info.add(i),
+                        len: 1,
+                    });
+                }
+                vec
             }
-            vec
-        }
-    } else {
-        Vec::new()
-    };
+        } else {
+            Vec::new()
+        };
 
-    (cb_wrapper.callback)(pmix_status, rust_results);
-}}
+        (cb_wrapper.callback)(pmix_status, rust_results);
+    }
+}
 
 /// Non-blocking invite with a Rust closure callback.
 ///
@@ -555,29 +559,31 @@ pub unsafe extern "C" fn group_join_callback_bridge(
     cbdata: *mut c_void,
     _release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
     _release_cbdata: *mut c_void,
-) { unsafe {
-    let cb_wrapper = Box::from_raw(cbdata as *mut GroupJoinCallbackWrapper);
-    let pmix_status = PmixStatus::from_raw(status);
+) {
+    unsafe {
+        let cb_wrapper = Box::from_raw(cbdata as *mut GroupJoinCallbackWrapper);
+        let pmix_status = PmixStatus::from_raw(status);
 
-    let rust_results: Vec<Info> = if pmix_status.is_success() {
-        if info.is_null() || ninfo == 0 {
-            Vec::new()
-        } else {
-            let mut vec = Vec::with_capacity(ninfo);
-            for i in 0..ninfo {
-                vec.push(Info {
-                    handle: info.add(i),
-                    len: 1,
-                });
+        let rust_results: Vec<Info> = if pmix_status.is_success() {
+            if info.is_null() || ninfo == 0 {
+                Vec::new()
+            } else {
+                let mut vec = Vec::with_capacity(ninfo);
+                for i in 0..ninfo {
+                    vec.push(Info {
+                        handle: info.add(i),
+                        len: 1,
+                    });
+                }
+                vec
             }
-            vec
-        }
-    } else {
-        Vec::new()
-    };
+        } else {
+            Vec::new()
+        };
 
-    (cb_wrapper.callback)(pmix_status, rust_results);
-}}
+        (cb_wrapper.callback)(pmix_status, rust_results);
+    }
+}
 
 /// Non-blocking join with a Rust closure callback.
 ///
@@ -700,11 +706,13 @@ impl GroupLeaveCallbackWrapper {
 /// # Safety
 /// `cbdata` must be a valid pointer to a `GroupLeaveCallbackWrapper`
 /// created by `Box::into_raw`. This function consumes the box.
-pub unsafe extern "C" fn group_leave_callback_bridge(status: i32, cbdata: *mut c_void) { unsafe {
-    let cb_wrapper = Box::from_raw(cbdata as *mut GroupLeaveCallbackWrapper);
-    let pmix_status = PmixStatus::from_raw(status);
-    (cb_wrapper.callback)(pmix_status);
-}}
+pub unsafe extern "C" fn group_leave_callback_bridge(status: i32, cbdata: *mut c_void) {
+    unsafe {
+        let cb_wrapper = Box::from_raw(cbdata as *mut GroupLeaveCallbackWrapper);
+        let pmix_status = PmixStatus::from_raw(status);
+        (cb_wrapper.callback)(pmix_status);
+    }
+}
 
 /// Non-blocking leave with a Rust closure callback.
 ///
@@ -820,11 +828,13 @@ impl GroupDestructCallbackWrapper {
 /// # Safety
 /// `cbdata` must be a valid pointer to a `GroupDestructCallbackWrapper`
 /// created by `Box::into_raw`. This function consumes the box.
-pub unsafe extern "C" fn group_destruct_callback_bridge(status: i32, cbdata: *mut c_void) { unsafe {
-    let cb_wrapper = Box::from_raw(cbdata as *mut GroupDestructCallbackWrapper);
-    let pmix_status = PmixStatus::from_raw(status);
-    (cb_wrapper.callback)(pmix_status);
-}}
+pub unsafe extern "C" fn group_destruct_callback_bridge(status: i32, cbdata: *mut c_void) {
+    unsafe {
+        let cb_wrapper = Box::from_raw(cbdata as *mut GroupDestructCallbackWrapper);
+        let pmix_status = PmixStatus::from_raw(status);
+        (cb_wrapper.callback)(pmix_status);
+    }
+}
 
 /// Non-blocking destruct with a Rust closure callback.
 ///
