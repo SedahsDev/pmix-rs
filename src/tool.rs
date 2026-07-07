@@ -43,7 +43,7 @@
 //! ```
 
 use crate::ffi;
-use crate::{Info, PmixStatus, Proc};
+use crate::{Info, PmixError, PmixStatus, Proc};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -798,6 +798,8 @@ pub fn tool_is_connected() -> bool {
 mod tests {
     use super::*;
 
+    // ─── is_tool_initialized tests ──────────────────────────────────────────
+
     #[test]
     fn test_is_tool_initialized_default() {
         assert!(!is_tool_initialized());
@@ -806,5 +808,217 @@ mod tests {
     #[test]
     fn test_tool_is_connected_default() {
         assert!(!tool_is_connected());
+    }
+
+    // ─── PmixToolHandle construction tests ──────────────────────────────────
+
+    #[test]
+    fn test_tool_handle_debug_format() {
+        let proc = Proc::new("test_tool", 0).unwrap();
+        let handle = PmixToolHandle { proc };
+        let debug_str = format!("{:?}", handle);
+        assert!(debug_str.contains("PmixToolHandle"));
+    }
+
+    #[test]
+    fn test_tool_handle_proc_access() {
+        let proc = Proc::new("test_tool", 42).unwrap();
+        let handle = PmixToolHandle { proc };
+        let inner_proc = handle.proc();
+        assert_eq!(inner_proc.rank(), 42);
+    }
+
+    #[test]
+    fn test_tool_handle_clone() {
+        let proc = Proc::new("test_tool", 0).unwrap();
+        let handle = PmixToolHandle { proc };
+        let _cloned = handle.clone();
+    }
+
+    // ─── PmixServerHandle construction tests ────────────────────────────────
+
+    #[test]
+    fn test_server_handle_debug_format() {
+        let proc = Proc::new("test_server", 0).unwrap();
+        let handle = PmixServerHandle { proc };
+        let debug_str = format!("{:?}", handle);
+        assert!(debug_str.contains("PmixServerHandle"));
+    }
+
+    #[test]
+    fn test_server_handle_proc_access() {
+        let proc = Proc::new("test_server", 0).unwrap();
+        let handle = PmixServerHandle { proc };
+        let inner_proc = handle.proc();
+        assert_eq!(inner_proc.rank(), 0);
+    }
+
+    #[test]
+    fn test_server_handle_clone() {
+        let proc = Proc::new("test_server", 0).unwrap();
+        let handle = PmixServerHandle { proc };
+        let _cloned = handle.clone();
+    }
+
+    // ─── Proc nspace/rank extraction tests ──────────────────────────────────
+
+    #[test]
+    fn test_proc_rank_zero() {
+        let proc = Proc::new("test", 0).unwrap();
+        assert_eq!(proc.rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_rank_max() {
+        let proc = Proc::new("test", u32::MAX).unwrap();
+        assert_eq!(proc.rank(), u32::MAX);
+    }
+
+    #[test]
+    fn test_proc_rank_specific() {
+        for rank in [0, 1, 100, 9999, 65535] {
+            let proc = Proc::new("test", rank).unwrap();
+            assert_eq!(proc.rank(), rank);
+        }
+    }
+
+    #[test]
+    fn test_proc_nspace_returns_string() {
+        let proc = Proc::new("my_namespace", 0).unwrap();
+        // nspace() returns Option<String> — may or may not succeed depending
+        // on how the C string is stored. We verify the return type works.
+        let _nspace: Option<String> = proc.nspace();
+    }
+
+    // ─── TOOL_INITIALIZED state tests ───────────────────────────────────────
+
+    #[test]
+    fn test_tool_initialized_is_false_by_default() {
+        // The static should start as false
+        let val = TOOL_INITIALIZED.lock().unwrap();
+        assert!(!*val);
+    }
+
+    // ─── Info handling for tool functions ───────────────────────────────────
+
+    #[test]
+    fn test_info_empty_for_tool_init() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let info_ptr = if info.len > 0 {
+            info.handle
+        } else {
+            std::ptr::null_mut()
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(info.len, 0);
+    }
+
+    #[test]
+    fn test_info_builder_empty_build() {
+        let info = crate::InfoBuilder::new().build();
+        assert_eq!(info.len, 0);
+    }
+
+    // ─── tool_attach_to_server return type tests ────────────────────────────
+
+    #[test]
+    fn test_attach_return_type_tool_none() {
+        // Verify the return type allows None for tool handle
+        let result: Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus> =
+            Err(PmixStatus::Known(PmixError::Error));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_attach_return_type_both_none() {
+        // Verify the return type structure
+        let pair: (Option<PmixToolHandle>, Option<PmixServerHandle>) = (None, None);
+        assert!(pair.0.is_none());
+        assert!(pair.1.is_none());
+    }
+
+    // ─── tool_get_servers return type tests ─────────────────────────────────
+
+    #[test]
+    fn test_get_servers_return_type() {
+        // Verify the return type is Result<Vec<Proc>, PmixStatus>
+        let result: Result<Vec<Proc>, PmixStatus> = Err(PmixStatus::Known(PmixError::Error));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_servers_empty_vec() {
+        let servers: Vec<Proc> = Vec::new();
+        assert!(servers.is_empty());
+    }
+
+    // ─── PmixStatus tool-specific error tests ───────────────────────────────
+
+    #[test]
+    fn test_pmix_status_err_not_found() {
+        let status = PmixStatus::Known(PmixError::ErrNotFound);
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_err_timeout() {
+        let status = PmixStatus::Known(PmixError::ErrTimeout);
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_err_lost_connection() {
+        let status = PmixStatus::Known(PmixError::ErrLostConnection);
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_err_init() {
+        let status = PmixStatus::Known(PmixError::ErrInit);
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_err_bad_param() {
+        let status = PmixStatus::Known(PmixError::ErrBadParam);
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_err_unreach() {
+        let status = PmixStatus::Known(PmixError::ErrUnreach);
+        assert!(status.is_error());
+    }
+
+    // ─── MaybeUninit usage pattern tests ────────────────────────────────────
+
+    #[test]
+    fn test_maybe_uninit_proc_ptr() {
+        let mut uninit = MaybeUninit::<ffi::pmix_proc_t>::uninit();
+        let ptr = uninit.as_mut_ptr();
+        assert!(!ptr.is_null());
+    }
+
+    #[test]
+    fn test_null_mut_for_optional_proc() {
+        // Verify null_mut pattern for optional proc parameter
+        let ptr: *mut ffi::pmix_proc_t = std::ptr::null_mut();
+        assert!(ptr.is_null());
+    }
+
+    // ─── tool_init_minimal convenience wrapper ──────────────────────────────
+
+    #[test]
+    fn test_tool_init_minimal_info_construction() {
+        // Verify the Info struct used by tool_init_minimal
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        assert!(info.handle.is_null());
+        assert_eq!(info.len, 0);
     }
 }

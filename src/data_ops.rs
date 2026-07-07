@@ -1324,6 +1324,8 @@ pub fn fence_nb(
 mod tests {
     use super::*;
 
+    // ─── PmixPdata construction tests ───────────────────────────────────────
+
     #[test]
     fn test_pdata_new() {
         let pdata = PmixPdata::new("test_key");
@@ -1336,6 +1338,46 @@ mod tests {
         let pdata = PmixPdata::new("test_key");
         let _ = &pdata.proc;
     }
+
+    #[test]
+    fn test_pdata_new_empty_key() {
+        let pdata = PmixPdata::new("");
+        assert_eq!(pdata.key, "");
+        assert!(pdata.value.is_none());
+    }
+
+    #[test]
+    fn test_pdata_new_long_key() {
+        let long_key = "a".repeat(500);
+        let pdata = PmixPdata::new(&long_key);
+        assert_eq!(pdata.key, long_key);
+    }
+
+    #[test]
+    fn test_pdata_new_special_chars_key() {
+        let pdata = PmixPdata::new("pmix.job.size");
+        assert_eq!(pdata.key, "pmix.job.size");
+    }
+
+    #[test]
+    fn test_pdata_debug_format() {
+        let pdata = PmixPdata::new("test_key");
+        let debug_str = format!("{:?}", pdata);
+        assert!(debug_str.contains("PmixPdata"));
+        assert!(debug_str.contains("test_key"));
+    }
+
+    #[test]
+    fn test_pdata_multiple_keys() {
+        let keys = ["key1", "key2", "key3", "pmix.test.attr", "a.b.c.d.e"];
+        let pdatas: Vec<PmixPdata> = keys.iter().map(|k| PmixPdata::new(k)).collect();
+        assert_eq!(pdatas.len(), 5);
+        for (i, pdata) in pdatas.iter().enumerate() {
+            assert_eq!(pdata.key, keys[i]);
+        }
+    }
+
+    // ─── Callback trait object tests ────────────────────────────────────────
 
     #[test]
     fn test_publish_callback_trait_object() {
@@ -1385,5 +1427,515 @@ mod tests {
         }
         let callback: Box<dyn GetValueCallback> = Box::new(DummyGetValue);
         let _ = callback;
+    }
+
+    // ─── PublishCallback functional tests ───────────────────────────────────
+
+    #[test]
+    fn test_publish_callback_receives_success() {
+        struct TestPublish {
+            received: std::sync::Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl PublishCallback for TestPublish {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.received.lock().unwrap() = Some(status);
+            }
+        }
+        let received = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback: Box<dyn PublishCallback> = Box::new(TestPublish {
+            received: received.clone(),
+        });
+        // Simulate callback invocation with success
+        let test_status = PmixStatus::Known(PmixError::Success);
+        callback.on_complete(test_status);
+        let result = received.lock().unwrap();
+        assert!(result.is_some());
+        assert!(result.as_ref().unwrap().is_success());
+    }
+
+    #[test]
+    fn test_publish_callback_receives_error() {
+        struct TestPublish {
+            received: std::sync::Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl PublishCallback for TestPublish {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.received.lock().unwrap() = Some(status);
+            }
+        }
+        let received = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback: Box<dyn PublishCallback> = Box::new(TestPublish {
+            received: received.clone(),
+        });
+        let test_status = PmixStatus::Known(PmixError::ErrTimeout);
+        callback.on_complete(test_status);
+        let result = received.lock().unwrap();
+        assert!(result.is_some());
+        assert!(result.as_ref().unwrap().is_error());
+    }
+
+    #[test]
+    fn test_get_value_callback_receives_value() {
+        struct TestGetValue {
+            received_status: std::sync::Arc<std::sync::Mutex<Option<PmixStatus>>>,
+            received_value: std::sync::Arc<std::sync::Mutex<Option<bool>>>,
+        }
+        impl GetValueCallback for TestGetValue {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                *self.received_status.lock().unwrap() = Some(status);
+                *self.received_value.lock().unwrap() = Some(value.is_none());
+            }
+        }
+        let received_status = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let received_value = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback: Box<dyn GetValueCallback> = Box::new(TestGetValue {
+            received_status: received_status.clone(),
+            received_value: received_value.clone(),
+        });
+        callback.on_result(PmixStatus::Known(PmixError::Success), None);
+        // Verify callback was invoked and received None value
+        assert!(*received_value.lock().unwrap().as_ref().unwrap());
+    }
+
+    #[test]
+    fn test_lookup_callback_receives_data() {
+        struct TestLookup {
+            received_count: std::sync::Arc<std::sync::Mutex<Option<usize>>>,
+        }
+        impl LookupCallback for TestLookup {
+            fn on_result(self: Box<Self>, _status: PmixStatus, data: Vec<PmixPdata>) {
+                *self.received_count.lock().unwrap() = Some(data.len());
+            }
+        }
+        let received_count = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback: Box<dyn LookupCallback> = Box::new(TestLookup {
+            received_count: received_count.clone(),
+        });
+        let pdatas = vec![PmixPdata::new("k1"), PmixPdata::new("k2")];
+        callback.on_result(PmixStatus::Known(PmixError::Success), pdatas);
+        assert_eq!(*received_count.lock().unwrap().as_ref().unwrap(), 2);
+    }
+
+    // ─── Registry and sequence counter tests ────────────────────────────────
+
+    #[test]
+    fn test_publish_seq_increments() {
+        let seq1 = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        let seq2 = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        assert!(seq2 > seq1);
+    }
+
+    #[test]
+    fn test_get_seq_increments() {
+        let seq1 = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        let seq2 = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        assert!(seq2 > seq1);
+    }
+
+    #[test]
+    fn test_unpublish_seq_increments() {
+        let seq1 = {
+            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        let seq2 = {
+            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        assert!(seq2 > seq1);
+    }
+
+    #[test]
+    fn test_fence_seq_increments() {
+        let seq1 = {
+            let mut seq = FENCE_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        let seq2 = {
+            let mut seq = FENCE_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        assert!(seq2 > seq1);
+    }
+
+    #[test]
+    fn test_lookup_seq_increments() {
+        let seq1 = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        let seq2 = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        assert!(seq2 > seq1);
+    }
+
+    // ─── Registry insert/remove tests ───────────────────────────────────────
+
+    #[test]
+    fn test_publish_registry_insert_remove() {
+        struct DummyPublish;
+        impl PublishCallback for DummyPublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let req_id = 999;
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyPublish));
+            assert!(registry.contains_key(&req_id));
+            registry.remove(&req_id);
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    #[test]
+    fn test_get_registry_insert_remove() {
+        struct DummyGet;
+        impl GetValueCallback for DummyGet {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
+        }
+        let req_id = 888;
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyGet));
+            assert!(registry.contains_key(&req_id));
+            registry.remove(&req_id);
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    #[test]
+    fn test_lookup_registry_insert_remove() {
+        struct DummyLookupCb;
+        impl LookupCallback for DummyLookupCb {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
+        }
+        let req_id = 777;
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyLookupCb));
+            assert!(registry.contains_key(&req_id));
+            registry.remove(&req_id);
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    #[test]
+    fn test_unpublish_registry_insert_remove() {
+        struct DummyUnpublishCb;
+        impl UnpublishCallback for DummyUnpublishCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let req_id = 666;
+        {
+            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyUnpublishCb));
+            assert!(registry.contains_key(&req_id));
+            registry.remove(&req_id);
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    #[test]
+    fn test_fence_registry_insert_remove() {
+        struct DummyFenceCb;
+        impl FenceCallback for DummyFenceCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let req_id = 555;
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyFenceCb));
+            assert!(registry.contains_key(&req_id));
+            registry.remove(&req_id);
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    // ─── Request ID encoding/decoding tests ─────────────────────────────────
+
+    #[test]
+    fn test_req_id_encode_decode() {
+        for id in [1, 2, 100, 1000, 65535, 100000] {
+            let cbdata = (id << 2) as *mut std::os::raw::c_void;
+            let decoded = (cbdata as usize) >> 2;
+            assert_eq!(decoded, id, "Failed for id={}", id);
+        }
+    }
+
+    #[test]
+    fn test_req_id_non_null() {
+        for id in [1, 2, 100, 1000] {
+            let cbdata = (id << 2) as *mut std::os::raw::c_void;
+            assert!(!cbdata.is_null(), "cbdata is null for id={}", id);
+        }
+    }
+
+    // ─── Info parameter handling tests ──────────────────────────────────────
+
+    #[test]
+    fn test_info_empty_handling() {
+        let info = crate::Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let (info_ptr, ninfo) = if info.len > 0 {
+            (info.handle as *const ffi::pmix_info_t, info.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    #[test]
+    fn test_info_null_handle_with_zero_len() {
+        let info = crate::Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        // This is the pattern used in get() and lookup()
+        let (info_ptr, ninfo) = match Some(&info) {
+            Some(info) if info.handle.is_null() => (std::ptr::null(), 0),
+            Some(info) => (info.handle as *const ffi::pmix_info_t, info.len),
+            None => (std::ptr::null(), 0),
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    #[test]
+    fn test_info_none_handling() {
+        let (info_ptr, ninfo) = match None::<&crate::Info> {
+            Some(info) if info.handle.is_null() => (std::ptr::null(), 0),
+            Some(info) => (info.handle as *const ffi::pmix_info_t, info.len),
+            None => (std::ptr::null(), 0),
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    // ─── CString key validation tests ───────────────────────────────────────
+
+    #[test]
+    fn test_cstring_valid_key() {
+        let result = std::ffi::CString::new("pmix.test.key");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cstring_key_with_dots() {
+        let result = std::ffi::CString::new("pmix.job.size");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cstring_key_with_underscores() {
+        let result = std::ffi::CString::new("PMIX_JOB_SIZE");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cstring_key_empty() {
+        let result = std::ffi::CString::new("");
+        assert!(result.is_ok()); // empty string is valid CString
+    }
+
+    // ─── PMIX_RANK_WILDCARD constant tests ──────────────────────────────────
+
+    #[test]
+    fn test_rank_wildcard_value() {
+        assert_eq!(PMIX_RANK_WILDCARD, -1);
+    }
+
+    #[test]
+    fn test_rank_wildcast_as_u32() {
+        // PMIX_RANK_WILDCARD as u32 wraps to MAX
+        let rank: u32 = PMIX_RANK_WILDCARD as u32;
+        assert_eq!(rank, u32::MAX);
+    }
+
+    // ─── PmixStatus roundtrip tests for data_ops context ────────────────────
+
+    #[test]
+    fn test_pmix_status_success_from_raw() {
+        let status = PmixStatus::from_raw(0);
+        assert!(status.is_success());
+    }
+
+    #[test]
+    fn test_pmix_status_error_from_raw() {
+        let status = PmixStatus::from_raw(-1); // PMIX_ERROR
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_not_found_from_raw() {
+        let status = PmixStatus::from_raw(-7); // PMIX_ERR_NOT_FOUND
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_timeout_from_raw() {
+        let status = PmixStatus::from_raw(-6); // PMIX_ERR_TIMEOUT
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_duplicate_key_from_raw() {
+        let status = PmixStatus::from_raw(-14); // PMIX_ERR_DUPLICATE_KEY
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_partial_success_from_raw() {
+        let status = PmixStatus::from_raw(-3); // PMIX_ERR_PARTIAL_SUCCESS
+        assert!(status.is_error());
+    }
+
+    // ─── Proc construction tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_proc_new_valid() {
+        let proc = Proc::new("test_nspace", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_new_high_rank() {
+        let proc = Proc::new("test_nspace", 9999).unwrap();
+        assert_eq!(proc.get_rank(), 9999);
+    }
+
+    #[test]
+    fn test_proc_new_with_nspace() {
+        let proc = Proc::new("job_abc", 0).unwrap();
+        let proc2 = proc.new_with_nspace(1).unwrap();
+        assert_eq!(proc2.get_rank(), 1);
+    }
+
+    #[test]
+    fn test_proc_set_rank() {
+        let mut proc = Proc::new("test", 0).unwrap();
+        proc.set_rank(42);
+        assert_eq!(proc.get_rank(), 42);
+    }
+
+    // ─── Fence callback functional tests ────────────────────────────────────
+
+    #[test]
+    fn test_fence_callback_receives_success() {
+        struct TestFenceCb {
+            received: std::sync::Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl FenceCallback for TestFenceCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.received.lock().unwrap() = Some(status);
+            }
+        }
+        let received = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback: Box<dyn FenceCallback> = Box::new(TestFenceCb {
+            received: received.clone(),
+        });
+        callback.on_complete(PmixStatus::Known(PmixError::Success));
+        let result = received.lock().unwrap();
+        assert!(result.is_some());
+        assert!(result.as_ref().unwrap().is_success());
+    }
+
+    #[test]
+    fn test_fence_callback_receives_timeout() {
+        struct TestFenceCb {
+            received: std::sync::Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl FenceCallback for TestFenceCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.received.lock().unwrap() = Some(status);
+            }
+        }
+        let received = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback: Box<dyn FenceCallback> = Box::new(TestFenceCb {
+            received: received.clone(),
+        });
+        callback.on_complete(PmixStatus::Known(PmixError::ErrTimeout));
+        let result = received.lock().unwrap();
+        assert!(result.is_some());
+        assert!(result.as_ref().unwrap().is_error());
+    }
+
+    // ─── Unpublish callback functional tests ────────────────────────────────
+
+    #[test]
+    fn test_unpublish_callback_receives_success() {
+        struct TestUnpublishCb {
+            received: std::sync::Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl UnpublishCallback for TestUnpublishCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.received.lock().unwrap() = Some(status);
+            }
+        }
+        let received = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback: Box<dyn UnpublishCallback> = Box::new(TestUnpublishCb {
+            received: received.clone(),
+        });
+        callback.on_complete(PmixStatus::Known(PmixError::Success));
+        let result = received.lock().unwrap();
+        assert!(result.is_some());
+        assert!(result.as_ref().unwrap().is_success());
+    }
+
+    // ─── Lookup callback with empty data ────────────────────────────────────
+
+    #[test]
+    fn test_lookup_callback_empty_results() {
+        struct TestLookupCb {
+            received_count: std::sync::Arc<std::sync::Mutex<Option<usize>>>,
+        }
+        impl LookupCallback for TestLookupCb {
+            fn on_result(self: Box<Self>, _status: PmixStatus, data: Vec<PmixPdata>) {
+                *self.received_count.lock().unwrap() = Some(data.len());
+            }
+        }
+        let received_count = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let callback: Box<dyn LookupCallback> = Box::new(TestLookupCb {
+            received_count: received_count.clone(),
+        });
+        callback.on_result(PmixStatus::Known(PmixError::ErrNotFound), vec![]);
+        assert_eq!(*received_count.lock().unwrap().as_ref().unwrap(), 0);
+    }
+
+    // ─── PmixPdata with value ───────────────────────────────────────────────
+
+    #[test]
+    fn test_pdata_value_field_is_optional() {
+        let pdata = PmixPdata::new("test");
+        // value is None by default
+        assert!(pdata.value.is_none());
+        // The field type is Option<PmixOwnedValue>
+        let _: Option<PmixOwnedValue> = pdata.value;
     }
 }

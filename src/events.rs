@@ -42,7 +42,7 @@
 //! deregister_event_handler(handler_ref, None).expect("deregister failed");
 //! ```
 
-use crate::{Info, PmixDataRange, PmixStatus, Proc, ffi};
+use crate::{ffi, Info, PmixDataRange, PmixError, PmixStatus, Proc};
 use std::ffi::CStr;
 use std::os::raw::c_void;
 use std::ptr;
@@ -536,10 +536,24 @@ pub fn notify_event_nb(
 mod tests {
     use super::*;
 
+    // ─── Type alias tests ───────────────────────────────────────────────────
+
     #[test]
     fn test_event_handler_ref_type() {
         let ref_: EventHandlerRef = 42;
         assert_eq!(ref_, 42);
+    }
+
+    #[test]
+    fn test_event_handler_ref_zero() {
+        let ref_: EventHandlerRef = 0;
+        assert_eq!(ref_, 0);
+    }
+
+    #[test]
+    fn test_event_handler_ref_max() {
+        let ref_: EventHandlerRef = usize::MAX;
+        assert_eq!(ref_, usize::MAX);
     }
 
     #[test]
@@ -552,5 +566,202 @@ mod tests {
     fn test_op_cb_fn_none() {
         let fn_: OpCbFn = None;
         assert!(fn_.is_none());
+    }
+
+    #[test]
+    fn test_handler_reg_cb_fn_none() {
+        let fn_: HandlerRegCbFn = None;
+        assert!(fn_.is_none());
+    }
+
+    // ─── wrap_notification_fn tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_wrap_notification_fn_none() {
+        let (ffi_fn, cbdata) = wrap_notification_fn(None);
+        assert!(ffi_fn.is_none());
+        assert!(cbdata.is_null());
+    }
+
+    #[test]
+    fn test_wrap_notification_fn_some() {
+        extern "C" fn dummy_handler(
+            _id: EventHandlerRef,
+            _status: i32,
+            _source: *const std::os::raw::c_void,
+            _info: *mut std::os::raw::c_void,
+            _ninfo: usize,
+            _results: *mut std::os::raw::c_void,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbdata: *mut std::os::raw::c_void,
+        ) {
+        }
+        let (ffi_fn, cbdata) = wrap_notification_fn(Some(dummy_handler));
+        assert!(ffi_fn.is_some());
+        assert!(!cbdata.is_null());
+        // Clean up the allocated box
+        unsafe {
+            let _ = Box::from_raw(cbdata as *mut NotificationFn);
+        }
+    }
+
+    // ─── PmixDataRange tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_range_from_raw() {
+        let range = PmixDataRange::from_raw(0);
+        assert_eq!(range.to_raw(), 0);
+    }
+
+    #[test]
+    fn test_data_range_roundtrip() {
+        for raw in [0u8, 1, 2, 3, 4, 5] {
+            let range = PmixDataRange::from_raw(raw);
+            assert_eq!(range.to_raw(), raw);
+        }
+    }
+
+    // ─── PmixStatus roundtrip tests for events context ──────────────────────
+
+    #[test]
+    fn test_pmix_status_success() {
+        let status = PmixStatus::from_raw(0);
+        assert!(status.is_success());
+    }
+
+    #[test]
+    fn test_pmix_status_error_codes() {
+        // PMIX_ERR_INIT = -39
+        let status = PmixStatus::from_raw(-39);
+        assert!(status.is_error());
+
+        // PMIX_ERR_BAD_PARAM = -2
+        let status = PmixStatus::from_raw(-2);
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_to_raw_known() {
+        let status = PmixStatus::Known(PmixError::Success);
+        assert_eq!(status.to_raw(), 0);
+    }
+
+    #[test]
+    fn test_pmix_status_to_raw_error() {
+        let status = PmixStatus::Known(PmixError::ErrInit);
+        assert!(status.to_raw() < 0);
+    }
+
+    // ─── Proc tests for events context ──────────────────────────────────────
+
+    #[test]
+    fn test_proc_for_event_source() {
+        let proc = Proc::new("test_job", 0).unwrap();
+        // Verify the proc can be used as an event source
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_wildcard_rank() {
+        let proc = Proc::new("", u32::MAX).unwrap();
+        assert_eq!(proc.get_rank(), u32::MAX);
+    }
+
+    // ─── Info empty handling for events ─────────────────────────────────────
+
+    #[test]
+    fn test_info_empty_for_register() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let (info_ptr, ninfo) = if info.len > 0 {
+            (info.handle as *const ffi::pmix_info_t, info.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    #[test]
+    fn test_empty_codes_array() {
+        let codes: &[PmixStatus] = &[];
+        let (codes_ptr, ncodes) = if codes.is_empty() {
+            (std::ptr::null_mut(), 0)
+        } else {
+            (codes.as_ptr() as *mut ffi::pmix_status_t, codes.len())
+        };
+        assert!(codes_ptr.is_null());
+        assert_eq!(ncodes, 0);
+    }
+
+    #[test]
+    fn test_single_code_array() {
+        let codes: &[PmixStatus] = &[PmixStatus::Known(PmixError::ErrJobAborted)];
+        let (codes_ptr, ncodes) = if codes.is_empty() {
+            (std::ptr::null_mut(), 0)
+        } else {
+            (codes.as_ptr() as *mut ffi::pmix_status_t, codes.len())
+        };
+        assert!(!codes_ptr.is_null());
+        assert_eq!(ncodes, 1);
+    }
+
+    #[test]
+    fn test_multiple_codes_array() {
+        let codes: &[PmixStatus] = &[
+            PmixStatus::Known(PmixError::ErrJobAborted),
+            PmixStatus::Known(PmixError::ErrTimeout),
+            PmixStatus::Known(PmixError::ErrNotSupported),
+        ];
+        let (codes_ptr, ncodes) = if codes.is_empty() {
+            (std::ptr::null_mut(), 0)
+        } else {
+            (codes.as_ptr() as *mut ffi::pmix_status_t, codes.len())
+        };
+        assert!(!codes_ptr.is_null());
+        assert_eq!(ncodes, 3);
+    }
+
+    // ─── Callback type verification ─────────────────────────────────────────
+
+    #[test]
+    fn test_notification_fn_is_option() {
+        // Verify NotificationFn is Option<extern "C" fn(...)>
+        let fn_: NotificationFn = None;
+        assert!(fn_.is_none());
+        assert_eq!(fn_.as_ref(), None);
+    }
+
+    #[test]
+    fn test_op_cb_fn_is_option() {
+        let fn_: OpCbFn = None;
+        assert!(fn_.is_none());
+    }
+
+    #[test]
+    fn test_handler_reg_cb_fn_is_option() {
+        let fn_: HandlerRegCbFn = None;
+        assert!(fn_.is_none());
+    }
+
+    // ─── EventHandlerRef conversion tests ───────────────────────────────────
+
+    #[test]
+    fn test_handler_ref_from_i32_success() {
+        // Simulate: raw_status = 1 (success), cast to EventHandlerRef
+        let raw_status: i32 = 1;
+        let handler_ref: EventHandlerRef = raw_status as EventHandlerRef;
+        assert_eq!(handler_ref, 1);
+    }
+
+    #[test]
+    fn test_handler_ref_is_usize() {
+        // Verify EventHandlerRef is usize
+        let _: usize = 42usize;
+        let ref_: EventHandlerRef = 42;
+        assert_eq!(ref_, 42usize);
     }
 }
