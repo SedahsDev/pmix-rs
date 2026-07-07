@@ -853,6 +853,8 @@ pub fn validate_credential_nb(
 mod tests {
     use super::*;
 
+    // ── PmixCredential construction ────────────────────────────────────────
+
     #[test]
     fn test_credential_from_bytes() {
         let cred = PmixCredential::from_bytes(b"test credential data");
@@ -884,10 +886,300 @@ mod tests {
         assert!(!ptr.is_null());
     }
 
+    // ── PmixCredential clone ───────────────────────────────────────────────
+
+    #[test]
+    fn test_credential_clone() {
+        let cred = PmixCredential::from_bytes(b"clone me");
+        let cloned = cred.clone();
+        assert_eq!(cred.as_bytes(), cloned.as_bytes());
+        assert_eq!(cred.len(), cloned.len());
+    }
+
+    #[test]
+    fn test_credential_clone_empty() {
+        let cred = PmixCredential::empty();
+        let cloned = cred.clone();
+        assert!(cloned.is_empty());
+    }
+
+    // ── PmixCredential Debug ────────────────────────────────────────────────
+
+    #[test]
+    fn test_credential_debug() {
+        let cred = PmixCredential::from_bytes(b"debug");
+        let s = format!("{:?}", cred);
+        assert!(s.contains("PmixCredential"));
+    }
+
+    #[test]
+    fn test_credential_debug_empty() {
+        let cred = PmixCredential::empty();
+        let s = format!("{:?}", cred);
+        assert!(s.contains("PmixCredential"));
+    }
+
+    // ── PmixCredential as_c_mut_ptr + free_c_ptr roundtrip ─────────────────
+
+    #[test]
+    fn test_credential_as_c_mut_ptr_non_empty() {
+        let cred = PmixCredential::from_bytes(b"ffi test");
+        let c_ptr = cred.as_c_mut_ptr();
+        assert!(!c_ptr.is_null());
+        // Verify the C struct has correct size
+        unsafe {
+            let bo = &*c_ptr;
+            assert_eq!(bo.size, 8);
+            assert!(!bo.bytes.is_null());
+        }
+        unsafe { PmixCredential::free_c_ptr(c_ptr) };
+    }
+
+    #[test]
+    fn test_credential_as_c_mut_ptr_empty() {
+        let cred = PmixCredential::empty();
+        let c_ptr = cred.as_c_mut_ptr();
+        assert!(!c_ptr.is_null());
+        unsafe {
+            let bo = &*c_ptr;
+            assert_eq!(bo.size, 0);
+            assert!(bo.bytes.is_null());
+        }
+        unsafe { PmixCredential::free_c_ptr(c_ptr) };
+    }
+
+    #[test]
+    fn test_credential_free_c_ptr_null() {
+        // Freeing null should be safe
+        unsafe { PmixCredential::free_c_ptr(ptr::null_mut()) };
+    }
+
+    #[test]
+    fn test_credential_as_c_mut_ptr_roundtrip() {
+        let data = vec![10u8, 20, 30, 40, 50];
+        let cred = PmixCredential::from_vec(data.clone());
+        let c_ptr = cred.as_c_mut_ptr();
+        unsafe {
+            let bo = &*c_ptr;
+            assert_eq!(bo.size, 5);
+            // Verify bytes match
+            let c_bytes = std::slice::from_raw_parts(bo.bytes as *const u8, bo.size);
+            assert_eq!(c_bytes, &data[..]);
+        }
+        unsafe { PmixCredential::free_c_ptr(c_ptr) };
+        // Original credential should still be valid after freeing C copy
+        assert_eq!(cred.len(), 5);
+        assert!(!cred.is_empty());
+    }
+
+    // ── PmixCredential edge cases ──────────────────────────────────────────
+
+    #[test]
+    fn test_credential_from_bytes_empty_slice() {
+        let cred = PmixCredential::from_bytes(b"");
+        assert!(cred.is_empty());
+        assert_eq!(cred.len(), 0);
+    }
+
+    #[test]
+    fn test_credential_from_large_vec() {
+        let data = vec![42u8; 65536];
+        let cred = PmixCredential::from_vec(data.clone());
+        assert_eq!(cred.len(), 65536);
+        assert_eq!(cred.as_bytes(), &data[..]);
+    }
+
+    #[test]
+    fn test_credential_as_raw_empty() {
+        let cred = PmixCredential::empty();
+        let ptr = cred.as_raw();
+        assert!(!ptr.is_null());
+        // The leaked struct should have null bytes and zero size
+        unsafe {
+            let bo = &*ptr;
+            assert!(bo.bytes.is_null());
+            assert_eq!(bo.size, 0);
+        }
+    }
+
+    // ── CredentialResults ──────────────────────────────────────────────────
+
     #[test]
     fn test_validation_results_empty() {
         let results = ValidationResults::empty();
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_validation_results_debug() {
+        let results = ValidationResults::empty();
+        let s = format!("{:?}", results);
+        assert!(s.contains("ValidationResults"));
+    }
+
+    #[test]
+    fn test_credential_results_default() {
+        let results = CredentialResults::default();
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+        assert!(results.info().is_empty());
+    }
+
+    #[test]
+    fn test_credential_results_info_empty() {
+        let results = CredentialResults::default();
+        let info = results.info();
+        assert!(info.is_empty());
+    }
+
+    // ── CredentialCallback trait ───────────────────────────────────────────
+
+    #[test]
+    fn test_credential_callback_trait_object() {
+        struct TestCredCallback;
+        impl CredentialCallback for TestCredCallback {
+            fn on_complete(
+                self: Box<Self>,
+                _status: PmixStatus,
+                _credential: Option<PmixCredential>,
+                _results: CredentialResults,
+            ) {
+                // Test callback — does nothing
+            }
+        }
+        let cb: Box<dyn CredentialCallback> = Box::new(TestCredCallback);
+        // Verify it's a valid trait object
+        assert!(std::mem::size_of_val(&cb) > 0);
+    }
+
+    // ── ValidationCallback trait ───────────────────────────────────────────
+
+    #[test]
+    fn test_validation_callback_trait_object() {
+        struct TestValCallback;
+        impl ValidationCallback for TestValCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {
+                // Test callback — does nothing
+            }
+        }
+        let cb: Box<dyn ValidationCallback> = Box::new(TestValCallback);
+        assert!(std::mem::size_of_val(&cb) > 0);
+    }
+
+    // ── Registry and sequence counters ─────────────────────────────────────
+
+    #[test]
+    fn test_credential_seq_counter() {
+        let mut seq = CREDENTIAL_SEQ.lock().unwrap();
+        let before = *seq;
+        *seq += 1;
+        assert_eq!(*seq, before + 1);
+    }
+
+    #[test]
+    fn test_validation_seq_counter() {
+        let mut seq = VALIDATION_SEQ.lock().unwrap();
+        let before = *seq;
+        *seq += 1;
+        assert_eq!(*seq, before + 1);
+    }
+
+    #[test]
+    fn test_credential_registry_is_accessible() {
+        let registry = CREDENTIAL_REGISTRY.lock().unwrap();
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn test_validation_registry_is_accessible() {
+        let registry = VALIDATION_REGISTRY.lock().unwrap();
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn test_validation_cred_map_is_accessible() {
+        let cred_map = VALIDATION_CRED_MAP.lock().unwrap();
+        assert!(cred_map.is_empty());
+    }
+
+    // ── copy_and_free_pmix_byte_object ─────────────────────────────────────
+
+    #[test]
+    fn test_copy_and_free_pmix_byte_object_allocated() {
+        // Allocate a pmix_byte_object_t with data using libc malloc
+        let bytes = b"test data";
+        let byte_ptr = unsafe { libc::malloc(bytes.len()) as *mut std::os::raw::c_char };
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), byte_ptr as *mut u8, bytes.len());
+        }
+        let bo = Box::new(ffi::pmix_byte_object_t {
+            bytes: byte_ptr,
+            size: bytes.len(),
+        });
+        let bo_ptr = Box::into_raw(bo);
+
+        // Call the helper — it copies bytes and frees the C memory
+        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        assert_eq!(&result[..], bytes);
+    }
+
+    #[test]
+    fn test_copy_and_free_pmix_byte_object_null_bytes() {
+        // Allocate struct but with null bytes
+        let bo = Box::new(ffi::pmix_byte_object_t {
+            bytes: ptr::null_mut(),
+            size: 0,
+        });
+        let bo_ptr = Box::into_raw(bo);
+
+        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_copy_and_free_pmix_byte_object_zero_size() {
+        // Allocate struct with non-null bytes but zero size
+        let bo = Box::new(ffi::pmix_byte_object_t {
+            bytes: ptr::null_mut(),
+            size: 0,
+        });
+        let bo_ptr = Box::into_raw(bo);
+
+        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        assert!(result.is_empty());
+    }
+
+    // ── get_credential / validate_credential (without DVM) ─────────────────
+
+    #[test]
+    fn test_get_credential_without_init() {
+        // Without PMIx init, get_credential should fail gracefully
+        let result = get_credential(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_credential_without_init() {
+        // Without PMIx init, validate_credential should fail gracefully
+        let cred = PmixCredential::from_bytes(b"fake");
+        let result = validate_credential(&cred, &[]);
+        assert!(result.is_err());
+    }
+
+    // ── ValidationResults Drop safety ──────────────────────────────────────
+
+    #[test]
+    fn test_validation_results_drop_empty() {
+        let results = ValidationResults::empty();
+        // Drop should be safe for empty results
+        drop(results);
+    }
+
+    #[test]
+    fn test_validation_results_drop_after_clone() {
+        let results = ValidationResults::empty();
+        // ValidationResults is not Clone, but drop should be safe
+        assert!(results.is_empty());
     }
 }

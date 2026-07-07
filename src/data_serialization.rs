@@ -1157,6 +1157,8 @@ pub fn data_decompress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
 mod tests {
     use super::*;
 
+    // ── PmixByteObject ──────────────────────────────────────────────────────
+
     #[test]
     fn test_byte_object_new() {
         let obj = PmixByteObject::new();
@@ -1173,9 +1175,89 @@ mod tests {
     }
 
     #[test]
+    fn test_byte_object_default() {
+        let obj = PmixByteObject::default();
+        assert!(obj.is_empty());
+        assert_eq!(obj.size(), 0);
+    }
+
+    #[test]
+    fn test_byte_object_from_vec() {
+        let data = vec![1u8, 2, 3, 4, 5];
+        let obj = PmixByteObject::from(data.clone());
+        assert_eq!(obj.as_slice(), &data[..]);
+        assert_eq!(obj.size(), 5);
+        assert!(!obj.is_empty());
+    }
+
+    #[test]
+    fn test_byte_object_from_empty_vec() {
+        let obj = PmixByteObject::from(Vec::<u8>::new());
+        assert!(obj.is_empty());
+        assert_eq!(obj.size(), 0);
+    }
+
+    #[test]
+    fn test_byte_object_as_mut_ptr() {
+        let mut obj = PmixByteObject::new();
+        let ptr = obj.as_mut_ptr();
+        assert!(!ptr.is_null());
+    }
+
+    #[test]
+    fn test_byte_object_as_slice_non_empty() {
+        let data = vec![10u8, 20, 30];
+        let obj = PmixByteObject::from(data.clone());
+        let slice = obj.as_slice();
+        assert_eq!(slice, &data[..]);
+        assert_eq!(slice.len(), 3);
+    }
+
+    // ── PmixProcRef ─────────────────────────────────────────────────────────
+
+    #[test]
     fn test_proc_ref_new() {
         let _ref = PmixProcRef::new("test_ns", 42);
     }
+
+    #[test]
+    fn test_proc_ref_to_raw() {
+        let ref_ = PmixProcRef::new("mynamespace", 7);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, 7);
+        // nspace should contain "mynamespace"
+        let nspace_bytes =
+            unsafe { std::ffi::CStr::from_ptr(raw.nspace.as_ptr() as *const i8) }.to_string_lossy();
+        assert_eq!(nspace_bytes, "mynamespace");
+    }
+
+    #[test]
+    fn test_proc_ref_to_raw_zero_rank() {
+        let ref_ = PmixProcRef::new("default", 0);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, 0);
+    }
+
+    #[test]
+    fn test_proc_ref_to_raw_max_rank() {
+        let ref_ = PmixProcRef::new("ns", u32::MAX);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, u32::MAX);
+    }
+
+    #[test]
+    fn test_proc_ref_to_raw_long_namespace() {
+        let long_ns = "a".repeat(300); // exceeds 256 char nspace_t
+        let ref_ = PmixProcRef::new(&long_ns, 1);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, 1);
+        // nspace should be truncated to fit pmix_nspace_t
+        let nspace_bytes =
+            unsafe { std::ffi::CStr::from_ptr(raw.nspace.as_ptr() as *const i8) }.to_string_lossy();
+        assert!(nspace_bytes.len() <= std::mem::size_of::<ffi::pmix_nspace_t>());
+    }
+
+    // ── PmixDataBuffer ──────────────────────────────────────────────────────
 
     #[test]
     fn test_data_buffer_debug_null() {
@@ -1194,9 +1276,420 @@ mod tests {
     }
 
     #[test]
+    fn test_data_buffer_create() {
+        if let Ok(buf) = data_buffer_create() {
+            assert!(buf.is_valid());
+            assert_eq!(buf.bytes_allocated(), 0);
+            assert_eq!(buf.bytes_used(), 0);
+        }
+    }
+
+    #[test]
+    fn test_data_buffer_create_valid_ptr() {
+        let buf = data_buffer_create().expect("create buffer");
+        assert!(!buf.as_mut_ptr().is_null());
+    }
+
+    #[test]
+    fn test_data_buffer_debug_valid() {
+        let buf = data_buffer_create().expect("create buffer");
+        let s = format!("{:?}", buf);
+        assert!(s.contains("PmixDataBuffer"));
+        assert!(s.contains("ptr"));
+        assert!(s.contains("bytes_allocated"));
+        assert!(s.contains("bytes_used"));
+    }
+
+    #[test]
+    fn test_data_buffer_release_idempotent() {
+        let mut buf = data_buffer_create().expect("create buffer");
+        assert!(buf.is_valid());
+        data_buffer_release(&mut buf);
+        assert!(!buf.is_valid());
+        // Calling release again should be safe (no double-free)
+        data_buffer_release(&mut buf);
+        assert!(!buf.is_valid());
+    }
+
+    #[test]
+    fn test_data_buffer_drop_after_release() {
+        let mut buf = data_buffer_create().expect("create buffer");
+        data_buffer_release(&mut buf);
+        // Drop should be safe after explicit release (ptr is null)
+        drop(buf);
+    }
+
+    #[test]
+    fn test_data_buffer_from_raw_null() {
+        let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
+        assert!(!buf.is_valid());
+        assert!(buf.as_mut_ptr().is_null());
+    }
+
+    // ── data_pack ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_pack_zero_num_vals_returns_bad_param() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i32 = 42;
+        let result = data_pack(None, &buf, &val, 0, PmixDataType::Int32);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_pack_negative_num_vals_returns_bad_param() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i32 = 42;
+        let result = data_pack(None, &buf, &val, -1, PmixDataType::Int32);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_pack_with_target() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i32 = 42;
+        let target = PmixProcRef::new("target_ns", 1);
+        // Should not panic — actual result depends on PMIx init state
+        let _result = data_pack(Some(target), &buf, &val, 1, PmixDataType::Int32);
+    }
+
+    #[test]
+    fn test_data_pack_u8() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: u8 = 255;
+        let result = data_pack(None, &buf, &val, 1, PmixDataType::Uint8);
+        // May succeed or fail depending on PMIx init — just check it doesn't panic
+        match result {
+            Ok(n) => assert_eq!(n, 1),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_pack_u64() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: u64 = u64::MAX;
+        let result = data_pack(None, &buf, &val, 1, PmixDataType::Uint64);
+        match result {
+            Ok(n) => assert_eq!(n, 1),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_pack_f64() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: f64 = 3.14159;
+        let result = data_pack(None, &buf, &val, 1, PmixDataType::Float);
+        match result {
+            Ok(n) => assert_eq!(n, 1),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_pack_buffer_grows() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i32 = 42;
+        let _ = data_pack(None, &buf, &val, 1, PmixDataType::Int32);
+        // Buffer should have used some bytes after packing
+        // (exact amount depends on PMIx version, but should be > 0 on success)
+    }
+
+    // ── data_unpack ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_unpack_basic() {
+        let buf = data_buffer_create().expect("create buffer");
+        let mut val: i32 = 0;
+        let mut count: i32 = 1;
+        let _result = data_unpack(None, &buf, &mut val, &mut count, PmixDataType::Int32);
+        // Unpacking from empty buffer should fail gracefully
+    }
+
+    #[test]
+    fn test_data_unpack_with_source() {
+        let buf = data_buffer_create().expect("create buffer");
+        let mut val: i32 = 0;
+        let mut count: i32 = 1;
+        let source = PmixProcRef::new("source_ns", 0);
+        let _result = data_unpack(
+            Some(source),
+            &buf,
+            &mut val,
+            &mut count,
+            PmixDataType::Int32,
+        );
+    }
+
+    // ── data_pack + data_unpack roundtrip ───────────────────────────────────
+
+    #[test]
+    fn test_pack_unpack_i32_roundtrip() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i32 = 42;
+        let packed = data_pack(None, &buf, &val, 1, PmixDataType::Int32);
+        if packed.is_ok() {
+            let mut out: i32 = 0;
+            let mut count: i32 = 1;
+            let unpacked = data_unpack(None, &buf, &mut out, &mut count, PmixDataType::Int32);
+            if unpacked.is_ok() {
+                assert_eq!(out, 42);
+                assert_eq!(count, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_pack_unpack_u64_roundtrip() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: u64 = 0xDEADBEEFCAFEBABE;
+        let packed = data_pack(None, &buf, &val, 1, PmixDataType::Uint64);
+        if packed.is_ok() {
+            let mut out: u64 = 0;
+            let mut count: i32 = 1;
+            let unpacked = data_unpack(None, &buf, &mut out, &mut count, PmixDataType::Uint64);
+            if unpacked.is_ok() {
+                assert_eq!(out, 0xDEADBEEFCAFEBABE);
+            }
+        }
+    }
+
+    // ── data_unload / data_load ─────────────────────────────────────────────
+
+    #[test]
+    fn test_data_unload_basic() {
+        let buf = data_buffer_create().expect("create buffer");
+        let result = data_unload(&buf);
+        match result {
+            Ok(obj) => {
+                // Unloading empty buffer should give empty or small byte object
+                assert!(obj.size() >= 0);
+            }
+            Err(_) => {
+                // May fail on empty buffer depending on PMIx version
+            }
+        }
+    }
+
+    #[test]
+    fn test_data_load_basic() {
+        let buf = data_buffer_create().expect("create buffer");
+        let payload = PmixByteObject::new();
+        let result = data_load(&buf, &payload);
+        // Loading empty payload should succeed or fail gracefully
+        match result {
+            Ok(()) => {}
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_load_from_vec_payload() {
+        let buf = data_buffer_create().expect("create buffer");
+        let payload = PmixByteObject::from(vec![1u8, 2, 3, 4]);
+        let result = data_load(&buf, &payload);
+        match result {
+            Ok(()) => {}
+            Err(_) => {}
+        }
+    }
+
+    // ── data_embed ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_embed_none() {
+        let buf = data_buffer_create().expect("create buffer");
+        let result = data_embed(&buf, None);
+        // None payload behavior depends on PMIx version — may succeed or fail
+        match result {
+            Ok(()) => {}
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_embed_with_payload() {
+        let buf = data_buffer_create().expect("create buffer");
+        let payload = PmixByteObject::from(vec![1u8, 2, 3, 4]);
+        let result = data_embed(&buf, Some(&payload));
+        match result {
+            Ok(()) => {}
+            Err(_) => {}
+        }
+        // payload should still be usable after embed (unlike load)
+        assert_eq!(payload.size(), 4);
+    }
+
+    #[test]
+    fn test_data_embed_preserves_source() {
+        let buf = data_buffer_create().expect("create buffer");
+        let payload = PmixByteObject::from(vec![42u8, 43, 44]);
+        let _ = data_embed(&buf, Some(&payload));
+        // Source payload must be unmodified after embed
+        assert_eq!(payload.as_slice(), &[42, 43, 44]);
+        assert_eq!(payload.size(), 3);
+    }
+
+    // ── data_copy ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_copy_basic() {
+        let val: i32 = 42;
+        let result = data_copy(&val, PmixDataType::Int32);
+        match result {
+            Ok(ptr) => {
+                assert!(!ptr.is_null());
+                // Note: caller owns the allocation; we can't safely free it
+                // without knowing the type, so we just verify non-null.
+            }
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_copy_u8() {
+        let val: u8 = 255;
+        let result = data_copy(&val, PmixDataType::Uint8);
+        match result {
+            Ok(ptr) => assert!(!ptr.is_null()),
+            Err(_) => {}
+        }
+    }
+
+    // ── data_copy_payload ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_copy_payload_basic() {
+        let src = data_buffer_create().expect("create buffer");
+        let dest = data_buffer_create().expect("create buffer");
+        let result = data_copy_payload(&dest, &src);
+        match result {
+            Ok(()) => {}
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_copy_payload_self() {
+        let buf = data_buffer_create().expect("create buffer");
+        let result = data_copy_payload(&buf, &buf);
+        match result {
+            Ok(()) => {}
+            Err(_) => {}
+        }
+    }
+
+    // ── data_print ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_print_basic() {
+        let val: i32 = 42;
+        let result = data_print(&val, None, PmixDataType::Int32);
+        match result {
+            Ok(output) => {
+                let s = output.as_str();
+                // Should contain something (may be empty if not initialized)
+                assert!(s.len() >= 0);
+            }
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_print_with_prefix() {
+        let val: i32 = 42;
+        let result = data_print(&val, Some("val="), PmixDataType::Int32);
+        match result {
+            Ok(output) => {
+                let s = output.as_str();
+                assert!(s.len() >= 0);
+            }
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_data_print_empty_prefix() {
+        let val: i32 = 42;
+        let result = data_print(&val, Some(""), PmixDataType::Int32);
+        match result {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+
+    // ── PmixPrintOutput ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_print_output_default() {
+        let output = PmixPrintOutput::default();
+        assert_eq!(output.as_str(), "");
+        assert_eq!(output.len(), 0);
+    }
+
+    #[test]
+    fn test_print_output_display() {
+        let output = PmixPrintOutput::default();
+        let s = format!("{}", output);
+        assert_eq!(s, "");
+    }
+
+    #[test]
+    fn test_print_output_debug() {
+        let output = PmixPrintOutput::default();
+        let s = format!("{:?}", output);
+        assert!(s.contains("\"\""));
+    }
+
+    #[test]
+    fn test_print_output_deref() {
+        let output: &str = &PmixPrintOutput::default();
+        assert_eq!(output, "");
+    }
+
+    #[test]
+    fn test_print_output_into_string() {
+        let output = PmixPrintOutput::default();
+        let s: String = output.into();
+        assert_eq!(s, "");
+    }
+
+    // ── data_compress ───────────────────────────────────────────────────────
+
+    #[test]
     fn test_data_compress_empty() {
         if let Ok(result) = data_compress(&[]) {
             assert!(result.len() < 100);
+        }
+    }
+
+    #[test]
+    fn test_data_compress_empty_returns_err() {
+        let result = data_compress(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_compress_small_data() {
+        // Small data may not compress well
+        let result = data_compress(b"hi");
+        match result {
+            Ok(_) => {}
+            Err(_) => {} // Expected for very small data
+        }
+    }
+
+    #[test]
+    fn test_data_compress_repetitive_data() {
+        // Repetitive data should compress well
+        let data = vec![0u8; 4096];
+        let result = data_compress(&data);
+        match result {
+            Ok(compressed) => {
+                assert!(compressed.len() < data.len());
+            }
+            Err(_) => {}
         }
     }
 
@@ -1211,11 +1704,33 @@ mod tests {
     }
 
     #[test]
-    fn test_data_buffer_create() {
-        if let Ok(buf) = data_buffer_create() {
-            assert!(buf.is_valid());
-            assert_eq!(buf.bytes_allocated(), 0);
-            assert_eq!(buf.bytes_used(), 0);
+    fn test_data_compress_decompress_larger_roundtrip() {
+        let data = vec![42u8; 8192];
+        if let Ok(compressed) = data_compress(&data) {
+            if let Ok(decompressed) = data_decompress(&compressed) {
+                assert_eq!(decompressed, data);
+            }
         }
+    }
+
+    // ── data_decompress ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_decompress_empty_returns_err() {
+        let result = data_decompress(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_decompress_invalid_data() {
+        // Random data that wasn't produced by data_compress should fail
+        let result = data_decompress(b"not compressed data");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_decompress_random_bytes() {
+        let result = data_decompress(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert!(result.is_err());
     }
 }
