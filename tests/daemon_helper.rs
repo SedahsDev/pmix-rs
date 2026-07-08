@@ -25,9 +25,20 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 
+use pmix::Info;
+use pmix::info_with_string_key;
 use pmix::tool::{PmixToolHandle, tool_init};
-use pmix::{Info, info_with_string_key};
+
+/// Default timeout for `tool_init` FFI calls (in seconds).
+///
+/// PMIx_tool_init can block indefinitely if the PRTE daemon is running but
+/// not accepting tool connections (e.g., stale URI file, port mismatch after
+/// daemon restart, or the daemon being in a broken state). This timeout
+/// prevents the test runner from hanging forever.
+const TOOL_INIT_TIMEOUT_SECS: u64 = 10;
 
 /// Default path where the systemd PRTE service writes its URI.
 const DEFAULT_URI_FILE: &str = "/run/user/1000/prte/uri";
@@ -129,6 +140,57 @@ static SHARED_TOOL: std::sync::OnceLock<PmixToolHandle> = std::sync::OnceLock::n
 /// Whether initialization was attempted but failed.
 static INIT_FAILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
+/// Call `tool_init` in a background thread with a timeout.
+///
+/// `PMIx_tool_init` can block indefinitely if the PRTE daemon is running
+/// but not accepting tool connections (e.g., stale URI file, port mismatch
+/// after daemon restart, or the daemon being in a broken state). This
+/// wrapper spawns the FFI call in a separate thread and kills it after
+/// `TOOL_INIT_TIMEOUT_SECS` seconds, returning `Err` instead of hanging.
+///
+/// We pass the URI string (not the Info struct) across the thread boundary,
+/// then construct the Info inside the thread. This avoids any issues with
+/// Info's internal pointer not being Send.
+///
+/// Returns `Ok(PmixToolHandle)` on success, `Err(String)` on timeout or FFI error.
+fn tool_init_with_timeout(uri: &str) -> Result<PmixToolHandle, String> {
+    let uri = uri.to_string();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    let handle = thread::spawn(move || {
+        // Construct the Info inside the thread to avoid cross-thread pointer issues
+        let info = info_with_string_key("pmix.srvr.uri", &uri);
+        match tool_init(None, &info) {
+            Ok(h) => tx.send(Ok(h)),
+            Err(e) => tx.send(Err(format!("tool_init returned error: {:?}", e))),
+        }
+    });
+
+    match rx.recv_timeout(Duration::from_secs(TOOL_INIT_TIMEOUT_SECS)) {
+        Ok(result) => {
+            // Detach the thread — it's already done sending
+            let _ = handle.join();
+            result
+        }
+        Err(_recv_timeout) => {
+            // Timeout — the thread is still blocked in the FFI call.
+            // We can't kill it cleanly, but we can mark init as failed
+            // so subsequent calls don't retry. In practice the thread
+            // will be cleaned up when the test process exits.
+            eprintln!(
+                "[daemon_helper] tool_init timed out after {} seconds — \
+                 PRTE daemon may not be accepting tool connections",
+                TOOL_INIT_TIMEOUT_SECS
+            );
+            Err(format!(
+                "tool_init timed out after {} seconds (PRTE daemon not accepting tool connections)",
+                TOOL_INIT_TIMEOUT_SECS
+            ))
+        }
+    }
+}
+
 /// Get the shared tool handle.
 ///
 /// Returns `Err` if the daemon is unavailable or `tool_init` failed.
@@ -138,6 +200,9 @@ static INIT_FAILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 /// Thread-safe: uses the global daemon mutex to serialize initialization,
 /// preventing the race where multiple threads all see `SHARED_TOOL` as None
 /// and try to call `tool_init` concurrently.
+///
+/// Uses a timeout wrapper around `tool_init` to prevent indefinite hangs
+/// when the PRTE daemon is running but not accepting tool connections.
 pub fn get_tool_handle() -> Result<&'static PmixToolHandle, String> {
     // Fast path: already initialized (lock-free)
     if let Some(handle) = SHARED_TOOL.get() {
@@ -161,11 +226,8 @@ pub fn get_tool_handle() -> Result<&'static PmixToolHandle, String> {
         }
     };
 
-    // Pass the URI via PMIX_SERVER_URI info key. This works with openpmix 6.1.0
-    // where the env var approach (PMIX_SERVER_URIv61) does not.
-    let info = info_with_string_key("pmix.srvr.uri", &uri);
-
-    match tool_init(None, &info) {
+    // Use timeout wrapper to prevent indefinite hangs
+    match tool_init_with_timeout(&uri) {
         Ok(handle) => {
             eprintln!(
                 "[daemon_helper] tool_init succeeded (uri={})",
@@ -179,7 +241,7 @@ pub fn get_tool_handle() -> Result<&'static PmixToolHandle, String> {
         }
         Err(e) => {
             INIT_FAILED.set(true).ok();
-            Err(format!("tool_init failed: {:?}", e))
+            Err(format!("tool_init failed: {}", e))
         }
     }
 }

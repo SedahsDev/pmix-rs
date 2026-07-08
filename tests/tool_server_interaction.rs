@@ -131,7 +131,9 @@ fn test_server_handle_traits_for_attach() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// tool_attach_to_server after tool_init — may succeed or fail, but doesn't panic.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_attach_to_server_with_init_no_panic() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -141,7 +143,9 @@ fn test_attach_to_server_with_init_no_panic() {
 }
 
 /// tool_attach_to_server with want_server=true returns Option<PmixServerHandle>.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_attach_to_server_want_server_returns_option() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -166,7 +170,9 @@ fn test_attach_to_server_want_server_returns_option() {
 }
 
 /// tool_attach_to_server with want_server=false returns None for server handle.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_attach_to_server_no_server_flag_returns_none() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -186,7 +192,9 @@ fn test_attach_to_server_no_server_flag_returns_none() {
 }
 
 /// tool_attach_to_server with myproc=None returns None for tool handle.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_attach_to_server_no_myproc_returns_none_tool() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -454,7 +462,9 @@ fn test_set_server_result_send_sync() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// tool_get_servers after tool_init returns Ok (may be empty or populated).
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_get_servers_with_init_succeeds() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -469,7 +479,9 @@ fn test_get_servers_with_init_succeeds() {
 }
 
 /// tool_get_servers returns Vec<Proc> where each Proc has a namespace.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_get_servers_with_init_returns_valid_procs() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -482,7 +494,9 @@ fn test_get_servers_with_init_returns_valid_procs() {
 }
 
 /// Multiple tool_get_servers calls after init all succeed.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_get_servers_with_init_multiple_calls() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -500,7 +514,9 @@ fn test_get_servers_with_init_multiple_calls() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// tool_set_server after tool_init — may succeed or fail, but doesn't panic.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_set_server_with_init_no_panic() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -513,7 +529,9 @@ fn test_set_server_with_init_no_panic() {
 }
 
 /// tool_set_server with server from get_servers after init.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_set_server_with_server_from_get_servers() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -534,7 +552,9 @@ fn test_set_server_with_server_from_get_servers() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Full lifecycle: init → attach → disconnect → finalize (if attach succeeds).
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_lifecycle_init_attach_disconnect_finalize() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -566,7 +586,9 @@ fn test_lifecycle_init_attach_disconnect_finalize() {
 }
 
 /// State machine: init → get_servers → finalize.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_lifecycle_init_get_servers_finalize() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -579,7 +601,9 @@ fn test_lifecycle_init_get_servers_finalize() {
 }
 
 /// State machine: init → set_server → finalize (using tool's own proc).
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_lifecycle_init_set_server_finalize() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -592,7 +616,9 @@ fn test_lifecycle_init_set_server_finalize() {
 }
 
 /// Full combined lifecycle: init → get_servers → set_server → attach → disconnect → finalize.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_lifecycle_full_combined() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -626,7 +652,9 @@ fn test_lifecycle_full_combined() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// After disconnect, tool is still initialized until finalize.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_tool_initialized_after_disconnect() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -717,7 +745,9 @@ fn test_finalize_after_failed_set_server() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Concurrent tool_get_servers calls are safe after tool_init.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_concurrent_get_servers_safe() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
@@ -871,7 +901,9 @@ fn test_info_compatible_with_all_server_funcs() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// After init, enumerate servers and try to set each as primary.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_get_servers_then_set_each_as_primary() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");

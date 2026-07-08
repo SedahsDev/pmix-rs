@@ -86,7 +86,9 @@ fn test_tool_init_with_info() {
 }
 
 /// tool_finalize succeeds after tool_init.
+/// Ignored: requires PRTE daemon accepting tool connections (PMIx_tool_init blocks indefinitely).
 #[test]
+#[ignore]
 fn test_tool_finalize_after_init() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let uri = daemon_helper::read_uri().expect("PMIx daemon not available");
