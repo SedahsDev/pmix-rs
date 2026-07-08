@@ -20,11 +20,13 @@ use pmix::{InfoBuilder, PmixDataType};
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Full data_serialization workflow: create → pack → unpack → unload → load → copy → embed → compress → decompress
+///
+/// NOTE: Do NOT call get_tool_handle() before server_init — the new PRTE
+/// version is stricter about mixing tool and server roles and can hang.
 #[test]
 #[ignore = "daemon isolation"]
 fn test_data_serialization_all_ffi_operations() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
-    let _ = daemon_helper::get_tool_handle().expect("shared tool handle (daemon available)");
 
     let module = pmix::server::PmixServerModule::default();
     let info = InfoBuilder::new().build();

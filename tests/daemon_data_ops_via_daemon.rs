@@ -94,11 +94,13 @@ fn test_store_internal_type() {
 
 /// Full data_ops workflow: get → lookup → fence → store_internal
 /// (publish/unpublish skipped — new PRTE rejects empty info and segfaults)
+///
+/// NOTE: Do NOT call get_tool_handle() before server_init — the new PRTE
+/// version is stricter about mixing tool and server roles and can hang.
 #[test]
 #[ignore = "daemon isolation"]
 fn test_data_ops_all_ffi_operations() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
-    let _ = daemon_helper::get_tool_handle().expect("shared tool handle (daemon available)");
 
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
