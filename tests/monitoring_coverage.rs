@@ -20,27 +20,19 @@ use pmix::{InfoBuilder, PmixError, PmixStatus};
 fn test_process_monitor_without_init_returns_error() {
     // Without PMIx_Init, process_monitor should return an error, not panic.
     let monitor = InfoBuilder::new().build();
-    let result = process_monitor(
-        &monitor,
-        PmixStatus::Known(PmixError::ErrNotFound),
-        &[],
-    );
+    let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
     assert!(result.is_err(), "process_monitor without init should fail");
 }
 
 #[test]
 fn test_process_monitor_with_directives_without_init() {
     let monitor = InfoBuilder::new().build();
-    let dirs = vec![
-        InfoBuilder::new().build(),
-        InfoBuilder::new().build(),
-    ];
-    let result = process_monitor(
-        &monitor,
-        PmixStatus::Known(PmixError::ErrTimeout),
-        &dirs,
+    let dirs = vec![InfoBuilder::new().build(), InfoBuilder::new().build()];
+    let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrTimeout), &dirs);
+    assert!(
+        result.is_err(),
+        "process_monitor with directives without init should fail"
     );
-    assert!(result.is_err(), "process_monitor with directives without init should fail");
 }
 
 #[test]
@@ -55,11 +47,7 @@ fn test_process_monitor_success_error_code_without_init() {
 fn test_process_monitor_multiple_calls_without_init() {
     let monitor = InfoBuilder::new().build();
     for i in 0..5 {
-        let result = process_monitor(
-            &monitor,
-            PmixStatus::from_raw(-100 - i as i32),
-            &[],
-        );
+        let result = process_monitor(&monitor, PmixStatus::from_raw(-100 - i as i32), &[]);
         assert!(result.is_err(), "iteration {} should fail", i);
     }
 }
@@ -83,13 +71,11 @@ fn test_process_monitor_nb_without_init_returns_error() {
     let cb = Box::new(CountingMonitorCb {
         count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     });
-    let result = process_monitor_nb(
-        &monitor,
-        PmixStatus::Known(PmixError::ErrNotFound),
-        &[],
-        cb,
+    let result = process_monitor_nb(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[], cb);
+    assert!(
+        result.is_err(),
+        "process_monitor_nb without init should fail"
     );
-    assert!(result.is_err(), "process_monitor_nb without init should fail");
 }
 
 #[test]
@@ -213,8 +199,8 @@ fn test_monitor_results_type_name() {
 
 #[test]
 fn test_monitor_callback_with_arc_state() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     struct ArcMonitorCb {
         called: Arc<AtomicBool>,
@@ -235,7 +221,10 @@ fn test_monitor_callback_with_arc_state() {
         let mut c = cb;
         c.on_complete(PmixStatus::Known(PmixError::Success), None);
     }
-    assert!(called.load(Ordering::SeqCst), "Callback should have been invoked");
+    assert!(
+        called.load(Ordering::SeqCst),
+        "Callback should have been invoked"
+    );
 }
 
 #[test]
@@ -285,11 +274,7 @@ fn test_monitor_with_collect_data_info() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     let monitor = builder.build();
-    let result = process_monitor(
-        &monitor,
-        PmixStatus::Known(PmixError::ErrNotFound),
-        &[],
-    );
+    let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
     // Without init, still fails — but the Info construction path is exercised
     assert!(result.is_err());
 }
@@ -302,10 +287,6 @@ fn test_monitor_directives_multiple_info_objects() {
         InfoBuilder::new().build(),
         InfoBuilder::new().build(),
     ];
-    let result = process_monitor(
-        &monitor,
-        PmixStatus::Known(PmixError::ErrNotFound),
-        &dirs,
-    );
+    let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &dirs);
     assert!(result.is_err());
 }

@@ -21,7 +21,10 @@ use pmix::{InfoBuilder, Proc};
 #[test]
 fn test_spawn_empty_apps_rejected() {
     let result = spawn(&[], &[]);
-    assert!(result.is_err(), "spawn with empty apps should fail at validation");
+    assert!(
+        result.is_err(),
+        "spawn with empty apps should fail at validation"
+    );
 }
 
 #[test]
@@ -49,7 +52,10 @@ fn test_spawn_nb_empty_apps_rejected() {
 #[test]
 fn test_connect_empty_procs_rejected() {
     let result = connect(&[], &[]);
-    assert!(result.is_err(), "connect with empty procs should fail at validation");
+    assert!(
+        result.is_err(),
+        "connect with empty procs should fail at validation"
+    );
 }
 
 #[test]
@@ -66,7 +72,10 @@ fn test_connect_empty_procs_with_info_rejected() {
 #[test]
 fn test_disconnect_empty_procs_rejected() {
     let result = disconnect(&[], &[]);
-    assert!(result.is_err(), "disconnect with empty procs should fail at validation");
+    assert!(
+        result.is_err(),
+        "disconnect with empty procs should fail at validation"
+    );
 }
 
 #[test]
@@ -109,8 +118,8 @@ fn test_spawn_callback_wrapper_basic() {
 
 #[test]
 fn test_spawn_callback_wrapper_with_state() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = called.clone();

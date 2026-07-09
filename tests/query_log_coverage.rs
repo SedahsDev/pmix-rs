@@ -163,8 +163,8 @@ fn test_query_callback_trait_object() {
 
 #[test]
 fn test_query_callback_with_arc_state() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     struct ArcQueryCb {
         called: Arc<AtomicBool>,
@@ -202,8 +202,8 @@ fn test_log_callback_trait_object() {
 
 #[test]
 fn test_log_callback_with_arc_state() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     struct ArcLogCb {
         called: Arc<AtomicBool>,
