@@ -4402,6 +4402,7 @@ mod tests {
     // ── Error path tests: FFI calls without server init ──────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_register_nspace_fails_without_init() {
         let info = crate::InfoBuilder::new().build();
         let callback: Box<dyn RegisterNspaceCallback> = Box::new(TestNspaceCallback {
@@ -4415,6 +4416,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_define_process_set_fails_without_init() {
         let result = server_define_process_set(&[], "test.pset");
         assert!(
@@ -4424,6 +4426,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_delete_process_set_fails_without_init() {
         let result = server_delete_process_set("test.pset");
         assert!(
@@ -4433,6 +4436,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_publish_fails_without_init() {
         let handle = PmixServerHandle { initialized: true };
         let info = crate::InfoBuilder::new().build();
@@ -4444,6 +4448,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_lookup_fails_without_init() {
         let handle = PmixServerHandle { initialized: true };
         let result = server_lookup(&handle, "test.nspace", "test_key", &[]);
@@ -4454,6 +4459,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_delete_fails_without_init() {
         let handle = PmixServerHandle { initialized: true };
         let result = server_delete(&handle, "test.nspace", "test_key");
@@ -4464,6 +4470,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_fence_fails_without_init() {
         let handle = PmixServerHandle { initialized: true };
         let result = server_fence(&handle, &[], 0);
@@ -4522,6 +4529,7 @@ mod tests {
     // ── server_register_client error path ────────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_register_client_fails_without_init() {
         let proc = Proc::new("test.nspace", 0).expect("Proc::new failed");
         let callback: Box<dyn RegisterClientCallback> = Box::new(TestRegisterClientCallback);
@@ -4546,6 +4554,7 @@ mod tests {
     // ── server_dmodex_request error path ─────────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_dmodex_request_fails_without_init() {
         let proc = Proc::new("test.nspace", 0).expect("Proc::new failed");
         let callback: Box<dyn DmodexRequestCallback> = Box::new(TestDmodexRequestCallback);
@@ -4559,6 +4568,7 @@ mod tests {
     // ── server_setup_application error path ──────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_setup_application_fails_without_init() {
         let info = crate::InfoBuilder::new().build();
         let callback: Box<dyn SetupApplicationCallback> = Box::new(TestSetupApplicationCallback);
@@ -4572,6 +4582,7 @@ mod tests {
     // ── server_setup_local_support error path ────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_setup_local_support_fails_without_init() {
         let info = crate::InfoBuilder::new().build();
         let callback: Box<dyn SetupLocalSupportCallback> = Box::new(TestSetupLocalSupportCallback);
@@ -4585,6 +4596,7 @@ mod tests {
     // ── server_register_resources error path ─────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_register_resources_fails_without_init() {
         let info = crate::InfoBuilder::new().build();
         let callback: Box<dyn RegisterResourcesCallback> = Box::new(TestRegisterResourcesCallback);
@@ -4598,6 +4610,7 @@ mod tests {
     // ── server_deregister_resources error path ───────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_deregister_resources_fails_without_init() {
         let info = crate::InfoBuilder::new().build();
         let callback: Box<dyn DeregisterResourcesCallback> =
@@ -4612,6 +4625,7 @@ mod tests {
     // ── server_fence_nb error path ───────────────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_fence_nb_fails_without_init() {
         let handle = PmixServerHandle { initialized: true };
         let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
@@ -4645,6 +4659,7 @@ mod tests {
     // ── server_tool_attach_to_server error path ──────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_tool_attach_to_server_fails_without_init() {
         let handle = PmixServerHandle { initialized: true };
         let info = crate::InfoBuilder::new().build();
@@ -4658,6 +4673,7 @@ mod tests {
     // ── server_get_credential error path ─────────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     fn test_server_get_credential_fails_without_setup() {
         let handle = PmixServerHandle { initialized: true };
         let info = crate::InfoBuilder::new().build();

@@ -2900,6 +2900,23 @@ pub struct Info {
     len: usize,
 }
 
+impl Info {
+    /// Number of entries in this info array.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// True if there are no entries.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Raw pointer for FFI (valid for `len()` elements).
+    pub fn as_ptr(&self) -> *mut pmix_info_t {
+        self.handle
+    }
+}
+
 struct InfoEntry {
     key: &'static [u8; 13],
     value: *const std::ffi::c_void,

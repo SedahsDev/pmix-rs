@@ -2,8 +2,12 @@
 name = "pmix"
 version = "0.1.0"
 edition = "2024"
-description = "Low level Rust bindings"
-license = "BSD"
+description = "Low-level Rust bindings for PMIx (Process Management Interface for Exascale)"
+license = "BSD-3-Clause"
+readme = "README.md"
+keywords = ["pmix", "hpc", "mpi", "process-management"]
+categories = ["api-bindings", "science"]
+repository = "https://github.com/KirgenR/pmix-rs"
 
 [build-dependencies]
 bindgen = "0.72.1"

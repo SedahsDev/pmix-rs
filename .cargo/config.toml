@@ -1,5 +1,7 @@
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "target-cpu=native", "-C", "link-args=-L/home/bzf/projects/prrte/scratch/install/lib", "-C", "link-args=-Wl,-rpath,/home/bzf/projects/prrte/scratch/install/lib"]
+# Portable defaults only. Point cargo at your PMIx install via env:
+#   export PMIX_PREFIX=/path/to/pmix   # or PRRTE install that bundles libpmix
+#   export LD_LIBRARY_PATH=$PMIX_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+# See .cargo/config.toml.example for optional local rpath overrides (do not commit machine paths).
 
-[env]
-LD_LIBRARY_PATH = { value = "/home/bzf/projects/prrte/scratch/install/lib", force = true }
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=native"]

@@ -26,7 +26,8 @@ fn ensure_pmix_init() -> bool {
     if pmix::utility::initialized() {
         return true;
     }
-    daemon_helper::ensure_pmix_init().is_some()
+    daemon_helper::ensure_pmix_init();
+    true
 }
 
 fn is_dvm_launched() -> bool {

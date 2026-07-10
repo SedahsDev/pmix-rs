@@ -1,0 +1,11 @@
+# Copy to config.toml.local (gitignored) or merge into config.toml for machine-specific rpaths.
+# Prefer env vars instead:
+#   export PMIX_PREFIX=/path/to/pmix-or-prrte-install
+#   export LD_LIBRARY_PATH=$PMIX_PREFIX/lib:$LD_LIBRARY_PATH
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "-C", "target-cpu=native",
+    # "-L", "/path/to/pmix/lib",
+    # "-C", "link-arg=-Wl,-rpath,/path/to/pmix/lib",
+]
