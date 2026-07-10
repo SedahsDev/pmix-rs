@@ -24,9 +24,9 @@ use pmix::{InfoBuilder, PmixError, PmixStatus};
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// All five standard directive variants roundtrip through raw values.
-#[test]
 mod daemon_helper;
 
+#[test]
 fn alloc_directive_standard_roundtrip() {
     assert_eq!(PmixAllocDirective::AllocNew.to_raw(), 1);
     assert_eq!(PmixAllocDirective::AllocExtend.to_raw(), 2);

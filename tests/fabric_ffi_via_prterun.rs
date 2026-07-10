@@ -26,7 +26,8 @@ fn ensure_pmix_init() -> bool {
     if !is_dvm_launched() {
         return false;
     }
-    daemon_helper::ensure_pmix_init().is_some()
+    let _ = daemon_helper::ensure_pmix_init();
+    true
 }
 
 /// Check if launched by prterun.

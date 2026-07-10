@@ -329,6 +329,7 @@ fn fence_nb_after_init() {
         }
     }
 
+    let _ctx = daemon_helper::ensure_pmix_init();
     let proc = _ctx.get_proc().clone();
     let procs = vec![proc];
 
@@ -363,6 +364,7 @@ fn fence_nb_with_collect_data() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     let info = builder.build();
+    let _ctx = daemon_helper::ensure_pmix_init();
     let proc = _ctx.get_proc().clone();
     let procs = vec![proc];
 
@@ -416,6 +418,7 @@ fn fence_nb_chained_fences() {
         }
     }
 
+    let _ctx = daemon_helper::ensure_pmix_init();
     let proc = _ctx.get_proc().clone();
     let procs = vec![proc];
 
@@ -448,6 +451,7 @@ fn fence_nb_callback_status_on_success() {
         }
     }
 
+    let _ctx = daemon_helper::ensure_pmix_init();
     let proc = _ctx.get_proc().clone();
     let procs = vec![proc];
 
@@ -470,6 +474,7 @@ fn fence_nb_full_params() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     let info = builder.build();
+    let _ctx = daemon_helper::ensure_pmix_init();
     let proc = _ctx.get_proc().clone();
     let procs = vec![proc];
 
@@ -495,6 +500,7 @@ fn fence_nb_put_commit_fence_pattern() {
 
     // The C test pattern: put data, commit, then fence.
     // The fence ensures data visibility across the group.
+    let _ctx = daemon_helper::ensure_pmix_init();
     let proc = _ctx.get_proc().clone();
     let procs = vec![proc];
 
