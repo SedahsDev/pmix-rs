@@ -8,6 +8,8 @@
 //! NOTE: Passing Some(proc_ref) to data_pack/data_unpack causes SIGSEGV
 //! when PMIx is not initialized. Only None (no target/source) is safe.
 
+mod daemon_helper;
+
 use std::sync::OnceLock;
 
 use pmix::PmixDataType;
@@ -16,7 +18,6 @@ use pmix::{data_serialization::*, init};
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton PMIx init — PMIx can only be initialized once per process.
 // ─────────────────────────────────────────────────────────────────────────────
-
 static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
 
 fn ensure_init() -> &'static pmix::Context {
@@ -133,7 +134,7 @@ fn test_pack_with_empty_namespace() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_pack_error_status() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let val: i32 = 42;
@@ -201,7 +202,7 @@ fn test_unpack_bool_ffi_path() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpack_error_is_not_found() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let mut val: i32 = 0;
@@ -272,7 +273,7 @@ fn test_unpack_float_ffi_path() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_data_load_populated_payload() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![1u8, 2, 3, 4, 5]);
@@ -284,7 +285,7 @@ fn test_data_load_populated_payload() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_data_unload_buffer_with_data() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = PmixByteObject::from(vec![10u8, 20, 30]);
@@ -299,7 +300,7 @@ fn test_data_unload_buffer_with_data() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_unload_roundtrip_large() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let original = PmixByteObject::from(vec![1u8, 2, 3, 4, 5, 6, 7, 8]);

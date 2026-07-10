@@ -12,6 +12,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they
 //! need a running PMIx daemon / server.
 
+mod daemon_helper;
+
 use pmix::groups::pmix_group_opt_t;
 use pmix::groups::*;
 use pmix::{PmixError, PmixStatus, Proc};
@@ -563,7 +565,7 @@ fn group_destruct_callback_wrapper_construction() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn group_construct_integration() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // In a real integration test environment:
     //
     // 1. Call pmix::lifecycle::init(None).expect("init");
@@ -589,7 +591,7 @@ fn group_construct_integration() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn group_invite_join_integration() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // In a real integration test:
     //
     // 1. Leader calls pmix::lifecycle::init(None).expect("init");

@@ -7,6 +7,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
+mod daemon_helper;
+
 use pmix::process_mgmt::abort;
 use pmix::{PmixError, PmixStatus, Proc};
 
@@ -206,7 +208,7 @@ fn abort_empty_proc_slice_without_init_fails() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn abort_integration() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // This would require PMIx_Init which needs a daemon.
     // The safe approach is to skip this in unit test mode.
     // In a real integration test environment, we would:

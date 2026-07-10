@@ -7,9 +7,10 @@
 //! prterun -np 1 cargo test --test monitoring_via_prterun -- --include-ignored --test-threads=1
 //! ```
 
+mod daemon_helper;
+
 use pmix::PmixStatus;
 use std::sync::OnceLock;
-
 static PMIX_CONTEXT: OnceLock<Option<pmix::Context>> = OnceLock::new();
 
 fn ensure_pmix_init() -> bool {
@@ -20,7 +21,7 @@ fn ensure_pmix_init() -> bool {
     if pmix::utility::initialized() {
         return true;
     }
-    PMIX_CONTEXT.set(pmix::init(None).ok()).is_ok() && PMIX_CONTEXT.get().unwrap().is_some()
+    daemon_helper::ensure_pmix_init().is_some()
 }
 
 fn is_dvm_launched() -> bool {
@@ -67,7 +68,7 @@ fn test_heartbeat_fails_without_init() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = pmix::monitoring::heartbeat();
     // Heartbeat may succeed or fail depending on server support
     match result {
@@ -83,7 +84,7 @@ fn test_heartbeat_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let monitor_info = pmix::InfoBuilder::new().build();
     let result = pmix::monitoring::process_monitor(&monitor_info, PmixStatus::from_raw(-46), &[]);
     match result {
@@ -100,8 +101,7 @@ fn test_process_monitor_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitoring_lifecycle_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
-
+    daemon_helper::ensure_pmix_init();
     // Heartbeat
     let _ = pmix::monitoring::heartbeat();
 

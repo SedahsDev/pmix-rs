@@ -14,8 +14,9 @@
 //! prterun -np 1 cargo test --test tool_via_prterun -- --include-ignored --test-threads=1
 //! ```
 
-use std::sync::OnceLock;
+mod daemon_helper;
 
+use std::sync::OnceLock;
 static PMIX_CONTEXT: OnceLock<Option<pmix::Context>> = OnceLock::new();
 
 fn ensure_pmix_init() -> bool {
@@ -25,7 +26,7 @@ fn ensure_pmix_init() -> bool {
     if pmix::utility::initialized() {
         return true;
     }
-    PMIX_CONTEXT.set(pmix::init(None).ok()).is_ok() && PMIX_CONTEXT.get().unwrap().is_some()
+    daemon_helper::ensure_pmix_init().is_some()
 }
 
 fn is_dvm_launched() -> bool {
@@ -72,7 +73,7 @@ fn test_server_handle_exists() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_dvm_launch_detected() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     assert!(is_dvm_launched());
 }
 
@@ -80,7 +81,7 @@ fn test_dvm_launch_detected() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_via_dvm() {
-    let context = pmix::init(None).expect("pmix::init failed");
+    let context = daemon_helper::ensure_pmix_init();
     let proc = context.get_proc();
     assert_eq!(proc.get_rank(), 0);
 }
@@ -89,7 +90,7 @@ fn test_context_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_tool_finalize_safe() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // tool_finalize without prior tool_init should handle gracefully
     // This covers the tool_finalize code path
 }

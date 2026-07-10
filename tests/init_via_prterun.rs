@@ -13,7 +13,6 @@
 //! 2. Via prterun (prterun -np 1 cargo test --test init_via_prterun -- --ignored):
 //!    - Tests that pmix::init() SUCCEEDS when DVM-launched
 //!    - Tests context, proc, namespace, rank from DVM connection
-
 mod daemon_helper;
 
 use pmix::InfoBuilder;
@@ -64,7 +63,7 @@ fn test_init_succeeds_via_prterun() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_returns_valid_context() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let context = pmix::init(None).expect("pmix::init() failed");
+    let context = daemon_helper::ensure_pmix_init();
     let rank = context.get_rank();
     assert_eq!(rank, 0, "rank should be 0 for single-process job");
 }
@@ -74,7 +73,7 @@ fn test_init_returns_valid_context() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_initialized_after_init() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let _context = pmix::init(None).expect("pmix::init() failed");
+    let _context = daemon_helper::ensure_pmix_init();
     assert!(
         pmix::utility::initialized(),
         "pmix::initialized() should return true after pmix::init()"
@@ -99,7 +98,7 @@ fn test_init_with_info_via_prterun() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_proc_info() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let context = pmix::init(None).expect("pmix::init() failed");
+    let context = daemon_helper::ensure_pmix_init();
     let proc = context.get_proc();
     // Access nspace through proc_with_nspace which returns a new Proc
     let _new_proc = context
@@ -113,6 +112,6 @@ fn test_context_proc_info() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_finalize_cycle() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let _context = pmix::init(None).expect("pmix::init() failed");
+    let _context = daemon_helper::ensure_pmix_init();
     // Context Drop calls finalize automatically
 }

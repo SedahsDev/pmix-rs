@@ -12,6 +12,8 @@
 //! and are marked `#[ignore]`. The non-ignored tests exercise error paths,
 //! type safety, and input validation without needing a running PMIx server.
 
+mod daemon_helper;
+
 use pmix::utility::{generate_ppn, generate_regex, register_attributes};
 use pmix::utility::{get_attribute_name, get_attribute_string};
 use pmix::{PmixError, PmixStatus, get_version};
@@ -139,7 +141,7 @@ fn test_get_attribute_string_return_type() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_simple_key() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_string("pmix.host");
     assert!(
         result.is_ok(),
@@ -155,7 +157,7 @@ fn test_get_attribute_string_simple_key() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_known_keys() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let known_keys = [
         "pmix.host",
         "pmix.nprocs",
@@ -192,7 +194,7 @@ fn test_get_attribute_string_known_keys() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_unknown_key_returns_input() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let input = "pmix.nonexistent.attribute.xyz";
     let result = get_attribute_string(input);
     assert!(
@@ -211,7 +213,7 @@ fn test_get_attribute_string_unknown_key_returns_input() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_deterministic() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let key = "pmix.host";
     let first = get_attribute_string(key).unwrap();
     let second = get_attribute_string(key).unwrap();
@@ -225,7 +227,7 @@ fn test_get_attribute_string_deterministic() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_distinct_outputs() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let host = get_attribute_string("pmix.host").unwrap();
     let nprocs = get_attribute_string("pmix.nprocs").unwrap();
     // Different keys should produce different canonical strings
@@ -241,7 +243,7 @@ fn test_get_attribute_string_distinct_outputs() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_short_key() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_string("a");
     assert!(
         result.is_ok(),
@@ -259,7 +261,7 @@ fn test_get_attribute_string_short_key() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_dotted_key() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let key = "pmix.job.id";
     let result = get_attribute_string(key);
     assert!(
@@ -274,7 +276,7 @@ fn test_get_attribute_string_dotted_key() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_case_variations() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let lower = get_attribute_string("pmix.host").unwrap();
     let upper = get_attribute_string("PMIX.HOST").unwrap();
     // When initialized, both should return the same canonical form.
@@ -287,7 +289,7 @@ fn test_get_attribute_string_case_variations() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_long_key() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let key = "pmix.server.app_info.app.1.executable.name";
     let result = get_attribute_string(key);
     assert!(
@@ -301,7 +303,7 @@ fn test_get_attribute_string_long_key() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_string_error_traits() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_string("pmix.host");
     match result {
         Ok(s) => {
@@ -338,7 +340,7 @@ fn test_get_attribute_name_return_type() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_name_simple_string() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_name("host name");
     assert!(
         result.is_ok(),
@@ -351,7 +353,7 @@ fn test_get_attribute_name_simple_string() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_name_known_string() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_name("host name");
     assert!(
         result.is_ok(),
@@ -366,7 +368,7 @@ fn test_get_attribute_name_known_string() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_name_unknown_returns_input() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let input = "this.is.not.a.registered.attribute.string";
     let result = get_attribute_name(input);
     assert!(
@@ -385,7 +387,7 @@ fn test_get_attribute_name_unknown_returns_input() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_name_deterministic() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let input = "pmix.host";
     let first = get_attribute_name(input).unwrap();
     let second = get_attribute_name(input).unwrap();
@@ -399,7 +401,7 @@ fn test_get_attribute_name_deterministic() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_name_edge_cases() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let test_inputs = ["a", "pmix.job.id", "PMIX.HOST", "number 42"];
     for input in &test_inputs {
         let result = get_attribute_name(input);
@@ -417,7 +419,7 @@ fn test_get_attribute_name_edge_cases() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_name_long_string() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let input = "this is a very long descriptive attribute string that probably does not exist";
     let result = get_attribute_name(input);
     assert!(
@@ -437,7 +439,7 @@ fn test_get_attribute_name_long_string() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_attribute_name_error_traits() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_name("host name");
     match result {
         Ok(s) => {
@@ -467,7 +469,7 @@ fn test_get_attribute_name_error_traits() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_attribute_roundtrip_known_keys() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let known_keys = [
         "pmix.host",
         "pmix.nprocs",
@@ -493,7 +495,7 @@ fn test_attribute_roundtrip_known_keys() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_attribute_roundtrip_unknown_keys() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let unknown_keys = ["pmix.fake.attr", "nonexistent.key.xyz", "a"];
     for key in &unknown_keys {
         let canonical = get_attribute_string(key).unwrap();
@@ -512,7 +514,7 @@ fn test_attribute_roundtrip_unknown_keys() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_attribute_reverse_roundtrip() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let test_strings = ["pmix.host", "nonexistent.attribute"];
     for s in &test_strings {
         let key = get_attribute_name(s).unwrap();
@@ -1100,7 +1102,7 @@ fn test_register_attributes_nul_in_attr_name() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = register_attributes("PMIx_Get", &["pmix.get.timeout"]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
@@ -1109,7 +1111,7 @@ fn test_register_attributes_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_duplicate() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = register_attributes("PMIx_Get", &["attr1"]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
@@ -1118,7 +1120,7 @@ fn test_register_attributes_duplicate() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_empty_after_init() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = register_attributes("PMIx_Get", &[] as &[&str]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
@@ -1127,7 +1129,7 @@ fn test_register_attributes_empty_after_init() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_special_attrs() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let attrs = &[
         "pmix.get.timeout",
         "pmix.get.scope",
@@ -1157,7 +1159,7 @@ fn test_register_attributes_server_functions() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_tool_functions() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let tool_functions = ["PMIx_Connect", "PMIx_Disconnect", "PMIx_Notify_event"];
     for func in tool_functions {
         let result = register_attributes(func, &["attr1"]);

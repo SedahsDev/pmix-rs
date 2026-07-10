@@ -8,12 +8,13 @@
 //! prterun -np 1 cargo test --test security_via_prterun -- --include-ignored --test-threads=1
 //! ```
 
+mod daemon_helper;
+
 use std::sync::OnceLock;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared PMIx context for all DVM tests
 // ─────────────────────────────────────────────────────────────────────────────
-
 static PMIX_CONTEXT: OnceLock<Option<pmix::Context>> = OnceLock::new();
 
 fn ensure_pmix_init() -> bool {
@@ -23,7 +24,7 @@ fn ensure_pmix_init() -> bool {
     if pmix::utility::initialized() {
         return true;
     }
-    PMIX_CONTEXT.set(pmix::init(None).ok()).is_ok() && PMIX_CONTEXT.get().unwrap().is_some()
+    daemon_helper::ensure_pmix_init().is_some()
 }
 
 fn is_dvm_launched() -> bool {
@@ -111,7 +112,7 @@ fn test_validate_credential_fails_without_init() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_credential_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = pmix::security::get_credential(&[]);
     // May succeed or fail depending on security system availability
     // The important thing is that the FFI path is exercised
@@ -133,7 +134,7 @@ fn test_get_credential_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_validate_credential_empty_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let cred = pmix::security::PmixCredential::empty();
     let result = pmix::security::validate_credential(&cred, &[]);
     // Empty credential should fail validation
@@ -145,7 +146,7 @@ fn test_validate_credential_empty_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_validate_credential_nonempty_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let cred = pmix::security::PmixCredential::from_bytes(&[1, 2, 3, 4, 5]);
     let result = pmix::security::validate_credential(&cred, &[]);
     // May succeed or fail depending on credential validity
@@ -166,8 +167,7 @@ fn test_validate_credential_nonempty_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_credential_lifecycle_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
-
+    daemon_helper::ensure_pmix_init();
     // Try to get a credential
     let result = pmix::security::get_credential(&[]);
     match result {

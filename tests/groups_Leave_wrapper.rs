@@ -4,6 +4,8 @@
 //! Input validation (empty group_id) returns PMIX_ERR_BAD_PARAM synchronously
 //! without hitting FFI. FFI calls return errors gracefully.
 
+mod daemon_helper;
+
 use pmix::groups::*;
 use pmix::{InfoBuilder, PmixError, PmixStatus};
 
@@ -217,7 +219,7 @@ fn test_group_leave_nb_idempotent() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_leave_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 642-668 in groups.rs.
 }
 
@@ -225,6 +227,6 @@ fn test_group_leave_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_leave_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 698-751 in groups.rs.
 }

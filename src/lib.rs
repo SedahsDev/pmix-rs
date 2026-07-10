@@ -12,7 +12,7 @@ pub mod fabric;
 #[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
 mod ffi;
 pub mod groups;
-mod info;
+pub mod info;
 pub mod monitoring;
 pub mod process_mgmt;
 pub mod query_log;

@@ -3,6 +3,8 @@
 //! NOTE: `PMIx_Get_attribute_name` requires PMIx to be initialized. Most tests
 //! are marked `#[ignore]` and require a running PMIx daemon or DVM-launched process.
 
+mod daemon_helper;
+
 use pmix::utility::get_attribute_name;
 
 /// `PMIx_Get_attribute_name` returns a known attribute name for a valid
@@ -10,7 +12,7 @@ use pmix::utility::get_attribute_name;
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_known() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_name("pmix.hostname");
     assert!(
         result.is_ok(),
@@ -24,7 +26,7 @@ fn get_attribute_name_known() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_unknown_returns_input() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_name("nonexistent.attribute.xyz");
     assert!(
         result.is_ok(),
@@ -37,7 +39,7 @@ fn get_attribute_name_unknown_returns_input() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn get_attribute_name_non_empty() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = get_attribute_name("pmix.hostname").unwrap();
     assert!(
         !result.is_empty(),

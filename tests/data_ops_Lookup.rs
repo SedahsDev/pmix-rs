@@ -5,6 +5,8 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (`PMIx_Init`) are marked `#[ignore]`.
 
+mod daemon_helper;
+
 use pmix::data_ops::{LookupCallback, PmixPdata, lookup, lookup_nb};
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus, Proc};
 
@@ -367,8 +369,7 @@ fn pdata_empty_key() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn lookup_after_init() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     let mut data = vec![PmixPdata::new("test_key")];
     let result = lookup(&mut data, None);
     // Without prior publish, expect NotFound or PartialSuccess.
@@ -397,8 +398,7 @@ fn lookup_after_init() {
 fn lookup_nb_after_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     static CALLBACK_INVOKED: AtomicBool = AtomicBool::new(false);
 
     struct NbCallback;
@@ -435,7 +435,7 @@ fn lookup_nb_after_init() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn publish_fence_lookup_pattern() {
-    let ctx = pmix::init(None).expect("PMIx_Init should succeed");
+    let ctx = daemon_helper::ensure_pmix_init();
 
     // Publish data.
     let info = InfoBuilder::new().build();

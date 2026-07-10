@@ -7,6 +7,8 @@
 //! Derived from C test: `test/simple/simppub.c` which exercises the
 //! publish -> fence -> lookup -> unpublish -> fence pattern.
 
+mod daemon_helper;
+
 use pmix::data_ops::{UnpublishCallback, unpublish, unpublish_nb};
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
 
@@ -315,8 +317,7 @@ fn unpublish_nb_multiple_calls_consistent_error() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn unpublish_after_init() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     // Unpublish specific keys.
     let result = unpublish(Some(&["FOOBAR", "PANDA"]), None);
     assert!(
@@ -335,8 +336,7 @@ fn unpublish_after_init() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn unpublish_all_after_init() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     // Unpublish all data for this process.
     let result = unpublish(None, None);
     assert!(
@@ -354,8 +354,7 @@ fn unpublish_all_after_init() {
 fn unpublish_nb_after_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     static CALLBACK_INVOKED: AtomicBool = AtomicBool::new(false);
 
     struct NbCallback;
@@ -390,7 +389,7 @@ fn unpublish_nb_after_init() {
 fn publish_unpublish_cycle() {
     use pmix::data_ops::{publish, unpublish};
 
-    let ctx = pmix::init(None).expect("PMIx_Init should succeed");
+    let ctx = daemon_helper::ensure_pmix_init();
 
     // Publish data (simplified — real test would use proper InfoBuilder).
     let info = InfoBuilder::new().build();

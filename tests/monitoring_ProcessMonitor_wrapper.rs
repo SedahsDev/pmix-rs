@@ -10,6 +10,8 @@
 //!   - process_monitor_nb (lines 288-337) — callback reg + FFI + cleanup
 //!   - heartbeat (lines 379-421) — FFI call + error path
 
+mod daemon_helper;
+
 use pmix::monitoring::*;
 use pmix::{InfoBuilder, PmixError, PmixStatus};
 
@@ -280,7 +282,7 @@ fn test_heartbeat_idempotent() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_results_len() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init. See lines 70-72 in monitoring.rs.
 }
 
@@ -289,7 +291,7 @@ fn test_monitor_results_len() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_results_is_empty() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init. See lines 75-77 in monitoring.rs.
 }
 
@@ -298,7 +300,7 @@ fn test_monitor_results_is_empty() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_results_drop() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init. See lines 81-91 in monitoring.rs.
 }
 
@@ -307,7 +309,7 @@ fn test_monitor_results_drop() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_callback_bridge() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init. See lines 124-164 in monitoring.rs.
 }
 
@@ -316,7 +318,7 @@ fn test_monitor_callback_bridge() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 253-256 in monitoring.rs.
 }
 
@@ -325,7 +327,7 @@ fn test_process_monitor_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 337 in monitoring.rs.
 }
 
@@ -334,6 +336,6 @@ fn test_process_monitor_nb_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 421 in monitoring.rs.
 }

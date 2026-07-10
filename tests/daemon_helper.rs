@@ -316,3 +316,13 @@ pub fn assert_error(status: pmix::PmixStatus) {
         "Expected error, got success"
     );
 }
+
+/// Ensures PMIx is initialized exactly once per test binary (DVM/prterun tests).
+/// Returns a reference to the Context.
+/// Call this instead of direct pmix::init(None) to avoid multiple init/finalize.
+/// Multiple cycles are not supported.
+pub fn ensure_pmix_init() -> &'static pmix::Context {
+    use std::sync::OnceLock;
+    static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
+    PMIX_CTX.get_or_init(|| pmix::init(None).expect("PMIx_Init failed — run under prterun"))
+}

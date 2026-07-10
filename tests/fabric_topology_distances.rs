@@ -12,6 +12,8 @@
 //! * Debug / Display output content
 //! * Panic safety of all public entry points
 
+mod daemon_helper;
+
 use pmix::fabric::{
     ComputeDistancesCallback, DeviceDistances, PmixCpuset, PmixDeviceDistance, PmixTopology,
     compute_distances, compute_distances_nb, load_topology,
@@ -477,7 +479,7 @@ fn test_compute_distances_callback_is_object_safe() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_without_loaded_topology() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut topo = PmixTopology::unamed();
     let mut cpuset = PmixCpuset::new();
     struct NopCb;
@@ -509,7 +511,7 @@ fn test_compute_distances_nb_callback_with_state() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_empty_info() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut topo = PmixTopology::unamed();
     let mut cpuset = PmixCpuset::new();
     struct NopCb;
@@ -524,7 +526,7 @@ fn test_compute_distances_nb_empty_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_sourced_topology() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut topo = PmixTopology::new(Some("hwloc")).unwrap();
     let mut cpuset = PmixCpuset::new();
     struct NopCb;

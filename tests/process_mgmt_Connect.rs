@@ -10,6 +10,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
+mod daemon_helper;
+
 use pmix::process_mgmt::{ConnectCallbackWrapper, connect, connect_nb};
 use pmix::{PmixError, PmixStatus, Proc};
 
@@ -268,7 +270,7 @@ fn connect_callback_wrapper_receives_status() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn connect_integration() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // This would require PMIx_Init which needs a daemon.
     // In a real integration test environment, we would:
     //
@@ -293,7 +295,7 @@ fn connect_integration() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn connect_nb_integration() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // In a real integration test:
     //
     // 1. Call pmix::lifecycle::init(None).expect("init");

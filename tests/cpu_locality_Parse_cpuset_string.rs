@@ -4,6 +4,8 @@
 //! `PMIx_Parse_cpuset_string`, which parses a string representation of
 //! a CPU binding bitmap into a `pmix_cpuset_t` object.
 
+mod daemon_helper;
+
 use pmix::cpu_locality::parse_cpuset_string;
 use pmix::fabric::PmixCpuset;
 
@@ -165,7 +167,7 @@ fn test_parse_reversed_range() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_parse_in_pmix_session() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // This test would be run as part of an integration test suite
     // where PMIx_Init has been called first.
     let mut cpuset = PmixCpuset::new();
@@ -181,7 +183,7 @@ fn test_parse_in_pmix_session() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_parse_roundtrip() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut cpuset = PmixCpuset::new();
     let cpu_string = "0,2,4,6";
     let result = parse_cpuset_string(cpu_string, &mut cpuset);
@@ -193,7 +195,7 @@ fn test_parse_roundtrip() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_parse_hex_format() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut cpuset = PmixCpuset::new();
     // Hex format cpuset strings are returned by PMIx_server_generate_cpuset_string.
     // The exact format depends on the implementation.
@@ -205,7 +207,7 @@ fn test_parse_hex_format() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_parse_invalid_format() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut cpuset = PmixCpuset::new();
     let result = parse_cpuset_string("not_a_cpuset", &mut cpuset);
     // This should return an error since "not_a_cpuset" is not a valid format.

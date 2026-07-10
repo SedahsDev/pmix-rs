@@ -8,6 +8,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
+mod daemon_helper;
+
 use pmix::events::*;
 use pmix::{InfoBuilder, PmixDataRange, PmixError, PmixStatus, Proc};
 use std::ffi::c_void;
@@ -370,7 +372,7 @@ fn data_range_display() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn notify_event_full_lifecycle() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // let _ = pmix::lifecycle::init(None, &[]);
     // let proc = pmix::Proc::new("test_job", 0).unwrap();
     // let info = InfoBuilder::new().build();
@@ -408,7 +410,7 @@ fn notify_event_full_lifecycle() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn notify_event_nb_lifecycle() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // extern "C" fn notify_complete(status: i32, cbdata: *mut c_void) {
     //     unsafe {
     //         if !cbdata.is_null() {

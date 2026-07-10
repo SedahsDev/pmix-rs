@@ -4,6 +4,8 @@
 //! `PMIx_Get_cpuset`, which retrieves the CPU set for the calling
 //! process or thread as determined by the PMIx framework.
 
+mod daemon_helper;
+
 use pmix::cpu_locality::PmixBindEnvelope;
 use pmix::cpu_locality::get_cpuset;
 use pmix::fabric::PmixCpuset;
@@ -218,7 +220,7 @@ fn test_get_cpuset_simpfabric_pattern() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_cpuset_initialized_session() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // This test would require a full PMIx session to be initialized.
     // In a real integration test, we would:
     // 1. Call PMIx_Init
@@ -240,7 +242,7 @@ fn test_get_cpuset_initialized_session() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_cpuset_process_vs_thread() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut cpuset_proc = PmixCpuset::new();
     let mut cpuset_thread = PmixCpuset::new();
 

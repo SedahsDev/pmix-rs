@@ -11,6 +11,8 @@
 //! All tests pass without a PMIx daemon — they exercise the error paths
 //! and parameter validation that the Rust wrappers perform before reaching FFI.
 
+mod daemon_helper;
+
 use pmix::fabric::{
     FabricCallback, PmixFabric, fabric_deregister, fabric_deregister_nb, fabric_register,
     fabric_register_nb, fabric_update, fabric_update_nb,
@@ -115,7 +117,7 @@ fn test_register_same_fabric_three_times() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nb_same_fabric_twice() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
     let result1 = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
     let result2 = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
@@ -201,7 +203,7 @@ fn test_register_empty_directives_idempotent() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nb_empty_directives() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
     let result = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
     assert!(result.is_err());
@@ -211,7 +213,7 @@ fn test_register_nb_empty_directives() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nb_single_directive() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
     let info = InfoBuilder::new().build();
     let directives: &[Info] = std::slice::from_ref(&info);
@@ -223,7 +225,7 @@ fn test_register_nb_single_directive() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nb_multiple_directives() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
     let info1 = InfoBuilder::new().build();
     let info2 = InfoBuilder::new().build();
@@ -396,7 +398,7 @@ fn test_new_update_nb_skip_register() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_full_nb_lifecycle_without_server() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::new(Some("nb_lifecycle")).unwrap();
 
     // Register nb fails (no server).
@@ -577,7 +579,7 @@ fn test_fabric_deregister_nb_signature() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nb_callback_not_invoked_on_error() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
     let result = fabric_register_nb(&mut fabric, &[], Box::new(PanicCallback));
     assert!(result.is_err());
@@ -604,7 +606,7 @@ fn test_deregister_nb_callback_not_invoked_on_error() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nb_wrapper_reclamation_loop() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     for _ in 0..100 {
         let mut fabric = PmixFabric::unamed();
         let _ = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
@@ -738,7 +740,7 @@ fn test_deregister_no_panic_unamed() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nb_no_panic_unamed() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut f = PmixFabric::unamed();
         fabric_register_nb(&mut f, &[], Box::new(NopCallback))

@@ -6,6 +6,8 @@
 //!
 //! FFI tests that require PMIx_Init are marked #[ignore].
 
+mod daemon_helper;
+
 use pmix::groups::pmix_group_opt_t;
 use pmix::groups::*;
 use pmix::{InfoBuilder, PmixStatus, Proc};
@@ -251,7 +253,7 @@ fn test_group_join_nb_empty_group_id_rejected() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_single_proc() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("test_ns", 0).expect("proc");
     let result = group_construct("test_group", &[proc], &[]);
     let _ = result;
@@ -260,7 +262,7 @@ fn test_group_construct_single_proc() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_multiple_procs() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let p1 = Proc::new("ns", 0).expect("p1");
     let p2 = Proc::new("ns", 1).expect("p2");
     let p3 = Proc::new("ns", 2).expect("p3");
@@ -271,7 +273,7 @@ fn test_group_construct_multiple_procs() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_with_directives() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let dirs = vec![InfoBuilder::new().build()];
     let result = group_construct("directed_group", &[proc], &dirs);
@@ -281,7 +283,7 @@ fn test_group_construct_with_directives() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_result_is_vec_info() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let result = group_construct("test_group", &[proc], &[]);
     match result {
@@ -299,7 +301,7 @@ fn test_group_construct_result_is_vec_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let cb = GroupConstructCallbackWrapper::new(|_s, _i| {});
     let result = group_construct_nb("nb_group", &[proc], &[], cb);
@@ -309,7 +311,7 @@ fn test_group_construct_nb_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_nb_with_info() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let info = vec![InfoBuilder::new().build()];
     let cb = GroupConstructCallbackWrapper::new(|_s, _i| {});
@@ -322,7 +324,7 @@ fn test_group_construct_nb_with_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_invite_single_proc() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let result = group_invite("invite_group", &[proc], &[]);
     let _ = result;
@@ -331,7 +333,7 @@ fn test_group_invite_single_proc() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_invite_multiple_procs() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let p1 = Proc::new("ns", 0).expect("p1");
     let p2 = Proc::new("ns", 1).expect("p2");
     let result = group_invite("invite_group", &[p1, p2], &[]);
@@ -341,7 +343,7 @@ fn test_group_invite_multiple_procs() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_invite_with_directives() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let dirs = vec![InfoBuilder::new().build()];
     let result = group_invite("invite_group", &[proc], &dirs);
@@ -353,7 +355,7 @@ fn test_group_invite_with_directives() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_invite_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let cb = GroupInviteCallbackWrapper::new(|_s, _i| {});
     let result = group_invite_nb("invite_group", &[proc], &[], cb);
@@ -365,7 +367,7 @@ fn test_group_invite_nb_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_join_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let leader = Proc::new("ns", 0).expect("leader");
     let result = group_join(
         "join_group",
@@ -379,7 +381,7 @@ fn test_group_join_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_join_with_info() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let leader = Proc::new("ns", 0).expect("leader");
     let info = vec![InfoBuilder::new().build()];
     let result = group_join(
@@ -396,7 +398,7 @@ fn test_group_join_with_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_join_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let leader = Proc::new("ns", 0).expect("leader");
     let cb = GroupJoinCallbackWrapper::new(|_s, _i| {});
     let result = group_join_nb(
@@ -414,7 +416,7 @@ fn test_group_join_nb_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_leave_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = group_leave("leave_group", &[]);
     let _ = result;
 }
@@ -422,7 +424,7 @@ fn test_group_leave_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_leave_with_info() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let info = vec![InfoBuilder::new().build()];
     let result = group_leave("leave_group", &info);
     let _ = result;
@@ -433,7 +435,7 @@ fn test_group_leave_with_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_leave_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let cb = GroupLeaveCallbackWrapper::new(|_| {});
     let result = group_leave_nb("leave_group", &[], cb);
     assert!(result.is_ok());
@@ -444,7 +446,7 @@ fn test_group_leave_nb_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_destruct_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = group_destruct("destruct_group", &[]);
     let _ = result;
 }
@@ -452,7 +454,7 @@ fn test_group_destruct_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_destruct_with_info() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let info = vec![InfoBuilder::new().build()];
     let result = group_destruct("destruct_group", &info);
     let _ = result;
@@ -463,7 +465,7 @@ fn test_group_destruct_with_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_destruct_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let cb = GroupDestructCallbackWrapper::new(|_| {});
     let result = group_destruct_nb("destruct_group", &[], cb);
     assert!(result.is_ok());
@@ -474,7 +476,7 @@ fn test_group_destruct_nb_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_then_destruct() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let _ = group_construct("lifecycle_group", &[proc], &[]);
     let _ = group_destruct("lifecycle_group", &[]);
@@ -483,7 +485,7 @@ fn test_group_construct_then_destruct() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_then_join_then_leave() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let _ = group_construct("lifecycle_group", &[proc.clone()], &[]);
     let _ = group_join(
@@ -498,7 +500,7 @@ fn test_group_construct_then_join_then_leave() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_full_lifecycle() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let proc2 = Proc::new("ns", 1).expect("proc2");
     let _ = group_construct("full_group", &[proc.clone()], &[]);

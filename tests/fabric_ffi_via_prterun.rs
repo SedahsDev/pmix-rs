@@ -8,6 +8,8 @@
 //! prterun -np 1 cargo test --test fabric_ffi_via_prterun -- --include-ignored --test-threads=1
 //! ```
 
+mod daemon_helper;
+
 use std::sync::OnceLock;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +26,7 @@ fn ensure_pmix_init() -> bool {
     if !is_dvm_launched() {
         return false;
     }
-    PMIX_CONTEXT.set(pmix::init(None).ok()).is_ok() && PMIX_CONTEXT.get().unwrap().is_some()
+    daemon_helper::ensure_pmix_init().is_some()
 }
 
 /// Check if launched by prterun.
@@ -214,7 +216,7 @@ fn test_fabric_drop_unregistered() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_new_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let fabric = pmix::fabric::PmixFabric::new(Some("dvm-test")).expect("new failed");
     assert_eq!(fabric.name(), Some("dvm-test"));
     assert!(!fabric.is_registered());
@@ -224,7 +226,7 @@ fn test_fabric_new_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_unamed_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let fabric = pmix::fabric::PmixFabric::unamed();
     assert_eq!(fabric.name(), None);
     assert!(!fabric.is_registered());
@@ -235,7 +237,7 @@ fn test_fabric_unamed_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_success_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = pmix::fabric::PmixFabric::new(Some("register-test")).expect("new failed");
     assert!(!fabric.is_registered());
     if pmix::fabric::fabric_register(&mut fabric, &[]).is_ok() {
@@ -249,7 +251,7 @@ fn test_fabric_register_success_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_update_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = pmix::fabric::PmixFabric::unamed();
     if pmix::fabric::fabric_register(&mut fabric, &[]).is_ok() {
         let _ = pmix::fabric::fabric_update(&mut fabric);
@@ -262,7 +264,7 @@ fn test_fabric_update_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_deregister_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = pmix::fabric::PmixFabric::new(Some("dereg-test")).expect("new failed");
     if pmix::fabric::fabric_register(&mut fabric, &[]).is_ok() {
         assert!(fabric.is_registered());
@@ -280,7 +282,7 @@ fn test_fabric_deregister_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_nb_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     use pmix::fabric::FabricCallback;
 
     struct TestCallback;
@@ -302,7 +304,7 @@ fn test_fabric_register_nb_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_update_nb_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     use pmix::fabric::FabricCallback;
 
     struct UpdateCallback;
@@ -323,7 +325,7 @@ fn test_fabric_update_nb_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_deregister_nb_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     use pmix::fabric::FabricCallback;
 
     struct DeregCallback;
@@ -343,7 +345,7 @@ fn test_fabric_deregister_nb_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_topology_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut topo = pmix::fabric::PmixTopology::unamed();
     let _ = pmix::fabric::load_topology(&mut topo);
 }
@@ -354,7 +356,7 @@ fn test_load_topology_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut topo = pmix::fabric::PmixTopology::unamed();
     let mut cpuset = pmix::fabric::PmixCpuset::new();
     // compute_distances requires a loaded topology — load first to avoid FFI crash
@@ -370,7 +372,7 @@ fn test_compute_distances_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     use pmix::fabric::ComputeDistancesCallback;
 
     struct DistCallback;
@@ -396,7 +398,7 @@ fn test_compute_distances_nb_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_cpuset_as_mut_ptr_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut cpuset = pmix::fabric::PmixCpuset::new();
     let ptr = cpuset.as_mut_ptr();
     assert!(!ptr.is_null(), "cpuset as_mut_ptr should be non-null");
@@ -407,8 +409,7 @@ fn test_cpuset_as_mut_ptr_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_full_lifecycle_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
-
+    daemon_helper::ensure_pmix_init();
     // 1. Create fabric
     let mut fabric = pmix::fabric::PmixFabric::new(Some("lifecycle-test")).expect("new failed");
     assert!(!fabric.is_registered());
@@ -437,8 +438,7 @@ fn test_fabric_full_lifecycle_via_dvm() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_topology_compute_distances_lifecycle_via_dvm() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
-
+    daemon_helper::ensure_pmix_init();
     let mut topo = pmix::fabric::PmixTopology::unamed();
     let mut cpuset = pmix::fabric::PmixCpuset::new();
 

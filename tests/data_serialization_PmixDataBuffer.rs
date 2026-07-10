@@ -7,6 +7,8 @@
 //! prterun -np 1 cargo test --test data_serialization_PmixDataBuffer -- --ignored --test-threads=1
 //! ```
 
+mod daemon_helper;
+
 use std::sync::OnceLock;
 
 use pmix::{data_serialization::*, init};
@@ -14,7 +16,6 @@ use pmix::{data_serialization::*, init};
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton PMIx init — PMIx can only be initialized once per process.
 // ─────────────────────────────────────────────────────────────────────────────
-
 static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
 
 fn ensure_init() -> &'static pmix::Context {
@@ -191,7 +192,7 @@ fn test_buffer_with_byte_object() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_load_empty_payload_into_buffer() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let empty_payload = PmixByteObject::new();
@@ -203,7 +204,7 @@ fn test_load_empty_payload_into_buffer() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_unload_empty_buffer() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let _ctx = ensure_init();
     let buf = data_buffer_create().expect("create buffer");
     let payload = data_unload(&buf).expect("unload empty buffer");

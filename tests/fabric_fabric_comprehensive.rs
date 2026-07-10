@@ -4,6 +4,8 @@
 //! Most fabric tests verify that operations fail gracefully without PMIx init —
 //! they do NOT require a running daemon.
 
+mod daemon_helper;
+
 use pmix::fabric::{
     ComputeDistancesCallback, FabricCallback, PmixCpuset, PmixFabric, PmixTopology,
     compute_distances, compute_distances_nb, fabric_deregister, fabric_deregister_nb,
@@ -133,7 +135,7 @@ fn test_fabric_callback_requires_send() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_nb_without_init() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::new(Some("test")).expect("fabric new failed");
     let info = InfoBuilder::new().build();
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
@@ -261,7 +263,7 @@ fn test_compute_distances_without_init() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_compute_distances_nb_without_init() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut topo = PmixTopology::new(None).expect("topology new failed");
     let mut cpuset = PmixCpuset::new();
     let info = InfoBuilder::new().build();

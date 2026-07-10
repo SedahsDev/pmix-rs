@@ -5,6 +5,8 @@
 //! Input validation (empty group_id, empty procs) returns PMIX_ERR_BAD_PARAM
 //! synchronously without hitting FFI. FFI calls return errors gracefully.
 
+mod daemon_helper;
+
 use pmix::groups::*;
 use pmix::{InfoBuilder, PmixError, PmixStatus, Proc};
 
@@ -361,7 +363,7 @@ fn test_group_destruct_callback_wrapper_new() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 63-112 in groups.rs.
 }
 
@@ -369,7 +371,7 @@ fn test_group_construct_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_construct_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 165-229 in groups.rs.
 }
 
@@ -377,7 +379,7 @@ fn test_group_construct_nb_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_destruct_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 767-779 in groups.rs.
 }
 
@@ -385,6 +387,6 @@ fn test_group_destruct_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_destruct_nb_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server. See lines 825-859 in groups.rs.
 }

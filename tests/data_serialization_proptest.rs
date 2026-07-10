@@ -8,6 +8,8 @@
 //! prterun -np 1 cargo test --test data_serialization_proptest -- --ignored --test-threads=1
 //! ```
 
+mod daemon_helper;
+
 use pmix::{PmixDataType, data_serialization::*, init};
 use proptest::prelude::*;
 use std::sync::OnceLock;
@@ -17,7 +19,6 @@ use std::sync::OnceLock;
 // Proptest may call the test closure many times (shrinking), so we need
 // a shared Context that lives for the whole test run.
 // ─────────────────────────────────────────────────────────────────────────────
-
 static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
 
 fn ensure_init() -> &'static pmix::Context {
@@ -59,8 +60,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_int8(val in any::<i8>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Int8).unwrap();
         prop_assert_eq!(val, out, "int8 roundtrip failed for {}", val);
     }
@@ -68,8 +69,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_int16(val in any::<i16>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Int16).unwrap();
         prop_assert_eq!(val, out, "int16 roundtrip failed for {}", val);
     }
@@ -77,8 +78,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_int32(val in any::<i32>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Int32).unwrap();
         prop_assert_eq!(val, out, "int32 roundtrip failed for {}", val);
     }
@@ -86,8 +87,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_int64(val in any::<i64>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Int64).unwrap();
         prop_assert_eq!(val, out, "int64 roundtrip failed for {}", val);
     }
@@ -95,8 +96,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_uint8(val in any::<u8>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Uint8).unwrap();
         prop_assert_eq!(val, out, "uint8 roundtrip failed for {}", val);
     }
@@ -104,8 +105,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_uint16(val in any::<u16>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Uint16).unwrap();
         prop_assert_eq!(val, out, "uint16 roundtrip failed for {}", val);
     }
@@ -113,8 +114,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_uint32(val in any::<u32>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Uint32).unwrap();
         prop_assert_eq!(val, out, "uint32 roundtrip failed for {}", val);
     }
@@ -122,8 +123,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_uint64(val in any::<u64>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Uint64).unwrap();
         prop_assert_eq!(val, out, "uint64 roundtrip failed for {}", val);
     }
@@ -131,8 +132,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_float(val in (f32::MIN..=f32::MAX).prop_filter("nan/inf", |v| v.is_finite())) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Float).unwrap();
         prop_assert_eq!(val, out, "float roundtrip failed for {}", val);
     }
@@ -140,8 +141,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_double(val in (f64::MIN..=f64::MAX).prop_filter("nan/inf", |v| v.is_finite())) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Double).unwrap();
         prop_assert_eq!(val, out, "double roundtrip failed for {}", val);
     }
@@ -149,8 +150,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_bool(val in any::<bool>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let packed_val: u8 = if val { 1 } else { 0 };
         let out = roundtrip_scalar(packed_val, PmixDataType::Bool).unwrap();
         prop_assert_eq!(packed_val, out, "bool roundtrip failed for {}", val);
@@ -159,8 +160,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_size(val in any::<usize>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let out = roundtrip_scalar(val, PmixDataType::Size).unwrap();
         prop_assert_eq!(val, out, "size roundtrip failed for {}", val);
     }
@@ -174,8 +175,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_multi_int32(values in proptest::collection::vec(any::<i32>(), 1..=64)) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let num_vals = values.len() as i32;
         let mut buf = data_buffer_create().unwrap();
         for val in &values {
@@ -200,8 +201,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_multi_uint64(values in proptest::collection::vec(any::<u64>(), 1..=32)) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let num_vals = values.len() as i32;
         let mut buf = data_buffer_create().unwrap();
         for val in &values {
@@ -226,8 +227,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_roundtrip_multi_float(values in proptest::collection::vec((f32::MIN..=f32::MAX).prop_filter("nan/inf", |v: &f32| v.is_finite()), 1..=64)) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let num_vals = values.len() as i32;
         let mut buf = data_buffer_create().unwrap();
         for val in &values {
@@ -258,8 +259,8 @@ proptest! {
     #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
     fn prop_buffer_grows_with_data(val in any::<i32>()) {
-        let _ctx = pmix::init(None).expect("pmix::init failed");
-        ensure_init();
+        daemon_helper::ensure_pmix_init();
+    ensure_init();
         let buf = data_buffer_create().unwrap();
         let initial = buf.bytes_allocated();
         data_pack(None, &buf, &val, 1, PmixDataType::Int32).unwrap();

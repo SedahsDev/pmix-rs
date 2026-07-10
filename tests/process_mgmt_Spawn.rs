@@ -7,6 +7,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
+mod daemon_helper;
+
 use pmix::process_mgmt::{PmixApp, SpawnCallbackWrapper, spawn, spawn_nb};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -359,7 +361,7 @@ fn spawn_negative_maxprocs_without_init_fails() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn spawn_integration() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // This would require PMIx_Init which needs a daemon.
     // In a real integration test environment:
     //
@@ -386,7 +388,7 @@ fn spawn_integration() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn spawn_nb_integration() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // In a real integration test:
     //
     // 1. Use a std::sync::Arc<Mutex<>> to share state with the callback.

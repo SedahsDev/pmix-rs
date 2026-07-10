@@ -3,7 +3,6 @@
 //!
 //! Daemon-dependent tests use `tool_init` (PMIx_tool_init) via the
 //! `daemon_helper` module, which connects to the systemd-managed PRTE service.
-
 mod daemon_helper;
 
 use pmix::{
@@ -163,7 +162,7 @@ fn test_init_with_daemon() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_returns_valid_context() {
-    let context = pmix::init(None).expect("init failed");
+    let context = daemon_helper::ensure_pmix_init();
     let rank = context.get_rank();
     assert_eq!(rank, 0, "rank should be 0 for standalone client");
 }
@@ -171,14 +170,14 @@ fn test_init_returns_valid_context() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_get_proc() {
-    let context = pmix::init(None).expect("init failed");
+    let context = daemon_helper::ensure_pmix_init();
     let _proc = context.get_proc();
 }
 
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_proc_with_nspace() {
-    let context = pmix::init(None).expect("init failed");
+    let context = daemon_helper::ensure_pmix_init();
     let proc = context
         .proc_with_nspace(0)
         .expect("proc_with_nspace failed");
@@ -196,7 +195,7 @@ fn test_init_with_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_finalize_after_init() {
-    let _context = pmix::init(None).expect("init failed");
+    daemon_helper::ensure_pmix_init();
     let result = pmix::finalize(None);
     assert!(result.is_ok(), "finalize should succeed after init");
 }
@@ -204,16 +203,16 @@ fn test_finalize_after_init() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_finalize_cycle() {
-    let _c1 = pmix::init(None).expect("first init failed");
+    daemon_helper::ensure_pmix_init();
     pmix::finalize(None).expect("first finalize failed");
-    let _c2 = pmix::init(None).expect("second init failed");
+    daemon_helper::ensure_pmix_init();
     pmix::finalize(None).expect("second finalize failed");
 }
 
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_after_init() {
-    let context = pmix::init(None).expect("init failed");
+    let context = daemon_helper::ensure_pmix_init();
     let result = pmix::fence(context.get_proc(), None);
     assert!(result.is_ok(), "fence should succeed after init");
 }
@@ -221,7 +220,7 @@ fn test_fence_after_init() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_with_info() {
-    let context = pmix::init(None).expect("init failed");
+    let context = daemon_helper::ensure_pmix_init();
     let info = InfoBuilder::new().build();
     let result = pmix::fence(context.get_proc(), Some(info));
     assert!(result.is_ok(), "fence with info should succeed");
@@ -230,14 +229,14 @@ fn test_fence_with_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_commit_after_init() {
-    let _context = pmix::init(None).expect("init failed");
+    daemon_helper::ensure_pmix_init();
     let _result = pmix::commit();
 }
 
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_put_get_commit_roundtrip() {
-    let context = pmix::init(None).expect("init failed");
+    let context = daemon_helper::ensure_pmix_init();
     let key = CString::new("test_roundtrip_key").unwrap();
     let mut value = PmixValueBuilder::new()
         .string("roundtrip_value")
@@ -257,7 +256,7 @@ fn test_put_get_commit_roundtrip() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_value_nonexistent() {
-    let context = pmix::init(None).expect("init failed");
+    let context = daemon_helper::ensure_pmix_init();
     let result = pmix::get_value(context.get_proc(), b"nonexistent_key_xyz\0", None);
     assert!(result.is_err(), "get_value for nonexistent key should fail");
 }
@@ -265,7 +264,7 @@ fn test_get_value_nonexistent() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_lookup_nonexistent() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let mut pdata: Vec<pmix::data_ops::PmixPdata> = Vec::new();
     let result = pmix::data_ops::lookup(&mut pdata, None);
     assert!(result.is_err(), "lookup with empty data should fail");
@@ -275,7 +274,7 @@ fn test_lookup_nonexistent() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_nonexistent() {
     use pmix::data_ops::unpublish;
-    let _context = pmix::init(None).expect("init failed");
+    daemon_helper::ensure_pmix_init();
     let result = unpublish(Some(&["nonexistent_unpub_key_xyz"]), None);
     assert!(result.is_err(), "unpublish for nonexistent key should fail");
 }

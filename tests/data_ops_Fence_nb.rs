@@ -4,6 +4,8 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (PMIx_Init) are marked `#[ignore]`.
 
+mod daemon_helper;
+
 use pmix::data_ops::{FenceCallback, fence_nb};
 use pmix::{InfoBuilder, PmixError, PmixStatus, Proc};
 
@@ -312,8 +314,7 @@ fn fence_callback_is_send() {
 fn fence_nb_after_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     static CALLBACK_INVOKED: AtomicBool = AtomicBool::new(false);
 
     struct NbCallback;
@@ -348,8 +349,7 @@ fn fence_nb_after_init() {
 fn fence_nb_with_collect_data() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     static CALLBACK_INVOKED: AtomicBool = AtomicBool::new(false);
 
     struct CollectCallback;
@@ -382,8 +382,7 @@ fn fence_nb_with_collect_data() {
 fn fence_nb_empty_procs_session_wide() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     static CALLBACK_INVOKED: AtomicBool = AtomicBool::new(false);
 
     struct SessionCallback;
@@ -409,8 +408,7 @@ fn fence_nb_empty_procs_session_wide() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn fence_nb_chained_fences() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     struct ChainCallback;
     impl FenceCallback for ChainCallback {
         fn on_complete(self: Box<Self>, status: PmixStatus) {
@@ -434,8 +432,7 @@ fn fence_nb_chained_fences() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn fence_nb_callback_status_on_success() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     struct StatusVerifyCallback;
     impl FenceCallback for StatusVerifyCallback {
         fn on_complete(self: Box<Self>, status: PmixStatus) {
@@ -462,8 +459,7 @@ fn fence_nb_callback_status_on_success() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn fence_nb_full_params() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     struct FullCallback;
     impl FenceCallback for FullCallback {
         fn on_complete(self: Box<Self>, status: PmixStatus) {
@@ -489,8 +485,7 @@ fn fence_nb_full_params() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn fence_nb_put_commit_fence_pattern() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     struct PatternCallback;
     impl FenceCallback for PatternCallback {
         fn on_complete(self: Box<Self>, status: PmixStatus) {

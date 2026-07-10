@@ -13,7 +13,6 @@
 //!    - Tests that progress() does not panic/crash when DVM-launched
 //!    - Tests that progress() can be called multiple times safely
 //!    - Tests that init is valid before/after calling progress
-
 mod daemon_helper;
 
 /// Check if we were launched by the DVM (prterun/prun).
@@ -47,7 +46,7 @@ fn test_progress_no_panic_without_dvm() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_progress_no_crash_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let _context = pmix::init(None).expect("pmix::init() failed");
+    let _context = daemon_helper::ensure_pmix_init();
 
     // Should not panic or crash
     pmix::progress();
@@ -58,7 +57,7 @@ fn test_progress_no_crash_via_prterun() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_progress_multiple_calls() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let _context = pmix::init(None).expect("pmix::init() failed");
+    let _context = daemon_helper::ensure_pmix_init();
 
     for _ in 0..10 {
         pmix::progress();
@@ -70,7 +69,7 @@ fn test_progress_multiple_calls() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_initialized_before_and_after_progress() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let _context = pmix::init(None).expect("pmix::init() failed");
+    let _context = daemon_helper::ensure_pmix_init();
 
     assert!(
         pmix::utility::initialized(),

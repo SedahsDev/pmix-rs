@@ -7,6 +7,8 @@
 //! Because most tests require a running PMIx server, they are marked `#[ignore]`.
 //! The non-FFI tests (signature, type checks, input validation) run unconditionally.
 
+mod daemon_helper;
+
 use pmix::PmixStatus;
 use pmix::utility::register_attributes;
 
@@ -139,7 +141,7 @@ fn test_register_attributes_many_attributes() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = register_attributes("PMIx_Get", &["pmix.get.timeout"]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
@@ -148,7 +150,7 @@ fn test_register_attributes_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_duplicate() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = register_attributes("PMIx_Get", &["attr1"]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
@@ -157,7 +159,7 @@ fn test_register_attributes_duplicate() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_empty_after_init() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = register_attributes("PMIx_Get", &[] as &[&str]);
     assert!(result.is_err(), "expected PMIX_ERR_INIT without PMIx_Init");
 }
@@ -166,7 +168,7 @@ fn test_register_attributes_empty_after_init() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_special_attrs() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let attrs = &[
         "pmix.get.timeout",
         "pmix.get.scope",
@@ -196,7 +198,7 @@ fn test_register_attributes_server_functions() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_attributes_tool_functions() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let tool_functions = ["PMIx_Connect", "PMIx_Disconnect", "PMIx_Notify_event"];
     for func in tool_functions {
         let result = register_attributes(func, &["attr1"]);

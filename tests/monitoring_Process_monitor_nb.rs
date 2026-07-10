@@ -6,6 +6,8 @@
 //! Tests that require `PMIx_Init` are marked `#[ignore]` because they need
 //! a running PMIx daemon / server.
 
+mod daemon_helper;
+
 use pmix::PmixError;
 use pmix::monitoring::{MonitorCallback, MonitorResults, process_monitor_nb};
 
@@ -346,7 +348,7 @@ fn test_heartbeat_return_type() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_full_lifecycle() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx daemon - would build monitor info, directives,
     // call process_monitor_nb with callback, and verify callback fires.
     let cb: Box<dyn MonitorCallback> = Box::new(CalledMonitorCallback {
@@ -359,7 +361,7 @@ fn test_process_monitor_nb_full_lifecycle() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_heartbeat_with_daemon() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = pmix::monitoring::heartbeat();
     assert!(
         result.is_ok(),
@@ -372,7 +374,7 @@ fn test_heartbeat_with_daemon() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_file_monitor_with_daemon() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let cb: Box<dyn MonitorCallback> = Box::new(CalledMonitorCallback {
         called: std::cell::Cell::new(false),
     });
@@ -384,7 +386,7 @@ fn test_process_monitor_nb_file_monitor_with_daemon() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_nb_fire_and_forget() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let result = pmix::monitoring::heartbeat();
     assert!(result.is_ok(), "fire-and-forget heartbeat should succeed");
 }

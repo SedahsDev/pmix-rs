@@ -6,6 +6,8 @@
 //! Remaining uncovered lines are callback bridges and FFI success paths
 //! that genuinely require PMIx_Init.
 
+mod daemon_helper;
+
 use pmix::security::*;
 use pmix::{InfoBuilder, PmixStatus};
 
@@ -263,7 +265,7 @@ fn test_credential_max_bytes() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_credential_callback_bridge() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init to exercise the callback bridge path.
     // See lines 366-463 in security.rs.
 }
@@ -276,7 +278,7 @@ fn test_credential_callback_bridge() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_validation_callback_bridge() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init to exercise the callback bridge path.
     // See lines 711-768 in security.rs.
 }
@@ -288,7 +290,7 @@ fn test_validation_callback_bridge() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_copy_and_free_pmix_byte_object() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init to exercise the success path.
     // See lines 182-203 in security.rs.
 }
@@ -301,7 +303,7 @@ fn test_copy_and_free_pmix_byte_object() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_credential_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server.
     // See lines 273-274 in security.rs.
 }
@@ -314,7 +316,7 @@ fn test_get_credential_success() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_validate_credential_success() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // Requires PMIx_Init + server.
     // See lines 650-660 in security.rs.
 }

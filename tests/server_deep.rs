@@ -4,6 +4,8 @@
 //! Focus: PmixServerModule fields, server_init with custom module, IOF channel edge cases,
 //! CollectInventoryResults, callback wrapper compile checks, panic safety, FFI lifecycle.
 
+mod daemon_helper;
+
 use pmix::data_serialization::PmixByteObject;
 use pmix::server::*;
 use pmix::{IOFChannelFlags, InfoBuilder, PmixStatus, Proc};
@@ -829,7 +831,7 @@ fn test_deregister_resources_does_not_panic() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_server_init_then_finalize() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init failed");
@@ -840,7 +842,7 @@ fn test_server_init_then_finalize() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_nspace_then_deregister() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init failed");
@@ -856,7 +858,7 @@ fn test_register_nspace_then_deregister() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_register_client_then_deregister() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init failed");
@@ -873,7 +875,7 @@ fn test_register_client_then_deregister() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_full_server_lifecycle() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init failed");

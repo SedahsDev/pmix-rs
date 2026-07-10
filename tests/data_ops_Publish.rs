@@ -4,6 +4,8 @@
 //! that can be verified without a running PMIx daemon. Tests that require
 //! PMIx runtime (PMIx_Init) are marked `#[ignore]`.
 
+mod daemon_helper;
+
 use pmix::data_ops::{PublishCallback, publish, publish_nb};
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
 
@@ -201,8 +203,7 @@ fn publish_callback_receives_pmix_status() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn publish_after_init() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     // Build info with a simple key-value to publish.
     // The InfoBuilder requires static key bytes matching PMIx key format.
     // For now, just test with an empty info (publish metadata only).
@@ -224,8 +225,7 @@ fn publish_after_init() {
 fn publish_nb_after_init() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     static CALLBACK_INVOKED: AtomicBool = AtomicBool::new(false);
 
     struct NbCallback;
@@ -256,8 +256,7 @@ fn publish_nb_after_init() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn publish_duplicate_key_returns_error() {
-    let _ctx = pmix::init(None).expect("PMIx_Init should succeed");
-
+    daemon_helper::ensure_pmix_init();
     let info = InfoBuilder::new().build();
 
     // First publish should succeed.
@@ -282,7 +281,7 @@ fn publish_duplicate_key_returns_error() {
 #[test]
 #[ignore = "requires PMIx daemon"]
 fn publish_fence_pattern() {
-    let ctx = pmix::init(None).expect("PMIx_Init should succeed");
+    let ctx = daemon_helper::ensure_pmix_init();
 
     // Publish data.
     let info = InfoBuilder::new().build();

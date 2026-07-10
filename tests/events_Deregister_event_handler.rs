@@ -12,6 +12,8 @@
 //!   callback (blocking mode) at teardown.
 //! - `test/simple/stability.c` — same pattern, deregister at cleanup.
 
+mod daemon_helper;
+
 use pmix::events::*;
 use pmix::{InfoBuilder, PmixError, PmixStatus};
 use std::ffi::c_void;
@@ -285,7 +287,7 @@ fn info_builder_for_events() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn register_then_deregister_lifecycle() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // // Register a handler
@@ -312,7 +314,7 @@ fn register_then_deregister_lifecycle() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn register_multiple_deregister_each() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // let info = InfoBuilder::new().build();
@@ -341,7 +343,7 @@ fn register_multiple_deregister_each() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn deregister_nb_lifecycle() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     use std::sync::atomic::{AtomicBool, Ordering};
 
     static CB_INVOKED: AtomicBool = AtomicBool::new(false);
@@ -386,7 +388,7 @@ fn deregister_nb_lifecycle() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn deregister_before_finalize() {
-    let _ctx = pmix::init(None).expect("pmix::init failed");
+    daemon_helper::ensure_pmix_init();
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // let info = InfoBuilder::new().build();
