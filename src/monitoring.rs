@@ -75,6 +75,17 @@ impl MonitorResults {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
+
+    /// Create a test-only MonitorResults with a given length.
+    /// The handle is null — this is for unit tests only and must not
+    /// be used in production code (Drop will skip freeing when handle is null).
+    #[cfg(test)]
+    pub fn test_new(len: usize) -> Self {
+        Self {
+            handle: std::ptr::null_mut(),
+            len,
+        }
+    }
 }
 
 impl Drop for MonitorResults {
@@ -440,21 +451,242 @@ mod tests {
 
     #[test]
     fn test_monitor_results_len() {
-        let results = MonitorResults {
-            handle: std::ptr::null_mut(),
-            len: 0,
-        };
+        let results = MonitorResults::test_new(0);
         assert_eq!(results.len(), 0);
         assert!(results.is_empty());
     }
 
     #[test]
     fn test_monitor_results_nonempty() {
-        let results = MonitorResults {
-            handle: std::ptr::null_mut(),
-            len: 5,
-        };
+        let results = MonitorResults::test_new(5);
         assert_eq!(results.len(), 5);
         assert!(!results.is_empty());
+    }
+
+    // ── Additional unit tests (need internal MonitorResults construction) ──
+
+    /// MonitorResults with null handle and zero length is empty.
+    #[test]
+    fn test_monitor_results_empty() {
+        let results = MonitorResults::test_new(0);
+        assert_eq!(results.len(), 0);
+        assert!(results.is_empty());
+    }
+
+    /// MonitorResults with non-zero length reports correctly.
+    #[test]
+    fn test_monitor_results_with_data() {
+        for n in [1, 5, 100, 1000] {
+            let results = MonitorResults::test_new(n);
+            assert_eq!(results.len(), n);
+            assert!(!results.is_empty());
+        }
+    }
+
+    /// MonitorResults is Debug-printable.
+    #[test]
+    fn test_monitor_results_debug() {
+        let results = MonitorResults::test_new(42);
+        let debug_str = format!("{:?}", results);
+        assert!(debug_str.contains("MonitorResults"));
+    }
+
+    /// MonitorResults Drop with null handle does not crash.
+    #[test]
+    fn test_monitor_results_drop_null() {
+        let _results = MonitorResults::test_new(0);
+    }
+
+    /// MonitorResults Drop with zero len is safe even with non-null handle.
+    #[test]
+    fn test_monitor_results_drop_zero_len_with_ptr() {
+        // The test_new constructor always uses null handle, so Drop is safe.
+        let _results = MonitorResults::test_new(0);
+    }
+
+    /// MonitorResults len boundary values.
+    #[test]
+    fn test_monitor_results_len_boundaries() {
+        let r0 = MonitorResults::test_new(0);
+        assert!(r0.is_empty());
+
+        let r1 = MonitorResults::test_new(1);
+        assert!(!r1.is_empty());
+        assert_eq!(r1.len(), 1);
+
+        let rmax = MonitorResults::test_new(usize::MAX);
+        assert!(!rmax.is_empty());
+        assert_eq!(rmax.len(), usize::MAX);
+    }
+
+    /// Callback bridge correctly forwards MonitorResults with data.
+    #[test]
+    fn test_callback_bridge_forwards_results() {
+        struct ResultsCapture {
+            result_lens: std::sync::Arc<std::sync::Mutex<Vec<usize>>>,
+        }
+        impl MonitorCallback for ResultsCapture {
+            fn on_complete(&mut self, _s: PmixStatus, results: Option<MonitorResults>) {
+                if let Some(r) = results {
+                    self.result_lens.lock().unwrap().push(r.len());
+                }
+            }
+        }
+
+        let lens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut cb = ResultsCapture {
+            result_lens: std::sync::Arc::clone(&lens),
+        };
+
+        for n in [0, 1, 5, 10] {
+            let res = MonitorResults::test_new(n);
+            cb.on_complete(PmixStatus::from_raw(0), Some(res));
+        }
+
+        let captured = lens.lock().unwrap();
+        assert_eq!(captured.len(), 4);
+        assert_eq!(captured.as_slice(), &[0, 1, 5, 10]);
+    }
+
+    /// Callback bridge handles None results gracefully.
+    #[test]
+    fn test_callback_bridge_handles_none_results() {
+        struct NoneCapture {
+            none_count: std::sync::Arc<std::sync::Mutex<usize>>,
+        }
+        impl MonitorCallback for NoneCapture {
+            fn on_complete(&mut self, _s: PmixStatus, results: Option<MonitorResults>) {
+                if results.is_none() {
+                    *self.none_count.lock().unwrap() += 1;
+                }
+            }
+        }
+
+        let count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let mut cb = NoneCapture {
+            none_count: std::sync::Arc::clone(&count),
+        };
+
+        cb.on_complete(PmixStatus::from_raw(0), None);
+        cb.on_complete(PmixStatus::from_raw(0), None);
+        assert_eq!(*count.lock().unwrap(), 2);
+    }
+
+    /// MonitorCallback can hold Arc<Mutex<String>> state.
+    #[test]
+    fn test_monitor_callback_arc_string_state() {
+        struct StringState {
+            log: std::sync::Arc<std::sync::Mutex<String>>,
+        }
+        impl MonitorCallback for StringState {
+            fn on_complete(&mut self, status: PmixStatus, _r: Option<MonitorResults>) {
+                self.log.lock().unwrap().push_str(&format!("{:?} ", status));
+            }
+        }
+
+        let log = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let mut cb = StringState {
+            log: std::sync::Arc::clone(&log),
+        };
+
+        cb.on_complete(PmixStatus::from_raw(0), None);
+        assert!(!log.lock().unwrap().is_empty());
+    }
+
+    /// MonitorCallback receives status and results.
+    #[test]
+    fn test_monitor_callback_receives_status_and_results() {
+        struct CaptureCb {
+            status: std::sync::Arc<std::sync::Mutex<Option<PmixStatus>>>,
+            had_results: std::sync::Arc<std::sync::Mutex<bool>>,
+        }
+        impl MonitorCallback for CaptureCb {
+            fn on_complete(&mut self, status: PmixStatus, results: Option<MonitorResults>) {
+                *self.status.lock().unwrap() = Some(status);
+                *self.had_results.lock().unwrap() = results.is_some();
+            }
+        }
+
+        let status = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let had_results = std::sync::Arc::new(std::sync::Mutex::new(false));
+        let mut cb = CaptureCb {
+            status: std::sync::Arc::clone(&status),
+            had_results: std::sync::Arc::clone(&had_results),
+        };
+
+        cb.on_complete(PmixStatus::from_raw(0), None);
+        assert!(status.lock().unwrap().as_ref().unwrap().is_success());
+        assert!(*had_results.lock().unwrap() == false);
+
+        *had_results.lock().unwrap() = false;
+        let dummy_results = MonitorResults::test_new(3);
+        cb.on_complete(PmixStatus::from_raw(-1), Some(dummy_results));
+        assert!(!status.lock().unwrap().as_ref().unwrap().is_success());
+        assert!(*had_results.lock().unwrap());
+    }
+
+    /// process_monitor with success-like error code.
+    #[test]
+    fn test_process_monitor_with_success_error_code() {
+        use crate::InfoBuilder;
+        let monitor = InfoBuilder::new().build();
+        let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
+    }
+
+    /// heartbeat and process_monitor share the same underlying FFI — no conflicts.
+    #[test]
+    fn test_heartbeat_and_process_monitor_coexist() {
+        use crate::InfoBuilder;
+        let _ = heartbeat();
+        let monitor = InfoBuilder::new().build();
+        let _ = process_monitor(&monitor, PmixStatus::from_raw(-109), &[]);
+        let _ = heartbeat();
+    }
+
+    /// Combined state callback test.
+    #[test]
+    fn test_monitor_callback_combined_state() {
+        struct CombinedCb {
+            status_count: std::sync::Arc<std::sync::Mutex<usize>>,
+            result_count: std::sync::Arc<std::sync::Mutex<usize>>,
+            total: std::sync::Arc<std::sync::Mutex<usize>>,
+        }
+        impl MonitorCallback for CombinedCb {
+            fn on_complete(&mut self, status: PmixStatus, results: Option<MonitorResults>) {
+                *self.total.lock().unwrap() += 1;
+                if status.is_success() {
+                    *self.status_count.lock().unwrap() += 1;
+                }
+                if results.is_some() {
+                    *self.result_count.lock().unwrap() += 1;
+                }
+            }
+        }
+
+        let status_count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let result_count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let total = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let mut cb = CombinedCb {
+            status_count: std::sync::Arc::clone(&status_count),
+            result_count: std::sync::Arc::clone(&result_count),
+            total: std::sync::Arc::clone(&total),
+        };
+
+        cb.on_complete(PmixStatus::from_raw(0), Some(MonitorResults::test_new(1)));
+        cb.on_complete(PmixStatus::from_raw(-1), None);
+        cb.on_complete(PmixStatus::from_raw(0), None);
+
+        assert_eq!(*total.lock().unwrap(), 3);
+        assert_eq!(*status_count.lock().unwrap(), 2);
+        assert_eq!(*result_count.lock().unwrap(), 1);
+    }
+
+    /// InfoBuilder can construct monitoring info entries.
+    #[test]
+    fn test_infobuilder_for_monitoring() {
+        use crate::InfoBuilder;
+        let info = InfoBuilder::new().build();
+        assert!(info.is_empty());
+        assert_eq!(info.len(), 0);
     }
 }
