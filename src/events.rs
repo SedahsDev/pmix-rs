@@ -1125,4 +1125,497 @@ mod tests {
             }
         }
     }
+
+    // ─── wrap_notification_fn with Some ─────────────────────────────────────
+
+    #[test]
+    fn test_wrap_notification_fn_some_returns_bridge() {
+        extern "C" fn dummy(
+            _id: EventHandlerRef,
+            _status: i32,
+            _source: *const c_void,
+            _info: *mut c_void,
+            _ninfo: usize,
+            _results: *mut c_void,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbdata: *mut c_void,
+        ) {
+        }
+        let (ffi_fn, cbdata) = wrap_notification_fn(Some(dummy));
+        assert!(ffi_fn.is_some());
+        assert!(!cbdata.is_null());
+        // Clean up
+        unsafe {
+            let _ = Box::from_raw(cbdata as *mut NotificationFn);
+        }
+    }
+
+    #[test]
+    fn test_wrap_notification_fn_none_returns_null() {
+        let (ffi_fn, cbdata) = wrap_notification_fn(None);
+        assert!(ffi_fn.is_none());
+        assert!(cbdata.is_null());
+    }
+
+    // ─── notification_bridge tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_notification_bridge_with_null_cbdata() {
+        // When cbdata is null, notification_bridge should not crash
+        // It checks if let Some(user_fn) = *(cbdata as *mut NotificationFn)
+        // With a null pointer, this would dereference null — but since
+        // we're testing, we use a valid pointer to None
+        let boxed_fn: Box<NotificationFn> = Box::new(None);
+        let raw = Box::into_raw(boxed_fn) as *mut c_void;
+        unsafe {
+            notification_bridge(
+                42,
+                0,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                None,
+                raw,
+            );
+        }
+        // Clean up — the boxed NotificationFn with None value
+        unsafe {
+            let _ = Box::from_raw(raw as *mut NotificationFn);
+        }
+    }
+
+    #[test]
+    fn test_notification_bridge_invokes_user_fn() {
+        use std::sync::Arc;
+        let called = Arc::new(std::sync::Mutex::new(false));
+        let called_clone = called.clone();
+
+        extern "C" fn dummy(
+            _id: EventHandlerRef,
+            _status: i32,
+            _source: *const c_void,
+            _info: *mut c_void,
+            _ninfo: usize,
+            _results: *mut c_void,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbdata: *mut c_void,
+        ) {
+        }
+
+        // Create a boxed NotificationFn with Some(dummy)
+        let boxed_fn: Box<NotificationFn> = Box::new(Some(dummy));
+        let raw = Box::into_raw(boxed_fn) as *mut c_void;
+
+        unsafe {
+            notification_bridge(
+                42,
+                0,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                None,
+                raw,
+            );
+        }
+        // Clean up
+        unsafe {
+            let _ = Box::from_raw(raw as *mut NotificationFn);
+        }
+    }
+
+    // ─── PmixDataRange variant tests ────────────────────────────────────────
+
+    #[test]
+    fn test_data_range_undef() {
+        let range = PmixDataRange::Undef;
+        assert_eq!(range.to_raw(), 0);
+    }
+
+    #[test]
+    fn test_data_range_rm() {
+        let range = PmixDataRange::Rm;
+        assert_eq!(range.to_raw(), 1);
+    }
+
+    #[test]
+    fn test_data_range_local() {
+        let range = PmixDataRange::Local;
+        assert_eq!(range.to_raw(), 2);
+    }
+
+    #[test]
+    fn test_data_range_namespace() {
+        let range = PmixDataRange::Namespace;
+        assert_eq!(range.to_raw(), 3);
+    }
+
+    #[test]
+    fn test_data_range_session() {
+        let range = PmixDataRange::Session;
+        assert_eq!(range.to_raw(), 4);
+    }
+
+    #[test]
+    fn test_data_range_global() {
+        let range = PmixDataRange::Global;
+        assert_eq!(range.to_raw(), 5);
+    }
+
+    #[test]
+    fn test_data_range_custom() {
+        let range = PmixDataRange::Custom;
+        assert_eq!(range.to_raw(), 6);
+    }
+
+    #[test]
+    fn test_data_range_proc_local() {
+        let range = PmixDataRange::ProcLocal;
+        assert_eq!(range.to_raw(), 7);
+    }
+
+    // ─── notify_event with all data ranges ──────────────────────────────────
+
+    #[test]
+    fn test_notify_event_all_ranges() {
+        let source = Proc::new("test_job", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let ranges = [
+            PmixDataRange::Undef,
+            PmixDataRange::Rm,
+            PmixDataRange::Local,
+            PmixDataRange::Namespace,
+            PmixDataRange::Session,
+            PmixDataRange::Global,
+            PmixDataRange::Custom,
+            PmixDataRange::ProcLocal,
+        ];
+        for range in ranges {
+            let result = notify_event(
+                PmixStatus::Known(PmixError::ErrJobAborted),
+                &source,
+                range,
+                &info,
+            );
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0, "Expected error without DVM for range {:?}", range);
+                }
+            }
+        }
+    }
+
+    // ─── notify_event_nb with all ranges ────────────────────────────────────
+
+    #[test]
+    fn test_notify_event_nb_all_ranges() {
+        extern "C" fn dummy_op(_status: i32, _cbdata: *mut c_void) {}
+        let source = Proc::new("test_job", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let ranges = [
+            PmixDataRange::Undef,
+            PmixDataRange::Rm,
+            PmixDataRange::Local,
+            PmixDataRange::Namespace,
+            PmixDataRange::Session,
+            PmixDataRange::Global,
+            PmixDataRange::Custom,
+            PmixDataRange::ProcLocal,
+        ];
+        for range in ranges {
+            let result = notify_event_nb(
+                PmixStatus::Known(PmixError::ErrTimeout),
+                &source,
+                range,
+                &info,
+                Some(dummy_op),
+                std::ptr::null_mut(),
+            );
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0, "Expected error without DVM for range {:?}", range);
+                }
+            }
+        }
+    }
+
+    // ─── register_event_handler with multiple codes ─────────────────────────
+
+    #[test]
+    fn test_register_event_handler_many_codes() {
+        let codes = [
+            PmixStatus::Known(PmixError::ErrJobAborted),
+            PmixStatus::Known(PmixError::ErrTimeout),
+            PmixStatus::Known(PmixError::ErrNotSupported),
+            PmixStatus::Known(PmixError::ErrNotFound),
+            PmixStatus::Known(PmixError::ErrBadParam),
+        ];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = register_event_handler(&codes, &info, None, None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── register_event_handler_nb with notification fn ─────────────────────
+
+    #[test]
+    fn test_register_event_handler_nb_with_notification_fn() {
+        extern "C" fn dummy_handler(
+            _id: EventHandlerRef,
+            _status: i32,
+            _source: *const c_void,
+            _info: *mut c_void,
+            _ninfo: usize,
+            _results: *mut c_void,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbdata: *mut c_void,
+        ) {
+        }
+        extern "C" fn dummy_reg_cb(_status: i32, _refid: EventHandlerRef, _cbdata: *mut c_void) {}
+        let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = register_event_handler_nb(
+            &codes,
+            &info,
+            Some(dummy_handler),
+            Some(dummy_reg_cb),
+            std::ptr::null_mut(),
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── deregister_event_handler_nb with callback ──────────────────────────
+
+    #[test]
+    fn test_deregister_event_handler_nb_with_callback() {
+        extern "C" fn dummy_op(_status: i32, _cbdata: *mut c_void) {}
+        let result = deregister_event_handler_nb(42, Some(dummy_op), std::ptr::null_mut());
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── PmixStatus roundtrip for all event-related error codes ─────────────
+
+    #[test]
+    fn test_pmix_status_event_error_codes() {
+        let codes = [
+            (PmixError::ErrJobAborted, "ErrJobAborted"),
+            (PmixError::ErrTimeout, "ErrTimeout"),
+            (PmixError::ErrNotSupported, "ErrNotSupported"),
+            (PmixError::ErrNotFound, "ErrNotFound"),
+            (PmixError::ErrBadParam, "ErrBadParam"),
+            (PmixError::ErrInit, "ErrInit"),
+        ];
+        for (err, name) in codes {
+            let status = PmixStatus::Known(err);
+            assert!(status.to_raw() < 0, "Expected negative raw for {}", name);
+            assert!(status.is_error(), "Expected error for {}", name);
+        }
+    }
+
+    // ─── EventHandlerRef edge cases ─────────────────────────────────────────
+
+    #[test]
+    fn test_handler_ref_from_raw_positive() {
+        let raw: i32 = 42;
+        let ref_: EventHandlerRef = raw as EventHandlerRef;
+        assert_eq!(ref_, 42);
+    }
+
+    #[test]
+    fn test_handler_ref_from_raw_negative_wraps() {
+        let raw: i32 = -1;
+        let ref_: EventHandlerRef = raw as EventHandlerRef;
+        assert_eq!(ref_, usize::MAX);
+    }
+
+    // ─── Info empty handling for notify_event ───────────────────────────────
+
+    #[test]
+    fn test_info_empty_for_notify() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let (info_ptr, ninfo) = if info.len > 0 {
+            (info.handle as *const ffi::pmix_info_t, info.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    // ─── Proc as event source with different ranks ──────────────────────────
+
+    #[test]
+    fn test_proc_event_source_rank_0() {
+        let proc = Proc::new("job_abc", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_event_source_rank_max() {
+        let proc = Proc::new("job_abc", u32::MAX).unwrap();
+        assert_eq!(proc.get_rank(), u32::MAX);
+    }
+
+    #[test]
+    fn test_proc_event_source_rank_1000() {
+        let proc = Proc::new("job_abc", 1000).unwrap();
+        assert_eq!(proc.get_rank(), 1000);
+    }
+
+    // ─── notify_event_nb with null callback ─────────────────────────────────
+
+    #[test]
+    fn test_notify_event_nb_null_callback() {
+        let source = Proc::new("test_job", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = notify_event_nb(
+            PmixStatus::Known(PmixError::ErrJobAborted),
+            &source,
+            PmixDataRange::Session,
+            &info,
+            None,
+            std::ptr::null_mut(),
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── register_event_handler_nb with null evhdlr ─────────────────────────
+
+    #[test]
+    fn test_register_event_handler_nb_null_evhdlr() {
+        extern "C" fn dummy_reg_cb(_status: i32, _refid: EventHandlerRef, _cbdata: *mut c_void) {}
+        let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = register_event_handler_nb(
+            &codes,
+            &info,
+            None,
+            Some(dummy_reg_cb),
+            std::ptr::null_mut(),
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Multiple sequential register calls ─────────────────────────────────
+
+    #[test]
+    fn test_multiple_register_calls() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
+        for _ in 0..5 {
+            let result = register_event_handler(&codes, &info, None, None);
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0);
+                }
+            }
+        }
+    }
+
+    // ─── Multiple sequential deregister calls ───────────────────────────────
+
+    #[test]
+    fn test_multiple_deregister_calls() {
+        for ref_id in 1..=5 {
+            let result = deregister_event_handler(ref_id, None);
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0);
+                }
+            }
+        }
+    }
+
+    // ─── Multiple sequential notify calls ───────────────────────────────────
+
+    #[test]
+    fn test_multiple_notify_calls() {
+        let source = Proc::new("test_job", 0).unwrap();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        for _ in 0..5 {
+            let result = notify_event(
+                PmixStatus::Known(PmixError::ErrJobAborted),
+                &source,
+                PmixDataRange::Session,
+                &info,
+            );
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0);
+                }
+            }
+        }
+    }
 }

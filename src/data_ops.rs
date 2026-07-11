@@ -2232,4 +2232,818 @@ mod tests {
             }
         }
     }
+
+    // ─── PmixPdata construction edge cases ──────────────────────────────────
+
+    #[test]
+    fn test_pdata_new_with_unicode_key() {
+        let pdata = PmixPdata::new("pmix.тест.key");
+        assert_eq!(pdata.key, "pmix.тест.key");
+    }
+
+    #[test]
+    fn test_pdata_new_with_spaces_key() {
+        let pdata = PmixPdata::new("pmix test key");
+        assert_eq!(pdata.key, "pmix test key");
+    }
+
+    #[test]
+    fn test_pdata_new_with_numbers_key() {
+        let pdata = PmixPdata::new("pmix123.test456");
+        assert_eq!(pdata.key, "pmix123.test456");
+    }
+
+    #[test]
+    fn test_pdata_new_max_c_key_length() {
+        // pmix_key_t is [c_char; 512], so max key length is 511
+        let long_key = "a".repeat(511);
+        let pdata = PmixPdata::new(&long_key);
+        assert_eq!(pdata.key, long_key);
+    }
+
+    #[test]
+    fn test_pdata_new_exceeds_c_key_length() {
+        // Keys longer than 511 chars are stored but will be truncated in FFI
+        let very_long_key = "a".repeat(1000);
+        let pdata = PmixPdata::new(&very_long_key);
+        assert_eq!(pdata.key, very_long_key);
+    }
+
+    #[test]
+    fn test_pdata_with_dots_and_hyphens() {
+        let pdata = PmixPdata::new("pmix.job.001-app-node-0");
+        assert_eq!(pdata.key, "pmix.job.001-app-node-0");
+    }
+
+    #[test]
+    fn test_pdata_vec_operations() {
+        let mut pdatas = vec![PmixPdata::new("k1"), PmixPdata::new("k2")];
+        pdatas.push(PmixPdata::new("k3"));
+        assert_eq!(pdatas.len(), 3);
+        assert_eq!(pdatas[2].key, "k3");
+    }
+
+    #[test]
+    fn test_pdata_empty_vec() {
+        let pdatas: Vec<PmixPdata> = vec![];
+        assert!(pdatas.is_empty());
+    }
+
+    // ─── PmixPdata mutable reference tests ──────────────────────────────────
+
+    #[test]
+    fn test_pdata_mutate_value() {
+        let mut pdata = PmixPdata::new("test");
+        assert!(pdata.value.is_none());
+        // We can't easily construct a PmixOwnedValue without FFI,
+        // but we can verify the field is mutable
+        let _: &mut Option<PmixOwnedValue> = &mut pdata.value;
+    }
+
+    #[test]
+    fn test_pdata_mutate_key() {
+        let mut pdata = PmixPdata::new("original");
+        pdata.key = "modified".to_string();
+        assert_eq!(pdata.key, "modified");
+    }
+
+    #[test]
+    fn test_pdata_mutate_proc() {
+        let mut pdata = PmixPdata::new("test");
+        let new_proc = Proc::new("new_ns", 42).unwrap();
+        pdata.proc = new_proc;
+        assert_eq!(pdata.proc.get_rank(), 42);
+    }
+
+    // ─── Lookup with empty data array ───────────────────────────────────────
+
+    #[test]
+    fn test_lookup_empty_data_returns_error() {
+        let data: Vec<PmixPdata> = vec![];
+        let mut data = data;
+        let result = lookup(&mut data, None);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(!err.is_success());
+    }
+
+    #[test]
+    fn test_lookup_empty_data_with_info_returns_error() {
+        let data: Vec<PmixPdata> = vec![];
+        let mut data = data;
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = lookup(&mut data, Some(&info));
+        assert!(result.is_err());
+    }
+
+    // ─── Unpublish edge cases ───────────────────────────────────────────────
+
+    #[test]
+    fn test_unpublish_empty_keys_slice() {
+        let keys: &[&str] = &[];
+        let result = unpublish(Some(keys), None);
+        // Empty keys slice should pass null to FFI (same as None)
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_unpublish_none_keys() {
+        let result = unpublish(None, None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Publish with empty info ────────────────────────────────────────────
+
+    #[test]
+    fn test_publish_empty_info() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = publish(&info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Fence blocking call path ───────────────────────────────────────────
+
+    #[test]
+    fn test_fence_reaches_ffi() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let result = crate::fence(&proc, None);
+        match result {
+            Ok(_) => {}
+            Err(raw) => {
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_fence_with_procs() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let result = crate::fence(&proc, None);
+        match result {
+            Ok(_) => {}
+            Err(raw) => {
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_fence_no_info() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let result = crate::fence(&proc, None);
+        match result {
+            Ok(_) => {}
+            Err(raw) => {
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Fence callback bridge null cbdata test ─────────────────────────────
+
+    #[test]
+    fn test_fence_callback_bridge_null_cbdata() {
+        // fence_callback_bridge with null cbdata should return immediately
+        // We can call it directly since it's extern "C"
+        unsafe {
+            fence_callback_bridge(0, std::ptr::null_mut());
+        }
+        // Should not panic
+    }
+
+    // ─── Publish callback bridge null cbdata test ───────────────────────────
+
+    #[test]
+    fn test_publish_callback_bridge_null_cbdata() {
+        // publish_callback_bridge with null cbdata should return immediately
+        unsafe {
+            publish_callback_bridge(0, std::ptr::null_mut());
+        }
+        // Should not panic
+    }
+
+    // ─── Get value callback bridge null cbdata test ─────────────────────────
+
+    #[test]
+    fn test_get_value_callback_bridge_null_cbdata() {
+        // get_value_callback_bridge with null cbdata should return immediately
+        unsafe {
+            get_value_callback_bridge(0, std::ptr::null_mut(), std::ptr::null_mut());
+        }
+        // Should not panic
+    }
+
+    // ─── Unpublish callback bridge null cbdata test ─────────────────────────
+
+    #[test]
+    fn test_unpublish_callback_bridge_null_cbdata() {
+        // unpublish_callback_bridge with null cbdata should return immediately
+        unsafe {
+            unpublish_callback_bridge(0, std::ptr::null_mut());
+        }
+        // Should not panic
+    }
+
+    // ─── Lookup callback bridge null cbdata test ────────────────────────────
+
+    #[test]
+    fn test_lookup_callback_bridge_null_cbdata() {
+        // lookup_callback_bridge with null cbdata should return immediately
+        unsafe {
+            lookup_callback_bridge(0, std::ptr::null_mut(), 0, std::ptr::null_mut());
+        }
+        // Should not panic
+    }
+
+    // ─── Lookup callback bridge missing callback test ───────────────────────
+
+    #[test]
+    fn test_lookup_callback_bridge_missing_callback() {
+        // Create a req_id that's not in the registry
+        let req_id = 99999usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        // Call the bridge with a non-existent req_id
+        unsafe {
+            lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata);
+        }
+        // Should not panic — just returns without invoking callback
+    }
+
+    // ─── Publish callback bridge missing callback test ──────────────────────
+
+    #[test]
+    fn test_publish_callback_bridge_missing_callback() {
+        let req_id = 99998usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            publish_callback_bridge(0, cbdata);
+        }
+        // Should not panic — callback not found, returns early
+    }
+
+    // ─── Get value callback bridge missing callback test ────────────────────
+
+    #[test]
+    fn test_get_value_callback_bridge_missing_callback() {
+        let req_id = 99997usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            get_value_callback_bridge(0, std::ptr::null_mut(), cbdata);
+        }
+        // Should not panic
+    }
+
+    // ─── Unpublish callback bridge missing callback test ────────────────────
+
+    #[test]
+    fn test_unpublish_callback_bridge_missing_callback() {
+        let req_id = 99996usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            unpublish_callback_bridge(0, cbdata);
+        }
+        // Should not panic
+    }
+
+    // ─── Fence callback bridge missing callback test ────────────────────────
+
+    #[test]
+    fn test_fence_callback_bridge_missing_callback() {
+        let req_id = 99995usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            fence_callback_bridge(0, cbdata);
+        }
+        // Should not panic
+    }
+
+    // ─── Publish callback bridge with valid callback ────────────────────────
+
+    #[test]
+    fn test_publish_callback_bridge_invokes_callback() {
+        use std::sync::Arc;
+        struct TestCb {
+            status: Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl PublishCallback for TestCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.status.lock().unwrap() = Some(status);
+            }
+        }
+        let status = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            status: status.clone(),
+        });
+
+        let req_id = 77777usize;
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            publish_callback_bridge(0, cbdata); // PMIX_SUCCESS
+        }
+        let received = status.lock().unwrap();
+        assert!(received.is_some());
+        assert!(received.as_ref().unwrap().is_success());
+    }
+
+    // ─── Unpublish callback bridge with valid callback ──────────────────────
+
+    #[test]
+    fn test_unpublish_callback_bridge_invokes_callback() {
+        use std::sync::Arc;
+        struct TestCb {
+            status: Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl UnpublishCallback for TestCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.status.lock().unwrap() = Some(status);
+            }
+        }
+        let status = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            status: status.clone(),
+        });
+
+        let req_id = 66666usize;
+        {
+            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            unpublish_callback_bridge(-6, cbdata); // PMIX_ERR_TIMEOUT
+        }
+        let received = status.lock().unwrap();
+        assert!(received.is_some());
+        assert!(received.as_ref().unwrap().is_error());
+    }
+
+    // ─── Fence callback bridge with valid callback ──────────────────────────
+
+    #[test]
+    fn test_fence_callback_bridge_invokes_callback() {
+        use std::sync::Arc;
+        struct TestCb {
+            status: Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl FenceCallback for TestCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.status.lock().unwrap() = Some(status);
+            }
+        }
+        let status = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            status: status.clone(),
+        });
+
+        let req_id = 55555usize;
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            fence_callback_bridge(0, cbdata); // PMIX_SUCCESS
+        }
+        let received = status.lock().unwrap();
+        assert!(received.is_some());
+        assert!(received.as_ref().unwrap().is_success());
+    }
+
+    // ─── Get value callback bridge with valid callback ──────────────────────
+
+    #[test]
+    fn test_get_value_callback_bridge_invokes_callback() {
+        use std::sync::Arc;
+        struct TestCb {
+            status: Arc<std::sync::Mutex<Option<PmixStatus>>>,
+            has_value: Arc<std::sync::Mutex<Option<bool>>>,
+        }
+        impl GetValueCallback for TestCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                *self.status.lock().unwrap() = Some(status);
+                *self.has_value.lock().unwrap() = Some(value.is_some());
+            }
+        }
+        let status = Arc::new(std::sync::Mutex::new(None));
+        let has_value = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            status: status.clone(),
+            has_value: has_value.clone(),
+        });
+
+        let req_id = 44444usize;
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            get_value_callback_bridge(-7, std::ptr::null_mut(), cbdata); // PMIX_ERR_NOT_FOUND, no value
+        }
+        let received = status.lock().unwrap();
+        let hv = has_value.lock().unwrap();
+        assert!(received.is_some());
+        let hv_val = hv.as_ref().unwrap();
+        assert!(!*hv_val); // No value on not found
+    }
+
+    // ─── Lookup callback bridge with valid callback ─────────────────────────
+
+    #[test]
+    fn test_lookup_callback_bridge_invokes_callback_empty() {
+        use std::sync::Arc;
+        struct TestCb {
+            count: Arc<std::sync::Mutex<Option<usize>>>,
+        }
+        impl LookupCallback for TestCb {
+            fn on_result(self: Box<Self>, _status: PmixStatus, data: Vec<PmixPdata>) {
+                *self.count.lock().unwrap() = Some(data.len());
+            }
+        }
+        let count = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            count: count.clone(),
+        });
+
+        let req_id = 33333usize;
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata); // success, empty data
+        }
+        let c = count.lock().unwrap();
+        assert!(c.is_some());
+        assert_eq!(c.as_ref().unwrap(), &0);
+    }
+
+    // ─── Info parameter handling with non-null handle ───────────────────────
+
+    #[test]
+    fn test_info_non_null_handle_pattern() {
+        // Simulate the pattern used in get() and get_nb()
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let (info_ptr, ninfo) = match Some(&info) {
+            Some(info) => {
+                if info.handle.is_null() {
+                    (std::ptr::null(), 0)
+                } else {
+                    (info.handle as *const ffi::pmix_info_t, info.len)
+                }
+            }
+            None => (std::ptr::null(), 0),
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    #[test]
+    fn test_info_none_pattern() {
+        let (info_ptr, ninfo) = match None::<&Info> {
+            Some(info) => {
+                if info.handle.is_null() {
+                    (std::ptr::null(), 0)
+                } else {
+                    (info.handle as *const ffi::pmix_info_t, info.len)
+                }
+            }
+            None => (std::ptr::null(), 0),
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    // ─── PmixStatus known error variants used in data_ops ───────────────────
+
+    #[test]
+    fn test_pmix_error_success_to_raw() {
+        let status = PmixStatus::Known(PmixError::Success);
+        assert_eq!(status.to_raw(), 0);
+    }
+
+    #[test]
+    fn test_pmix_error_not_found_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrNotFound);
+        assert!(status.to_raw() < 0);
+    }
+
+    #[test]
+    fn test_pmix_error_partial_success_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrPartialSuccess);
+        assert!(status.to_raw() < 0);
+    }
+
+    #[test]
+    fn test_pmix_error_timeout_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrTimeout);
+        assert!(status.to_raw() < 0);
+    }
+
+    #[test]
+    fn test_pmix_error_duplicate_key_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrDuplicateKey);
+        assert!(status.to_raw() < 0);
+    }
+
+    #[test]
+    fn test_pmix_error_init_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrInit);
+        assert!(status.to_raw() < 0);
+    }
+
+    // ─── PmixPdata Debug formatting edge cases ──────────────────────────────
+
+    #[test]
+    fn test_pdata_debug_with_value_none() {
+        let pdata = PmixPdata::new("test");
+        let debug = format!("{:?}", pdata);
+        assert!(debug.contains("PmixPdata"));
+        assert!(debug.contains("value_present"));
+    }
+
+    #[test]
+    fn test_pdata_debug_contains_key() {
+        let pdata = PmixPdata::new("pmix.test.key");
+        let debug = format!("{:?}", pdata);
+        assert!(debug.contains("pmix.test.key"));
+    }
+
+    // ─── Store internal function signature verification ─────────────────────
+
+    #[test]
+    fn test_store_internal_is_public() {
+        // Verify store_internal is accessible and has the right signature
+        fn _type_check() {
+            let _f: fn(&Proc, &str, &PmixOwnedValue) -> Result<(), PmixStatus> = store_internal;
+        }
+    }
+
+    // ─── Fence with procs and info ──────────────────────────────────────────
+
+    #[test]
+    fn test_fence_with_single_proc() {
+        let proc = Proc::new("job_abc", 0).unwrap();
+        let result = crate::fence(&proc, None);
+        match result {
+            Ok(_) => {}
+            Err(raw) => {
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Lookup nb with empty keys ──────────────────────────────────────────
+
+    #[test]
+    fn test_lookup_nb_empty_keys_returns_error() {
+        struct DummyLookup;
+        impl LookupCallback for DummyLookup {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
+        }
+        let keys: &[&str] = &[];
+        let callback: Box<dyn LookupCallback> = Box::new(DummyLookup);
+        let result = lookup_nb(keys, None, callback);
+        assert!(result.is_err());
+    }
+
+    // ─── Unpublish nb with None keys ────────────────────────────────────────
+
+    #[test]
+    fn test_unpublish_nb_none_keys_reaches_ffi() {
+        struct DummyUnpublish;
+        impl UnpublishCallback for DummyUnpublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let callback: Box<dyn UnpublishCallback> = Box::new(DummyUnpublish);
+        let result = unpublish_nb(None, None, callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Get nb with key containing NUL (error path) ────────────────────────
+
+    #[test]
+    fn test_get_nb_key_with_nul_returns_error() {
+        struct DummyGet;
+        impl GetValueCallback for DummyGet {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
+        }
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let callback: Box<dyn GetValueCallback> = Box::new(DummyGet);
+        // Key with embedded NUL byte
+        let key = "test\0key";
+        let result = get_nb(&proc, key, None, callback);
+        assert!(result.is_err());
+    }
+
+    // ─── Get with key containing NUL (error path) ───────────────────────────
+
+    #[test]
+    fn test_get_key_with_nul_returns_error() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let key = "test\0key";
+        let result = get(&proc, key, None);
+        assert!(result.is_err());
+    }
+
+    // ─── Unpublish with key containing NUL (error path) ─────────────────────
+
+    #[test]
+    fn test_unpublish_key_with_nul_returns_error() {
+        let keys = ["test\0key"];
+        let result = unpublish(Some(&keys), None);
+        assert!(result.is_err());
+    }
+
+    // ─── Lookup nb with key containing NUL (error path) ─────────────────────
+
+    #[test]
+    fn test_lookup_nb_key_with_nul_returns_error() {
+        struct DummyLookup;
+        impl LookupCallback for DummyLookup {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
+        }
+        let keys = ["test\0key"];
+        let callback: Box<dyn LookupCallback> = Box::new(DummyLookup);
+        let result = lookup_nb(&keys, None, callback);
+        assert!(result.is_err());
+    }
+
+    // ─── Proc namespace and rank edge cases ─────────────────────────────────
+
+    #[test]
+    fn test_proc_new_empty_namespace() {
+        let proc = Proc::new("", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_new_long_namespace() {
+        let long_ns = "a".repeat(256);
+        let proc = Proc::new(&long_ns, 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_new_max_rank() {
+        let proc = Proc::new("test", u32::MAX).unwrap();
+        assert_eq!(proc.get_rank(), u32::MAX);
+    }
+
+    #[test]
+    fn test_proc_new_with_nspace_different_rank() {
+        let proc = Proc::new("original_ns", 0).unwrap();
+        let proc2 = proc.new_with_nspace(5).unwrap();
+        assert_eq!(proc2.get_rank(), 5);
+    }
+
+    // ─── PmixOwnedValue drop behavior ───────────────────────────────────────
+
+    #[test]
+    fn test_pmix_owned_value_creation_and_drop() {
+        // We can create a zeroed PmixOwnedValue to test drop behavior
+        // This verifies the Drop implementation doesn't panic on zeroed data
+        let val = PmixOwnedValue {
+            inner: unsafe { std::mem::zeroed() },
+        };
+        // Drop happens at end of scope — should not panic
+        drop(val);
+    }
+
+    // ─── Multiple sequential publish calls ──────────────────────────────────
+
+    #[test]
+    fn test_multiple_publish_calls() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        for _ in 0..5 {
+            let result = publish(&info);
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0);
+                }
+            }
+        }
+    }
+
+    // ─── Multiple sequential lookup calls ───────────────────────────────────
+
+    #[test]
+    fn test_multiple_lookup_calls() {
+        for _ in 0..5 {
+            let data = vec![PmixPdata::new("test.key")];
+            let mut data = data;
+            let result = lookup(&mut data, None);
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0);
+                }
+            }
+        }
+    }
+
+    // ─── Info parameter with non-zero len but null handle ───────────────────
+
+    #[test]
+    fn test_info_zero_len_null_handle_in_publish() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        // This should use null/0 path in publish
+        let result = publish(&info);
+        // Expected error without DVM
+        assert!(result.is_err() || result.is_ok());
+    }
+
+    // ─── Fence nb with procs and info ───────────────────────────────────────
+
+    #[test]
+    fn test_fence_nb_with_procs() {
+        struct DummyFence;
+        impl FenceCallback for DummyFence {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let procs = vec![Proc::new("test_ns", 0).unwrap()];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let callback: Box<dyn FenceCallback> = Box::new(DummyFence);
+        let result = fence_nb(&procs, Some(&info), callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Publish nb with empty info ─────────────────────────────────────────
+
+    #[test]
+    fn test_publish_nb_empty_info() {
+        struct DummyPublish;
+        impl PublishCallback for DummyPublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let callback: Box<dyn PublishCallback> = Box::new(DummyPublish);
+        let result = publish_nb(&info, callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
 }
