@@ -3095,7 +3095,10 @@ mod tests {
             .with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY)
             .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
         config.apply();
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_ERR_DUPLICATE_KEY);
+        assert_eq!(
+            mock_ffi::get_mock_status("PMIx_Publish"),
+            PMIX_ERR_DUPLICATE_KEY
+        );
         assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
         assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
     }
@@ -3174,8 +3177,7 @@ mod tests {
     /// Test the publish error path when mock returns ErrInit.
     #[test]
     fn test_publish_error_path_with_mock() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Publish", PMIX_ERR_INIT);
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
         let _guard = MockGuard::with_config(config);
 
         let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
@@ -3194,15 +3196,21 @@ mod tests {
     /// Test publish with mock returning duplicate key error.
     #[test]
     fn test_publish_duplicate_key_with_mock() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
         let _guard = MockGuard::with_config(config);
 
         let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
         let pmix_status = PmixStatus::from_raw(raw_status);
-        let result = if pmix_status.is_success() { Ok(()) } else { Err(pmix_status) };
+        let result = if pmix_status.is_success() {
+            Ok(())
+        } else {
+            Err(pmix_status)
+        };
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrDuplicateKey));
+        assert_eq!(
+            result.unwrap_err(),
+            PmixStatus::Known(PmixError::ErrDuplicateKey)
+        );
     }
 
     // ─── Mock-aware get tests ───────────────────────────────────────────────
@@ -3219,8 +3227,7 @@ mod tests {
     /// Test get with mock returning not found.
     #[test]
     fn test_get_not_found_with_mock() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
+        let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
         let _guard = MockGuard::with_config(config);
 
         let raw_status = mock_ffi::get_mock_status("PMIx_Get");
@@ -3232,8 +3239,7 @@ mod tests {
     /// Test get with mock returning timeout.
     #[test]
     fn test_get_timeout_with_mock() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Get", PMIX_ERR_TIMEOUT);
+        let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_TIMEOUT);
         let _guard = MockGuard::with_config(config);
 
         let raw_status = mock_ffi::get_mock_status("PMIx_Get");
@@ -3255,8 +3261,7 @@ mod tests {
     /// Test fence error path with mock.
     #[test]
     fn test_fence_error_path_with_mock() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Fence", PMIX_ERR_INIT);
+        let config = MockConfig::new().with_function_status("PMIx_Fence", PMIX_ERR_INIT);
         let _guard = MockGuard::with_config(config);
 
         let raw_status = mock_ffi::get_mock_status("PMIx_Fence");
@@ -3278,8 +3283,7 @@ mod tests {
     /// Test unpublish with not found error.
     #[test]
     fn test_unpublish_not_found_with_mock() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Unpublish", PMIX_ERR_NOT_FOUND);
+        let config = MockConfig::new().with_function_status("PMIx_Unpublish", PMIX_ERR_NOT_FOUND);
         let _guard = MockGuard::with_config(config);
 
         let raw_status = mock_ffi::get_mock_status("PMIx_Unpublish");
@@ -3301,8 +3305,7 @@ mod tests {
     /// Test lookup with partial success.
     #[test]
     fn test_lookup_partial_success_with_mock() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Lookup", -52); // PMIX_ERR_PARTIAL_SUCCESS
+        let config = MockConfig::new().with_function_status("PMIx_Lookup", -52); // PMIX_ERR_PARTIAL_SUCCESS
         let _guard = MockGuard::with_config(config);
 
         let raw_status = mock_ffi::get_mock_status("PMIx_Lookup");
@@ -3390,7 +3393,7 @@ mod tests {
     /// Test get_nb callback bridge with success status.
     #[test]
     fn test_get_callback_bridge_success() {
-        use std::sync::atomic::{AtomicI32, AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
         static CB_STATUS: AtomicI32 = AtomicI32::new(-999);
         static CB_HAS_VALUE: AtomicBool = AtomicBool::new(false);
 
@@ -3418,7 +3421,11 @@ mod tests {
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
         unsafe {
-            get_value_callback_bridge(PMIX_SUCCESS, &mut mock_value as *mut ffi::pmix_value_t, cbdata);
+            get_value_callback_bridge(
+                PMIX_SUCCESS,
+                &mut mock_value as *mut ffi::pmix_value_t,
+                cbdata,
+            );
         }
 
         assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
@@ -3428,7 +3435,7 @@ mod tests {
     /// Test get_nb callback bridge with not found.
     #[test]
     fn test_get_callback_bridge_not_found() {
-        use std::sync::atomic::{AtomicI32, AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
         static CB_STATUS2: AtomicI32 = AtomicI32::new(-999);
         static CB_HAS_VALUE2: AtomicBool = AtomicBool::new(false);
 
@@ -3702,7 +3709,10 @@ mod tests {
             .with_function_status("PMIx_Unpublish", PMIX_ERR_INIT);
         let _guard = MockGuard::with_config(config);
 
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_ERR_DUPLICATE_KEY);
+        assert_eq!(
+            mock_ffi::get_mock_status("PMIx_Publish"),
+            PMIX_ERR_DUPLICATE_KEY
+        );
         assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
         assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_ERR_TIMEOUT);
         assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_ERR_INIT);
@@ -3777,8 +3787,8 @@ mod tests {
     #[test]
     fn test_mock_proc_wildcard_rank() {
         let _guard = MockGuard::new();
-        let proc = Proc::new("", PMIX_RANK_WILDCARD as u32)
-            .unwrap_or_else(|_| Proc::new("", 0).unwrap());
+        let proc =
+            Proc::new("", PMIX_RANK_WILDCARD as u32).unwrap_or_else(|_| Proc::new("", 0).unwrap());
         assert_eq!(proc.get_rank(), PMIX_RANK_WILDCARD as u32);
     }
 
@@ -3963,16 +3973,18 @@ mod tests {
     #[test]
     fn test_mock_ffi_thread_safety() {
         use std::thread;
-        let handles: Vec<_> = (0..4).map(|i| {
-            thread::spawn(move || {
-                // Each thread enables mock, checks status, disables
-                mock_ffi::enable_mock_ffi();
-                assert!(mock_ffi::is_mock_enabled());
-                let status = mock_ffi::get_mock_status(&format!("PMIx_Test_{}", i));
-                assert_eq!(status, PMIX_SUCCESS);
-                mock_ffi::disable_mock_ffi();
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                thread::spawn(move || {
+                    // Each thread enables mock, checks status, disables
+                    mock_ffi::enable_mock_ffi();
+                    assert!(mock_ffi::is_mock_enabled());
+                    let status = mock_ffi::get_mock_status(&format!("PMIx_Test_{}", i));
+                    assert_eq!(status, PMIX_SUCCESS);
+                    mock_ffi::disable_mock_ffi();
+                })
             })
-        }).collect();
+            .collect();
 
         for handle in handles {
             handle.join().unwrap();
@@ -3983,14 +3995,16 @@ mod tests {
     #[test]
     fn test_mock_store_concurrent() {
         use std::thread;
-        let handles: Vec<_> = (0..8).map(|i| {
-            thread::spawn(move || {
-                let key = format!("concurrent_key_{}", i);
-                mock_ffi::mock_store_value(&key, b"test", PMIX_STRING);
-                assert!(mock_ffi::mock_key_exists(&key));
-                mock_ffi::mock_remove_value(&key);
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                thread::spawn(move || {
+                    let key = format!("concurrent_key_{}", i);
+                    mock_ffi::mock_store_value(&key, b"test", PMIX_STRING);
+                    assert!(mock_ffi::mock_key_exists(&key));
+                    mock_ffi::mock_remove_value(&key);
+                })
             })
-        }).collect();
+            .collect();
 
         for handle in handles {
             handle.join().unwrap();
@@ -4004,19 +4018,40 @@ mod tests {
     #[test]
     fn test_pmix_status_all_known_variants() {
         // Success
-        assert_eq!(PmixStatus::from_raw(0), PmixStatus::Known(PmixError::Success));
+        assert_eq!(
+            PmixStatus::from_raw(0),
+            PmixStatus::Known(PmixError::Success)
+        );
         // Error
-        assert_eq!(PmixStatus::from_raw(-1), PmixStatus::Known(PmixError::Error));
+        assert_eq!(
+            PmixStatus::from_raw(-1),
+            PmixStatus::Known(PmixError::Error)
+        );
         // Not found
-        assert_eq!(PmixStatus::from_raw(-46), PmixStatus::Known(PmixError::ErrNotFound));
+        assert_eq!(
+            PmixStatus::from_raw(-46),
+            PmixStatus::Known(PmixError::ErrNotFound)
+        );
         // Init
-        assert_eq!(PmixStatus::from_raw(-31), PmixStatus::Known(PmixError::ErrInit));
+        assert_eq!(
+            PmixStatus::from_raw(-31),
+            PmixStatus::Known(PmixError::ErrInit)
+        );
         // Timeout
-        assert_eq!(PmixStatus::from_raw(-24), PmixStatus::Known(PmixError::ErrTimeout));
+        assert_eq!(
+            PmixStatus::from_raw(-24),
+            PmixStatus::Known(PmixError::ErrTimeout)
+        );
         // Duplicate key
-        assert_eq!(PmixStatus::from_raw(-53), PmixStatus::Known(PmixError::ErrDuplicateKey));
+        assert_eq!(
+            PmixStatus::from_raw(-53),
+            PmixStatus::Known(PmixError::ErrDuplicateKey)
+        );
         // Partial success
-        assert_eq!(PmixStatus::from_raw(-52), PmixStatus::Known(PmixError::ErrPartialSuccess));
+        assert_eq!(
+            PmixStatus::from_raw(-52),
+            PmixStatus::Known(PmixError::ErrPartialSuccess)
+        );
     }
 
     /// Test unknown status codes are wrapped in Unknown variant.
@@ -4102,7 +4137,7 @@ mod tests {
     /// Test get_nb callback with a mock value containing string data.
     #[test]
     fn test_get_nb_callback_with_string_value() {
-        use std::sync::atomic::{AtomicI32, AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
         static CB_STATUS_STR: AtomicI32 = AtomicI32::new(-999);
         static CB_HAS_VAL_STR: AtomicBool = AtomicBool::new(false);
 
@@ -4130,7 +4165,11 @@ mod tests {
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
         unsafe {
-            get_value_callback_bridge(PMIX_SUCCESS, &mut mock_value as *mut ffi::pmix_value_t, cbdata);
+            get_value_callback_bridge(
+                PMIX_SUCCESS,
+                &mut mock_value as *mut ffi::pmix_value_t,
+                cbdata,
+            );
         }
 
         assert_eq!(CB_STATUS_STR.load(Ordering::SeqCst), PMIX_SUCCESS);

@@ -11,10 +11,10 @@ pub mod events;
 pub mod fabric;
 #[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
 mod ffi;
-#[cfg(test)]
-pub mod mock_ffi;
 pub mod groups;
 pub mod info;
+#[cfg(test)]
+pub mod mock_ffi;
 pub mod monitoring;
 pub mod process_mgmt;
 pub mod query_log;

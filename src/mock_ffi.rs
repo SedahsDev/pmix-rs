@@ -31,31 +31,33 @@
 //! By default, all mock functions return `PMIX_SUCCESS` (0). You can configure
 //! specific functions to return errors using [`MockConfig`].
 
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::{LazyLock, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mock state
+// Mock state — thread-local to avoid race conditions in parallel tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Whether mock FFI is currently enabled.
-static MOCK_ENABLED: AtomicBool = AtomicBool::new(false);
+/// Thread-local mock state to ensure test isolation when tests run in parallel.
+///
+/// Each thread gets its own independent mock FFI state. This prevents race
+/// conditions where one test's enable/disable interferes with another test's
+/// expectations about the global state.
+thread_local! {
+    /// Whether mock FFI is currently enabled for this thread.
+    static MOCK_ENABLED: RefCell<bool> = RefCell::new(false);
 
-/// Default return status for mock functions (PMIX_SUCCESS = 0).
-static DEFAULT_STATUS: AtomicI32 = AtomicI32::new(0);
+    /// Default return status for mock functions (PMIX_SUCCESS = 0).
+    static DEFAULT_STATUS: RefCell<i32> = RefCell::new(0);
 
-/// Per-function override status. If a function has an entry here, it returns
-/// that status instead of the default.
-type FunctionStatusMap = HashMap<&'static str, i32>;
-static FUNCTION_OVERRIDES: LazyLock<Mutex<FunctionStatusMap>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+    /// Per-function override status. If a function has an entry here, it returns
+    /// that status instead of the default.
+    static FUNCTION_OVERRIDES: RefCell<HashMap<&'static str, i32>> = RefCell::new(HashMap::new());
 
-/// Stored values for mock PMIx_Get / PMIx_LookupNB.
-/// Key → (value_bytes, data_type)
-type MockKeyValueStore = HashMap<String, (Vec<u8>, u32)>;
-static KEY_VALUE_STORE: LazyLock<Mutex<MockKeyValueStore>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+    /// Stored values for mock PMIx_Get / PMIx_LookupNB.
+    /// Key → (value_bytes, data_type)
+    static KEY_VALUE_STORE: RefCell<HashMap<String, (Vec<u8>, u32)>> = RefCell::new(HashMap::new());
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock configuration
@@ -92,10 +94,14 @@ impl MockConfig {
 
     /// Apply this configuration to the mock FFI.
     pub fn apply(self) {
-        DEFAULT_STATUS.store(self.default_status, Ordering::SeqCst);
-        let mut overrides = FUNCTION_OVERRIDES.lock().unwrap();
-        overrides.clear();
-        overrides.extend(self.function_overrides);
+        DEFAULT_STATUS.with(|cell| {
+            *cell.borrow_mut() = self.default_status;
+        });
+        FUNCTION_OVERRIDES.with(|cell| {
+            let mut overrides = cell.borrow_mut();
+            overrides.clear();
+            overrides.extend(self.function_overrides);
+        });
     }
 }
 
@@ -116,21 +122,31 @@ impl Default for MockConfig {
 ///
 /// Call [`disable_mock_ffi()`] to restore real FFI behavior.
 pub fn enable_mock_ffi() {
-    MOCK_ENABLED.store(true, Ordering::SeqCst);
+    MOCK_ENABLED.with(|cell| {
+        *cell.borrow_mut() = true;
+    });
     // Reset to defaults
-    DEFAULT_STATUS.store(0, Ordering::SeqCst);
-    FUNCTION_OVERRIDES.lock().unwrap().clear();
-    KEY_VALUE_STORE.lock().unwrap().clear();
+    DEFAULT_STATUS.with(|cell| {
+        *cell.borrow_mut() = 0;
+    });
+    FUNCTION_OVERRIDES.with(|cell| {
+        cell.borrow_mut().clear();
+    });
+    KEY_VALUE_STORE.with(|cell| {
+        cell.borrow_mut().clear();
+    });
 }
 
 /// Disable mock FFI implementations, restoring real FFI behavior.
 pub fn disable_mock_ffi() {
-    MOCK_ENABLED.store(false, Ordering::SeqCst);
+    MOCK_ENABLED.with(|cell| {
+        *cell.borrow_mut() = false;
+    });
 }
 
 /// Check if mock FFI is currently enabled.
 pub fn is_mock_enabled() -> bool {
-    MOCK_ENABLED.load(Ordering::SeqCst)
+    MOCK_ENABLED.with(|cell| *cell.borrow())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,25 +157,33 @@ pub fn is_mock_enabled() -> bool {
 ///
 /// The `data_type` should be a PMIx data type constant (e.g., PMIX_STRING = 1).
 pub fn mock_store_value(key: &str, value: &[u8], data_type: u32) {
-    let mut store = KEY_VALUE_STORE.lock().unwrap();
-    store.insert(key.to_string(), (value.to_vec(), data_type));
+    KEY_VALUE_STORE.with(|cell| {
+        let mut store = cell.borrow_mut();
+        store.insert(key.to_string(), (value.to_vec(), data_type));
+    });
 }
 
 /// Remove a key from the mock datastore.
 pub fn mock_remove_value(key: &str) {
-    let mut store = KEY_VALUE_STORE.lock().unwrap();
-    store.remove(key);
+    KEY_VALUE_STORE.with(|cell| {
+        let mut store = cell.borrow_mut();
+        store.remove(key);
+    });
 }
 
 /// Check if a key exists in the mock datastore.
 pub fn mock_key_exists(key: &str) -> bool {
-    let store = KEY_VALUE_STORE.lock().unwrap();
-    store.contains_key(key)
+    KEY_VALUE_STORE.with(|cell| {
+        let store = cell.borrow();
+        store.contains_key(key)
+    })
 }
 
 /// Clear all stored values.
 pub fn mock_clear_store() {
-    KEY_VALUE_STORE.lock().unwrap().clear();
+    KEY_VALUE_STORE.with(|cell| {
+        cell.borrow_mut().clear();
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,12 +193,14 @@ pub fn mock_clear_store() {
 /// Get the status code a mock function should return.
 /// Checks function-specific overrides first, then falls back to default.
 pub fn get_mock_status(func_name: &str) -> i32 {
-    let overrides = FUNCTION_OVERRIDES.lock().unwrap();
-    if let Some(&status) = overrides.get(func_name) {
-        status
-    } else {
-        DEFAULT_STATUS.load(Ordering::SeqCst)
-    }
+    FUNCTION_OVERRIDES.with(|cell| {
+        let overrides = cell.borrow();
+        if let Some(&status) = overrides.get(func_name) {
+            return status;
+        }
+        drop(overrides);
+        DEFAULT_STATUS.with(|status_cell| *status_cell.borrow())
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -499,8 +525,7 @@ mod tests {
 
     #[test]
     fn test_mock_config_with_override() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
         config.apply();
         assert_eq!(get_mock_status("PMIx_Publish"), PMIX_ERR_DUPLICATE_KEY);
         assert_eq!(get_mock_status("PMIx_Get"), PMIX_SUCCESS);
