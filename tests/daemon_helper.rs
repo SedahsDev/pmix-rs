@@ -326,3 +326,112 @@ pub fn ensure_pmix_init() -> &'static pmix::Context {
     static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
     PMIX_CTX.get_or_init(|| pmix::init(None).expect("PMIx_Init failed — run under prterun"))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Timeout wrappers for blocking tool FFI operations
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Default timeout for blocking tool API calls (in seconds).
+///
+/// `PMIx_tool_get_servers`, `PMIx_tool_set_server`, and `PMIx_tool_attach_to_server`
+/// can block indefinitely if the PRTE daemon is running in `--system-server` mode
+/// and doesn't support these operations. This timeout prevents test hangs.
+const TOOL_OP_TIMEOUT_SECS: u64 = 2;
+
+/// Runs a blocking tool API operation with a timeout.
+///
+/// Spawns the operation in a background thread and waits up to
+/// `TOOL_OP_TIMEOUT_SECS` seconds. Returns `Ok(result)` if the operation
+/// completes within the timeout, or `Err(String)` if it times out.
+///
+/// The timed-out thread is left running and will be cleaned up when the
+/// test process exits. This is acceptable for test code.
+fn tool_op_with_timeout<T: Send + 'static>(
+    op_name: &str,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = thread::spawn(move || {
+        let result = f();
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(Duration::from_secs(TOOL_OP_TIMEOUT_SECS)) {
+        Ok(result) => {
+            let _ = handle.join();
+            Ok(result)
+        }
+        Err(_timeout) => {
+            eprintln!(
+                "[daemon_helper] {} timed out after {} seconds — \
+                 daemon may not support this operation",
+                op_name, TOOL_OP_TIMEOUT_SECS
+            );
+            Err(format!(
+                "{} timed out after {} seconds (daemon may not support this operation)",
+                op_name, TOOL_OP_TIMEOUT_SECS
+            ))
+        }
+    }
+}
+
+/// Call `PMIx_tool_get_servers` with a timeout.
+///
+/// Returns `Ok(Ok(servers))` on success, `Ok(Err(status))` on FFI error,
+/// or `Err(String)` on timeout.
+pub fn tool_get_servers_with_timeout() -> Result<Result<Vec<pmix::Proc>, pmix::PmixStatus>, String>
+{
+    tool_op_with_timeout("tool_get_servers", || pmix::tool::tool_get_servers())
+}
+
+/// Call `PMIx_tool_set_server` with a timeout.
+///
+/// Returns `Ok(Ok(()))` on success, `Ok(Err(status))` on FFI error,
+/// or `Err(String)` on timeout.
+///
+/// The `info` parameter is passed as raw key/value pairs (empty by default)
+/// so it can be constructed inside the spawned thread.
+pub fn tool_set_server_with_timeout(
+    server: &pmix::Proc,
+) -> Result<Result<(), pmix::PmixStatus>, String> {
+    let server_nspace = server.nspace().unwrap_or_default();
+    let server_rank = server.rank();
+    tool_op_with_timeout("tool_set_server", move || {
+        let proc = pmix::Proc::new(&server_nspace, server_rank).unwrap();
+        let info = pmix::info::InfoBuilder::new().build();
+        pmix::tool::tool_set_server(&proc, &info)
+    })
+}
+
+/// Call `PMIx_tool_attach_to_server` with a timeout.
+///
+/// Returns `Ok(Ok((tool, server)))` on success, `Ok(Err(status))` on FFI error,
+/// or `Err(String)` on timeout.
+///
+/// The `info` is constructed inside the spawned thread (empty by default).
+pub fn tool_attach_to_server_with_timeout(
+    myproc: Option<pmix::Proc>,
+    want_server: bool,
+) -> Result<
+    Result<
+        (
+            Option<pmix::tool::PmixToolHandle>,
+            Option<pmix::tool::PmixServerHandle>,
+        ),
+        pmix::PmixStatus,
+    >,
+    String,
+> {
+    let myproc_nspace = myproc.as_ref().and_then(|p| p.nspace()).unwrap_or_default();
+    let myproc_rank = myproc.as_ref().map(|p| p.rank()).unwrap_or(0);
+    tool_op_with_timeout("tool_attach_to_server", move || {
+        let proc = if !myproc_nspace.is_empty() {
+            Some(pmix::Proc::new(&myproc_nspace, myproc_rank).unwrap())
+        } else {
+            None
+        };
+        let proc_ref = proc.as_ref();
+        let info = pmix::info::InfoBuilder::new().build();
+        pmix::tool::tool_attach_to_server(proc_ref, want_server, &info)
+    })
+}
