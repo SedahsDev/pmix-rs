@@ -4740,4 +4740,582 @@ mod tests {
         let procs = vec![proc0, proc1];
         assert_eq!(procs.len(), 2);
     }
+    // ── TASK-072: Additional coverage tests (pure logic, no FFI) ───────────
+
+    // ── PmixServerModule: per-callback-set coverage ────────────────────────
+
+    #[test]
+    fn test_server_module_set_fence_nb_direct_modex() {
+        let mut module = PmixServerModule::default();
+        module.fence_nb = Some(dummy_callback);
+        module.direct_modex = Some(dummy_callback);
+        assert!(module.fence_nb.is_some());
+        assert!(module.direct_modex.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_monitor_group_fabric() {
+        let mut module = PmixServerModule::default();
+        module.monitor = Some(dummy_callback);
+        module.group = Some(dummy_callback);
+        module.fabric = Some(dummy_callback);
+        assert!(module.monitor.is_some());
+        assert!(module.group.is_some());
+        assert!(module.fabric.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_credential_callbacks() {
+        let mut module = PmixServerModule::default();
+        module.get_credential = Some(dummy_callback);
+        module.validate_credential = Some(dummy_callback);
+        assert!(module.get_credential.is_some());
+        assert!(module.validate_credential.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_iof_callbacks() {
+        let mut module = PmixServerModule::default();
+        module.iof_pull = Some(dummy_callback);
+        module.push_stdin = Some(dummy_callback);
+        assert!(module.iof_pull.is_some());
+        assert!(module.push_stdin.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_session_control() {
+        let mut module = PmixServerModule::default();
+        module.session_control = Some(dummy_callback);
+        module.client_connected2 = Some(dummy_callback);
+        assert!(module.session_control.is_some());
+        assert!(module.client_connected2.is_some());
+    }
+
+    // ── PmixServerHandle: field coverage ────────────────────────────────────
+
+    #[test]
+    fn test_server_handle_initialized_true() {
+        let handle = PmixServerHandle { initialized: true };
+        assert!(handle.initialized);
+    }
+
+    #[test]
+    fn test_server_handle_initialized_false() {
+        let handle = PmixServerHandle { initialized: false };
+        assert!(!handle.initialized);
+    }
+
+    // ── Registry and sequence counter tests ────────────────────────────────
+
+    #[test]
+    fn test_register_nspace_seq_increments() {
+        let mut seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
+        let before = *seq;
+        *seq += 1;
+        let after = *seq;
+        assert_eq!(after, before + 1);
+    }
+
+    #[test]
+    fn test_deregister_nspace_seq_increments() {
+        let mut seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
+        let before = *seq;
+        *seq += 1;
+        let after = *seq;
+        assert_eq!(after, before + 1);
+    }
+
+    #[test]
+    fn test_register_client_seq_increments() {
+        let mut seq = REGISTER_CLIENT_SEQ.lock().unwrap();
+        let before = *seq;
+        *seq += 1;
+        let after = *seq;
+        assert_eq!(after, before + 1);
+    }
+
+    #[test]
+    fn test_deregister_client_seq_increments() {
+        let mut seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
+        let before = *seq;
+        *seq += 1;
+        let after = *seq;
+        assert_eq!(after, before + 1);
+    }
+
+    // ── RegisterNspaceRegistry: insert and remove ──────────────────────────
+
+    #[test]
+    fn test_register_nspace_registry_insert_and_remove() {
+        struct TestRegCb;
+        impl RegisterNspaceCallback for TestRegCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let req_id = 99999;
+        {
+            let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestRegCb));
+            assert!(registry.contains_key(&req_id));
+            let removed = registry.remove(&req_id);
+            assert!(removed.is_some());
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    // ── DeregisterNspaceRegistry: insert and remove ────────────────────────
+
+    #[test]
+    fn test_deregister_nspace_registry_insert_and_remove() {
+        struct TestDeregCb;
+        impl DeregisterNspaceCallback for TestDeregCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let req_id = 99998;
+        {
+            let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestDeregCb));
+            assert!(registry.contains_key(&req_id));
+            let removed = registry.remove(&req_id);
+            assert!(removed.is_some());
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    // ── RegisterClientRegistry: insert and remove ──────────────────────────
+
+    #[test]
+    fn test_register_client_registry_insert_and_remove() {
+        struct TestRegClientCb;
+        impl RegisterClientCallback for TestRegClientCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let req_id = 99997;
+        {
+            let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestRegClientCb));
+            assert!(registry.contains_key(&req_id));
+            let removed = registry.remove(&req_id);
+            assert!(removed.is_some());
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    // ── DeregisterClientRegistry: insert and remove ────────────────────────
+
+    #[test]
+    fn test_deregister_client_registry_insert_and_remove() {
+        struct TestDeregClientCb;
+        impl DeregisterClientCallback for TestDeregClientCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let req_id = 99996;
+        {
+            let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestDeregClientCb));
+            assert!(registry.contains_key(&req_id));
+            let removed = registry.remove(&req_id);
+            assert!(removed.is_some());
+            assert!(!registry.contains_key(&req_id));
+        }
+    }
+
+    // ── Callback bridge: null-safety tests (no FFI side effects) ───────────
+
+    #[test]
+    fn test_register_nspace_callback_bridge_null() {
+        register_nspace_callback_bridge(0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_deregister_nspace_callback_bridge_null() {
+        deregister_nspace_callback_bridge(0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_register_client_callback_bridge_null() {
+        register_client_callback_bridge(0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_deregister_client_callback_bridge_null() {
+        deregister_client_callback_bridge(0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_dmodex_request_callback_bridge_null() {
+        dmodex_request_callback_bridge(0, ptr::null_mut(), 0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_setup_application_callback_bridge_null() {
+        setup_application_callback_bridge(
+            0, ptr::null_mut(), 0, ptr::null_mut(), None, ptr::null_mut(),
+        );
+    }
+
+    #[test]
+    fn test_setup_local_support_callback_bridge_null() {
+        setup_local_support_callback_bridge(0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_iof_deliver_callback_bridge_null() {
+        iof_deliver_callback_bridge(0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_collect_inventory_callback_bridge_null() {
+        collect_inventory_callback_bridge(
+            0, ptr::null_mut(), 0, ptr::null_mut(), None, ptr::null_mut(),
+        );
+    }
+
+    #[test]
+    fn test_deliver_inventory_callback_bridge_null() {
+        deliver_inventory_callback_bridge(0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_register_resources_callback_bridge_null() {
+        register_resources_callback_bridge(0, ptr::null_mut());
+    }
+
+    #[test]
+    fn test_deregister_resources_callback_bridge_null() {
+        deregister_resources_callback_bridge(0, ptr::null_mut());
+    }
+
+    // ── PmixStatus: additional edge cases ──────────────────────────────────
+
+    #[test]
+    fn test_pmixstatus_from_raw_zero() {
+        let status = PmixStatus::from_raw(0);
+        assert!(status.is_success());
+    }
+
+    #[test]
+    fn test_pmixstatus_from_raw_error_13() {
+        let status = PmixStatus::from_raw(-13);
+        assert!(!status.is_success());
+    }
+
+    #[test]
+    fn test_pmixstatus_from_raw_negative_one() {
+        let status = PmixStatus::from_raw(-1);
+        assert!(!status.is_success());
+    }
+
+    #[test]
+    fn test_pmixstatus_from_raw_positive_one() {
+        let status = PmixStatus::from_raw(1);
+        assert!(status.is_success());
+    }
+
+    #[test]
+    fn test_pmixstatus_error_not_found() {
+        let status = PmixStatus::from_raw(-26);
+        assert!(!status.is_success());
+    }
+
+    #[test]
+    fn test_pmixstatus_error_init() {
+        let status = PmixStatus::from_raw(-37);
+        assert!(!status.is_success());
+    }
+
+    // ── Proc: additional construction tests ────────────────────────────────
+
+    #[test]
+    fn test_proc_construction_various_nspaces() {
+        let p1 = Proc::new("job.0", 0).expect("nspace with dot failed");
+        let p2 = Proc::new("job_0", 0).expect("nspace with underscore failed");
+        let p3 = Proc::new("job-0", 0).expect("nspace with hyphen failed");
+        assert_eq!(p1.rank(), 0);
+        assert_eq!(p2.rank(), 0);
+        assert_eq!(p3.rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_construction_high_rank() {
+        let proc = Proc::new("test.nspace", 65535).expect("high rank failed");
+        assert_eq!(proc.rank(), 65535);
+    }
+
+    // ── DmodexRequestCallback: trait coverage ─────────────────────────────
+
+    #[test]
+    fn test_dmodex_request_callback_trait_object() {
+        struct TestDmodexCallback;
+        impl DmodexRequestCallback for TestDmodexCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _blob: Vec<u8>) {}
+        }
+        let _cb: Box<dyn DmodexRequestCallback> = Box::new(TestDmodexCallback);
+    }
+
+    #[test]
+    fn test_dmodex_request_callback_captures_status() {
+        use std::sync::{Arc, Mutex};
+        struct CapturingDmodexCallback {
+            status: Arc<Mutex<Option<PmixStatus>>>,
+        }
+        impl DmodexRequestCallback for CapturingDmodexCallback {
+            fn on_complete(self: Box<Self>, status: PmixStatus, _blob: Vec<u8>) {
+                *(self.status.lock().unwrap()) = Some(status);
+            }
+        }
+        let captured = Arc::new(Mutex::new(None));
+        let cb = CapturingDmodexCallback {
+            status: captured.clone(),
+        };
+        let boxed: Box<dyn DmodexRequestCallback> = Box::new(cb);
+        let test_status = PmixStatus::from_raw(0);
+        boxed.on_complete(test_status, Vec::new());
+        assert!(captured.lock().unwrap().as_ref().unwrap().is_success());
+    }
+
+    // ── SetupApplicationCallback: trait coverage ──────────────────────────
+
+    #[test]
+    fn test_setup_application_callback_trait_object() {
+        struct TestSetupAppCallback;
+        impl SetupApplicationCallback for TestSetupAppCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
+        }
+        let _cb: Box<dyn SetupApplicationCallback> = Box::new(TestSetupAppCallback);
+    }
+
+    #[test]
+    fn test_setup_application_callback_captures_status() {
+        use std::sync::{Arc, Mutex};
+        struct CapturingSetupAppCallback {
+            status: Arc<Mutex<Option<PmixStatus>>>,
+        }
+        impl SetupApplicationCallback for CapturingSetupAppCallback {
+            fn on_complete(self: Box<Self>, status: PmixStatus, _info: Vec<(String, String)>) {
+                *(self.status.lock().unwrap()) = Some(status);
+            }
+        }
+        let captured = Arc::new(Mutex::new(None));
+        let cb = CapturingSetupAppCallback {
+            status: captured.clone(),
+        };
+        let boxed: Box<dyn SetupApplicationCallback> = Box::new(cb);
+        let test_status = PmixStatus::from_raw(0);
+        boxed.on_complete(test_status, Vec::new());
+        assert!(captured.lock().unwrap().as_ref().unwrap().is_success());
+    }
+
+    // ── SetupLocalSupportCallback: trait coverage ─────────────────────────
+
+    #[test]
+    fn test_setup_local_support_callback_trait_object() {
+        struct TestSetupLocalCallback;
+        impl SetupLocalSupportCallback for TestSetupLocalCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let _cb: Box<dyn SetupLocalSupportCallback> = Box::new(TestSetupLocalCallback);
+    }
+
+    // ── IOFDeliverCallback: trait coverage ────────────────────────────────
+
+    #[test]
+    fn test_iof_deliver_callback_trait_object() {
+        struct TestIOFDeliverCallback;
+        impl IOFDeliverCallback for TestIOFDeliverCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let _cb: Box<dyn IOFDeliverCallback> = Box::new(TestIOFDeliverCallback);
+    }
+
+    // ── RegisterResourcesCallback: trait coverage ─────────────────────────
+
+    #[test]
+    fn test_register_resources_callback_trait_object() {
+        struct TestRegResourcesCallback;
+        impl RegisterResourcesCallback for TestRegResourcesCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let _cb: Box<dyn RegisterResourcesCallback> = Box::new(TestRegResourcesCallback);
+    }
+
+    // ── DeregisterResourcesCallback: trait coverage ───────────────────────
+
+    #[test]
+    fn test_deregister_resources_callback_trait_object() {
+        struct TestDeregResourcesCallback;
+        impl DeregisterResourcesCallback for TestDeregResourcesCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let _cb: Box<dyn DeregisterResourcesCallback> = Box::new(TestDeregResourcesCallback);
+    }
+
+    // ── FenceNbCallbackWrapper: construction coverage ─────────────────────
+
+    #[test]
+    fn test_fence_nb_callback_wrapper_new() {
+        let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
+        let _ = wrapper;
+    }
+
+    #[test]
+    fn test_fence_nb_callback_wrapper_invokes_closure() {
+        use std::sync::atomic::AtomicBool;
+        static INVOKED: AtomicBool = AtomicBool::new(false);
+        INVOKED.store(false, Ordering::SeqCst);
+        let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {
+            INVOKED.store(true, Ordering::SeqCst);
+        });
+        (wrapper.callback)(PmixStatus::from_raw(0));
+        assert!(INVOKED.load(Ordering::SeqCst));
+    }
+
+    // ── CollectInventoryCallback: trait coverage ──────────────────────────
+
+    #[test]
+    fn test_collect_inventory_callback_trait_object() {
+        struct TestCollectInventoryCallback;
+        impl CollectInventoryCallback for TestCollectInventoryCallback {
+            fn on_complete(&self, _status: PmixStatus, _inventory: CollectInventoryResults) {}
+        }
+        let _cb: Box<dyn CollectInventoryCallback> = Box::new(TestCollectInventoryCallback);
+    }
+
+    // ── DeliverInventoryCallback: trait coverage ──────────────────────────
+
+    #[test]
+    fn test_deliver_inventory_callback_trait_object() {
+        struct TestDeliverInventoryCallback;
+        impl DeliverInventoryCallback for TestDeliverInventoryCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let _cb: Box<dyn DeliverInventoryCallback> = Box::new(TestDeliverInventoryCallback);
+    }
+
+    // ── CollectInventoryResults: construction coverage ────────────────────
+
+    #[test]
+    fn test_collect_inventory_results_empty() {
+        let results = CollectInventoryResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+
+    // ── FenceCallback: trait coverage ─────────────────────────────────────
+
+    #[test]
+    fn test_fence_callback_trait_object() {
+        struct TestFenceCallback;
+        impl crate::data_ops::FenceCallback for TestFenceCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let _cb: Box<dyn crate::data_ops::FenceCallback> = Box::new(TestFenceCallback);
+    }
+
+    #[test]
+    fn test_fence_callback_captures_status() {
+        use std::sync::{Arc, Mutex};
+        struct CapturingFenceCallback {
+            status: Arc<Mutex<Option<PmixStatus>>>,
+        }
+        impl crate::data_ops::FenceCallback for CapturingFenceCallback {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *(self.status.lock().unwrap()) = Some(status);
+            }
+        }
+        let captured = Arc::new(Mutex::new(None));
+        let cb = CapturingFenceCallback {
+            status: captured.clone(),
+        };
+        let boxed: Box<dyn crate::data_ops::FenceCallback> = Box::new(cb);
+        let test_status = PmixStatus::from_raw(0);
+        boxed.on_complete(test_status);
+        assert!(captured.lock().unwrap().as_ref().unwrap().is_success());
+    }
+
+    // ── server_register_nspace: NUL rejection ─────────────────────────────
+
+    #[test]
+    fn test_server_register_nspace_rejects_nul_in_nspace() {
+        struct DummyRegCb;
+        impl RegisterNspaceCallback for DummyRegCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = crate::InfoBuilder::new().build();
+        let result = server_register_nspace(
+            "test\0nspace",
+            1,
+            &info,
+            Box::new(DummyRegCb),
+        );
+        assert!(result.is_err(), "register_nspace should reject NUL bytes in nspace");
+    }
+
+    // ── server_register_nspace: callback invocation test ──────────────────
+
+    #[test]
+    fn test_register_nspace_callback_invoked_with_status() {
+        use std::sync::{Arc, Mutex};
+        struct CapturingRegCb {
+            status: Arc<Mutex<Option<PmixStatus>>>,
+        }
+        impl RegisterNspaceCallback for CapturingRegCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *(self.status.lock().unwrap()) = Some(status);
+            }
+        }
+        let captured = Arc::new(Mutex::new(None));
+        let cb = CapturingRegCb {
+            status: captured.clone(),
+        };
+        let boxed: Box<dyn RegisterNspaceCallback> = Box::new(cb);
+        let test_status = PmixStatus::from_raw(0);
+        boxed.on_complete(test_status);
+        assert!(captured.lock().unwrap().as_ref().unwrap().is_success());
+    }
+
+    // ── server_deregister_nspace: callback invocation test ────────────────
+
+    #[test]
+    fn test_deregister_nspace_callback_invoked_with_status() {
+        use std::sync::{Arc, Mutex};
+        struct CapturingDeregCb {
+            status: Arc<Mutex<Option<PmixStatus>>>,
+        }
+        impl DeregisterNspaceCallback for CapturingDeregCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *(self.status.lock().unwrap()) = Some(status);
+            }
+        }
+        let captured = Arc::new(Mutex::new(None));
+        let cb = CapturingDeregCb {
+            status: captured.clone(),
+        };
+        let boxed: Box<dyn DeregisterNspaceCallback> = Box::new(cb);
+        let test_status = PmixStatus::from_raw(-26); // PMIX_ERR_NOT_FOUND
+        boxed.on_complete(test_status);
+        assert!(!captured.lock().unwrap().as_ref().unwrap().is_success());
+    }
+
+    // ── PmixServerHandle: debug format with false ─────────────────────────
+
+    #[test]
+    fn test_server_handle_debug_format_false() {
+        let handle = PmixServerHandle { initialized: false };
+        let debug_str = format!("{:?}", handle);
+        assert!(debug_str.contains("PmixServerHandle"));
+        assert!(debug_str.contains("false"));
+    }
+
+    // ── PmixServerModule: debug format with callbacks set ─────────────────
+
+    #[test]
+    fn test_server_module_debug_with_callbacks_set() {
+        let mut module = PmixServerModule::default();
+        module.client_connected = Some(dummy_callback);
+        let debug_str = format!("{:?}", module);
+        assert!(debug_str.contains("Some"));
+    }
 }
