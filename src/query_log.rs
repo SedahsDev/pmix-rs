@@ -888,48 +888,42 @@ mod tests {
     #[test]
     fn test_query_callback_bridge_null_cbdata() {
         // Null cbdata should return immediately without panicking
-        unsafe {
-            query_callback_bridge(
-                0, // PMIX_SUCCESS
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                None,
-                std::ptr::null_mut(),
-            );
-        }
+        query_callback_bridge(
+            0, // PMIX_SUCCESS
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            None,
+            std::ptr::null_mut(),
+        );
     }
 
     #[test]
     fn test_query_callback_bridge_missing_callback() {
         let req_id: usize = 99999;
         let cbdata = (req_id << 2) as *mut c_void;
-        unsafe {
-            query_callback_bridge(
-                0, // PMIX_SUCCESS
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                None,
-                cbdata,
-            );
-        }
+        query_callback_bridge(
+            0, // PMIX_SUCCESS
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            None,
+            cbdata,
+        );
     }
 
     #[test]
     fn test_query_callback_bridge_info_cleanup_on_missing_callback() {
         let req_id: usize = 88888;
         let cbdata = (req_id << 2) as *mut c_void;
-        unsafe {
-            query_callback_bridge(
-                -46, // PMIX_ERR_NOT_FOUND
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                None,
-                cbdata,
-            );
-        }
+        query_callback_bridge(
+            -46, // PMIX_ERR_NOT_FOUND
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            None,
+            cbdata,
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1068,27 +1062,21 @@ mod tests {
 
     #[test]
     fn test_log_callback_bridge_null_cbdata() {
-        unsafe {
-            log_callback_bridge(0, std::ptr::null_mut()); // PMIX_SUCCESS
-        }
+        log_callback_bridge(0, std::ptr::null_mut()); // PMIX_SUCCESS
     }
 
     #[test]
     fn test_log_callback_bridge_missing_callback() {
         let req_id: usize = 77777;
         let cbdata = (req_id << 2) as *mut c_void;
-        unsafe {
-            log_callback_bridge(0, cbdata); // PMIX_SUCCESS
-        }
+        log_callback_bridge(0, cbdata); // PMIX_SUCCESS
     }
 
     #[test]
     fn test_log_callback_bridge_error_status() {
         let req_id: usize = 66666;
         let cbdata = (req_id << 2) as *mut c_void;
-        unsafe {
-            log_callback_bridge(-30, cbdata); // PMIX_ERR_NOT_SUPPORTED
-        }
+        log_callback_bridge(-30, cbdata); // PMIX_ERR_NOT_SUPPORTED
     }
 
     // ─────────────────────────────────────────────────────────────────────

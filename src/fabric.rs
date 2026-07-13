@@ -1309,6 +1309,7 @@ mod tests {
     /// We verify init works and skip the FFI call to avoid crashing.
     #[test]
     fn test_fabric_register_nb_compiles() {
+        #[allow(dead_code)]
         struct NbCb;
         impl FabricCallback for NbCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -1335,6 +1336,7 @@ mod tests {
     /// Test that fabric_update_nb compiles and accepts a callback.
     #[test]
     fn test_fabric_update_nb_compiles() {
+        #[allow(dead_code)]
         struct NbCb;
         impl FabricCallback for NbCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -1356,6 +1358,7 @@ mod tests {
     /// Test that fabric_deregister_nb compiles and accepts a callback.
     #[test]
     fn test_fabric_deregister_nb_compiles() {
+        #[allow(dead_code)]
         struct NbCb;
         impl FabricCallback for NbCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}

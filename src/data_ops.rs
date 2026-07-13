@@ -2429,9 +2429,7 @@ mod tests {
     fn test_fence_callback_bridge_null_cbdata() {
         // fence_callback_bridge with null cbdata should return immediately
         // We can call it directly since it's extern "C"
-        unsafe {
-            fence_callback_bridge(0, std::ptr::null_mut());
-        }
+        fence_callback_bridge(0, std::ptr::null_mut());
         // Should not panic
     }
 
@@ -2440,9 +2438,7 @@ mod tests {
     #[test]
     fn test_publish_callback_bridge_null_cbdata() {
         // publish_callback_bridge with null cbdata should return immediately
-        unsafe {
-            publish_callback_bridge(0, std::ptr::null_mut());
-        }
+        publish_callback_bridge(0, std::ptr::null_mut());
         // Should not panic
     }
 
@@ -2451,9 +2447,7 @@ mod tests {
     #[test]
     fn test_get_value_callback_bridge_null_cbdata() {
         // get_value_callback_bridge with null cbdata should return immediately
-        unsafe {
-            get_value_callback_bridge(0, std::ptr::null_mut(), std::ptr::null_mut());
-        }
+        get_value_callback_bridge(0, std::ptr::null_mut(), std::ptr::null_mut());
         // Should not panic
     }
 
@@ -2462,9 +2456,7 @@ mod tests {
     #[test]
     fn test_unpublish_callback_bridge_null_cbdata() {
         // unpublish_callback_bridge with null cbdata should return immediately
-        unsafe {
-            unpublish_callback_bridge(0, std::ptr::null_mut());
-        }
+        unpublish_callback_bridge(0, std::ptr::null_mut());
         // Should not panic
     }
 
@@ -2473,9 +2465,7 @@ mod tests {
     #[test]
     fn test_lookup_callback_bridge_null_cbdata() {
         // lookup_callback_bridge with null cbdata should return immediately
-        unsafe {
-            lookup_callback_bridge(0, std::ptr::null_mut(), 0, std::ptr::null_mut());
-        }
+        lookup_callback_bridge(0, std::ptr::null_mut(), 0, std::ptr::null_mut());
         // Should not panic
     }
 
@@ -2487,9 +2477,7 @@ mod tests {
         let req_id = 99999usize;
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
         // Call the bridge with a non-existent req_id
-        unsafe {
-            lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata);
-        }
+        lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata);
         // Should not panic — just returns without invoking callback
     }
 
@@ -2499,9 +2487,7 @@ mod tests {
     fn test_publish_callback_bridge_missing_callback() {
         let req_id = 99998usize;
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            publish_callback_bridge(0, cbdata);
-        }
+        publish_callback_bridge(0, cbdata);
         // Should not panic — callback not found, returns early
     }
 
@@ -2511,9 +2497,7 @@ mod tests {
     fn test_get_value_callback_bridge_missing_callback() {
         let req_id = 99997usize;
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            get_value_callback_bridge(0, std::ptr::null_mut(), cbdata);
-        }
+        get_value_callback_bridge(0, std::ptr::null_mut(), cbdata);
         // Should not panic
     }
 
@@ -2523,9 +2507,7 @@ mod tests {
     fn test_unpublish_callback_bridge_missing_callback() {
         let req_id = 99996usize;
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            unpublish_callback_bridge(0, cbdata);
-        }
+        unpublish_callback_bridge(0, cbdata);
         // Should not panic
     }
 
@@ -2535,9 +2517,7 @@ mod tests {
     fn test_fence_callback_bridge_missing_callback() {
         let req_id = 99995usize;
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            fence_callback_bridge(0, cbdata);
-        }
+        fence_callback_bridge(0, cbdata);
         // Should not panic
     }
 
@@ -2565,9 +2545,7 @@ mod tests {
             registry.insert(req_id, cb);
         }
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            publish_callback_bridge(0, cbdata); // PMIX_SUCCESS
-        }
+        publish_callback_bridge(0, cbdata); // PMIX_SUCCESS
         let received = status.lock().unwrap();
         assert!(received.is_some());
         assert!(received.as_ref().unwrap().is_success());
@@ -2597,9 +2575,7 @@ mod tests {
             registry.insert(req_id, cb);
         }
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            unpublish_callback_bridge(-6, cbdata); // PMIX_ERR_TIMEOUT
-        }
+        unpublish_callback_bridge(-6, cbdata); // PMIX_ERR_TIMEOUT
         let received = status.lock().unwrap();
         assert!(received.is_some());
         assert!(received.as_ref().unwrap().is_error());
@@ -2629,9 +2605,7 @@ mod tests {
             registry.insert(req_id, cb);
         }
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            fence_callback_bridge(0, cbdata); // PMIX_SUCCESS
-        }
+        fence_callback_bridge(0, cbdata); // PMIX_SUCCESS
         let received = status.lock().unwrap();
         assert!(received.is_some());
         assert!(received.as_ref().unwrap().is_success());
@@ -2665,9 +2639,7 @@ mod tests {
             registry.insert(req_id, cb);
         }
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            get_value_callback_bridge(-7, std::ptr::null_mut(), cbdata); // PMIX_ERR_NOT_FOUND, no value
-        }
+        get_value_callback_bridge(-7, std::ptr::null_mut(), cbdata); // PMIX_ERR_NOT_FOUND, no value
         let received = status.lock().unwrap();
         let hv = has_value.lock().unwrap();
         assert!(received.is_some());
@@ -2699,9 +2671,7 @@ mod tests {
             registry.insert(req_id, cb);
         }
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata); // success, empty data
-        }
+        lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata); // success, empty data
         let c = count.lock().unwrap();
         assert!(c.is_some());
         assert_eq!(c.as_ref().unwrap(), &0);
@@ -3341,9 +3311,7 @@ mod tests {
 
         // Simulate callback invocation with success
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            publish_callback_bridge(PMIX_SUCCESS, cbdata);
-        }
+        publish_callback_bridge(PMIX_SUCCESS, cbdata);
 
         assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
     }
@@ -3372,9 +3340,7 @@ mod tests {
         }
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            publish_callback_bridge(PMIX_ERR_DUPLICATE_KEY, cbdata);
-        }
+        publish_callback_bridge(PMIX_ERR_DUPLICATE_KEY, cbdata);
 
         assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_ERR_DUPLICATE_KEY);
     }
@@ -3383,9 +3349,7 @@ mod tests {
     #[test]
     fn test_publish_callback_bridge_null_cbdata_mock() {
         // Should return early without panicking
-        unsafe {
-            publish_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut());
-        }
+        publish_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut());
     }
 
     // ─── Mock-aware get_nb callback tests ───────────────────────────────────
@@ -3458,9 +3422,7 @@ mod tests {
         }
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            get_value_callback_bridge(PMIX_ERR_NOT_FOUND, std::ptr::null_mut(), cbdata);
-        }
+        get_value_callback_bridge(PMIX_ERR_NOT_FOUND, std::ptr::null_mut(), cbdata);
 
         assert_eq!(CB_STATUS2.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
         assert!(!CB_HAS_VALUE2.load(Ordering::SeqCst));
@@ -3469,9 +3431,7 @@ mod tests {
     /// Test get_nb callback bridge with null cbdata (should not panic).
     #[test]
     fn test_get_callback_bridge_null_cbdata() {
-        unsafe {
-            get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), std::ptr::null_mut());
-        }
+        get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), std::ptr::null_mut());
     }
 
     // ─── Mock-aware lookup_nb callback tests ────────────────────────────────
@@ -3502,9 +3462,7 @@ mod tests {
         }
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 0, cbdata);
-        }
+        lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 0, cbdata);
 
         assert_eq!(CB_STATUS3.load(Ordering::SeqCst), PMIX_SUCCESS);
     }
@@ -3535,9 +3493,7 @@ mod tests {
         }
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            lookup_callback_bridge(PMIX_ERR_NOT_FOUND, std::ptr::null_mut(), 0, cbdata);
-        }
+        lookup_callback_bridge(PMIX_ERR_NOT_FOUND, std::ptr::null_mut(), 0, cbdata);
 
         assert_eq!(CB_STATUS4.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
     }
@@ -3568,9 +3524,7 @@ mod tests {
         }
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            fence_callback_bridge(PMIX_SUCCESS, cbdata);
-        }
+        fence_callback_bridge(PMIX_SUCCESS, cbdata);
 
         assert_eq!(CB_STATUS5.load(Ordering::SeqCst), PMIX_SUCCESS);
     }
@@ -3599,9 +3553,7 @@ mod tests {
         }
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            fence_callback_bridge(PMIX_ERR_TIMEOUT, cbdata);
-        }
+        fence_callback_bridge(PMIX_ERR_TIMEOUT, cbdata);
 
         assert_eq!(CB_STATUS6.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
     }
@@ -3632,9 +3584,7 @@ mod tests {
         }
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
-        unsafe {
-            unpublish_callback_bridge(PMIX_SUCCESS, cbdata);
-        }
+        unpublish_callback_bridge(PMIX_SUCCESS, cbdata);
 
         assert_eq!(CB_STATUS7.load(Ordering::SeqCst), PMIX_SUCCESS);
     }

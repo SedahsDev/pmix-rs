@@ -4371,14 +4371,12 @@ mod tests {
 
     #[test]
     fn test_register_nspace_seq_is_accessible() {
-        let seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
-        assert!(*seq >= 0);
+        let _seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
     }
 
     #[test]
     fn test_deregister_nspace_seq_is_accessible() {
-        let seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
-        assert!(*seq >= 0);
+        let _seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
     }
 
     #[test]

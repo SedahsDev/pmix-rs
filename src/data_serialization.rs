@@ -1477,9 +1477,8 @@ mod tests {
         let buf = data_buffer_create().expect("create buffer");
         let result = data_unload(&buf);
         match result {
-            Ok(obj) => {
+            Ok(_obj) => {
                 // Unloading empty buffer should give empty or small byte object
-                assert!(obj.size() >= 0);
             }
             Err(_) => {
                 // May fail on empty buffer depending on PMIx version
@@ -1612,10 +1611,8 @@ mod tests {
         let val: i32 = 42;
         let result = data_print(&val, None, PmixDataType::Int32);
         match result {
-            Ok(output) => {
-                let s = output.as_str();
+            Ok(_output) => {
                 // Should contain something (may be empty if not initialized)
-                assert!(s.len() >= 0);
             }
             Err(_) => {}
         }
@@ -1627,9 +1624,8 @@ mod tests {
         let val: i32 = 42;
         let result = data_print(&val, Some("val="), PmixDataType::Int32);
         match result {
-            Ok(output) => {
-                let s = output.as_str();
-                assert!(s.len() >= 0);
+            Ok(_output) => {
+                // Output is a valid string
             }
             Err(_) => {}
         }

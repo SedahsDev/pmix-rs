@@ -38,11 +38,11 @@ use std::collections::HashMap;
 // Mock state — thread-local to avoid race conditions in parallel tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Thread-local mock state to ensure test isolation when tests run in parallel.
-///
-/// Each thread gets its own independent mock FFI state. This prevents race
-/// conditions where one test's enable/disable interferes with another test's
-/// expectations about the global state.
+// Thread-local mock state to ensure test isolation when tests run in parallel.
+//
+// Each thread gets its own independent mock FFI state. This prevents race
+// conditions where one test's enable/disable interferes with another test's
+// expectations about the global state.
 thread_local! {
     /// Whether mock FFI is currently enabled for this thread.
     static MOCK_ENABLED: RefCell<bool> = RefCell::new(false);

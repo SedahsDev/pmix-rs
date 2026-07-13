@@ -1191,7 +1191,7 @@ mod tests {
     fn test_notification_bridge_invokes_user_fn() {
         use std::sync::Arc;
         let called = Arc::new(std::sync::Mutex::new(false));
-        let called_clone = called.clone();
+        let _called_clone = called.clone();
 
         extern "C" fn dummy(
             _id: EventHandlerRef,
