@@ -4949,7 +4949,12 @@ mod tests {
     #[test]
     fn test_setup_application_callback_bridge_null() {
         setup_application_callback_bridge(
-            0, ptr::null_mut(), 0, ptr::null_mut(), None, ptr::null_mut(),
+            0,
+            ptr::null_mut(),
+            0,
+            ptr::null_mut(),
+            None,
+            ptr::null_mut(),
         );
     }
 
@@ -4966,7 +4971,12 @@ mod tests {
     #[test]
     fn test_collect_inventory_callback_bridge_null() {
         collect_inventory_callback_bridge(
-            0, ptr::null_mut(), 0, ptr::null_mut(), None, ptr::null_mut(),
+            0,
+            ptr::null_mut(),
+            0,
+            ptr::null_mut(),
+            None,
+            ptr::null_mut(),
         );
     }
 
@@ -5244,13 +5254,11 @@ mod tests {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
         let info = crate::InfoBuilder::new().build();
-        let result = server_register_nspace(
-            "test\0nspace",
-            1,
-            &info,
-            Box::new(DummyRegCb),
+        let result = server_register_nspace("test\0nspace", 1, &info, Box::new(DummyRegCb));
+        assert!(
+            result.is_err(),
+            "register_nspace should reject NUL bytes in nspace"
         );
-        assert!(result.is_err(), "register_nspace should reject NUL bytes in nspace");
     }
 
     // ── server_register_nspace: callback invocation test ──────────────────
