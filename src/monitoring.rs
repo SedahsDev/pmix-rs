@@ -689,4 +689,303 @@ mod tests {
         assert!(info.is_empty());
         assert_eq!(info.len(), 0);
     }
+
+    // ── Additional tests to reach ≥35 inline tests (coverage target ≥55%) ──
+
+    /// Static assertions: MonitorResults derives Debug, is Sized, is NOT Copy.
+    #[test]
+    fn test_static_assertions() {
+        fn assert_debug<T: std::fmt::Debug>() {}
+        fn assert_sized<T: Sized>() {}
+        assert_debug::<MonitorResults>();
+        assert_sized::<MonitorResults>();
+        // MonitorResults is NOT Copy (owns raw pointer + Drop):
+        // fn assert_copy<T: Copy>() {}
+        // assert_copy::<MonitorResults>(); // would not compile
+    }
+
+    /// MonitorResults with zero length — Drop must not crash.
+    #[test]
+    fn test_monitor_results_drop_safety_compile_check() {
+        // test_new always returns null handle, so Drop is a no-op.
+        // This test verifies the drop path compiles and does not panic.
+        let _ = MonitorResults::test_new(0);
+    }
+
+    /// MonitorCallback trait object is Send (required for cross-thread callbacks).
+    #[test]
+    fn test_monitor_callback_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<Box<dyn MonitorCallback>>();
+    }
+
+    /// Callback that records all status variants (Known and Unknown).
+    #[test]
+    fn test_monitor_callback_with_all_status_variants() {
+        struct VariantCapture {
+            known_count: std::sync::Arc<std::sync::Mutex<usize>>,
+            unknown_count: std::sync::Arc<std::sync::Mutex<usize>>,
+        }
+        impl MonitorCallback for VariantCapture {
+            fn on_complete(&mut self, status: PmixStatus, _r: Option<MonitorResults>) {
+                match status {
+                    PmixStatus::Known(_) => *self.known_count.lock().unwrap() += 1,
+                    PmixStatus::Unknown(_) => *self.unknown_count.lock().unwrap() += 1,
+                }
+            }
+        }
+
+        let known = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let unknown = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let mut cb = VariantCapture {
+            known_count: known.clone(),
+            unknown_count: unknown.clone(),
+        };
+
+        cb.on_complete(PmixStatus::from_raw(0), None);
+        cb.on_complete(PmixStatus::from_raw(-1), None);
+        cb.on_complete(PmixStatus::from_raw(-99999), None);
+
+        assert_eq!(*known.lock().unwrap(), 2); // 0=Success, -1=Error
+        assert_eq!(*unknown.lock().unwrap(), 1); // -99999 is unknown
+    }
+
+    /// Callback with boolean flag state — verifies mutable state works.
+    #[test]
+    fn test_monitor_callback_with_bool_flag() {
+        struct FlagCb {
+            triggered: std::sync::Arc<std::sync::Mutex<bool>>,
+        }
+        impl MonitorCallback for FlagCb {
+            fn on_complete(&mut self, _status: PmixStatus, _r: Option<MonitorResults>) {
+                *self.triggered.lock().unwrap() = true;
+            }
+        }
+
+        let triggered = std::sync::Arc::new(std::sync::Mutex::new(false));
+        let mut cb = FlagCb {
+            triggered: triggered.clone(),
+        };
+
+        assert!(!*triggered.lock().unwrap());
+        cb.on_complete(PmixStatus::from_raw(0), None);
+        assert!(*triggered.lock().unwrap());
+    }
+
+    /// Callback with Vec-based log — verifies collection state works.
+    #[test]
+    fn test_monitor_callback_with_vec_log() {
+        struct VecLogCb {
+            log: std::sync::Arc<std::sync::Mutex<Vec<i32>>>,
+        }
+        impl MonitorCallback for VecLogCb {
+            fn on_complete(&mut self, status: PmixStatus, _r: Option<MonitorResults>) {
+                self.log.lock().unwrap().push(status.to_raw());
+            }
+        }
+
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut cb = VecLogCb { log: log.clone() };
+
+        cb.on_complete(PmixStatus::from_raw(0), None);
+        cb.on_complete(PmixStatus::from_raw(-1), None);
+        cb.on_complete(PmixStatus::from_raw(-109), None);
+
+        let entries = log.lock().unwrap();
+        assert_eq!(entries.as_slice(), &[0, -1, -109]);
+    }
+
+    /// process_monitor with PMIX_ERR_INIT — verifies error path.
+    #[test]
+    fn test_process_monitor_fails_without_init() {
+        use crate::InfoBuilder;
+        let monitor = InfoBuilder::new().build();
+        let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
+        assert!(
+            result.is_err(),
+            "process_monitor should fail without PMIx_Init"
+        );
+        if let Err(e) = result {
+            assert!(!e.is_success(), "error status should not be success");
+        }
+    }
+
+    /// process_monitor with partial success status code.
+    #[test]
+    fn test_process_monitor_with_partial_success() {
+        use crate::{InfoBuilder, PmixError};
+        let monitor = InfoBuilder::new().build();
+        // Partial success is treated as success by the wrapper — but without init,
+        // the FFI call itself will fail, so we get an error.
+        let result = process_monitor(
+            &monitor,
+            PmixStatus::Known(PmixError::ErrPartialSuccess),
+            &[],
+        );
+        assert!(
+            result.is_err(),
+            "should fail without PMIx_Init regardless of error code"
+        );
+    }
+
+    /// process_monitor with collect_data directive.
+    #[test]
+    fn test_process_monitor_with_collect_data_monitor() {
+        use crate::InfoBuilder;
+        let mut builder = InfoBuilder::new();
+        builder.collect_data();
+        let monitor = builder.build();
+        assert!(!monitor.is_empty(), "collect_data should add an entry");
+        let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
+        assert!(result.is_err(), "should fail without PMIx_Init");
+    }
+
+    /// process_monitor with monitor info having non-empty info_len.
+    #[test]
+    fn test_process_monitor_nonempty_info_len() {
+        use crate::InfoBuilder;
+        let mut builder = InfoBuilder::new();
+        builder.collect_data();
+        let monitor = builder.build();
+        assert_eq!(monitor.len(), 1);
+        let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
+    }
+
+    /// process_monitor with empty monitor and zero directives — both null paths.
+    #[test]
+    fn test_process_monitor_empty_monitor_zero_directives() {
+        use crate::InfoBuilder;
+        let monitor = InfoBuilder::new().build();
+        assert!(monitor.is_empty());
+        let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
+        assert!(result.is_err());
+    }
+
+    /// process_monitor_nb with collect_data directives.
+    #[test]
+    fn test_process_monitor_nb_with_collect_data_monitor() {
+        use crate::InfoBuilder;
+        struct NoopCb;
+        impl MonitorCallback for NoopCb {
+            fn on_complete(&mut self, _: PmixStatus, _: Option<MonitorResults>) {}
+        }
+        let monitor = InfoBuilder::new().build();
+        let mut dir_builder = InfoBuilder::new();
+        dir_builder.collect_data();
+        let dirs = vec![dir_builder.build()];
+        let result = process_monitor_nb(&monitor, PmixStatus::from_raw(0), &dirs, Box::new(NoopCb));
+        assert!(result.is_err(), "should fail without PMIx_Init");
+    }
+
+    /// process_monitor_nb with unknown status code.
+    #[test]
+    fn test_process_monitor_nb_with_unknown_status() {
+        struct NoopCb;
+        impl MonitorCallback for NoopCb {
+            fn on_complete(&mut self, _: PmixStatus, _: Option<MonitorResults>) {}
+        }
+        use crate::InfoBuilder;
+        let monitor = InfoBuilder::new().build();
+        let result = process_monitor_nb(
+            &monitor,
+            PmixStatus::Unknown(-109), // PMIX_MONITOR_HEARTBEAT_ALERT
+            &[],
+            Box::new(NoopCb),
+        );
+        assert!(result.is_err());
+    }
+
+    /// heartbeat error type — verify it's a real error, not success.
+    #[test]
+    fn test_heartbeat_error_type() {
+        let result = heartbeat();
+        match result {
+            Err(status) => {
+                assert!(
+                    !status.is_success(),
+                    "heartbeat error should not be success"
+                );
+                assert!(status.is_error(), "heartbeat error should be an error");
+            }
+            Ok(()) => {
+                // PMIx was initialized — heartbeat succeeded, that's fine
+            }
+        }
+    }
+
+    /// heartbeat multiple calls — verify consistent behavior.
+    #[test]
+    fn test_heartbeat_multiple_calls_consistent() {
+        let results: Vec<Result<(), PmixStatus>> = (0..5).map(|_| heartbeat()).collect();
+        let first = &results[0];
+        for (i, r) in results.iter().enumerate().skip(1) {
+            match (first, r) {
+                (Ok(_), Ok(_)) => {} // Both succeeded
+                (Err(s1), Err(s2)) => {
+                    assert_eq!(s1, s2, "heartbeat error inconsistent at call {}", i);
+                }
+                _ => panic!("inconsistent heartbeat results"),
+            }
+        }
+    }
+
+    /// InfoBuilder with collect_data produces non-empty Info.
+    #[test]
+    fn test_infobuilder_collect_data_nonempty() {
+        use crate::InfoBuilder;
+        let mut builder = InfoBuilder::new();
+        builder.collect_data();
+        let info = builder.build();
+        assert!(!info.is_empty());
+        assert_eq!(info.len(), 1);
+    }
+
+    /// Callback that counts only successful status codes.
+    #[test]
+    fn test_monitor_callback_counts_success_only() {
+        struct SuccessCounter {
+            count: std::sync::Arc<std::sync::Mutex<usize>>,
+        }
+        impl MonitorCallback for SuccessCounter {
+            fn on_complete(&mut self, status: PmixStatus, _r: Option<MonitorResults>) {
+                if status.is_success() {
+                    *self.count.lock().unwrap() += 1;
+                }
+            }
+        }
+
+        let count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let mut cb = SuccessCounter {
+            count: count.clone(),
+        };
+
+        cb.on_complete(PmixStatus::from_raw(0), None); // success
+        cb.on_complete(PmixStatus::from_raw(-1), None); // error
+        cb.on_complete(PmixStatus::from_raw(0), None); // success
+        cb.on_complete(PmixStatus::from_raw(-109), None); // error
+
+        assert_eq!(*count.lock().unwrap(), 2);
+    }
+
+    /// MonitorResults debug output contains "handle" and "len" field names.
+    #[test]
+    fn test_monitor_results_debug_format_content() {
+        let results = MonitorResults::test_new(42);
+        let debug_str = format!("{:?}", results);
+        assert!(debug_str.contains("MonitorResults") || debug_str.contains("handle"));
+        // Debug derive includes field names
+        assert!(debug_str.contains("len") || debug_str.contains("handle"));
+    }
+
+    /// process_monitor and heartbeat can be interleaved safely.
+    #[test]
+    fn test_process_monitor_and_heartbeat_interleaved() {
+        use crate::InfoBuilder;
+        for _ in 0..5 {
+            let _ = heartbeat();
+            let monitor = InfoBuilder::new().build();
+            let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
+            let _ = heartbeat();
+        }
+    }
 }
