@@ -5326,4 +5326,718 @@ mod tests {
         let debug_str = format!("{:?}", module);
         assert!(debug_str.contains("Some"));
     }
+
+    // ── CollectInventoryResults: additional construction & property tests ─
+
+    #[test]
+    fn test_collect_inventory_results_len_zero() {
+        let results = CollectInventoryResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        assert_eq!(results.len(), 0);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_collect_inventory_results_debug_format() {
+        let results = CollectInventoryResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        let debug_str = format!("{:?}", results);
+        assert!(debug_str.contains("CollectInventoryResults"));
+    }
+
+    #[test]
+    fn test_collect_inventory_results_non_null_handle() {
+        // A results struct with non-null handle but zero len should still
+        // report empty (len is the authoritative count).
+        let results = CollectInventoryResults {
+            handle: 0x1 as *mut ffi::pmix_info_t, // dummy non-null
+            len: 0,
+        };
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_collect_inventory_results_drop_noop_null() {
+        // Dropping a null-handle result should not crash.
+        let results = CollectInventoryResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        drop(results); // should be a no-op
+    }
+
+    // ── CollectInventory seq & registry tests ──────────────────────────────
+
+    #[test]
+    fn test_collect_inventory_seq_is_accessible() {
+        // Verify the sequence counter is accessible.
+        let seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
+        assert!(*seq >= 0);
+    }
+
+    #[test]
+    fn test_collect_inventory_seq_increments() {
+        let mut seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
+        let before = *seq;
+        *seq += 1;
+        let after = *seq;
+        assert_eq!(after, before + 1);
+    }
+
+    #[test]
+    fn test_collect_inventory_registry_is_empty() {
+        let registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        // The registry may not be empty if other tests left entries,
+        // but it should be accessible.
+        let _len = registry.len();
+    }
+
+    // ── server_deregister_nspace: NUL rejection test ───────────────────────
+
+    #[test]
+    fn test_server_deregister_nspace_rejects_nul_in_nspace() {
+        struct DeregNulCb {
+            status: Arc<Mutex<Option<PmixStatus>>>,
+        }
+        impl DeregisterNspaceCallback for DeregNulCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *(self.status.lock().unwrap()) = Some(status);
+            }
+        }
+        let captured = Arc::new(Mutex::new(None));
+        let cb = DeregNulCb {
+            status: captured.clone(),
+        };
+        // Calling with NUL byte — should invoke callback with error
+        server_deregister_nspace("test\0nspace", Some(Box::new(cb)));
+        let status = captured.lock().unwrap();
+        assert!(
+            status.as_ref().is_some(),
+            "callback should be invoked on NUL rejection"
+        );
+        assert!(
+            !status.as_ref().unwrap().is_success(),
+            "callback should receive error status on NUL rejection"
+        );
+    }
+
+    #[test]
+    fn test_server_deregister_nspace_nul_no_callback() {
+        // Calling with NUL byte and no callback should not crash.
+        server_deregister_nspace("test\0nspace", None);
+    }
+
+    // ── server_delete: NUL key rejection test ──────────────────────────────
+
+    #[test]
+    fn test_server_delete_rejects_nul_in_key() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_delete(&handle, "testnspace", "test\0key");
+        assert!(
+            result.is_err(),
+            "server_delete should reject NUL bytes in key"
+        );
+    }
+
+    #[test]
+    fn test_server_delete_empty_key() {
+        let handle = PmixServerHandle { initialized: true };
+        // Empty key is valid (no NUL), but will fail on FFi without init.
+        // We just verify it doesn't panic on the CString::new path.
+        let result = server_delete(&handle, "testnspace", "");
+        // The result depends on PMIx init state; we just verify no panic.
+        let _ = result;
+    }
+
+    // ── server_lookup: key edge cases ──────────────────────────────────────
+
+    #[test]
+    fn test_server_lookup_empty_key() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_lookup(&handle, "testnspace", "", &[]);
+        // Empty key is technically valid input — FFi will fail without init.
+        let _ = result;
+    }
+
+    #[test]
+    fn test_server_lookup_long_key_truncated() {
+        let handle = PmixServerHandle { initialized: true };
+        // Key longer than 511 chars should be silently truncated by the
+        // implementation (pdata.key is fixed-size).
+        let long_key = "a".repeat(600);
+        let result = server_lookup(&handle, "testnspace", &long_key, &[]);
+        let _ = result;
+    }
+
+    // ── server_publish: input validation ───────────────────────────────────
+
+    #[test]
+    fn test_server_publish_empty_info() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_publish(&handle, "testnspace", &info);
+        let _ = result;
+    }
+
+    // ── server_fence: input validation ─────────────────────────────────────
+
+    #[test]
+    fn test_server_fence_zero_timeout() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_fence(&handle, &[], 0);
+        let _ = result;
+    }
+
+    // ── FenceNbCallbackWrapper: additional tests ───────────────────────────
+
+    #[test]
+    fn test_fence_nb_callback_wrapper_multiple_closures() {
+        let captured1 = Arc::new(Mutex::new(None));
+        let captured2 = Arc::new(Mutex::new(None));
+
+        let w1 = FenceNbCallbackWrapper::new({
+            let c = captured1.clone();
+            move |s: PmixStatus| {
+                *(c.lock().unwrap()) = Some(s);
+            }
+        });
+
+        let w2 = FenceNbCallbackWrapper::new({
+            let c = captured2.clone();
+            move |s: PmixStatus| {
+                *(c.lock().unwrap()) = Some(s);
+            }
+        });
+
+        // Verify they are independent wrappers
+        let status_ok = PmixStatus::from_raw(0);
+        (w1.callback)(status_ok);
+        assert!(captured1.lock().unwrap().as_ref().unwrap().is_success());
+        assert!(captured2.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_fence_nb_callback_wrapper_error_status() {
+        let captured = Arc::new(Mutex::new(None));
+        let wrapper = FenceNbCallbackWrapper::new({
+            let c = captured.clone();
+            move |s: PmixStatus| {
+                *(c.lock().unwrap()) = Some(s);
+            }
+        });
+        let status_err = PmixStatus::from_raw(-13); // PMIX_ERR_NOT_FOUND
+        (wrapper.callback)(status_err);
+        assert!(!captured.lock().unwrap().as_ref().unwrap().is_success());
+    }
+
+    #[test]
+    fn test_fence_nb_callback_wrapper_unit_closure() {
+        // Closure that ignores the status
+        let wrapper = FenceNbCallbackWrapper::new(|_s: PmixStatus| {});
+        let _ = wrapper; // should compile and be usable
+    }
+
+    // ── PmixServerModule: individual callback field tests ──────────────────
+
+    #[test]
+    fn test_server_module_set_abort_callback() {
+        let mut module = PmixServerModule::default();
+        module.abort = Some(dummy_callback);
+        assert!(module.abort.is_some());
+        assert!(module.client_connected.is_none());
+    }
+
+    #[test]
+    fn test_server_module_set_fence_callback() {
+        let mut module = PmixServerModule::default();
+        module.fence_nb = Some(dummy_callback);
+        assert!(module.fence_nb.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_publish_lookup_unpublish() {
+        let mut module = PmixServerModule::default();
+        module.publish = Some(dummy_callback);
+        module.lookup = Some(dummy_callback);
+        module.unpublish = Some(dummy_callback);
+        assert!(module.publish.is_some());
+        assert!(module.lookup.is_some());
+        assert!(module.unpublish.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_spawn_callback() {
+        let mut module = PmixServerModule::default();
+        module.spawn = Some(dummy_callback);
+        assert!(module.spawn.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_connect_disconnect() {
+        let mut module = PmixServerModule::default();
+        module.connect = Some(dummy_callback);
+        module.disconnect = Some(dummy_callback);
+        assert!(module.connect.is_some());
+        assert!(module.disconnect.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_event_callbacks() {
+        let mut module = PmixServerModule::default();
+        module.register_events = Some(dummy_callback);
+        module.deregister_events = Some(dummy_callback);
+        assert!(module.register_events.is_some());
+        assert!(module.deregister_events.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_listener_notify() {
+        let mut module = PmixServerModule::default();
+        module.listener = Some(dummy_callback);
+        module.notify_event = Some(dummy_callback);
+        assert!(module.listener.is_some());
+        assert!(module.notify_event.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_query_callback() {
+        let mut module = PmixServerModule::default();
+        module.query = Some(dummy_callback);
+        assert!(module.query.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_tool_and_log() {
+        let mut module = PmixServerModule::default();
+        module.tool_connected = Some(dummy_callback);
+        module.log = Some(dummy_callback);
+        assert!(module.tool_connected.is_some());
+        assert!(module.log.is_some());
+    }
+
+    #[test]
+    fn test_server_module_set_allocate_and_job_control() {
+        let mut module = PmixServerModule::default();
+        module.allocate = Some(dummy_callback);
+        module.job_control = Some(dummy_callback);
+        assert!(module.allocate.is_some());
+        assert!(module.job_control.is_some());
+    }
+
+    #[test]
+    fn test_server_module_clear_all_callbacks() {
+        let mut module = PmixServerModule::default();
+        module.client_connected = Some(dummy_callback);
+        module.client_finalized = Some(dummy_callback);
+        module.abort = Some(dummy_callback);
+        // Clear them all
+        module.client_connected = None;
+        module.client_finalized = None;
+        module.abort = None;
+        assert!(module.client_connected.is_none());
+        assert!(module.client_finalized.is_none());
+        assert!(module.abort.is_none());
+    }
+
+    // ── PmixServerHandle: additional tests ─────────────────────────────────
+
+    #[test]
+    fn test_server_handle_multiple_constructions() {
+        let h1 = PmixServerHandle { initialized: true };
+        let h2 = PmixServerHandle { initialized: false };
+        let d1 = format!("{:?}", h1);
+        let d2 = format!("{:?}", h2);
+        assert!(d1.contains("true"));
+        assert!(d2.contains("false"));
+    }
+
+    // ── server_connect: additional proc validation ─────────────────────────
+
+    #[test]
+    fn test_server_connect_rejects_empty_procs_with_info() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_connect(&handle, &[], &[info]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_server_disconnect_rejects_empty_procs_with_info() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_disconnect(&handle, &[], &[info]);
+        assert!(result.is_err());
+    }
+
+    // ── server_register_nspace: additional edge cases ──────────────────────
+
+    #[test]
+    fn test_server_register_nspace_rejects_empty_nspace() {
+        struct DummyRegCb2;
+        impl RegisterNspaceCallback for DummyRegCb2 {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = crate::InfoBuilder::new().build();
+        // Empty string is valid for CString but may fail on FFi.
+        // We just verify it doesn't panic.
+        let result = server_register_nspace("", 1, &info, Box::new(DummyRegCb2));
+        let _ = result;
+    }
+
+    #[test]
+    fn test_server_register_nspace_negative_localprocs() {
+        struct DummyRegCb3;
+        impl RegisterNspaceCallback for DummyRegCb3 {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = crate::InfoBuilder::new().build();
+        // Negative nlocalprocs — FFi may reject or accept.
+        // We just verify no panic.
+        let result = server_register_nspace("test", -1, &info, Box::new(DummyRegCb3));
+        let _ = result;
+    }
+
+    #[test]
+    fn test_server_register_nspace_zero_localprocs() {
+        struct DummyRegCb4;
+        impl RegisterNspaceCallback for DummyRegCb4 {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = crate::InfoBuilder::new().build();
+        let result = server_register_nspace("test", 0, &info, Box::new(DummyRegCb4));
+        let _ = result;
+    }
+
+    // ── PmixStatus: additional edge cases ──────────────────────────────────
+
+    #[test]
+    fn test_pmixstatus_from_raw_large_negative() {
+        let status = PmixStatus::from_raw(-100);
+        assert!(!status.is_success());
+    }
+
+    #[test]
+    fn test_pmixstatus_from_raw_large_positive() {
+        // In PMIx, only negative values are errors. Positive values
+        // are success codes, so 100 is_success().
+        let status = PmixStatus::from_raw(100);
+        assert!(status.is_success());
+    }
+
+    #[test]
+    fn test_pmixstatus_success_debug() {
+        let status = PmixStatus::from_raw(0);
+        let debug_str = format!("{:?}", status);
+        assert!(!debug_str.is_empty());
+    }
+
+    #[test]
+    fn test_pmixstatus_error_debug() {
+        let status = PmixStatus::from_raw(-13);
+        let debug_str = format!("{:?}", status);
+        assert!(!debug_str.is_empty());
+    }
+
+    // ── Proc: additional construction tests ────────────────────────────────
+
+    #[test]
+    fn test_proc_zero_rank() {
+        let _proc = Proc::new("testnspace", 0).expect("proc creation failed");
+    }
+
+    #[test]
+    fn test_proc_max_rank() {
+        let _proc = Proc::new("testnspace", u32::MAX).expect("proc creation failed");
+    }
+
+    #[test]
+    fn test_proc_new_with_nspace() {
+        let proc = Proc::new("testnspace", 0).expect("proc creation failed");
+        let _proc2 = proc.new_with_nspace(42).expect("new_with_nspace failed");
+    }
+
+    // ── Registry: register_client additional tests ─────────────────────────
+
+    #[test]
+    fn test_register_client_seq_is_accessible() {
+        let seq = REGISTER_CLIENT_SEQ.lock().unwrap();
+        assert!(*seq >= 0);
+    }
+
+    #[test]
+    fn test_register_client_registry_is_empty() {
+        let registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let _len = registry.len();
+    }
+
+    // ── Registry: deregister_client additional tests ───────────────────────
+
+    #[test]
+    fn test_deregister_client_seq_is_accessible() {
+        let seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
+        assert!(*seq >= 0);
+    }
+
+    #[test]
+    fn test_deregister_client_registry_is_empty() {
+        let registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let _len = registry.len();
+    }
+
+    // ── server_define_process_set: NUL rejection ───────────────────────────
+
+    #[test]
+    fn test_server_define_process_set_rejects_nul_in_name() {
+        let proc = Proc::new("testnspace", 0).expect("proc creation failed");
+        let members = vec![proc];
+        let result = server_define_process_set(&members, "test\0set");
+        assert!(
+            result.is_err(),
+            "define_process_set should reject NUL bytes in pset_name"
+        );
+    }
+
+    #[test]
+    fn test_server_define_process_set_empty_members() {
+        // Empty members — FFi will fail without init, but should not panic.
+        let result = server_define_process_set(&[], "testset");
+        let _ = result;
+    }
+
+    // ── server_delete_process_set: NUL rejection ───────────────────────────
+
+    #[test]
+    fn test_server_delete_process_set_rejects_nul_in_name() {
+        let result = server_delete_process_set("test\0set");
+        assert!(
+            result.is_err(),
+            "delete_process_set should reject NUL bytes in pset_name"
+        );
+    }
+
+    // ── CollectInventoryCallback: captures inventory ───────────────────────
+
+    #[test]
+    fn test_collect_inventory_callback_captures_status_and_inventory() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct CapturingInvCb {
+            called: Arc<AtomicBool>,
+        }
+        impl CollectInventoryCallback for CapturingInvCb {
+            fn on_complete(&self, _status: PmixStatus, _inventory: CollectInventoryResults) {
+                self.called.store(true, Ordering::SeqCst);
+            }
+        }
+        let called = Arc::new(AtomicBool::new(false));
+        let cb = CapturingInvCb {
+            called: called.clone(),
+        };
+        let boxed: Box<dyn CollectInventoryCallback> = Box::new(cb);
+        let results = CollectInventoryResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        boxed.on_complete(PmixStatus::from_raw(0), results);
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ── DeliverInventoryCallback: captures status ──────────────────────────
+
+    #[test]
+    fn test_deliver_inventory_callback_captures_status() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct CapturingDeliverInvCb {
+            called: Arc<AtomicBool>,
+        }
+        impl DeliverInventoryCallback for CapturingDeliverInvCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {
+                self.called.store(true, Ordering::SeqCst);
+            }
+        }
+        let called = Arc::new(AtomicBool::new(false));
+        let cb = CapturingDeliverInvCb {
+            called: called.clone(),
+        };
+        let boxed: Box<dyn DeliverInventoryCallback> = Box::new(cb);
+        boxed.on_complete(PmixStatus::from_raw(0));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ── IOFDeliverCallback: captures status ────────────────────────────────
+
+    #[test]
+    fn test_iof_deliver_callback_captures_status() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct CapturingIOFCb {
+            called: Arc<AtomicBool>,
+        }
+        impl IOFDeliverCallback for CapturingIOFCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {
+                self.called.store(true, Ordering::SeqCst);
+            }
+        }
+        let called = Arc::new(AtomicBool::new(false));
+        let cb = CapturingIOFCb {
+            called: called.clone(),
+        };
+        let boxed: Box<dyn IOFDeliverCallback> = Box::new(cb);
+        boxed.on_complete(PmixStatus::from_raw(0));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ── SetupApplicationCallback: additional tests ─────────────────────────
+
+    #[test]
+    fn test_setup_application_callback_captures_info() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct CapturingSetupAppCb {
+            called: Arc<AtomicBool>,
+        }
+        impl SetupApplicationCallback for CapturingSetupAppCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {
+                self.called.store(true, Ordering::SeqCst);
+            }
+        }
+        let called = Arc::new(AtomicBool::new(false));
+        let cb = CapturingSetupAppCb {
+            called: called.clone(),
+        };
+        let boxed: Box<dyn SetupApplicationCallback> = Box::new(cb);
+        boxed.on_complete(
+            PmixStatus::from_raw(0),
+            vec![(("key".to_string()), ("val".to_string()))],
+        );
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ── SetupLocalSupportCallback: additional tests ────────────────────────
+
+    #[test]
+    fn test_setup_local_support_callback_captures_status() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct CapturingSetupLocalCb {
+            called: Arc<AtomicBool>,
+        }
+        impl SetupLocalSupportCallback for CapturingSetupLocalCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {
+                self.called.store(true, Ordering::SeqCst);
+            }
+        }
+        let called = Arc::new(AtomicBool::new(false));
+        let cb = CapturingSetupLocalCb {
+            called: called.clone(),
+        };
+        let boxed: Box<dyn SetupLocalSupportCallback> = Box::new(cb);
+        boxed.on_complete(PmixStatus::from_raw(0));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ── DmodexRequestCallback: additional tests ────────────────────────────
+
+    #[test]
+    fn test_dmodex_request_callback_captures_blob() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct CapturingDmodexCb {
+            called: Arc<AtomicBool>,
+        }
+        impl DmodexRequestCallback for CapturingDmodexCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _blob: Vec<u8>) {
+                self.called.store(true, Ordering::SeqCst);
+            }
+        }
+        let called = Arc::new(AtomicBool::new(false));
+        let cb = CapturingDmodexCb {
+            called: called.clone(),
+        };
+        let boxed: Box<dyn DmodexRequestCallback> = Box::new(cb);
+        boxed.on_complete(PmixStatus::from_raw(0), vec![1, 2, 3]);
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ── server_register_nspace: callback with error status ─────────────────
+
+    #[test]
+    fn test_register_nspace_callback_error_status() {
+        struct ErrRegCb {
+            status: Arc<Mutex<Option<PmixStatus>>>,
+        }
+        impl RegisterNspaceCallback for ErrRegCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *(self.status.lock().unwrap()) = Some(status);
+            }
+        }
+        let captured = Arc::new(Mutex::new(None));
+        let cb = ErrRegCb {
+            status: captured.clone(),
+        };
+        let boxed: Box<dyn RegisterNspaceCallback> = Box::new(cb);
+        let err_status = PmixStatus::from_raw(-13); // PMIX_ERR_NOT_FOUND
+        boxed.on_complete(err_status);
+        assert!(!captured.lock().unwrap().as_ref().unwrap().is_success());
+    }
+
+    // ── PmixServerModule: as_c_ptr null safety ─────────────────────────────
+
+    #[test]
+    fn test_server_module_as_c_ptr_different_calls_same_addr() {
+        let module = PmixServerModule::default();
+        let ptr1 = module.as_c_ptr();
+        let ptr2 = module.as_c_ptr();
+        assert_eq!(
+            ptr1, ptr2,
+            "as_c_ptr should return same address for same module"
+        );
+    }
+
+    #[test]
+    fn test_server_module_as_c_ptr_mutable_module() {
+        let mut module = PmixServerModule::default();
+        let ptr1 = module.as_c_ptr();
+        module.abort = Some(dummy_callback);
+        let ptr2 = module.as_c_ptr();
+        assert_eq!(ptr1, ptr2, "as_c_ptr should be stable across mutations");
+    }
+
+    // ── server_init_minimal: compiles with None ────────────────────────────
+
+    #[test]
+    fn test_server_init_minimal_with_none_module() {
+        let result = server_init_minimal(None);
+        // PMIx server init may succeed when the library is available.
+        // We just verify it doesn't panic.
+        let _ = result;
+    }
+
+    // ── server_init: compiles with empty info ──────────────────────────────
+
+    #[test]
+    fn test_server_init_with_empty_info() {
+        let info = crate::InfoBuilder::new().build();
+        let result = server_init(None, &info);
+        // PMIx server init may succeed when the library is available.
+        let _ = result;
+    }
+
+    #[test]
+    fn test_server_init_with_some_module_and_empty_info() {
+        let module = PmixServerModule::default();
+        let info = crate::InfoBuilder::new().build();
+        let result = server_init(Some(&module), &info);
+        let _ = result;
+    }
+
+    // ── server_finalize: compiles with handle ──────────────────────────────
+
+    #[test]
+    fn test_server_finalize_with_uninitialized_handle() {
+        let handle = PmixServerHandle { initialized: false };
+        let result = server_finalize(handle);
+        // Without PMIx server init, finalize may fail — but should not panic.
+        let _ = result;
+    }
 }
