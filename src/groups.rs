@@ -1691,4 +1691,650 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         assert_eq!(info_count.load(Ordering::SeqCst), 0);
     }
+
+    // ── group_construct_nb: bridge invocation tests ─────────────────────────
+
+    #[test]
+    fn test_group_construct_nb_bridge_invokes_callback_on_success() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        let wrapper =
+            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+                assert!(status.is_success());
+                called_clone.store(true, Ordering::SeqCst);
+            });
+
+        let cb_box: *mut GroupConstructCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_construct_callback_bridge(
+                0, // PMIX_SUCCESS
+                std::ptr::null_mut(),
+                0,
+                cb_box as *mut c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_group_construct_nb_bridge_invokes_callback_on_error() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+        let status_recv = std::sync::Arc::new(AtomicI32::new(0));
+        let status_clone = status_recv.clone();
+
+        let wrapper =
+            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+                called_clone.store(true, Ordering::SeqCst);
+                assert!(!status.is_success());
+                status_clone.store(status.to_raw(), Ordering::SeqCst);
+            });
+
+        let cb_box: *mut GroupConstructCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_construct_callback_bridge(
+                ffi::PMIX_ERR_INIT,
+                std::ptr::null_mut(),
+                0,
+                cb_box as *mut c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+        assert_eq!(status_recv.load(Ordering::SeqCst), ffi::PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_group_construct_nb_empty_group_id_and_procs() {
+        let cb = GroupConstructCallbackWrapper::new(|_, _| {});
+        let result = group_construct_nb("", &[], &[], cb);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        // group_id is checked first
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    // ── group_invite_nb: bridge invocation tests ────────────────────────────
+
+    #[test]
+    fn test_group_invite_nb_bridge_invokes_callback_on_success() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        let wrapper =
+            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+                assert!(status.is_success());
+                called_clone.store(true, Ordering::SeqCst);
+            });
+
+        let cb_box: *mut GroupInviteCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_invite_callback_bridge(
+                0, // PMIX_SUCCESS
+                std::ptr::null_mut(),
+                0,
+                cb_box as *mut c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_group_invite_nb_bridge_invokes_callback_on_error() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+        let status_recv = std::sync::Arc::new(AtomicI32::new(0));
+        let status_clone = status_recv.clone();
+
+        let wrapper =
+            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+                called_clone.store(true, Ordering::SeqCst);
+                assert!(!status.is_success());
+                status_clone.store(status.to_raw(), Ordering::SeqCst);
+            });
+
+        let cb_box: *mut GroupInviteCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_invite_callback_bridge(
+                ffi::PMIX_ERR_NOT_SUPPORTED,
+                std::ptr::null_mut(),
+                0,
+                cb_box as *mut c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+        assert_eq!(
+            status_recv.load(Ordering::SeqCst),
+            ffi::PMIX_ERR_NOT_SUPPORTED
+        );
+    }
+
+    #[test]
+    fn test_group_invite_nb_empty_group_id_and_procs() {
+        let cb = GroupInviteCallbackWrapper::new(|_, _| {});
+        let result = group_invite_nb("", &[], &[], cb);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    // ── group_join_nb: bridge invocation tests ──────────────────────────────
+
+    #[test]
+    fn test_group_join_nb_bridge_invokes_callback_on_success() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        let wrapper = GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            assert!(status.is_success());
+            called_clone.store(true, Ordering::SeqCst);
+        });
+
+        let cb_box: *mut GroupJoinCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_join_callback_bridge(
+                0, // PMIX_SUCCESS
+                std::ptr::null_mut(),
+                0,
+                cb_box as *mut c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_group_join_nb_bridge_invokes_callback_on_error() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+        let status_recv = std::sync::Arc::new(AtomicI32::new(0));
+        let status_clone = status_recv.clone();
+
+        let wrapper = GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            called_clone.store(true, Ordering::SeqCst);
+            assert!(!status.is_success());
+            status_clone.store(status.to_raw(), Ordering::SeqCst);
+        });
+
+        let cb_box: *mut GroupJoinCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_join_callback_bridge(
+                ffi::PMIX_ERR_NOT_SUPPORTED,
+                std::ptr::null_mut(),
+                0,
+                cb_box as *mut c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+        assert_eq!(
+            status_recv.load(Ordering::SeqCst),
+            ffi::PMIX_ERR_NOT_SUPPORTED
+        );
+    }
+
+    #[test]
+    fn test_group_join_nb_decline_option() {
+        let leader = test_proc(0);
+        let cb = GroupJoinCallbackWrapper::new(|_, _| {});
+        let result = group_join_nb(
+            "grp",
+            &leader,
+            ffi::pmix_group_opt_t::PMIX_GROUP_DECLINE,
+            &[],
+            cb,
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Decline option should be valid"
+                );
+            }
+        }
+    }
+
+    // ── group_leave_nb: bridge error test ───────────────────────────────────
+
+    #[test]
+    fn test_group_leave_nb_bridge_invokes_callback_on_error() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        let wrapper = GroupLeaveCallbackWrapper::new(move |status: PmixStatus| {
+            assert!(!status.is_success());
+            called_clone.store(true, Ordering::SeqCst);
+        });
+
+        let cb_box: *mut GroupLeaveCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_leave_callback_bridge(ffi::PMIX_ERR_NOT_SUPPORTED, cb_box as *mut c_void);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ── group_destruct_nb: bridge invocation tests ──────────────────────────
+
+    #[test]
+    fn test_group_destruct_nb_bridge_invokes_callback_on_success() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        let wrapper = GroupDestructCallbackWrapper::new(move |status: PmixStatus| {
+            assert!(status.is_success());
+            called_clone.store(true, Ordering::SeqCst);
+        });
+
+        let cb_box: *mut GroupDestructCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_destruct_callback_bridge(0, cb_box as *mut c_void);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_group_destruct_nb_bridge_invokes_callback_on_error() {
+        use std::os::raw::c_void;
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        let wrapper = GroupDestructCallbackWrapper::new(move |status: PmixStatus| {
+            assert!(!status.is_success());
+            called_clone.store(true, Ordering::SeqCst);
+        });
+
+        let cb_box: *mut GroupDestructCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_destruct_callback_bridge(ffi::PMIX_ERR_NOT_SUPPORTED, cb_box as *mut c_void);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    // ── Edge case: special group ID characters ──────────────────────────────
+
+    #[test]
+    fn test_group_construct_special_group_id_chars() {
+        let procs = test_procs(1);
+        let result = group_construct("grp-with-dashes_123", &procs, &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Special chars should be valid"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_group_invite_special_group_id_chars() {
+        let procs = test_procs(1);
+        let result = group_invite("grp.with.dots_456", &procs, &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Special chars should be valid"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_group_leave_special_group_id_chars() {
+        let result = group_leave("grp:with:colons", &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Special chars should be valid"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_group_destruct_special_group_id_chars() {
+        let result = group_destruct("grp/slashes/test", &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Special chars should be valid"
+                );
+            }
+        }
+    }
+
+    // ── Edge case: long group IDs ───────────────────────────────────────────
+
+    #[test]
+    fn test_group_construct_long_group_id() {
+        let long_id = "a".repeat(256);
+        let procs = test_procs(1);
+        let result = group_construct(&long_id, &procs, &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Long group ID should be valid"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_group_invite_long_group_id() {
+        let long_id = "b".repeat(512);
+        let procs = test_procs(1);
+        let result = group_invite(&long_id, &procs, &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Long group ID should be valid"
+                );
+            }
+        }
+    }
+
+    // ── Edge case: group leave/destruct nb with empty group_id ──────────────
+    // (test_group_leave_nb_empty_group_id and test_group_destruct_nb_empty_group_id
+    //  already exist earlier in this module — no duplicate needed)
+
+    // ── Edge case: multiple procs in invite ─────────────────────────────────
+
+    #[test]
+    fn test_group_invite_many_procs() {
+        let procs = test_procs(50);
+        let result = group_invite("big_invite_grp", &procs, &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(raw, ffi::PMIX_ERR_BAD_PARAM, "50 procs should be valid");
+            }
+        }
+    }
+
+    // ── Edge case: group join with various leader ranks ─────────────────────
+
+    #[test]
+    fn test_group_join_leader_rank_zero() {
+        let leader = test_proc(0);
+        let result = group_join(
+            "grp",
+            &leader,
+            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+            &[],
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Rank 0 leader should be valid"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_group_join_leader_high_rank() {
+        let leader = test_proc(9999);
+        let result = group_join(
+            "grp",
+            &leader,
+            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+            &[],
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "High rank leader should be valid"
+                );
+            }
+        }
+    }
+
+    // ── Edge case: construct with many procs and various counts ─────────────
+
+    #[test]
+    fn test_group_construct_two_procs() {
+        let procs = test_procs(2);
+        let result = group_construct("two_grp", &procs, &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(raw, ffi::PMIX_ERR_BAD_PARAM, "Two procs should be valid");
+            }
+        }
+    }
+
+    #[test]
+    fn test_group_construct_five_procs() {
+        let procs = test_procs(5);
+        let result = group_construct("five_grp", &procs, &[]);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(raw, ffi::PMIX_ERR_BAD_PARAM, "Five procs should be valid");
+            }
+        }
+    }
+
+    // ── Callback wrapper error status verification ──────────────────────────
+
+    #[test]
+    fn test_invite_bridge_receives_error_status() {
+        use std::os::raw::c_void;
+        let status_recv = std::sync::Arc::new(AtomicI32::new(0));
+        let status_clone = status_recv.clone();
+
+        let wrapper =
+            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+                status_clone.store(status.to_raw(), Ordering::SeqCst);
+            });
+
+        let cb_box: *mut GroupInviteCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_invite_callback_bridge(
+                ffi::PMIX_ERR_TIMEOUT,
+                std::ptr::null_mut(),
+                0,
+                cb_box as *mut c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert_eq!(status_recv.load(Ordering::SeqCst), ffi::PMIX_ERR_TIMEOUT);
+    }
+
+    #[test]
+    fn test_join_bridge_receives_error_status() {
+        use std::os::raw::c_void;
+        let status_recv = std::sync::Arc::new(AtomicI32::new(0));
+        let status_clone = status_recv.clone();
+
+        let wrapper = GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            status_clone.store(status.to_raw(), Ordering::SeqCst);
+        });
+
+        let cb_box: *mut GroupJoinCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_join_callback_bridge(
+                ffi::PMIX_ERR_TIMEOUT,
+                std::ptr::null_mut(),
+                0,
+                cb_box as *mut c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert_eq!(status_recv.load(Ordering::SeqCst), ffi::PMIX_ERR_TIMEOUT);
+    }
+
+    #[test]
+    fn test_leave_bridge_receives_error_status() {
+        use std::os::raw::c_void;
+        let status_recv = std::sync::Arc::new(AtomicI32::new(0));
+        let status_clone = status_recv.clone();
+
+        let wrapper = GroupLeaveCallbackWrapper::new(move |status: PmixStatus| {
+            status_clone.store(status.to_raw(), Ordering::SeqCst);
+        });
+
+        let cb_box: *mut GroupLeaveCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_leave_callback_bridge(ffi::PMIX_ERR_TIMEOUT, cb_box as *mut c_void);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert_eq!(status_recv.load(Ordering::SeqCst), ffi::PMIX_ERR_TIMEOUT);
+    }
+
+    #[test]
+    fn test_destruct_bridge_receives_error_status() {
+        use std::os::raw::c_void;
+        let status_recv = std::sync::Arc::new(AtomicI32::new(0));
+        let status_clone = status_recv.clone();
+
+        let wrapper = GroupDestructCallbackWrapper::new(move |status: PmixStatus| {
+            status_clone.store(status.to_raw(), Ordering::SeqCst);
+        });
+
+        let cb_box: *mut GroupDestructCallbackWrapper = Box::into_raw(Box::new(wrapper));
+        unsafe {
+            group_destruct_callback_bridge(ffi::PMIX_ERR_TIMEOUT, cb_box as *mut c_void);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert_eq!(status_recv.load(Ordering::SeqCst), ffi::PMIX_ERR_TIMEOUT);
+    }
+
+    // ── Edge case: group invite_nb with decline option ──────────────────────
+
+    #[test]
+    fn test_group_join_nb_accept_option_reaches_ffi() {
+        let leader = test_proc(0);
+        let cb = GroupJoinCallbackWrapper::new(|_, _| {});
+        let result = group_join_nb(
+            "test_grp",
+            &leader,
+            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+            &[],
+            cb,
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "Accept option should reach FFI"
+                );
+            }
+        }
+    }
+
+    // ── Edge case: group construct_nb with many procs ───────────────────────
+
+    #[test]
+    fn test_group_construct_nb_many_procs() {
+        let procs = test_procs(50);
+        let cb = GroupConstructCallbackWrapper::new(|_, _| {});
+        let result = group_construct_nb("big_nb_grp", &procs, &[], cb);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "50 procs should be valid for nb construct"
+                );
+            }
+        }
+    }
+
+    // ── Edge case: group invite with many procs nb ──────────────────────────
+
+    #[test]
+    fn test_group_invite_nb_many_procs() {
+        let procs = test_procs(50);
+        let cb = GroupInviteCallbackWrapper::new(|_, _| {});
+        let result = group_invite_nb("big_nb_invite_grp", &procs, &[], cb);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert_ne!(
+                    raw,
+                    ffi::PMIX_ERR_BAD_PARAM,
+                    "50 procs should be valid for nb invite"
+                );
+            }
+        }
+    }
 }
