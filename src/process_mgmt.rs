@@ -1541,4 +1541,809 @@ mod tests {
             assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
         }
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixApp — Debug and clone tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_app_builder_debug() {
+        let mut builder = PmixAppBuilder::new();
+        builder.cmd("/bin/echo").arg("hello");
+        let debug_str = format!("{:?}", builder);
+        assert!(debug_str.contains("/bin/echo"));
+    }
+
+    #[test]
+    fn test_pmix_app_debug() {
+        let app = PmixApp::builder().cmd("/bin/ls").build().unwrap();
+        let debug_str = format!("{:?}", app);
+        assert!(debug_str.contains("/bin/ls"));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_default_maxprocs() {
+        let app = PmixAppBuilder::new().build().unwrap();
+        assert_eq!(app.maxprocs(), 0);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_maxprocs_zero() {
+        let app = PmixAppBuilder::new().maxprocs(0).build().unwrap();
+        assert_eq!(app.maxprocs(), 0);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_maxprocs_negative() {
+        let app = PmixAppBuilder::new().maxprocs(-1).build().unwrap();
+        assert_eq!(app.maxprocs(), -1);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_maxprocs_max() {
+        let app = PmixAppBuilder::new()
+            .maxprocs(std::i32::MAX)
+            .build()
+            .unwrap();
+        assert_eq!(app.maxprocs(), std::i32::MAX);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_multiple_args() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .arg("arg1")
+            .arg("arg2")
+            .arg("arg3")
+            .arg("arg4")
+            .arg("arg5")
+            .build()
+            .unwrap();
+        assert_eq!(app.argv().len(), 5);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_multiple_envs() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .env("A=1")
+            .env("B=2")
+            .env("C=3")
+            .build()
+            .unwrap();
+        assert_eq!(app.env_vars().len(), 3);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_empty_cmd() {
+        let app = PmixAppBuilder::new().cmd("").build().unwrap();
+        assert_eq!(app.cmd(), Some(""));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_empty_cwd() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .cwd("")
+            .build()
+            .unwrap();
+        assert_eq!(app.cwd(), Some(""));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_empty_arg() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .arg("")
+            .build()
+            .unwrap();
+        assert_eq!(app.argv().len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_empty_env() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .env("")
+            .build()
+            .unwrap();
+        assert_eq!(app.env_vars().len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_special_chars_in_cmd() {
+        let app = PmixAppBuilder::new()
+            .cmd("/path/with spaces/app")
+            .build()
+            .unwrap();
+        assert_eq!(app.cmd(), Some("/path/with spaces/app"));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_special_chars_in_env() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .env("PATH=/usr/bin:/bin:/usr/local/bin")
+            .build()
+            .unwrap();
+        assert_eq!(app.env_vars().len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_unicode_in_cmd() {
+        let app = PmixAppBuilder::new()
+            .cmd("/path/日本語/app")
+            .build()
+            .unwrap();
+        assert_eq!(app.cmd(), Some("/path/日本語/app"));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_combined_args_and_envs() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .args(vec!["a".to_string(), "b".to_string()])
+            .arg("c")
+            .envs(vec!["X=1".to_string(), "Y=2".to_string()])
+            .env("Z=3")
+            .build()
+            .unwrap();
+        assert_eq!(app.argv().len(), 3);
+        assert_eq!(app.env_vars().len(), 3);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_args_empty_iterator() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .args(Vec::<String>::new())
+            .build()
+            .unwrap();
+        assert!(app.argv().is_empty());
+    }
+
+    #[test]
+    fn test_pmix_app_builder_envs_empty_iterator() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .envs(Vec::<String>::new())
+            .build()
+            .unwrap();
+        assert!(app.env_vars().is_empty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixAppBuilder — builder pattern tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_app_builder_returns_mut_self() {
+        // Verify fluent interface works — each method returns &mut Self
+        let _app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .arg("x")
+            .env("K=V")
+            .cwd("/tmp")
+            .maxprocs(1)
+            .build()
+            .unwrap();
+        // If we got here, the fluent interface works
+    }
+
+    #[test]
+    fn test_pmix_app_builder_cmd_overwrite() {
+        let app = PmixAppBuilder::new()
+            .cmd("/first")
+            .cmd("/second")
+            .build()
+            .unwrap();
+        assert_eq!(app.cmd(), Some("/second"));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_cwd_overwrite() {
+        let app = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .cwd("/first")
+            .cwd("/second")
+            .build()
+            .unwrap();
+        assert_eq!(app.cwd(), Some("/second"));
+    }
+
+    #[test]
+    fn test_pmix_app_builder_maxprocs_overwrite() {
+        let app = PmixAppBuilder::new()
+            .maxprocs(1)
+            .maxprocs(2)
+            .build()
+            .unwrap();
+        assert_eq!(app.maxprocs(), 2);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_no_cmd() {
+        let app = PmixAppBuilder::new().arg("x").build().unwrap();
+        assert_eq!(app.cmd(), None);
+        assert_eq!(app.argv().len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_only_env() {
+        let app = PmixAppBuilder::new().env("A=1").build().unwrap();
+        assert_eq!(app.cmd(), None);
+        assert!(app.argv().is_empty());
+        assert_eq!(app.env_vars().len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_app_builder_nul_in_envs_iterator() {
+        let result = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .envs(vec!["A=1".to_string(), "B=\0bad".to_string()])
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pmix_app_builder_nul_in_args_iterator() {
+        let result = PmixAppBuilder::new()
+            .cmd("/bin/test")
+            .args(vec!["good".to_string(), "bad\0arg".to_string()])
+            .build();
+        assert!(result.is_err());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixApp::builder() — convenience method
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_app_builder_static_method() {
+        // PmixApp::builder() should be equivalent to PmixAppBuilder::new()
+        let app = PmixApp::builder().cmd("/bin/test").build().unwrap();
+        assert_eq!(app.cmd(), Some("/bin/test"));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // spawn() — additional validation tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_spawn_with_job_info_and_empty_apps() {
+        // Even with job_info, empty apps should fail
+        let info = vec![crate::InfoBuilder::new().build()];
+        let result = spawn(&info, &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_spawn_with_single_app() {
+        // spawn with one app — should not return BAD_PARAM
+        // (will fail at FFI level since no DVM, but not BAD_PARAM)
+        let app = PmixApp::builder().cmd("/bin/echo").build().unwrap();
+        let result = spawn(&[], &[app]);
+        // Without DVM, this hits FFI and returns an error — but not BAD_PARAM
+        assert!(result.is_err());
+        // The error should NOT be ErrBadParam since apps is non-empty
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_spawn_with_multiple_apps() {
+        let app1 = PmixApp::builder()
+            .cmd("/bin/echo")
+            .maxprocs(1)
+            .build()
+            .unwrap();
+        let app2 = PmixApp::builder()
+            .cmd("/bin/ls")
+            .maxprocs(2)
+            .build()
+            .unwrap();
+        let result = spawn(&[], &[app1, app2]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // spawn_nb() — additional validation tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_spawn_nb_with_job_info_and_empty_apps() {
+        let info = vec![crate::InfoBuilder::new().build()];
+        let wrapper = SpawnCallbackWrapper::new(|_, _| {});
+        let result = spawn_nb(&info, &[], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_spawn_nb_with_single_app() {
+        let app = PmixApp::builder().cmd("/bin/echo").build().unwrap();
+        let wrapper = SpawnCallbackWrapper::new(|_, _| {});
+        let result = spawn_nb(&[], &[app], wrapper);
+        // Without DVM, FFI call returns error — but not BAD_PARAM
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_spawn_nb_with_multiple_apps() {
+        let app1 = PmixApp::builder().cmd("/bin/echo").build().unwrap();
+        let app2 = PmixApp::builder().cmd("/bin/ls").build().unwrap();
+        let wrapper = SpawnCallbackWrapper::new(|_, _| {});
+        let result = spawn_nb(&[], &[app1, app2], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // connect() — tests with valid procs
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_connect_with_valid_proc() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let result = connect(&[proc], &[]);
+        // Without DVM, FFI call returns error — but not BAD_PARAM
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_connect_with_multiple_procs() {
+        let p1 = crate::Proc::new("test_ns", 0).unwrap();
+        let p2 = crate::Proc::new("test_ns", 1).unwrap();
+        let result = connect(&[p1, p2], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_connect_with_info() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let info = vec![crate::InfoBuilder::new().build()];
+        let result = connect(&[proc], &info);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_connect_with_wildcard_rank() {
+        let proc = crate::Proc::new("test_ns", crate::RANK_WILDCARD).unwrap();
+        let result = connect(&[proc], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_connect_different_namespaces() {
+        let p1 = crate::Proc::new("ns_a", 0).unwrap();
+        let p2 = crate::Proc::new("ns_b", 0).unwrap();
+        let result = connect(&[p1, p2], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // disconnect() — tests with valid procs
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_disconnect_with_valid_proc() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let result = disconnect(&[proc], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_disconnect_with_multiple_procs() {
+        let p1 = crate::Proc::new("test_ns", 0).unwrap();
+        let p2 = crate::Proc::new("test_ns", 1).unwrap();
+        let result = disconnect(&[p1, p2], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_disconnect_with_info() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let info = vec![crate::InfoBuilder::new().build()];
+        let result = disconnect(&[proc], &info);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_disconnect_with_wildcard_rank() {
+        let proc = crate::Proc::new("test_ns", crate::RANK_WILDCARD).unwrap();
+        let result = disconnect(&[proc], &[]);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // connect_nb() — tests with valid procs
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_connect_nb_with_valid_proc() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let wrapper = ConnectCallbackWrapper::new(|_| {});
+        let result = connect_nb(&[proc], &[], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_connect_nb_with_info() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let info = vec![crate::InfoBuilder::new().build()];
+        let wrapper = ConnectCallbackWrapper::new(|_| {});
+        let result = connect_nb(&[proc], &info, wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    fn test_connect_nb_with_multiple_procs() {
+        let p1 = crate::Proc::new("ns_a", 0).unwrap();
+        let p2 = crate::Proc::new("ns_b", 0).unwrap();
+        let wrapper = ConnectCallbackWrapper::new(|_| {});
+        let result = connect_nb(&[p1, p2], &[], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // disconnect_nb() — tests with valid procs
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    #[ignore] // Requires DVM — PMIx_Disconnect_nb segfaults without init
+    fn test_disconnect_nb_with_valid_proc() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let wrapper = DisconnectCallbackWrapper::new(|_| {});
+        let result = disconnect_nb(&[proc], &[], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    #[ignore] // Requires DVM — PMIx_Disconnect_nb segfaults without init
+    fn test_disconnect_nb_with_info() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let info = vec![crate::InfoBuilder::new().build()];
+        let wrapper = DisconnectCallbackWrapper::new(|_| {});
+        let result = disconnect_nb(&[proc], &info, wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    #[test]
+    #[ignore] // Requires DVM — PMIx_Disconnect_nb segfaults without init
+    fn test_disconnect_nb_with_multiple_procs() {
+        let p1 = crate::Proc::new("ns_a", 0).unwrap();
+        let p2 = crate::Proc::new("ns_b", 0).unwrap();
+        let wrapper = DisconnectCallbackWrapper::new(|_| {});
+        let result = disconnect_nb(&[p1, p2], &[], wrapper);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Callback wrapper — closure capture tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_spawn_callback_wrapper_captures_closure() {
+        let wrapper = SpawnCallbackWrapper::new(|status, nspace| {
+            // Verify closure can capture and use arguments
+            let _ = status.is_success();
+            let _ = nspace.is_some();
+        });
+        drop(wrapper);
+    }
+
+    #[test]
+    fn test_connect_callback_wrapper_captures_closure() {
+        let wrapper = ConnectCallbackWrapper::new(|status| {
+            let _ = status.is_error();
+        });
+        drop(wrapper);
+    }
+
+    #[test]
+    fn test_disconnect_callback_wrapper_captures_closure() {
+        let wrapper = DisconnectCallbackWrapper::new(|status| {
+            let _ = status.known();
+        });
+        drop(wrapper);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // abort() — parameter validation tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_abort_with_success_status() {
+        // abort with success status — no procs (wildcard)
+        let result = abort(PmixStatus::Known(crate::PmixError::Success), None, None);
+        // Without DVM, FFI call returns error
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_abort_with_error_status() {
+        let result = abort(
+            PmixStatus::Known(crate::PmixError::Error),
+            Some("test abort"),
+            None,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_abort_with_message() {
+        let result = abort(
+            PmixStatus::Known(crate::PmixError::Error),
+            Some("abort message with spaces"),
+            None,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_abort_with_empty_message() {
+        let result = abort(PmixStatus::Known(crate::PmixError::Error), Some(""), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_abort_with_procs() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        let result = abort(
+            PmixStatus::Known(crate::PmixError::Error),
+            Some("abort"),
+            Some(&[proc]),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_abort_with_multiple_procs() {
+        let p1 = crate::Proc::new("test_ns", 0).unwrap();
+        let p2 = crate::Proc::new("test_ns", 1).unwrap();
+        let result = abort(
+            PmixStatus::Known(crate::PmixError::Error),
+            None,
+            Some(&[p1, p2]),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_abort_with_unknown_status() {
+        let result = abort(PmixStatus::Unknown(-99999), None, None);
+        assert!(result.is_err());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // resolve_peers() and resolve_nodes() — no-DVM tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_resolve_peers_no_dvm() {
+        // Without DVM, resolve_peers returns ErrInit
+        let result = resolve_peers(None, None);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrInit));
+        }
+    }
+
+    #[test]
+    fn test_resolve_peers_with_nodename() {
+        let result = resolve_peers(Some("localhost"), None);
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrInit));
+        }
+    }
+
+    #[test]
+    fn test_resolve_peers_with_nspace() {
+        let result = resolve_peers(None, Some("test_ns"));
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrInit));
+        }
+    }
+
+    #[test]
+    fn test_resolve_peers_with_both() {
+        let result = resolve_peers(Some("node01"), Some("test_ns"));
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrInit));
+        }
+    }
+
+    #[test]
+    fn test_resolve_nodes_no_dvm() {
+        let result = resolve_nodes("test_ns");
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status, PmixStatus::Known(crate::PmixError::ErrInit));
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixStatus edge cases in process_mgmt context
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_spawn_error_is_not_success() {
+        let result = spawn(&[], &[]);
+        if let Err(status) = result {
+            assert!(!status.is_success());
+            assert!(status.is_error());
+        }
+    }
+
+    #[test]
+    fn test_connect_error_is_not_success() {
+        let result = connect(&[], &[]);
+        if let Err(status) = result {
+            assert!(!status.is_success());
+            assert!(status.is_error());
+        }
+    }
+
+    #[test]
+    fn test_disconnect_error_is_not_success() {
+        let result = disconnect(&[], &[]);
+        if let Err(status) = result {
+            assert!(!status.is_success());
+            assert!(status.is_error());
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Proc accessor tests (within process_mgmt context)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_proc_new_and_rank() {
+        let proc = crate::Proc::new("test_ns", 42).unwrap();
+        assert_eq!(proc.get_rank(), 42);
+    }
+
+    #[test]
+    fn test_proc_set_rank() {
+        let mut proc = crate::Proc::new("test_ns", 0).unwrap();
+        proc.set_rank(99);
+        assert_eq!(proc.get_rank(), 99);
+    }
+
+    #[test]
+    fn test_proc_new_wildcard_rank() {
+        let proc = crate::Proc::new("test_ns", crate::RANK_WILDCARD).unwrap();
+        assert_eq!(proc.get_rank(), crate::RANK_WILDCARD);
+    }
+
+    #[test]
+    fn test_proc_new_zero_rank() {
+        let proc = crate::Proc::new("test_ns", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_new_max_rank() {
+        let proc = crate::Proc::new("test_ns", u32::MAX).unwrap();
+        assert_eq!(proc.get_rank(), u32::MAX);
+    }
+
+    #[test]
+    fn test_proc_clone() {
+        let proc = crate::Proc::new("test_ns", 42).unwrap();
+        let proc2 = proc.clone();
+        assert_eq!(proc.get_rank(), proc2.get_rank());
+    }
+
+    #[test]
+    fn test_proc_new_nul_error() {
+        let result = crate::Proc::new("has\0null", 0);
+        assert!(result.is_err());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixApp edge cases
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_app_cmd_returns_none_when_not_set() {
+        let app = PmixAppBuilder::new().build().unwrap();
+        assert_eq!(app.cmd(), None);
+    }
+
+    #[test]
+    fn test_pmix_app_argv_returns_empty_when_not_set() {
+        let app = PmixAppBuilder::new().build().unwrap();
+        assert!(app.argv().is_empty());
+    }
+
+    #[test]
+    fn test_pmix_app_env_vars_returns_empty_when_not_set() {
+        let app = PmixAppBuilder::new().build().unwrap();
+        assert!(app.env_vars().is_empty());
+    }
+
+    #[test]
+    fn test_pmix_app_cwd_returns_none_when_not_set() {
+        let app = PmixAppBuilder::new().build().unwrap();
+        assert_eq!(app.cwd(), None);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // SpawnCallback type alias test
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_spawn_callback_type_is_assignable() {
+        // Verify SpawnCallback type alias is usable
+        extern "C" fn dummy_spawn_cb(
+            _status: crate::ffi::pmix_status_t,
+            _nspace: *mut c_char,
+            _cbdata: *mut c_void,
+        ) {
+        }
+        let _cb: SpawnCallback = dummy_spawn_cb;
+    }
 }
