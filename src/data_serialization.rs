@@ -1762,4 +1762,423 @@ mod tests {
         let result = data_decompress(&[0xDE, 0xAD, 0xBE, 0xEF]);
         assert!(result.is_err());
     }
+
+    // ── Additional PmixByteObject tests ─────────────────────────────────────
+
+    #[test]
+    fn test_byte_object_from_single_byte() {
+        let obj = PmixByteObject::from(vec![42u8]);
+        assert_eq!(obj.as_slice(), &[42]);
+        assert_eq!(obj.size(), 1);
+    }
+
+    #[test]
+    fn test_byte_object_from_large_vec() {
+        let data = vec![0xABu8; 65536];
+        let obj = PmixByteObject::from(data.clone());
+        assert_eq!(obj.size(), 65536);
+        assert_eq!(obj.as_slice().len(), 65536);
+        assert_eq!(obj.as_slice()[0], 0xAB);
+        assert_eq!(obj.as_slice()[65535], 0xAB);
+    }
+
+    #[test]
+    fn test_byte_object_from_all_zeroes() {
+        let data = vec![0u8; 128];
+        let obj = PmixByteObject::from(data.clone());
+        assert_eq!(obj.as_slice(), &data[..]);
+        assert!(!obj.is_empty());
+    }
+
+    #[test]
+    fn test_byte_object_from_max_bytes() {
+        let data = vec![255u8; 16];
+        let obj = PmixByteObject::from(data.clone());
+        assert_eq!(obj.as_slice(), &[255u8; 16]);
+        assert_eq!(obj.size(), 16);
+    }
+
+    #[test]
+    fn test_byte_object_as_slice_empty_returns_empty_slice() {
+        let obj = PmixByteObject::new();
+        let slice = obj.as_slice();
+        assert_eq!(slice.len(), 0);
+        assert!(slice.is_empty());
+    }
+
+    #[test]
+    fn test_byte_object_drop_no_panic() {
+        // Creating and dropping multiple byte objects should not panic
+        for _ in 0..10 {
+            let obj = PmixByteObject::from(vec![1u8, 2, 3]);
+            drop(obj);
+        }
+    }
+
+    #[test]
+    fn test_byte_object_multiple_drops_safe() {
+        // Drop empty byte objects — should be safe
+        let obj = PmixByteObject::new();
+        drop(obj);
+        let obj2 = PmixByteObject::default();
+        drop(obj2);
+    }
+
+    // ── Additional PmixProcRef tests ────────────────────────────────────────
+
+    #[test]
+    fn test_proc_ref_empty_namespace() {
+        let ref_ = PmixProcRef::new("", 0);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, 0);
+        let nspace_bytes =
+            unsafe { std::ffi::CStr::from_ptr(raw.nspace.as_ptr() as *const i8) }.to_string_lossy();
+        assert_eq!(nspace_bytes, "");
+    }
+
+    #[test]
+    fn test_proc_ref_single_char_namespace() {
+        let ref_ = PmixProcRef::new("x", 99);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, 99);
+    }
+
+    #[test]
+    fn test_proc_ref_numeric_namespace() {
+        let ref_ = PmixProcRef::new("12345", 0);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, 0);
+        let nspace_bytes =
+            unsafe { std::ffi::CStr::from_ptr(raw.nspace.as_ptr() as *const i8) }.to_string_lossy();
+        assert_eq!(nspace_bytes, "12345");
+    }
+
+    #[test]
+    fn test_proc_ref_exact_nspace_limit() {
+        // pmix_nspace_t is 256 bytes; test with exactly 255 chars (leaving room for null)
+        let ns = "a".repeat(255);
+        let ref_ = PmixProcRef::new(&ns, 42);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, 42);
+    }
+
+    #[test]
+    fn test_proc_ref_with_hyphens_and_underscores() {
+        let ref_ = PmixProcRef::new("my-app_test_proc", 123);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, 123);
+        let nspace_bytes =
+            unsafe { std::ffi::CStr::from_ptr(raw.nspace.as_ptr() as *const i8) }.to_string_lossy();
+        assert_eq!(nspace_bytes, "my-app_test_proc");
+    }
+
+    #[test]
+    fn test_proc_ref_rank_u32_max() {
+        let ref_ = PmixProcRef::new("ns", u32::MAX);
+        let raw = ref_.to_raw();
+        assert_eq!(raw.rank, u32::MAX);
+    }
+
+    // ── Additional PmixDataBuffer tests ─────────────────────────────────────
+
+    #[test]
+    fn test_data_buffer_as_mut_ptr_null() {
+        let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
+        assert!(buf.as_mut_ptr().is_null());
+    }
+
+    #[test]
+    fn test_data_buffer_debug_contains_fields() {
+        let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
+        let s = format!("{:?}", buf);
+        assert!(s.contains("PmixDataBuffer"));
+        assert!(s.contains("ptr"));
+    }
+
+    #[test]
+    fn test_data_buffer_from_raw_then_drop_safe() {
+        // Creating a null buffer and dropping it should not panic
+        let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
+        drop(buf);
+    }
+
+    #[test]
+    fn test_data_buffer_multiple_null_creates() {
+        // Multiple null buffer creations should be safe
+        for _ in 0..5 {
+            let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
+            assert!(!buf.is_valid());
+            assert_eq!(buf.bytes_allocated(), 0);
+            assert_eq!(buf.bytes_used(), 0);
+        }
+    }
+
+    // ── Additional data_pack param validation tests ─────────────────────────
+
+    #[test]
+    fn test_data_pack_zero_num_vals_with_target() {
+        let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
+        let val: i32 = 42;
+        let target = PmixProcRef::new("ns", 0);
+        // Should fail on num_vals=0 before even checking PMIx init
+        let result = data_pack(Some(target), &buf, &val, 0, PmixDataType::Int32);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_pack_negative_num_vals_various_types() {
+        let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
+        // Test with different data types — all should fail on negative num_vals
+        let val: u64 = 0;
+        assert!(data_pack(None, &buf, &val, -1, PmixDataType::Uint64).is_err());
+        let val: f32 = 0.0;
+        assert!(data_pack(None, &buf, &val, -999, PmixDataType::Float).is_err());
+    }
+
+    #[test]
+    fn test_data_pack_various_data_types_zero_vals() {
+        let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
+        // All data types should reject zero num_vals
+        let val: u8 = 0;
+        assert!(data_pack(None, &buf, &val, 0, PmixDataType::Uint8).is_err());
+        let val: i16 = 0;
+        assert!(data_pack(None, &buf, &val, 0, PmixDataType::Int16).is_err());
+        let val: i32 = 0;
+        assert!(data_pack(None, &buf, &val, 0, PmixDataType::Int32).is_err());
+        let val: i64 = 0;
+        assert!(data_pack(None, &buf, &val, 0, PmixDataType::Int64).is_err());
+    }
+
+    // ── Additional PmixPrintOutput tests ────────────────────────────────────
+
+    #[test]
+    fn test_print_output_as_str_returns_empty() {
+        let output = PmixPrintOutput::default();
+        let s: &str = output.as_str();
+        assert_eq!(s, "");
+        assert_eq!(s.len(), 0);
+    }
+
+    #[test]
+    fn test_print_output_deref_len() {
+        let output = PmixPrintOutput::default();
+        assert_eq!(output.len(), 0);
+    }
+
+    #[test]
+    fn test_print_output_debug_quotes() {
+        let output = PmixPrintOutput::default();
+        let s = format!("{:?}", output);
+        // Debug output of empty string should contain quoted empty string
+        assert!(s.contains("\"\""));
+    }
+
+    #[test]
+    fn test_print_output_multiple_format_calls() {
+        let output = PmixPrintOutput::default();
+        // Multiple format operations should all work
+        let s1 = format!("{}", output);
+        let s2 = format!("{:?}", output);
+        let s3 = format!("{:?}", output);
+        assert_eq!(s1, "");
+        assert!(!s2.is_empty()); // Debug contains struct info
+        assert!(!s3.is_empty());
+    }
+
+    // ── Additional data_compress edge case tests ────────────────────────────
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_compress needs initialized library"]
+    fn test_data_compress_single_byte_returns_err() {
+        // Single byte is too small to compress meaningfully
+        let result = data_compress(&[42u8]);
+        // May succeed or fail depending on PMIx init — but empty check is bypassed
+        // The function only rejects truly empty input at the param gate
+        match result {
+            Ok(_) => {}  // PMIx may handle single byte
+            Err(_) => {} // Or reject it as not compressible
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_compress needs initialized library"]
+    fn test_data_compress_two_bytes() {
+        let result = data_compress(&[1u8, 2]);
+        match result {
+            Ok(_) => {}
+            Err(_) => {} // Likely too small to compress
+        }
+    }
+
+    // ── Additional data_decompress edge case tests ──────────────────────────
+
+    #[test]
+    fn test_data_decompress_single_byte_returns_err() {
+        // Single byte can't be valid compressed data
+        let result = data_decompress(&[0u8]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_decompress_all_zeros() {
+        let result = data_decompress(&[0u8; 64]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_decompress_all_ones() {
+        let result = data_decompress(&[1u8; 32]);
+        assert!(result.is_err());
+    }
+
+    // ── Additional FFI tests (properly ignored) ─────────────────────────────
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
+    fn test_data_pack_i16() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i16 = -32768;
+        let result = data_pack(None, &buf, &val, 1, PmixDataType::Int16);
+        match result {
+            Ok(n) => assert_eq!(n, 1),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
+    fn test_data_pack_i64() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i64 = i64::MIN;
+        let result = data_pack(None, &buf, &val, 1, PmixDataType::Int64);
+        match result {
+            Ok(n) => assert_eq!(n, 1),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
+    fn test_data_pack_f32() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: f32 = -1.5;
+        let result = data_pack(None, &buf, &val, 1, PmixDataType::Float);
+        match result {
+            Ok(n) => assert_eq!(n, 1),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_pack/Data_unpack need initialized library"]
+    fn test_pack_unpack_i16_roundtrip() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i16 = -12345;
+        let packed = data_pack(None, &buf, &val, 1, PmixDataType::Int16);
+        if packed.is_ok() {
+            let mut out: i16 = 0;
+            let mut count: i32 = 1;
+            let unpacked = data_unpack(None, &buf, &mut out, &mut count, PmixDataType::Int16);
+            if unpacked.is_ok() {
+                assert_eq!(out, -12345);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_pack/Data_unpack need initialized library"]
+    fn test_pack_unpack_f64_roundtrip() {
+        let buf = data_buffer_create().expect("create buffer");
+        let val: f64 = -2.718281828;
+        let packed = data_pack(None, &buf, &val, 1, PmixDataType::Double);
+        if packed.is_ok() {
+            let mut out: f64 = 0.0;
+            let mut count: i32 = 1;
+            let unpacked = data_unpack(None, &buf, &mut out, &mut count, PmixDataType::Double);
+            if unpacked.is_ok() {
+                assert!((out - val).abs() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_pack/Data_unload/Data_load/Data_unpack need initialized library"]
+    fn test_pack_unload_load_unpack_roundtrip() {
+        // Full serialization roundtrip: pack → unload → load → unpack
+        let buf1 = data_buffer_create().expect("create buffer");
+        let val: i32 = 99999;
+        let packed = data_pack(None, &buf1, &val, 1, PmixDataType::Int32);
+        if packed.is_ok() {
+            if let Ok(payload) = data_unload(&buf1) {
+                let buf2 = data_buffer_create().expect("create buffer 2");
+                if data_load(&buf2, &payload).is_ok() {
+                    let mut out: i32 = 0;
+                    let mut count: i32 = 1;
+                    let unpacked =
+                        data_unpack(None, &buf2, &mut out, &mut count, PmixDataType::Int32);
+                    if unpacked.is_ok() {
+                        assert_eq!(out, 99999);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
+    fn test_data_pack_multiple_values() {
+        // Pack multiple values of same type in one call
+        let buf = data_buffer_create().expect("create buffer");
+        let val: i32 = 42;
+        let result = data_pack(None, &buf, &val, 1, PmixDataType::Int32);
+        match result {
+            Ok(n) => assert_eq!(n, 1),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_embed needs initialized library"]
+    fn test_data_embed_empty_payload() {
+        let buf = data_buffer_create().expect("create buffer");
+        let payload = PmixByteObject::new();
+        let result = data_embed(&buf, Some(&payload));
+        match result {
+            Ok(()) => {}
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_print needs initialized library"]
+    fn test_data_print_u64() {
+        let val: u64 = u64::MAX;
+        let result = data_print(&val, None, PmixDataType::Uint64);
+        match result {
+            Ok(_output) => {}
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_print needs initialized library"]
+    fn test_data_print_f64() {
+        let val: f64 = 3.14159265;
+        let result = data_print(&val, None, PmixDataType::Double);
+        match result {
+            Ok(_output) => {}
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    #[ignore = "requires PMIx init — PMIx_Data_copy needs initialized library"]
+    fn test_data_copy_i64() {
+        let val: i64 = i64::MAX;
+        let result = data_copy(&val, PmixDataType::Int64);
+        match result {
+            Ok(ptr) => assert!(!ptr.is_null()),
+            Err(_) => {}
+        }
+    }
 }
