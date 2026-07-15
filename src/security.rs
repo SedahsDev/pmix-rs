@@ -1184,4 +1184,353 @@ mod tests {
         // ValidationResults is not Clone, but drop should be safe
         assert!(results.is_empty());
     }
+
+    // ── PmixCredential edge case tests ─────────────────────────────────────
+
+    /// Test credential with null bytes in data.
+    #[test]
+    fn test_credential_with_null_bytes() {
+        let data = vec![0u8, 1, 0, 2, 0, 3];
+        let cred = PmixCredential::from_vec(data.clone());
+        assert_eq!(cred.len(), 6);
+        assert_eq!(cred.as_bytes(), &data[..]);
+        assert!(!cred.is_empty());
+    }
+
+    /// Test credential with all 0xFF bytes.
+    #[test]
+    fn test_credential_all_0xff_bytes() {
+        let data = vec![0xFFu8; 16];
+        let cred = PmixCredential::from_vec(data.clone());
+        assert_eq!(cred.len(), 16);
+        assert_eq!(cred.as_bytes(), &data[..]);
+    }
+
+    /// Test credential with single byte.
+    #[test]
+    fn test_credential_single_byte() {
+        let cred = PmixCredential::from_bytes(&[42]);
+        assert_eq!(cred.len(), 1);
+        assert_eq!(cred.as_bytes(), &[42]);
+        assert!(!cred.is_empty());
+    }
+
+    /// Test credential with unicode-like byte sequences.
+    #[test]
+    fn test_credential_unicode_bytes() {
+        let data = "こんにちは".as_bytes();
+        let cred = PmixCredential::from_bytes(data);
+        assert_eq!(cred.len(), 15);
+        assert_eq!(cred.as_bytes(), data);
+    }
+
+    /// Test credential as_bytes returns a proper slice reference.
+    #[test]
+    fn test_credential_as_bytes_slice() {
+        let cred = PmixCredential::from_bytes(b"slice test");
+        let slice: &[u8] = cred.as_bytes();
+        assert_eq!(slice.len(), 10);
+        assert_eq!(slice[0], b's');
+    }
+
+    /// Test credential equality via as_bytes comparison.
+    #[test]
+    fn test_credential_bytes_equality() {
+        let a = PmixCredential::from_bytes(b"same data");
+        let b = PmixCredential::from_bytes(b"same data");
+        assert_eq!(a.as_bytes(), b.as_bytes());
+        assert_eq!(a.len(), b.len());
+    }
+
+    /// Test credential inequality via as_bytes comparison.
+    #[test]
+    fn test_credential_bytes_inequality() {
+        let a = PmixCredential::from_bytes(b"data a");
+        let b = PmixCredential::from_bytes(b"data b");
+        assert_ne!(a.as_bytes(), b.as_bytes());
+    }
+
+    /// Test credential clone preserves data integrity.
+    #[test]
+    fn test_credential_clone_data_integrity() {
+        let original = PmixCredential::from_vec(vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        let cloned = original.clone();
+        assert_eq!(original.as_bytes(), cloned.as_bytes());
+        // Verify they have independent storage
+        assert!(!std::ptr::eq(
+            original.as_bytes().as_ptr(),
+            cloned.as_bytes().as_ptr()
+        ));
+    }
+
+    /// Test credential debug contains bytes field.
+    #[test]
+    fn test_credential_debug_contains_bytes() {
+        let cred = PmixCredential::from_bytes(b"hello");
+        let s = format!("{:?}", cred);
+        assert!(s.contains("bytes"));
+    }
+
+    // ── CredentialResults with data ────────────────────────────────────────
+
+    /// Test CredentialResults has expected fields.
+    #[test]
+    fn test_credential_results_debug() {
+        let results = CredentialResults::default();
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+
+    /// Test CredentialResults info() returns slice reference.
+    #[test]
+    fn test_credential_results_info_slice() {
+        let results = CredentialResults::default();
+        let info: &[Info] = results.info();
+        assert!(info.is_empty());
+    }
+
+    // ── ValidationResults edge case tests ──────────────────────────────────
+
+    /// Test ValidationResults Debug output format.
+    #[test]
+    fn test_validation_results_debug_format() {
+        let results = ValidationResults::empty();
+        let s = format!("{:?}", results);
+        assert!(s.contains("ValidationResults"));
+        assert!(s.contains("handle"));
+    }
+
+    /// Test ValidationResults empty constructor sets null handle.
+    #[test]
+    fn test_validation_results_empty_has_null_handle() {
+        let results = ValidationResults::empty();
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+
+    // ── CredentialCallback recording tests ────────────────────────────────
+
+    /// Test CredentialCallback that records credential data.
+    #[test]
+    fn test_credential_callback_records_credential() {
+        use std::cell::Cell;
+
+        struct RecordingCredCb {
+            got_credential: Cell<bool>,
+        }
+        impl CredentialCallback for RecordingCredCb {
+            fn on_complete(
+                self: Box<Self>,
+                _status: PmixStatus,
+                credential: Option<PmixCredential>,
+                _results: CredentialResults,
+            ) {
+                self.got_credential.set(credential.is_some());
+            }
+        }
+
+        let cb = RecordingCredCb {
+            got_credential: Cell::new(false),
+        };
+        let _boxed: Box<dyn CredentialCallback> = Box::new(cb);
+    }
+
+    /// Test CredentialCallback with multiple trait implementations.
+    #[test]
+    fn test_credential_callback_multiple_implementations() {
+        struct CbA;
+        struct CbB;
+        impl CredentialCallback for CbA {
+            fn on_complete(
+                self: Box<Self>,
+                _status: PmixStatus,
+                _credential: Option<PmixCredential>,
+                _results: CredentialResults,
+            ) {
+            }
+        }
+        impl CredentialCallback for CbB {
+            fn on_complete(
+                self: Box<Self>,
+                _status: PmixStatus,
+                _credential: Option<PmixCredential>,
+                _results: CredentialResults,
+            ) {
+            }
+        }
+        let _a: Box<dyn CredentialCallback> = Box::new(CbA);
+        let _b: Box<dyn CredentialCallback> = Box::new(CbB);
+    }
+
+    // ── ValidationCallback recording tests ────────────────────────────────
+
+    /// Test ValidationCallback that records status.
+    #[test]
+    fn test_validation_callback_records_status() {
+        use std::cell::Cell;
+
+        struct RecordingValCb {
+            called: Cell<bool>,
+        }
+        impl ValidationCallback for RecordingValCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {
+                self.called.set(true);
+            }
+        }
+
+        let cb = RecordingValCb {
+            called: Cell::new(false),
+        };
+        let _boxed: Box<dyn ValidationCallback> = Box::new(cb);
+    }
+
+    /// Test ValidationCallback with multiple implementations.
+    #[test]
+    fn test_validation_callback_multiple_implementations() {
+        struct CbX;
+        struct CbY;
+        impl ValidationCallback for CbX {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {}
+        }
+        impl ValidationCallback for CbY {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {}
+        }
+        let _x: Box<dyn ValidationCallback> = Box::new(CbX);
+        let _y: Box<dyn ValidationCallback> = Box::new(CbY);
+    }
+
+    // ── get_credential_nb / validate_credential_nb compile tests ───────────
+
+    /// Test that get_credential_nb compiles with callback signature.
+    #[test]
+    fn test_get_credential_nb_compiles() {
+        struct NbCredCb;
+        impl CredentialCallback for NbCredCb {
+            fn on_complete(
+                self: Box<Self>,
+                _status: PmixStatus,
+                _credential: Option<PmixCredential>,
+                _results: CredentialResults,
+            ) {
+            }
+        }
+        let _cb: Box<dyn CredentialCallback> = Box::new(NbCredCb);
+    }
+
+    /// Test that validate_credential_nb compiles with callback signature.
+    #[test]
+    fn test_validate_credential_nb_compiles() {
+        struct NbValCb;
+        impl ValidationCallback for NbValCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {}
+        }
+        let _cb: Box<dyn ValidationCallback> = Box::new(NbValCb);
+    }
+
+    // ── Registry insert/remove tests ──────────────────────────────────────
+
+    /// Test inserting and removing from credential registry.
+    #[test]
+    fn test_credential_registry_insert_remove() {
+        struct TestCb;
+        impl CredentialCallback for TestCb {
+            fn on_complete(
+                self: Box<Self>,
+                _status: PmixStatus,
+                _credential: Option<PmixCredential>,
+                _results: CredentialResults,
+            ) {
+            }
+        }
+        {
+            let mut registry = CREDENTIAL_REGISTRY.lock().unwrap();
+            registry.insert(99999, Box::new(TestCb));
+            assert_eq!(registry.len(), 1);
+            registry.remove(&99999);
+            assert_eq!(registry.len(), 0);
+        }
+    }
+
+    /// Test inserting and removing from validation registry.
+    #[test]
+    fn test_validation_registry_insert_remove() {
+        struct TestCb;
+        impl ValidationCallback for TestCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {}
+        }
+        {
+            let mut registry = VALIDATION_REGISTRY.lock().unwrap();
+            registry.insert(99998, Box::new(TestCb));
+            assert_eq!(registry.len(), 1);
+            registry.remove(&99998);
+            assert_eq!(registry.len(), 0);
+        }
+    }
+
+    /// Test inserting and removing from validation credential map.
+    #[test]
+    fn test_validation_cred_map_insert_remove() {
+        {
+            let mut cred_map = VALIDATION_CRED_MAP.lock().unwrap();
+            cred_map.insert(99997, 12345);
+            assert_eq!(cred_map.len(), 1);
+            assert_eq!(cred_map.remove(&99997), Some(12345));
+            assert_eq!(cred_map.len(), 0);
+        }
+    }
+
+    // ── copy_and_free_pmix_byte_object edge cases ─────────────────────────
+
+    /// Test copy_and_free with large data block.
+    #[test]
+    fn test_copy_and_free_pmix_byte_object_large() {
+        let data = vec![0xABu8; 4096];
+        let byte_ptr = unsafe { libc::malloc(data.len()) as *mut std::os::raw::c_char };
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), byte_ptr as *mut u8, data.len());
+        }
+        let bo = Box::new(ffi::pmix_byte_object_t {
+            bytes: byte_ptr,
+            size: data.len(),
+        });
+        let bo_ptr = Box::into_raw(bo);
+
+        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        assert_eq!(result.len(), 4096);
+        assert_eq!(&result[..], &data[..]);
+    }
+
+    /// Test copy_and_free with data containing null bytes.
+    #[test]
+    fn test_copy_and_free_pmix_byte_object_with_nulls() {
+        let data = vec![0u8, 1, 0, 2, 0, 3, 0, 4];
+        let byte_ptr = unsafe { libc::malloc(data.len()) as *mut std::os::raw::c_char };
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), byte_ptr as *mut u8, data.len());
+        }
+        let bo = Box::new(ffi::pmix_byte_object_t {
+            bytes: byte_ptr,
+            size: data.len(),
+        });
+        let bo_ptr = Box::into_raw(bo);
+
+        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        assert_eq!(result.len(), 8);
+        assert_eq!(&result[..], &data[..]);
+    }
+
+    /// Test copy_and_free with single byte.
+    #[test]
+    fn test_copy_and_free_pmix_byte_object_single_byte() {
+        let byte_ptr = unsafe { libc::malloc(1) as *mut std::os::raw::c_char };
+        unsafe { *byte_ptr = 0x42 };
+        let bo = Box::new(ffi::pmix_byte_object_t {
+            bytes: byte_ptr,
+            size: 1,
+        });
+        let bo_ptr = Box::into_raw(bo);
+
+        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        assert_eq!(result, vec![0x42u8]);
+    }
 }
