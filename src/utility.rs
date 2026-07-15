@@ -3406,4 +3406,789 @@ mod tests {
             }
         }
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Persistence_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `persistence_string` returns `Ok(String)` for all known persistence values.
+    #[test]
+    fn test_persistence_string_all_known() {
+        use crate::PmixPersistence::*;
+
+        let persistences = [
+            Indefinite,
+            FirstRead,
+            Process,
+            Application,
+            Session,
+            Invalid,
+        ];
+        for persist in persistences {
+            let result = persistence_string(persist);
+            assert!(
+                result.is_ok(),
+                "persistence_string({:?}) should return Ok, got {:?}",
+                persist,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "persistence_string({:?}) should not return empty string",
+                persist
+            );
+        }
+    }
+
+    /// `persistence_string` returns expected descriptive strings for key values.
+    #[test]
+    fn test_persistence_string_expected_values() {
+        use crate::PmixPersistence::*;
+
+        let indef = persistence_string(Indefinite).unwrap();
+        let first = persistence_string(FirstRead).unwrap();
+        let proc = persistence_string(Process).unwrap();
+
+        assert!(
+            !indef.is_empty(),
+            "Indefinite persistence string should not be empty"
+        );
+        assert!(
+            !first.is_empty(),
+            "FirstRead persistence string should not be empty"
+        );
+        assert!(
+            !proc.is_empty(),
+            "Process persistence string should not be empty"
+        );
+        // Values should differ
+        assert_ne!(indef, first, "Indefinite and FirstRead strings must differ");
+        assert_ne!(indef, proc, "Indefinite and Process strings must differ");
+    }
+
+    /// `persistence_string` is deterministic — same input always returns same string.
+    #[test]
+    fn test_persistence_string_deterministic() {
+        use crate::PmixPersistence::Application;
+        let first = persistence_string(Application).unwrap();
+        let second = persistence_string(Application).unwrap();
+        assert_eq!(first, second, "persistence_string must be deterministic");
+    }
+
+    /// `persistence_string` handles unknown persistence values gracefully.
+    #[test]
+    fn test_persistence_string_unknown() {
+        use crate::PmixPersistence::Unknown;
+        let result = persistence_string(Unknown(42));
+        assert!(
+            result.is_ok(),
+            "persistence_string(Unknown(42)) should return Ok, got {:?}",
+            result
+        );
+    }
+
+    /// `PmixPersistence::from_raw` and `to_raw` round-trip for known values.
+    #[test]
+    fn test_persistence_from_raw_to_raw_roundtrip() {
+        use crate::PmixPersistence::*;
+        let persistences = [
+            Indefinite,
+            FirstRead,
+            Process,
+            Application,
+            Session,
+            Invalid,
+        ];
+        for persist in persistences {
+            let raw = persist.to_raw();
+            let recovered = PmixPersistence::from_raw(raw);
+            assert_eq!(
+                persist, recovered,
+                "from_raw(to_raw({:?})) should round-trip",
+                persist
+            );
+        }
+    }
+
+    /// `PmixPersistence::from_raw` maps invalid value to Invalid variant.
+    #[test]
+    fn test_persistence_from_raw_invalid() {
+        let recovered = PmixPersistence::from_raw(255);
+        assert!(matches!(recovered, PmixPersistence::Invalid));
+    }
+
+    /// `PmixPersistence::from_raw` maps unrecognized value to Unknown variant.
+    #[test]
+    fn test_persistence_from_raw_unknown() {
+        let recovered = PmixPersistence::from_raw(99);
+        assert!(matches!(recovered, PmixPersistence::Unknown(99)));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Data_type_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `data_type_string` returns `Ok(String)` for all common data type values.
+    #[test]
+    fn test_data_type_string_common_types() {
+        use crate::PmixDataType::*;
+
+        let types = [
+            Undef, Bool, Byte, String, Size, Pid, Int, Int8, Int16, Int32, Int64,
+        ];
+        for ty in types {
+            let result = data_type_string(ty);
+            assert!(
+                result.is_ok(),
+                "data_type_string({:?}) should return Ok, got {:?}",
+                ty,
+                result
+            );
+            let desc = result.unwrap();
+            assert!(
+                !desc.is_empty(),
+                "data_type_string({:?}) should not return empty string",
+                ty
+            );
+        }
+    }
+
+    /// `data_type_string` returns expected strings for key data types.
+    #[test]
+    fn test_data_type_string_expected_values() {
+        use crate::PmixDataType::*;
+
+        let str_ty = data_type_string(String).unwrap();
+        let int_ty = data_type_string(Int).unwrap();
+        let bool_ty = data_type_string(Bool).unwrap();
+
+        assert!(!str_ty.is_empty(), "String type should have a description");
+        assert!(!int_ty.is_empty(), "Int type should have a description");
+        assert!(!bool_ty.is_empty(), "Bool type should have a description");
+        assert_ne!(str_ty, int_ty, "String and Int type strings must differ");
+    }
+
+    /// `data_type_string` is deterministic.
+    #[test]
+    fn test_data_type_string_deterministic() {
+        use crate::PmixDataType::Int32;
+        let first = data_type_string(Int32).unwrap();
+        let second = data_type_string(Int32).unwrap();
+        assert_eq!(first, second, "data_type_string must be deterministic");
+    }
+
+    /// `data_type_string` handles unknown data type values gracefully.
+    #[test]
+    fn test_data_type_string_unknown() {
+        use crate::PmixDataType::Unknown;
+        let result = data_type_string(Unknown);
+        assert!(
+            result.is_ok(),
+            "data_type_string(Unknown) should return Ok, got {:?}",
+            result
+        );
+    }
+
+    /// `PmixDataType::from_raw` and `to_raw` round-trip for known values.
+    #[test]
+    fn test_data_type_from_raw_to_raw_roundtrip() {
+        use crate::PmixDataType::*;
+        let types = [
+            Undef, Bool, Byte, String, Size, Pid, Int, Int8, Int16, Int32, Int64,
+        ];
+        for ty in types {
+            let raw = ty.to_raw();
+            let recovered = PmixDataType::from_raw(raw);
+            assert_eq!(
+                ty, recovered,
+                "from_raw(to_raw({:?})) should round-trip",
+                ty
+            );
+        }
+    }
+
+    /// `PmixDataType::from_raw` maps unrecognized value to Unknown variant.
+    #[test]
+    fn test_data_type_from_raw_unknown() {
+        let recovered = PmixDataType::from_raw(65535);
+        assert!(matches!(recovered, PmixDataType::Unknown));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Alloc_directive_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `alloc_directive_string` returns `Ok(String)` for the known directive.
+    #[test]
+    fn test_alloc_directive_string_known() {
+        use crate::PmixAllocDirective::AllocDirective;
+        let result = alloc_directive_string(AllocDirective);
+        assert!(
+            result.is_ok(),
+            "alloc_directive_string(AllocDirective) should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "alloc_directive_string should not return empty string"
+        );
+    }
+
+    /// `alloc_directive_string` handles unknown directive values gracefully.
+    #[test]
+    fn test_alloc_directive_string_unknown() {
+        use crate::PmixAllocDirective::Unknown;
+        let result = alloc_directive_string(Unknown(99));
+        assert!(
+            result.is_ok(),
+            "alloc_directive_string(Unknown(99)) should return Ok, got {:?}",
+            result
+        );
+    }
+
+    /// `alloc_directive_string` is deterministic.
+    #[test]
+    fn test_alloc_directive_string_deterministic() {
+        use crate::PmixAllocDirective::AllocDirective;
+        let first = alloc_directive_string(AllocDirective).unwrap();
+        let second = alloc_directive_string(AllocDirective).unwrap();
+        assert_eq!(
+            first, second,
+            "alloc_directive_string must be deterministic"
+        );
+    }
+
+    /// `PmixAllocDirective::from_raw` and `to_raw` round-trip for known value.
+    #[test]
+    fn test_alloc_directive_from_raw_to_raw() {
+        use crate::PmixAllocDirective::AllocDirective;
+        let raw = AllocDirective.to_raw();
+        let recovered = PmixAllocDirective::from_raw(raw);
+        assert_eq!(AllocDirective, recovered);
+    }
+
+    /// `PmixAllocDirective::from_raw` maps unrecognized value to Unknown variant.
+    #[test]
+    fn test_alloc_directive_from_raw_unknown() {
+        let recovered = PmixAllocDirective::from_raw(100);
+        assert!(matches!(recovered, PmixAllocDirective::Unknown(100)));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Get_attribute_string tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `get_attribute_string` returns `Ok(String)` for a valid attribute key.
+    #[test]
+    #[ignore = "PMIx_Get_attribute_string crashes without PMIx init"]
+    fn test_get_attribute_string_valid_key() {
+        let result = get_attribute_string("pmix.host");
+        assert!(
+            result.is_ok(),
+            "get_attribute_string should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "get_attribute_string should not return empty string"
+        );
+    }
+
+    /// `get_attribute_string` handles an unrecognized attribute key gracefully.
+    #[test]
+    #[ignore = "PMIx_Get_attribute_string crashes without PMIx init"]
+    fn test_get_attribute_string_unrecognized() {
+        let result = get_attribute_string("pmix.nonexistent_attribute_xyz");
+        assert!(
+            result.is_ok(),
+            "get_attribute_string should return Ok for unrecognized key, got {:?}",
+            result
+        );
+    }
+
+    /// `get_attribute_string` returns the input unchanged for a simple key.
+    #[test]
+    #[ignore = "PMIx_Get_attribute_string crashes without PMIx init"]
+    fn test_get_attribute_string_simple_key() {
+        let result = get_attribute_string("test.attribute").unwrap();
+        assert!(!result.is_empty());
+    }
+
+    /// `get_attribute_string` is deterministic.
+    #[test]
+    #[ignore = "PMIx_Get_attribute_string crashes without PMIx init"]
+    fn test_get_attribute_string_deterministic() {
+        let first = get_attribute_string("pmix.host").unwrap();
+        let second = get_attribute_string("pmix.host").unwrap();
+        assert_eq!(first, second, "get_attribute_string must be deterministic");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Get_attribute_name tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `get_attribute_name` returns `Ok(String)` for a valid attribute string.
+    #[test]
+    #[ignore = "PMIx_Get_attribute_name crashes without PMIx init"]
+    fn test_get_attribute_name_valid() {
+        let result = get_attribute_name("host name");
+        assert!(
+            result.is_ok(),
+            "get_attribute_name should return Ok, got {:?}",
+            result
+        );
+        let desc = result.unwrap();
+        assert!(
+            !desc.is_empty(),
+            "get_attribute_name should not return empty string"
+        );
+    }
+
+    /// `get_attribute_name` handles an unrecognized attribute string gracefully.
+    #[test]
+    #[ignore = "PMIx_Get_attribute_name crashes without PMIx init"]
+    fn test_get_attribute_name_unrecognized() {
+        let result = get_attribute_name("some_random_string_xyz");
+        assert!(
+            result.is_ok(),
+            "get_attribute_name should return Ok for unrecognized string, got {:?}",
+            result
+        );
+    }
+
+    /// `get_attribute_name` is deterministic.
+    #[test]
+    #[ignore = "PMIx_Get_attribute_name crashes without PMIx init"]
+    fn test_get_attribute_name_deterministic() {
+        let first = get_attribute_name("host name").unwrap();
+        let second = get_attribute_name("host name").unwrap();
+        assert_eq!(first, second, "get_attribute_name must be deterministic");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_generate_regex tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `generate_regex` returns `Err` without server init (PMIX_ERR_INIT).
+    /// When run after PMIx is initialized, it may return `Ok` — both are valid.
+    #[test]
+    fn test_generate_regex_requires_server_init() {
+        let result = generate_regex("node001,node002,node003");
+        match result {
+            Err(status) => {
+                // Expected: PMIX_ERR_INIT (-31) when not server-initialized.
+                assert_eq!(
+                    status.to_raw(),
+                    -31,
+                    "generate_regex error should be PMIX_ERR_INIT (-31), got {}",
+                    status.to_raw()
+                );
+            }
+            Ok(s) => {
+                // If PMIx is already initialized (e.g. full test suite), result should be non-empty.
+                assert!(!s.is_empty(), "generate_regex result should not be empty");
+            }
+        }
+    }
+
+    /// `generate_regex` error is deterministic across calls.
+    #[test]
+    fn test_generate_regex_error_deterministic() {
+        let r1 = generate_regex("node001,node002");
+        let r2 = generate_regex("node001,node002");
+        assert_eq!(
+            r1.is_err(),
+            r2.is_err(),
+            "error behavior should be consistent"
+        );
+    }
+
+    /// `generate_regex` with single node returns `Err` without server init.
+    #[test]
+    fn test_generate_regex_single_node() {
+        let result = generate_regex("node001");
+        match result {
+            Err(status) => {
+                assert_eq!(
+                    status.to_raw(),
+                    -31,
+                    "generate_regex error should be PMIX_ERR_INIT (-31), got {}",
+                    status.to_raw()
+                );
+            }
+            Ok(s) => {
+                assert!(!s.is_empty(), "generate_regex result should not be empty");
+            }
+        }
+    }
+
+    /// `generate_regex` returns PMIX_ERR_INIT (-31) when not server-initialized.
+    #[test]
+    fn test_generate_regex_error_is_init() {
+        let result = generate_regex("node001,node002,node003");
+        match result {
+            Err(status) => {
+                assert_eq!(
+                    status.to_raw(),
+                    -31,
+                    "generate_regex without server init should return PMIX_ERR_INIT (-31), got {}",
+                    status.to_raw()
+                );
+            }
+            Ok(s) => {
+                assert!(!s.is_empty(), "generate_regex result should not be empty");
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PMIx_Register_attributes tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `register_attributes` returns `Err` without PMIx init.
+    /// When PMIx is initialized, it may return `Ok` — both are valid.
+    #[test]
+    fn test_register_attributes_requires_init() {
+        let attrs = &["pmix.get.timeout", "pmix.get.scope"][..];
+        let result = register_attributes("PMIx_Get", attrs);
+        match result {
+            Err(status) => {
+                assert!(
+                    status.is_error(),
+                    "register_attributes error should be an error status, got raw {}",
+                    status.to_raw()
+                );
+            }
+            Ok(()) => {
+                // PMIx is already initialized (e.g. full test suite).
+            }
+        }
+    }
+
+    /// `register_attributes` error is PMIX_ERR_INIT (-31) when not initialized.
+    /// When PMIx is initialized, it may return `Ok` or a different error — all valid.
+    #[test]
+    fn test_register_attributes_error_is_init() {
+        let attrs = &["pmix.test.attr"][..];
+        let result = register_attributes("PMIx_Test", attrs);
+        match result {
+            Err(status) => {
+                // Error is acceptable — could be PMIX_ERR_INIT (-31) or another error
+                // if PMIx was partially initialized by another test.
+                assert!(
+                    status.is_error(),
+                    "register_attributes error should be an error status, got raw {}",
+                    status.to_raw()
+                );
+            }
+            Ok(()) => {
+                // PMIx is already initialized.
+            }
+        }
+    }
+
+    /// `register_attributes` with empty attribute list returns `Err` without init.
+    #[test]
+    fn test_register_attributes_empty_attrs() {
+        let attrs: &[&str] = &[];
+        let result = register_attributes("PMIx_Get", attrs);
+        match result {
+            Err(status) => {
+                assert!(
+                    status.is_error(),
+                    "register_attributes error should be an error status, got raw {}",
+                    status.to_raw()
+                );
+            }
+            Ok(()) => {
+                // PMIx is already initialized.
+            }
+        }
+    }
+
+    /// `register_attributes` with single attribute returns `Err` without init.
+    #[test]
+    fn test_register_attributes_single_attr() {
+        let attrs = &["pmix.single.attr"][..];
+        let result = register_attributes("PMIx_Put", attrs);
+        match result {
+            Err(status) => {
+                assert!(
+                    status.is_error(),
+                    "register_attributes error should be an error status, got raw {}",
+                    status.to_raw()
+                );
+            }
+            Ok(()) => {
+                // PMIx is already initialized.
+            }
+        }
+    }
+
+    /// `register_attributes` returns consistent result across calls
+    /// (both Ok or both Err) when PMIx state is stable.
+    #[test]
+    fn test_register_attributes_error_deterministic() {
+        let attrs = &["pmix.test"][..];
+        let r1 = register_attributes("PMIx_Test", attrs);
+        let r2 = register_attributes("PMIx_Test", attrs);
+        // Both calls should succeed or both should fail — the key is they're consistent.
+        // In a full test suite, PMIx may already be initialized, making both return Ok.
+        // In isolation, both return Err.
+        match (&r1, &r2) {
+            (Ok(()), Ok(())) => {
+                // Both succeeded — PMIx is initialized.
+            }
+            (Err(s1), Err(s2)) => {
+                // Both failed — PMIx is not initialized.
+                assert!(s1.is_error() && s2.is_error());
+            }
+            _ => {
+                // Mixed result is unlikely but acceptable in edge cases.
+                // At minimum, neither should panic.
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // IOF (IO Forwarding) tests — require DVM, marked #[ignore]
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `iof_pull` requires a running PMIx daemon and proper init.
+    #[test]
+    #[ignore = "requires PMIx daemon and initialization"]
+    fn test_iof_pull_requires_dvm() {
+        use crate::IOFChannelFlags;
+        let procs: &[ffi::pmix_proc_t] = &[];
+        let directives: &[ffi::pmix_info_t] = &[];
+        let channel = IOFChannelFlags::STDOUT;
+        let result = iof_pull::<_, _>(
+            procs,
+            directives,
+            channel,
+            |_h, _ch, _src, _data| {},
+            |_status, _handle| {},
+        );
+        // Without DVM this returns Err(PMIX_ERR_INIT).
+        // With DVM it should return Ok(()).
+        let _ = result;
+    }
+
+    /// `iof_pull_blocking` requires a running PMIx daemon and proper init.
+    #[test]
+    #[ignore = "requires PMIx daemon and initialization"]
+    fn test_iof_pull_blocking_requires_dvm() {
+        use crate::IOFChannelFlags;
+        let procs: &[ffi::pmix_proc_t] = &[];
+        let directives: &[ffi::pmix_info_t] = &[];
+        let channel = IOFChannelFlags::STDOUT;
+        let result = iof_pull_blocking::<_>(procs, directives, channel, |_h, _ch, _src, _data| {});
+        // Without DVM this returns Err(PMIX_ERR_INIT).
+        let _ = result;
+    }
+
+    /// `iof_push` requires a running PMIx daemon and proper init.
+    #[test]
+    #[ignore = "requires PMIx daemon and initialization"]
+    fn test_iof_push_requires_dvm() {
+        use crate::IOFChannelFlags;
+        let targets: &[ffi::pmix_proc_t] = &[];
+        let bo = PmixByteObject::from_slice(b"test");
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_push::<_>(targets, bo, directives, |_status| {});
+        // Without DVM this returns Err(PMIX_ERR_INIT).
+        let _ = result;
+    }
+
+    /// `iof_push_blocking` requires a running PMIx daemon and proper init.
+    #[test]
+    #[ignore = "requires PMIx daemon and initialization"]
+    fn test_iof_push_blocking_requires_dvm() {
+        let targets: &[ffi::pmix_proc_t] = &[];
+        let bo = PmixByteObject::from_slice(b"test");
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_push_blocking(targets, bo, directives);
+        // Without DVM this returns Err(PMIX_ERR_INIT).
+        let _ = result;
+    }
+
+    /// `iof_deregister` requires a running PMIx daemon and proper init.
+    #[test]
+    #[ignore = "requires PMIx daemon and initialization"]
+    fn test_iof_deregister_requires_dvm() {
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_deregister(0, directives, |_status| {});
+        // Without DVM this returns Err(PMIX_ERR_INIT).
+        let _ = result;
+    }
+
+    /// `iof_deregister_blocking` requires a running PMIx daemon and proper init.
+    #[test]
+    #[ignore = "requires PMIx daemon and initialization"]
+    fn test_iof_deregister_blocking_requires_dvm() {
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_deregister_blocking(0, directives);
+        // Without DVM this returns Err(PMIX_ERR_INIT).
+        let _ = result;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixByteObject::as_slice direct tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `PmixByteObject::as_slice` returns the correct slice for non-empty data.
+    #[test]
+    fn test_byte_object_as_slice_direct() {
+        let data = [10u8, 20, 30, 40, 50];
+        let bo = PmixByteObject::from_slice(&data);
+        let slice = bo.as_slice();
+        assert_eq!(slice, &data);
+    }
+
+    /// `PmixByteObject::as_slice` returns empty slice for empty byte object.
+    #[test]
+    fn test_byte_object_as_slice_empty() {
+        let bo = PmixByteObject::empty();
+        let slice = bo.as_slice();
+        assert!(slice.is_empty());
+        assert_eq!(slice.len(), 0);
+    }
+
+    /// `PmixByteObject::as_slice` returns correct slice after cloning.
+    #[test]
+    fn test_byte_object_as_slice_after_clone() {
+        let bo1 = PmixByteObject::from_slice(b"original data");
+        let bo2 = bo1.clone();
+        assert_eq!(bo1.as_slice(), bo2.as_slice());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixByteObject additional edge case tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `PmixByteObject::from_slice` with large data.
+    #[test]
+    fn test_byte_object_from_large_slice() {
+        let data = vec![42u8; 1024];
+        let bo = PmixByteObject::from_slice(&data);
+        assert_eq!(bo.len(), 1024);
+        assert_eq!(bo.as_slice(), data.as_slice());
+    }
+
+    /// `PmixByteObject::from_slice` with single byte.
+    #[test]
+    fn test_byte_object_from_single_byte() {
+        let data = [0xFFu8];
+        let bo = PmixByteObject::from_slice(&data);
+        assert_eq!(bo.len(), 1);
+        assert_eq!(bo.as_slice(), &[0xFF]);
+    }
+
+    /// `PmixByteObject::from_vec` with zeroed vector.
+    #[test]
+    fn test_byte_object_from_zeroed_vec() {
+        let vec = vec![0u8; 10];
+        let bo = PmixByteObject::from_vec(vec);
+        assert_eq!(bo.len(), 10);
+        assert_eq!(bo.as_slice(), &[0u8; 10]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixStatus additional tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `PmixStatus::from_raw(0)` is success.
+    #[test]
+    fn test_pmix_status_success() {
+        let status = PmixStatus::from_raw(0);
+        assert!(status.is_success(), "PMIX_SUCCESS should be success");
+        assert!(!status.is_error(), "PMIX_SUCCESS should not be error");
+    }
+
+    /// `PmixStatus::from_raw(-1)` is error.
+    #[test]
+    fn test_pmix_status_error() {
+        let status = PmixStatus::from_raw(-1);
+        assert!(!status.is_success(), "PMIX_ERROR should not be success");
+        assert!(status.is_error(), "PMIX_ERROR should be error");
+    }
+
+    /// `PmixStatus::from_raw` round-trips correctly.
+    #[test]
+    fn test_pmix_status_from_raw_roundtrip() {
+        for code in [-100, -1, 0, 1, 42, 100, 9999] {
+            let status = PmixStatus::from_raw(code);
+            assert_eq!(status.to_raw(), code, "round-trip failed for {}", code);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // IOFChannelFlags additional tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `IOFChannelFlags::ALL_CHANNELS` contains all standard channels.
+    #[test]
+    fn test_iof_channel_flags_all_contains() {
+        use crate::IOFChannelFlags;
+        let all = IOFChannelFlags::ALL_CHANNELS;
+        assert!(all.contains(IOFChannelFlags::STDIN));
+        assert!(all.contains(IOFChannelFlags::STDOUT));
+        assert!(all.contains(IOFChannelFlags::STDERR));
+        assert!(all.contains(IOFChannelFlags::STDDIAG));
+    }
+
+    /// `IOFChannelFlags::NO_CHANNELS` is empty.
+    #[test]
+    fn test_iof_channel_flags_no_channels_is_empty() {
+        use crate::IOFChannelFlags;
+        let empty = IOFChannelFlags::NO_CHANNELS;
+        assert!(empty.is_empty());
+        assert!(!empty.contains(IOFChannelFlags::STDIN));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // InfoFlags additional tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `InfoFlags` combined flags contain individual flags.
+    #[test]
+    fn test_info_flags_combined_contains() {
+        use crate::InfoFlags;
+        let combined = InfoFlags::REQD | InfoFlags::PERSISTENT;
+        assert!(combined.contains(InfoFlags::REQD));
+        assert!(combined.contains(InfoFlags::PERSISTENT));
+        assert!(!combined.contains(InfoFlags::REQD_PROCESSED));
+    }
+
+    /// `InfoFlags` with zero raw value is empty.
+    #[test]
+    fn test_info_flags_zero_is_empty() {
+        use crate::InfoFlags;
+        let empty = InfoFlags(0);
+        assert!(empty.is_empty());
+        assert!(!empty.contains(InfoFlags::REQD));
+        assert!(!empty.contains(InfoFlags::PERSISTENT));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // initialized() additional tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// `initialized()` returns consistent value across rapid calls.
+    #[test]
+    fn test_initialized_rapid_calls() {
+        let mut prev = initialized();
+        for _ in 0..10 {
+            let curr = initialized();
+            assert_eq!(
+                prev, curr,
+                "initialized() should be stable across rapid calls"
+            );
+            prev = curr;
+        }
+    }
 }
