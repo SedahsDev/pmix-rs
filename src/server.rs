@@ -5802,9 +5802,10 @@ mod tests {
         );
     }
 
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     #[test]
     fn test_server_define_process_set_empty_members() {
-        // Empty members — FFi will fail without init, but should not panic.
+        // Empty members — FFI will fail without init, but should not panic.
         let result = server_define_process_set(&[], "testset");
         let _ = result;
     }
@@ -6005,6 +6006,7 @@ mod tests {
 
     // ── server_init_minimal: compiles with None ────────────────────────────
 
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     #[test]
     fn test_server_init_minimal_with_none_module() {
         let result = server_init_minimal(None);
@@ -6015,14 +6017,17 @@ mod tests {
 
     // ── server_init: compiles with empty info ──────────────────────────────
 
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     #[test]
     fn test_server_init_with_empty_info() {
         let info = crate::InfoBuilder::new().build();
         let result = server_init(None, &info);
         // PMIx server init may succeed when the library is available.
+        // We just verify it doesn't panic.
         let _ = result;
     }
 
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     #[test]
     fn test_server_init_with_some_module_and_empty_info() {
         let module = PmixServerModule::default();
@@ -6033,6 +6038,7 @@ mod tests {
 
     // ── server_finalize: compiles with handle ──────────────────────────────
 
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
     #[test]
     fn test_server_finalize_with_uninitialized_handle() {
         let handle = PmixServerHandle { initialized: false };
