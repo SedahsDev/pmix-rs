@@ -221,6 +221,10 @@ pub const PMIX_ERR_DUPLICATE_KEY: i32 = -53;
 pub const PMIX_ERR_BAD_PARAM: i32 = -27;
 /// PMIX_ERR_NOMEM (-32)
 pub const PMIX_ERR_NOMEM: i32 = -32;
+/// PMIX_ERR_PACK_FAILURE (-21)
+pub const PMIX_ERR_PACK_FAILURE: i32 = -21;
+/// PMIX_ERR_UNPACK_FAILURE (-20)
+pub const PMIX_ERR_UNPACK_FAILURE: i32 = -20;
 /// PMIX_ERROR (-1)
 pub const PMIX_ERROR: i32 = -1;
 
@@ -489,9 +493,244 @@ impl Drop for MockGuard {
 // Tests for the mock FFI framework itself
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Mock data serialization FFI implementations
+// ─────────────────────────────────────────────────────────────────────────────
+// These provide controlled mock behavior for the 13 PMIx data serialization
+// FFI functions used by data_serialization.rs. Each mock function returns
+// the configured status (default PMIX_SUCCESS) and performs minimal but
+// realistic state mutations so that calling code paths exercise their
+// success branches without requiring a real PMIx daemon.
+
+use std::ffi::CStr;
+
+/// Mock implementation of `PMIx_Data_buffer_create()`.
+///
+/// Returns a non-null pointer (0x1 as a sentinel) when mock is enabled,
+/// or null when disabled (to force real FFI path).
+pub fn mock_data_buffer_create() -> *mut std::ffi::c_void {
+    if is_mock_enabled() {
+        // Return a sentinel pointer that won't crash on null checks
+        0x1_0000 as *mut std::ffi::c_void
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+/// Mock implementation of `PMIx_Data_buffer_release()`.
+///
+/// No-op when mock is enabled (the pointer is a sentinel, not real memory).
+/// Returns the configured mock status.
+pub fn mock_data_buffer_release(_buf: *mut std::ffi::c_void) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Data_buffer_release")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Byte_object_construct()`.
+///
+/// Initializes a byte object to empty state. Returns mock status.
+pub fn mock_byte_object_construct() -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Byte_object_construct")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Byte_object_destruct()`.
+///
+/// No-op destructor when mock is enabled.
+pub fn mock_byte_object_destruct() -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Byte_object_destruct")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_pack()`.
+///
+/// Simulates packing data into a buffer. Returns mock status.
+pub fn mock_data_pack(num_vals: i32, data_type: u32) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Data_pack");
+        // Validate parameters for realistic behavior
+        if num_vals < 0 || data_type >= PMIX_MAX_TYPE {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_unpack()`.
+///
+/// Simulates unpacking data from a buffer. Returns mock status.
+pub fn mock_data_unpack(max_num_values: *mut i32, data_type: u32) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Data_unpack");
+        if data_type >= PMIX_MAX_TYPE {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        // Simulate writing unpack count
+        if !max_num_values.is_null() {
+            unsafe {
+                *max_num_values = 1;
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_unload()`.
+///
+/// Simulates extracting a byte object from a buffer.
+pub fn mock_data_unload() -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Data_unload")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_load()`.
+///
+/// Simulates loading a byte object into a buffer.
+pub fn mock_data_load(size: usize) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Data_load");
+        if size == 0 {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_copy()`.
+///
+/// Simulates copying a value of given type.
+pub fn mock_data_copy(data_type: u32) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Data_copy");
+        if data_type >= PMIX_MAX_TYPE {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_copy_payload()`.
+///
+/// Simulates copying a byte object payload.
+pub fn mock_data_copy_payload(src_size: usize) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Data_copy_payload");
+        if src_size == 0 {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_print()`.
+///
+/// Simulates printing a value. Returns mock status.
+pub fn mock_data_print(data_type: u32) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Data_print");
+        if data_type >= PMIX_MAX_TYPE {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_embed()`.
+///
+/// Simulates embedding one buffer into another.
+pub fn mock_data_embed() -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Data_embed")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_compress()`.
+///
+/// Simulates compression. Returns mock status and sets output length.
+pub fn mock_data_compress(input_len: usize, out_len: *mut usize) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Data_compress");
+        if input_len == 0 {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        // Simulate ~70% compression ratio
+        if !out_len.is_null() {
+            unsafe {
+                *out_len = (input_len as f64 * 0.7) as usize;
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Data_decompress()`.
+///
+/// Simulates decompression. Returns mock status and sets output length.
+pub fn mock_data_decompress(input_len: usize, out_len: *mut usize) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Data_decompress");
+        if input_len == 0 {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        // Simulate decompression restoring original size
+        if !out_len.is_null() {
+            unsafe {
+                *out_len = input_len;
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Get the mock byte object store for inspection in tests.
+pub fn mock_get_store() -> HashMap<String, (Vec<u8>, u32)> {
+    KEY_VALUE_STORE.with(|cell| cell.borrow().clone())
+}
+
+/// Get the count of stored keys in the mock datastore.
+pub fn mock_store_count() -> usize {
+    KEY_VALUE_STORE.with(|cell| cell.borrow().len())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests for the mock FFI framework itself
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Core enable/disable tests ──────────────────────────────────────────
 
     #[test]
     fn test_mock_enabled_default_false() {
@@ -517,6 +756,49 @@ mod tests {
     }
 
     #[test]
+    fn test_mock_guard_with_config() {
+        let config = MockConfig::new()
+            .with_default_status(PMIX_ERR_TIMEOUT)
+            .with_function_status("PMIx_Get", PMIX_SUCCESS);
+        {
+            let _guard = MockGuard::with_config(config);
+            assert!(is_mock_enabled());
+            assert_eq!(get_mock_status("PMIx_Publish"), PMIX_ERR_TIMEOUT);
+            assert_eq!(get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+        }
+        assert!(!is_mock_enabled());
+    }
+
+    #[test]
+    fn test_enable_resets_state() {
+        // Enable, set some state, disable, re-enable — state should be clean
+        enable_mock_ffi();
+        mock_store_value("key1", b"val1", PMIX_STRING);
+        disable_mock_ffi();
+        enable_mock_ffi();
+        assert!(!mock_key_exists("key1"));
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_double_enable_is_idempotent() {
+        enable_mock_ffi();
+        enable_mock_ffi();
+        assert!(is_mock_enabled());
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_double_disable_is_safe() {
+        enable_mock_ffi();
+        disable_mock_ffi();
+        disable_mock_ffi(); // Should not panic
+        assert!(!is_mock_enabled());
+    }
+
+    // ── MockConfig tests ───────────────────────────────────────────────────
+
+    #[test]
     fn test_mock_config_default() {
         let config = MockConfig::new();
         config.apply();
@@ -540,6 +822,46 @@ mod tests {
     }
 
     #[test]
+    fn test_mock_multiple_overrides() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_Publish", PMIX_SUCCESS)
+            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
+            .with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT)
+            .with_function_status("PMIx_Unpublish", PMIX_ERR_DUPLICATE_KEY);
+        config.apply();
+        assert_eq!(get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+        assert_eq!(get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
+        assert_eq!(get_mock_status("PMIx_Fence"), PMIX_ERR_TIMEOUT);
+        assert_eq!(get_mock_status("PMIx_Unpublish"), PMIX_ERR_DUPLICATE_KEY);
+    }
+
+    #[test]
+    fn test_mock_config_override_takes_precedence() {
+        let config = MockConfig::new()
+            .with_default_status(PMIX_ERR_NOMEM)
+            .with_function_status("PMIx_Get", PMIX_SUCCESS);
+        config.apply();
+        assert_eq!(get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+        assert_eq!(get_mock_status("PMIx_Publish"), PMIX_ERR_NOMEM);
+    }
+
+    #[test]
+    fn test_mock_config_chaining() {
+        let config = MockConfig::new()
+            .with_default_status(PMIX_SUCCESS)
+            .with_function_status("A", PMIX_ERR_INIT)
+            .with_function_status("B", PMIX_ERR_TIMEOUT)
+            .with_function_status("C", PMIX_ERR_BAD_PARAM);
+        config.apply();
+        assert_eq!(get_mock_status("A"), PMIX_ERR_INIT);
+        assert_eq!(get_mock_status("B"), PMIX_ERR_TIMEOUT);
+        assert_eq!(get_mock_status("C"), PMIX_ERR_BAD_PARAM);
+        assert_eq!(get_mock_status("D"), PMIX_SUCCESS);
+    }
+
+    // ── Key-value store tests ──────────────────────────────────────────────
+
+    #[test]
     fn test_mock_store_and_retrieve() {
         mock_store_value("test_key", b"test_value", PMIX_STRING);
         assert!(mock_key_exists("test_key"));
@@ -556,37 +878,6 @@ mod tests {
         mock_clear_store();
         assert!(!mock_key_exists("key1"));
         assert!(!mock_key_exists("key2"));
-    }
-
-    #[test]
-    fn test_mock_status_constants() {
-        assert_eq!(PMIX_SUCCESS, 0);
-        assert_eq!(PMIX_ERR_INIT, -31);
-        assert_eq!(PMIX_ERR_NOT_FOUND, -46);
-        assert_eq!(PMIX_ERR_TIMEOUT, -24);
-        assert_eq!(PMIX_ERR_DUPLICATE_KEY, -53);
-    }
-
-    #[test]
-    fn test_mock_data_type_constants() {
-        assert_eq!(PMIX_BOOL, 0);
-        assert_eq!(PMIX_INT, 1);
-        assert_eq!(PMIX_STRING, 2);
-        assert_eq!(PMIX_SIZE, 3);
-    }
-
-    #[test]
-    fn test_mock_guard_with_config() {
-        let config = MockConfig::new()
-            .with_default_status(PMIX_ERR_TIMEOUT)
-            .with_function_status("PMIx_Get", PMIX_SUCCESS);
-        {
-            let _guard = MockGuard::with_config(config);
-            assert!(is_mock_enabled());
-            assert_eq!(get_mock_status("PMIx_Publish"), PMIX_ERR_TIMEOUT);
-            assert_eq!(get_mock_status("PMIx_Get"), PMIX_SUCCESS);
-        }
-        assert!(!is_mock_enabled());
     }
 
     #[test]
@@ -613,16 +904,652 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_multiple_overrides() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Publish", PMIX_SUCCESS)
-            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
-            .with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT)
-            .with_function_status("PMIx_Unpublish", PMIX_ERR_DUPLICATE_KEY);
-        config.apply();
-        assert_eq!(get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
-        assert_eq!(get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
-        assert_eq!(get_mock_status("PMIx_Fence"), PMIX_ERR_TIMEOUT);
-        assert_eq!(get_mock_status("PMIx_Unpublish"), PMIX_ERR_DUPLICATE_KEY);
+    fn test_mock_store_overwrite() {
+        mock_store_value("key", b"first", PMIX_STRING);
+        assert!(mock_key_exists("key"));
+        mock_store_value("key", b"second", PMIX_INT);
+        assert!(mock_key_exists("key"));
+        let store = mock_get_store();
+        let (val, dtype) = &store["key"];
+        assert_eq!(val.as_slice(), b"second");
+        assert_eq!(*dtype, PMIX_INT);
+        mock_clear_store();
+    }
+
+    #[test]
+    fn test_mock_store_count() {
+        assert_eq!(mock_store_count(), 0);
+        mock_store_value("a", b"1", PMIX_STRING);
+        assert_eq!(mock_store_count(), 1);
+        mock_store_value("b", b"2", PMIX_STRING);
+        assert_eq!(mock_store_count(), 2);
+        mock_remove_value("a");
+        assert_eq!(mock_store_count(), 1);
+        mock_clear_store();
+    }
+
+    #[test]
+    fn test_mock_get_store() {
+        mock_store_value("k1", b"v1", PMIX_STRING);
+        mock_store_value("k2", b"v2", PMIX_INT);
+        let store = mock_get_store();
+        assert_eq!(store.len(), 2);
+        assert!(store.contains_key("k1"));
+        assert!(store.contains_key("k2"));
+        mock_clear_store();
+    }
+
+    #[test]
+    fn test_mock_remove_nonexistent_key() {
+        mock_remove_value("does_not_exist");
+        assert!(!mock_key_exists("does_not_exist"));
+    }
+
+    #[test]
+    fn test_mock_store_binary_data() {
+        let binary = vec![0, 1, 2, 255, 128, 64, 32, 16];
+        mock_store_value("binary_key", &binary, PMIX_BYTE_OBJECT);
+        let store = mock_get_store();
+        let (val, _) = &store["binary_key"];
+        assert_eq!(val.as_slice(), binary.as_slice());
+        mock_clear_store();
+    }
+
+    // ── Status constant tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_mock_status_constants() {
+        assert_eq!(PMIX_SUCCESS, 0);
+        assert_eq!(PMIX_ERR_INIT, -31);
+        assert_eq!(PMIX_ERR_NOT_FOUND, -46);
+        assert_eq!(PMIX_ERR_TIMEOUT, -24);
+        assert_eq!(PMIX_ERR_DUPLICATE_KEY, -53);
+    }
+
+    #[test]
+    fn test_mock_status_constants_extended() {
+        assert_eq!(PMIX_ERR_BAD_PARAM, -27);
+        assert_eq!(PMIX_ERR_NOMEM, -32);
+        assert_eq!(PMIX_ERROR, -1);
+    }
+
+    #[test]
+    fn test_mock_status_negative_values() {
+        assert!(PMIX_ERR_INIT < 0);
+        assert!(PMIX_ERR_NOT_FOUND < 0);
+        assert!(PMIX_SUCCESS >= 0);
+    }
+
+    // ── Data type constant tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_mock_data_type_constants() {
+        assert_eq!(PMIX_BOOL, 0);
+        assert_eq!(PMIX_INT, 1);
+        assert_eq!(PMIX_STRING, 2);
+        assert_eq!(PMIX_SIZE, 3);
+    }
+
+    #[test]
+    fn test_mock_data_type_constants_extended() {
+        assert_eq!(PMIX_POINTER, 4);
+        assert_eq!(PMIX_RANGE, 5);
+        assert_eq!(PMIX_PROC, 6);
+        assert_eq!(PMIX_UCHAR, 7);
+        assert_eq!(PMIX_CHAR, 8);
+        assert_eq!(PMIX_SHORT, 9);
+        assert_eq!(PMIX_LONG, 10);
+        assert_eq!(PMIX_UINT, 11);
+    }
+
+    #[test]
+    fn test_mock_data_type_numeric_types() {
+        assert_eq!(PMIX_FLOAT, 13);
+        assert_eq!(PMIX_DOUBLE, 14);
+        assert_eq!(PMIX_LDOUBLE, 15);
+        assert_eq!(PMIX_UINT16, 17);
+        assert_eq!(PMIX_INT16, 18);
+        assert_eq!(PMIX_UINT32, 19);
+        assert_eq!(PMIX_INT32, 20);
+        assert_eq!(PMIX_UINT64, 21);
+        assert_eq!(PMIX_INT64, 22);
+    }
+
+    #[test]
+    fn test_mock_data_type_array_types() {
+        assert_eq!(PMIX_STRING_ARRAY, 23);
+        assert_eq!(PMIX_BOOL_ARRAY, 28);
+        assert_eq!(PMIX_SIZE_ARRAY, 36);
+        assert_eq!(PMIX_INT64_ARRAY, 75);
+        assert_eq!(PMIX_UINT64_ARRAY, 79);
+        assert_eq!(PMIX_FLOAT_ARRAY, 80);
+        assert_eq!(PMIX_DOUBLE_ARRAY, 81);
+    }
+
+    #[test]
+    fn test_mock_data_type_max_type() {
+        assert_eq!(PMIX_MAX_TYPE, 106);
+        // All defined types should be less than MAX_TYPE
+        assert!(PMIX_STRING < PMIX_MAX_TYPE);
+        assert!(PMIX_BYTE_OBJECT < PMIX_MAX_TYPE);
+        assert!(PMIX_SEMANTICS < PMIX_MAX_TYPE);
+    }
+
+    #[test]
+    fn test_mock_data_type_special_types() {
+        assert_eq!(PMIX_BUFFER, 38);
+        assert_eq!(PMIX_BYTE_OBJECT, 83);
+        assert_eq!(PMIX_INFO, 37);
+        assert_eq!(PMIX_ARRAY, 39);
+        assert_eq!(PMIX_SEMANTICS, 103);
+        assert_eq!(PMIX_PERSISTENCE, 104);
+        assert_eq!(PMIX_DATA_RANGE, 105);
+    }
+
+    // ── Mock data serialization FFI tests ──────────────────────────────────
+
+    #[test]
+    fn test_mock_data_buffer_create_returns_sentinel() {
+        enable_mock_ffi();
+        let ptr = mock_data_buffer_create();
+        assert!(!ptr.is_null());
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_buffer_create_null_when_disabled() {
+        disable_mock_ffi();
+        let ptr = mock_data_buffer_create();
+        assert!(ptr.is_null());
+    }
+
+    #[test]
+    fn test_mock_data_buffer_release_returns_success() {
+        enable_mock_ffi();
+        let status = mock_data_buffer_release(std::ptr::null_mut());
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_buffer_release_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_data_buffer_release(std::ptr::null_mut());
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_byte_object_construct_returns_success() {
+        enable_mock_ffi();
+        let status = mock_byte_object_construct();
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_byte_object_construct_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_byte_object_construct();
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_byte_object_destruct_returns_success() {
+        enable_mock_ffi();
+        let status = mock_byte_object_destruct();
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_pack_returns_success() {
+        enable_mock_ffi();
+        let status = mock_data_pack(1, PMIX_STRING);
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_pack_bad_param_negative_vals() {
+        enable_mock_ffi();
+        let status = mock_data_pack(-1, PMIX_STRING);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_pack_bad_param_invalid_type() {
+        enable_mock_ffi();
+        let status = mock_data_pack(1, PMIX_MAX_TYPE);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_pack_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_data_pack(1, PMIX_STRING);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_pack_zero_vals_ok() {
+        enable_mock_ffi();
+        let status = mock_data_pack(0, PMIX_INT);
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_unpack_returns_success() {
+        enable_mock_ffi();
+        let mut count: i32 = 0;
+        let status = mock_data_unpack(&mut count, PMIX_STRING);
+        assert_eq!(status, PMIX_SUCCESS);
+        assert_eq!(count, 1);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_unpack_bad_param_invalid_type() {
+        enable_mock_ffi();
+        let mut count: i32 = 0;
+        let status = mock_data_unpack(&mut count, PMIX_MAX_TYPE);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_unpack_null_max_num_values() {
+        enable_mock_ffi();
+        let status = mock_data_unpack(std::ptr::null_mut(), PMIX_INT);
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_unpack_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let mut count: i32 = 0;
+        let status = mock_data_unpack(&mut count, PMIX_STRING);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_unload_returns_success() {
+        enable_mock_ffi();
+        let status = mock_data_unload();
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_unload_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_data_unload();
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_load_returns_success() {
+        enable_mock_ffi();
+        let status = mock_data_load(100);
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_load_bad_param_zero_size() {
+        enable_mock_ffi();
+        let status = mock_data_load(0);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_load_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_data_load(100);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_copy_returns_success() {
+        enable_mock_ffi();
+        let status = mock_data_copy(PMIX_STRING);
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_copy_bad_param_invalid_type() {
+        enable_mock_ffi();
+        let status = mock_data_copy(PMIX_MAX_TYPE);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_copy_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_data_copy(PMIX_STRING);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_copy_payload_returns_success() {
+        enable_mock_ffi();
+        let status = mock_data_copy_payload(256);
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_copy_payload_bad_param_zero_size() {
+        enable_mock_ffi();
+        let status = mock_data_copy_payload(0);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_copy_payload_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_data_copy_payload(256);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_print_returns_success() {
+        enable_mock_ffi();
+        let status = mock_data_print(PMIX_STRING);
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_print_bad_param_invalid_type() {
+        enable_mock_ffi();
+        let status = mock_data_print(PMIX_MAX_TYPE);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_print_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_data_print(PMIX_STRING);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_embed_returns_success() {
+        enable_mock_ffi();
+        let status = mock_data_embed();
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_embed_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_data_embed();
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_compress_returns_success() {
+        enable_mock_ffi();
+        let mut out_len: usize = 0;
+        let status = mock_data_compress(1000, &mut out_len);
+        assert_eq!(status, PMIX_SUCCESS);
+        // ~70% compression ratio
+        assert_eq!(out_len, 700);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_compress_bad_param_zero_input() {
+        enable_mock_ffi();
+        let mut out_len: usize = 0;
+        let status = mock_data_compress(0, &mut out_len);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_compress_null_output() {
+        enable_mock_ffi();
+        let status = mock_data_compress(100, std::ptr::null_mut());
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_compress_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let mut out_len: usize = 0;
+        let status = mock_data_compress(100, &mut out_len);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_data_decompress_returns_success() {
+        enable_mock_ffi();
+        let mut out_len: usize = 0;
+        let status = mock_data_decompress(700, &mut out_len);
+        assert_eq!(status, PMIX_SUCCESS);
+        assert_eq!(out_len, 700);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_decompress_bad_param_zero_input() {
+        enable_mock_ffi();
+        let mut out_len: usize = 0;
+        let status = mock_data_decompress(0, &mut out_len);
+        assert_eq!(status, PMIX_ERR_BAD_PARAM);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_decompress_returns_err_init_when_disabled() {
+        disable_mock_ffi();
+        let mut out_len: usize = 0;
+        let status = mock_data_decompress(700, &mut out_len);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI status override integration tests ─────────────────────────
+
+    #[test]
+    fn test_mock_data_pack_with_override() {
+        let config =
+            MockConfig::new().with_function_status("PMIx_Data_pack", PMIX_ERR_PACK_FAILURE);
+        {
+            let _guard = MockGuard::with_config(config);
+            let status = mock_data_pack(1, PMIX_STRING);
+            assert_eq!(status, PMIX_ERR_PACK_FAILURE);
+        }
+    }
+
+    #[test]
+    fn test_mock_data_unpack_with_override() {
+        let config =
+            MockConfig::new().with_function_status("PMIx_Data_unpack", PMIX_ERR_UNPACK_FAILURE);
+        {
+            let _guard = MockGuard::with_config(config);
+            let mut count: i32 = 0;
+            let status = mock_data_unpack(&mut count, PMIX_INT);
+            assert_eq!(status, PMIX_ERR_UNPACK_FAILURE);
+        }
+    }
+
+    #[test]
+    fn test_mock_data_compress_with_override() {
+        let config = MockConfig::new().with_function_status("PMIx_Data_compress", PMIX_ERR_NOMEM);
+        {
+            let _guard = MockGuard::with_config(config);
+            let mut out_len: usize = 0;
+            let status = mock_data_compress(100, &mut out_len);
+            assert_eq!(status, PMIX_ERR_NOMEM);
+        }
+    }
+
+    #[test]
+    fn test_mock_all_serialization_functions_enabled() {
+        let _guard = MockGuard::new();
+        // All 13 mock functions should return PMIX_SUCCESS when enabled
+        assert!(!mock_data_buffer_create().is_null());
+        assert_eq!(mock_data_buffer_release(std::ptr::null_mut()), PMIX_SUCCESS);
+        assert_eq!(mock_byte_object_construct(), PMIX_SUCCESS);
+        assert_eq!(mock_byte_object_destruct(), PMIX_SUCCESS);
+        assert_eq!(mock_data_pack(1, PMIX_STRING), PMIX_SUCCESS);
+        assert_eq!(mock_data_unpack(&mut 0i32, PMIX_INT), PMIX_SUCCESS);
+        assert_eq!(mock_data_unload(), PMIX_SUCCESS);
+        assert_eq!(mock_data_load(100), PMIX_SUCCESS);
+        assert_eq!(mock_data_copy(PMIX_STRING), PMIX_SUCCESS);
+        assert_eq!(mock_data_copy_payload(256), PMIX_SUCCESS);
+        assert_eq!(mock_data_print(PMIX_INT), PMIX_SUCCESS);
+        assert_eq!(mock_data_embed(), PMIX_SUCCESS);
+        assert_eq!(mock_data_compress(100, &mut 0usize), PMIX_SUCCESS);
+        assert_eq!(mock_data_decompress(100, &mut 0usize), PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_all_serialization_functions_disabled() {
+        disable_mock_ffi();
+        // All 13 mock functions should return PMIX_ERR_INIT when disabled
+        assert!(mock_data_buffer_create().is_null());
+        assert_eq!(
+            mock_data_buffer_release(std::ptr::null_mut()),
+            PMIX_ERR_INIT
+        );
+        assert_eq!(mock_byte_object_construct(), PMIX_ERR_INIT);
+        assert_eq!(mock_byte_object_destruct(), PMIX_ERR_INIT);
+        assert_eq!(mock_data_pack(1, PMIX_STRING), PMIX_ERR_INIT);
+        assert_eq!(mock_data_unpack(&mut 0i32, PMIX_INT), PMIX_ERR_INIT);
+        assert_eq!(mock_data_unload(), PMIX_ERR_INIT);
+        assert_eq!(mock_data_load(100), PMIX_ERR_INIT);
+        assert_eq!(mock_data_copy(PMIX_STRING), PMIX_ERR_INIT);
+        assert_eq!(mock_data_copy_payload(256), PMIX_ERR_INIT);
+        assert_eq!(mock_data_print(PMIX_INT), PMIX_ERR_INIT);
+        assert_eq!(mock_data_embed(), PMIX_ERR_INIT);
+        assert_eq!(mock_data_compress(100, &mut 0usize), PMIX_ERR_INIT);
+        assert_eq!(mock_data_decompress(100, &mut 0usize), PMIX_ERR_INIT);
+    }
+
+    // ── Thread-local isolation tests ───────────────────────────────────────
+
+    #[test]
+    fn test_mock_thread_local_isolation() {
+        // Verify that mock state is thread-local by checking that
+        // enable/disable on one thread doesn't affect another
+        let handle = std::thread::spawn(|| {
+            enable_mock_ffi();
+            assert!(is_mock_enabled());
+            disable_mock_ffi();
+            assert!(!is_mock_enabled());
+        });
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_mock_store_thread_local_isolation() {
+        let handle = std::thread::spawn(|| {
+            enable_mock_ffi();
+            mock_store_value("thread_key", b"thread_val", PMIX_STRING);
+            assert!(mock_key_exists("thread_key"));
+            disable_mock_ffi();
+        });
+        handle.join().unwrap();
+        // Main thread should not see the thread-local key
+        assert!(!mock_key_exists("thread_key"));
+    }
+
+    // ── Edge case tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_mock_store_many_keys() {
+        enable_mock_ffi();
+        for i in 0..100 {
+            let key = format!("key_{}", i);
+            mock_store_value(&key, b"value", PMIX_STRING);
+        }
+        assert_eq!(mock_store_count(), 100);
+        for i in 0..100 {
+            let key = format!("key_{}", i);
+            assert!(mock_key_exists(&key));
+        }
+        mock_clear_store();
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_pack_all_valid_types() {
+        enable_mock_ffi();
+        // Test packing with various valid data types
+        for dtype in 0..PMIX_MAX_TYPE {
+            let status = mock_data_pack(1, dtype);
+            assert_eq!(status, PMIX_SUCCESS, "Failed for dtype={}", dtype);
+        }
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_data_copy_all_valid_types() {
+        enable_mock_ffi();
+        for dtype in 0..PMIX_MAX_TYPE {
+            let status = mock_data_copy(dtype);
+            assert_eq!(status, PMIX_SUCCESS, "Failed for dtype={}", dtype);
+        }
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_compress_various_sizes() {
+        enable_mock_ffi();
+        for size in [1, 10, 100, 1000, 10000] {
+            let mut out_len: usize = 0;
+            let status = mock_data_compress(size, &mut out_len);
+            assert_eq!(status, PMIX_SUCCESS);
+            // Verify ~70% compression
+            let expected = (size as f64 * 0.7) as usize;
+            assert_eq!(
+                out_len, expected,
+                "Size {} -> {} (expected {})",
+                size, out_len, expected
+            );
+        }
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_decompress_restores_size() {
+        enable_mock_ffi();
+        for size in [1, 100, 1000, 10000] {
+            let mut out_len: usize = 0;
+            let status = mock_data_decompress(size, &mut out_len);
+            assert_eq!(status, PMIX_SUCCESS);
+            assert_eq!(out_len, size);
+        }
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_guard_nested_scopes() {
+        assert!(!is_mock_enabled());
+        {
+            let _g1 = MockGuard::new();
+            assert!(is_mock_enabled());
+            {
+                let _g2 = MockGuard::new();
+                assert!(is_mock_enabled());
+            }
+            // g2 dropped, mock disabled
+            assert!(!is_mock_enabled());
+        }
+        // g1 dropped, mock disabled
+        assert!(!is_mock_enabled());
     }
 }

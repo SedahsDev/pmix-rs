@@ -4378,7 +4378,10 @@ mod tests {
             Err(status)
         };
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrNotFound));
+        assert_eq!(
+            result.unwrap_err(),
+            PmixStatus::Known(PmixError::ErrNotFound)
+        );
     }
 
     /// Test get_nb callback bridge with init error.
@@ -4705,7 +4708,10 @@ mod tests {
             Err(status)
         };
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrTimeout));
+        assert_eq!(
+            result.unwrap_err(),
+            PmixStatus::Known(PmixError::ErrTimeout)
+        );
     }
 
     /// Test fence_nb with mock — procs and info combined.
@@ -4973,7 +4979,10 @@ mod tests {
 
         assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_ERR_INIT);
         assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_ERR_TIMEOUT);
+        assert_eq!(
+            mock_ffi::get_mock_status("PMIx_Unpublish"),
+            PMIX_ERR_TIMEOUT
+        );
     }
 
     /// Test mock with multiple key-value pairs and selective removal.
@@ -5304,20 +5313,41 @@ mod tests {
     fn test_mock_info_ptr_sizes() {
         let _guard = MockGuard::new();
         // Size 0 — null pointer
-        let info0 = Info { handle: std::ptr::null_mut(), len: 0 };
-        let (p0, n0) = if info0.len > 0 { (info0.handle as *const ffi::pmix_info_t, info0.len) } else { (std::ptr::null(), 0) };
+        let info0 = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let (p0, n0) = if info0.len > 0 {
+            (info0.handle as *const ffi::pmix_info_t, info0.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
         assert!(p0.is_null());
         assert_eq!(n0, 0);
 
         // Size 1 — non-null pointer
-        let info1 = Info { handle: 0x1usize as *mut ffi::pmix_info_t, len: 1 };
-        let (p1, n1) = if info1.len > 0 { (info1.handle as *const ffi::pmix_info_t, info1.len) } else { (std::ptr::null(), 0) };
+        let info1 = Info {
+            handle: 0x1usize as *mut ffi::pmix_info_t,
+            len: 1,
+        };
+        let (p1, n1) = if info1.len > 0 {
+            (info1.handle as *const ffi::pmix_info_t, info1.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
         assert!(!p1.is_null());
         assert_eq!(n1, 1);
 
         // Size 100 — non-null pointer
-        let info100 = Info { handle: 0x2usize as *mut ffi::pmix_info_t, len: 100 };
-        let (p100, n100) = if info100.len > 0 { (info100.handle as *const ffi::pmix_info_t, info100.len) } else { (std::ptr::null(), 0) };
+        let info100 = Info {
+            handle: 0x2usize as *mut ffi::pmix_info_t,
+            len: 100,
+        };
+        let (p100, n100) = if info100.len > 0 {
+            (info100.handle as *const ffi::pmix_info_t, info100.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
         assert!(!p100.is_null());
         assert_eq!(n100, 100);
     }
