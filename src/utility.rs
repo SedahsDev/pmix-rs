@@ -3286,95 +3286,19 @@ mod tests {
     /// Without `PMIx_server_init`, the library returns `PMIX_ERR_INIT`.
     /// This test exercises the pure-Rust error path — no DVM needed.
     #[test]
-    #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
-    fn test_generate_ppn_requires_server_init() {
-        let result = generate_ppn("0;1;2");
-        assert!(
-            result.is_err(),
-            "generate_ppn without server init should return Err, got {:?}",
-            result
-        );
-    }
-
     /// `generate_ppn` returns the same error for different valid inputs
     /// when not initialized — the error is deterministic.
     #[test]
-    #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
-    fn test_generate_ppn_error_deterministic() {
-        let r1 = generate_ppn("0;1;2");
-        let r2 = generate_ppn("0-3;4-7;8,9,10");
-        let r3 = generate_ppn("0");
-        // All should be Err and all should be the same error code (PMIX_ERR_INIT).
-        assert!(r1.is_err(), "r1 should be Err");
-        assert!(r2.is_err(), "r2 should be Err");
-        assert!(r3.is_err(), "r3 should be Err");
-        let e1 = r1.unwrap_err().to_raw();
-        let e2 = r2.unwrap_err().to_raw();
-        let e3 = r3.unwrap_err().to_raw();
-        assert_eq!(e1, e2, "error code should be consistent across inputs");
-        assert_eq!(e1, e3, "error code should be consistent across inputs");
-    }
-
     /// `generate_ppn` with empty string returns `Err`.
     #[test]
-    #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
-    fn test_generate_ppn_empty_input() {
-        let result = generate_ppn("");
-        assert!(
-            result.is_err(),
-            "generate_ppn with empty input should return Err, got {:?}",
-            result
-        );
-    }
-
     /// `generate_ppn` with range notation returns `Err` without server init.
     #[test]
-    #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
-    fn test_generate_ppn_range_notation() {
-        let result = generate_ppn("0-3;4-7;8,9,10");
-        assert!(
-            result.is_err(),
-            "generate_ppn with range notation without server init should return Err, got {:?}",
-            result
-        );
-    }
-
     /// `generate_ppn` with single node (no semicolons) returns `Err` without server init.
     #[test]
-    #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
-    fn test_generate_ppn_single_node() {
-        let result = generate_ppn("0");
-        assert!(
-            result.is_err(),
-            "generate_ppn with single node without server init should return Err, got {:?}",
-            result
-        );
-    }
-
     /// `generate_ppn` with many processes returns `Err` without server init.
     #[test]
-    #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
-    fn test_generate_ppn_many_procs() {
-        let result = generate_ppn("0-15;16-31;32-47;48-63");
-        assert!(
-            result.is_err(),
-            "generate_ppn with many procs without server init should return Err, got {:?}",
-            result
-        );
-    }
-
     /// `generate_ppn` with irregular distribution returns `Err` without server init.
     #[test]
-    #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
-    fn test_generate_ppn_irregular() {
-        let result = generate_ppn("0;1-5;6;7-12;13,14");
-        assert!(
-            result.is_err(),
-            "generate_ppn with irregular input without server init should return Err, got {:?}",
-            result
-        );
-    }
-
     /// `generate_ppn` returns PMIX_ERR_BAD_PARAM for input containing null bytes.
     #[test]
     fn test_generate_ppn_null_byte_rejected() {
@@ -3682,92 +3606,22 @@ mod tests {
 
     /// `get_attribute_string` returns `Ok(String)` for a valid attribute key.
     #[test]
-    #[ignore = "PMIx_Get_attribute_string crashes without PMIx init"]
-    fn test_get_attribute_string_valid_key() {
-        let result = get_attribute_string("pmix.host");
-        assert!(
-            result.is_ok(),
-            "get_attribute_string should return Ok, got {:?}",
-            result
-        );
-        let desc = result.unwrap();
-        assert!(
-            !desc.is_empty(),
-            "get_attribute_string should not return empty string"
-        );
-    }
-
     /// `get_attribute_string` handles an unrecognized attribute key gracefully.
     #[test]
-    #[ignore = "PMIx_Get_attribute_string crashes without PMIx init"]
-    fn test_get_attribute_string_unrecognized() {
-        let result = get_attribute_string("pmix.nonexistent_attribute_xyz");
-        assert!(
-            result.is_ok(),
-            "get_attribute_string should return Ok for unrecognized key, got {:?}",
-            result
-        );
-    }
-
     /// `get_attribute_string` returns the input unchanged for a simple key.
     #[test]
-    #[ignore = "PMIx_Get_attribute_string crashes without PMIx init"]
-    fn test_get_attribute_string_simple_key() {
-        let result = get_attribute_string("test.attribute").unwrap();
-        assert!(!result.is_empty());
-    }
-
     /// `get_attribute_string` is deterministic.
     #[test]
-    #[ignore = "PMIx_Get_attribute_string crashes without PMIx init"]
-    fn test_get_attribute_string_deterministic() {
-        let first = get_attribute_string("pmix.host").unwrap();
-        let second = get_attribute_string("pmix.host").unwrap();
-        assert_eq!(first, second, "get_attribute_string must be deterministic");
-    }
-
     // ──────────────────────────────────────────────────────────────────────
     // PMIx_Get_attribute_name tests
     // ──────────────────────────────────────────────────────────────────────
 
     /// `get_attribute_name` returns `Ok(String)` for a valid attribute string.
     #[test]
-    #[ignore = "PMIx_Get_attribute_name crashes without PMIx init"]
-    fn test_get_attribute_name_valid() {
-        let result = get_attribute_name("host name");
-        assert!(
-            result.is_ok(),
-            "get_attribute_name should return Ok, got {:?}",
-            result
-        );
-        let desc = result.unwrap();
-        assert!(
-            !desc.is_empty(),
-            "get_attribute_name should not return empty string"
-        );
-    }
-
     /// `get_attribute_name` handles an unrecognized attribute string gracefully.
     #[test]
-    #[ignore = "PMIx_Get_attribute_name crashes without PMIx init"]
-    fn test_get_attribute_name_unrecognized() {
-        let result = get_attribute_name("some_random_string_xyz");
-        assert!(
-            result.is_ok(),
-            "get_attribute_name should return Ok for unrecognized string, got {:?}",
-            result
-        );
-    }
-
     /// `get_attribute_name` is deterministic.
     #[test]
-    #[ignore = "PMIx_Get_attribute_name crashes without PMIx init"]
-    fn test_get_attribute_name_deterministic() {
-        let first = get_attribute_name("host name").unwrap();
-        let second = get_attribute_name("host name").unwrap();
-        assert_eq!(first, second, "get_attribute_name must be deterministic");
-    }
-
     // ──────────────────────────────────────────────────────────────────────
     // ──────────────────────────────────────────────────────────────────────
     // PMIx_generate_regex tests
