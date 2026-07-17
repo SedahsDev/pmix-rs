@@ -33,6 +33,8 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::os::raw::c_ulong;
+use std::os::unix::raw::{gid_t, uid_t};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock state — thread-local to avoid race conditions in parallel tests
@@ -720,6 +722,272 @@ pub fn mock_get_store() -> HashMap<String, (Vec<u8>, u32)> {
 /// Get the count of stored keys in the mock datastore.
 pub fn mock_store_count() -> usize {
     KEY_VALUE_STORE.with(|cell| cell.borrow().len())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mock server FFI implementations
+// ─────────────────────────────────────────────────────────────────────────────
+// These provide controlled mock behavior for the PMIx server-side FFI
+// functions used by server.rs. Each returns the configured status
+// (default PMIX_SUCCESS) so tests can exercise happy-path code paths
+// without a real PMIx daemon.
+
+/// Mock implementation of `PMIx_server_init()`.
+pub fn mock_server_init(
+    _module: *mut std::ffi::c_void,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_init")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_finalize()`.
+pub fn mock_server_finalize() -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_finalize")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_register_nspace()`.
+pub fn mock_server_register_nspace(
+    _nspace: *const std::os::raw::c_char,
+    _nprocs: i32,
+    _info: *mut std::ffi::c_void,
+    _info_len: c_ulong,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_register_nspace")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_register_client()`.
+pub fn mock_server_register_client(
+    _proc: *const std::ffi::c_void,
+    _credential_size: *mut usize,
+    _credential: *mut *mut std::os::raw::c_char,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_register_client")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_publish()`.
+pub fn mock_server_publish(
+    _proc: *const std::ffi::c_void,
+    _key: *const std::os::raw::c_char,
+    _val: *const std::ffi::c_void,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_publish")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_lookup()`.
+pub fn mock_server_lookup(
+    _cred: *const std::ffi::c_void,
+    _key: *const std::os::raw::c_char,
+    _scope: *const std::ffi::c_void,
+    _scope_size: usize,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _val: *mut *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_lookup")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_unpublish()` (delete).
+pub fn mock_server_delete(
+    _proc: *const std::ffi::c_void,
+    _key: *const std::os::raw::c_char,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_delete")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_fence()`.
+pub fn mock_server_fence(
+    _procs: *const std::ffi::c_void,
+    _nprocs: usize,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _retvals: *mut *mut std::ffi::c_void,
+    _nretvals: *mut usize,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_fence")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_fence_nb()`.
+pub fn mock_server_fence_nb(
+    _procs: *const std::ffi::c_void,
+    _nprocs: usize,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_fence_nb")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_dmodex_request()`.
+pub fn mock_server_dmodex_request(
+    _proc: *const std::ffi::c_void,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_dmodex_request")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_setup_application()`.
+pub fn mock_server_setup_application(
+    _nspace: *const std::os::raw::c_char,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_setup_application")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_setup_local_support()`.
+pub fn mock_server_setup_local_support(
+    _nspace: *const std::os::raw::c_char,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_setup_local_support")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_register_resources()`.
+pub fn mock_server_register_resources(
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_register_resources")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_deregister_resources()`.
+pub fn mock_server_deregister_resources(
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_deregister_resources")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_tool_attach_to_server()`.
+pub fn mock_server_tool_attach_to_server(
+    _uid: uid_t,
+    _gid: gid_t,
+    _credential: *const std::ffi::c_void,
+    _credential_size: usize,
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_tool_attach_to_server")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_get_credential()`.
+pub fn mock_server_get_credential(
+    _info: *mut std::ffi::c_void,
+    _info_len: usize,
+    _credential: *mut *mut std::os::raw::c_char,
+    _credential_size: *mut usize,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_get_credential")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_define_process_set()`.
+pub fn mock_server_define_process_set(
+    _members: *const std::ffi::c_void,
+    _nmembers: usize,
+    _pset_name: *const std::os::raw::c_char,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_define_process_set")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_server_delete_process_set()`.
+pub fn mock_server_delete_process_set(
+    _pset_name: *mut std::os::raw::c_char,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_server_delete_process_set")
+    } else {
+        PMIX_ERR_INIT
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1551,5 +1819,288 @@ mod tests {
         }
         // g1 dropped, mock disabled
         assert!(!is_mock_enabled());
+    }
+
+    // ── Mock server FFI tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_mock_server_init_success() {
+        enable_mock_ffi();
+        let status = mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0);
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_init_err_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0);
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_server_finalize_success() {
+        enable_mock_ffi();
+        let status = mock_server_finalize();
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_finalize_err_when_disabled() {
+        disable_mock_ffi();
+        let status = mock_server_finalize();
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_server_register_nspace_success() {
+        enable_mock_ffi();
+        let nspace = std::ffi::CString::new("test").unwrap();
+        let status = mock_server_register_nspace(
+            nspace.as_ptr(), 1, std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_register_nspace_err_when_disabled() {
+        disable_mock_ffi();
+        let nspace = std::ffi::CString::new("test").unwrap();
+        let status = mock_server_register_nspace(
+            nspace.as_ptr(), 1, std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+        );
+        assert_eq!(status, PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_server_publish_success() {
+        enable_mock_ffi();
+        let key = std::ffi::CString::new("k").unwrap();
+        let status = mock_server_publish(
+            std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0,
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_lookup_success() {
+        enable_mock_ffi();
+        let key = std::ffi::CString::new("k").unwrap();
+        let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let status = mock_server_lookup(
+            std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0,
+            std::ptr::null_mut(), 0, &mut val,
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_delete_success() {
+        enable_mock_ffi();
+        let key = std::ffi::CString::new("k").unwrap();
+        let status = mock_server_delete(
+            std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0,
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_fence_success() {
+        enable_mock_ffi();
+        let mut retvals: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut nretvals: usize = 0;
+        let status = mock_server_fence(
+            std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut retvals, &mut nretvals,
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_fence_nb_success() {
+        enable_mock_ffi();
+        let status = mock_server_fence_nb(
+            std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_dmodex_request_success() {
+        enable_mock_ffi();
+        let status = mock_server_dmodex_request(std::ptr::null_mut(), None, std::ptr::null_mut());
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_setup_application_success() {
+        enable_mock_ffi();
+        let nspace = std::ffi::CString::new("test").unwrap();
+        let status = mock_server_setup_application(
+            nspace.as_ptr(), std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_setup_local_support_success() {
+        enable_mock_ffi();
+        let nspace = std::ffi::CString::new("test").unwrap();
+        let status = mock_server_setup_local_support(
+            nspace.as_ptr(), std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_register_resources_success() {
+        enable_mock_ffi();
+        let status = mock_server_register_resources(
+            std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_deregister_resources_success() {
+        enable_mock_ffi();
+        let status = mock_server_deregister_resources(
+            std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_tool_attach_to_server_success() {
+        enable_mock_ffi();
+        let status = mock_server_tool_attach_to_server(
+            0, 0, std::ptr::null_mut(), 0, std::ptr::null_mut(), 0,
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_get_credential_success() {
+        enable_mock_ffi();
+        let mut cred: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let mut cred_size: usize = 0;
+        let status = mock_server_get_credential(
+            std::ptr::null_mut(), 0, &mut cred, &mut cred_size,
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_define_process_set_success() {
+        enable_mock_ffi();
+        let pset = std::ffi::CString::new("test").unwrap();
+        let status = mock_server_define_process_set(
+            std::ptr::null_mut(), 0, pset.as_ptr(),
+        );
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_delete_process_set_success() {
+        enable_mock_ffi();
+        let pset = std::ffi::CString::new("test").unwrap();
+        let status = mock_server_delete_process_set(pset.into_raw());
+        assert_eq!(status, PMIX_SUCCESS);
+        disable_mock_ffi();
+    }
+
+    #[test]
+    fn test_mock_server_init_with_override() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_server_init", PMIX_ERR_NOMEM);
+        {
+            let _guard = MockGuard::with_config(config);
+            let status = mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0);
+            assert_eq!(status, PMIX_ERR_NOMEM);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_publish_with_override() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_server_publish", PMIX_ERR_DUPLICATE_KEY);
+        {
+            let _guard = MockGuard::with_config(config);
+            let key = std::ffi::CString::new("k").unwrap();
+            let status = mock_server_publish(
+                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0,
+            );
+            assert_eq!(status, PMIX_ERR_DUPLICATE_KEY);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_lookup_with_override() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_server_lookup", PMIX_ERR_NOT_FOUND);
+        {
+            let _guard = MockGuard::with_config(config);
+            let key = std::ffi::CString::new("k").unwrap();
+            let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
+            let status = mock_server_lookup(
+                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0,
+                std::ptr::null_mut(), 0, &mut val,
+            );
+            assert_eq!(status, PMIX_ERR_NOT_FOUND);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_fence_with_override() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_server_fence", PMIX_ERR_TIMEOUT);
+        {
+            let _guard = MockGuard::with_config(config);
+            let mut retvals: *mut std::ffi::c_void = std::ptr::null_mut();
+            let mut nretvals: usize = 0;
+            let status = mock_server_fence(
+                std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut retvals, &mut nretvals,
+            );
+            assert_eq!(status, PMIX_ERR_TIMEOUT);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_all_functions_enabled() {
+        let _guard = MockGuard::new();
+        // All server mock functions return PMIX_SUCCESS when enabled
+        assert_eq!(mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0), PMIX_SUCCESS);
+        assert_eq!(mock_server_finalize(), PMIX_SUCCESS);
+        let nspace = std::ffi::CString::new("test").unwrap();
+        assert_eq!(mock_server_register_nspace(nspace.as_ptr(), 1, std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
+        let key = std::ffi::CString::new("k").unwrap();
+        assert_eq!(mock_server_publish(std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0), PMIX_SUCCESS);
+        assert_eq!(mock_server_delete(std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0), PMIX_SUCCESS);
+        assert_eq!(mock_server_fence(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut std::ptr::null_mut::<std::ffi::c_void>(), &mut 0usize), PMIX_SUCCESS);
+        assert_eq!(mock_server_fence_nb(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
+        assert_eq!(mock_server_dmodex_request(std::ptr::null_mut(), None, std::ptr::null_mut()), PMIX_SUCCESS);
+        assert_eq!(mock_server_setup_application(nspace.as_ptr(), std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
+        assert_eq!(mock_server_setup_local_support(nspace.as_ptr(), std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
+        assert_eq!(mock_server_register_resources(std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
+        assert_eq!(mock_server_deregister_resources(std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
+        assert_eq!(mock_server_tool_attach_to_server(0, 0, std::ptr::null_mut(), 0, std::ptr::null_mut(), 0), PMIX_SUCCESS);
+        assert_eq!(mock_server_get_credential(std::ptr::null_mut(), 0, &mut std::ptr::null_mut::<std::os::raw::c_char>(), &mut 0usize), PMIX_SUCCESS);
+        let pset = std::ffi::CString::new("pset").unwrap();
+        assert_eq!(mock_server_define_process_set(std::ptr::null_mut(), 0, pset.as_ptr()), PMIX_SUCCESS);
+        assert_eq!(mock_server_delete_process_set(std::ffi::CString::new("pset").unwrap().into_raw()), PMIX_SUCCESS);
     }
 }

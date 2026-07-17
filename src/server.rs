@@ -6046,4 +6046,773 @@ mod tests {
         // Without PMIx server init, finalize may fail — but should not panic.
         let _ = result;
     }
+
+    // ── Mock FFI: server_init happy path ────────────────────────────────────
+
+    #[test]
+    fn test_mock_server_init_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let status = crate::mock_ffi::mock_server_init(
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_init_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let status = crate::mock_ffi::mock_server_init(
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_server_init_with_module_ptr() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let module = PmixServerModule::default();
+        let module_ptr = module.as_c_ptr() as *mut std::ffi::c_void;
+        let status = crate::mock_ffi::mock_server_init(module_ptr, std::ptr::null_mut(), 0);
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_init_with_error_config() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_init", crate::mock_ffi::PMIX_ERR_NOMEM);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let status = crate::mock_ffi::mock_server_init(
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_NOMEM);
+        }
+    }
+
+    // ── Mock FFI: server_finalize happy path ────────────────────────────────
+
+    #[test]
+    fn test_mock_server_finalize_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let status = crate::mock_ffi::mock_server_finalize();
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_finalize_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let status = crate::mock_ffi::mock_server_finalize();
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_register_nspace happy path ─────────────────────────
+
+    #[test]
+    fn test_mock_server_register_nspace_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let nspace = std::ffi::CString::new("test.nspace").unwrap();
+        let status = crate::mock_ffi::mock_server_register_nspace(
+            nspace.as_ptr(),
+            1,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_register_nspace_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let nspace = std::ffi::CString::new("test.nspace").unwrap();
+        let status = crate::mock_ffi::mock_server_register_nspace(
+            nspace.as_ptr(),
+            1,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    #[test]
+    fn test_mock_server_register_nspace_with_error_config() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_register_nspace", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let nspace = std::ffi::CString::new("test.nspace").unwrap();
+            let status = crate::mock_ffi::mock_server_register_nspace(
+                nspace.as_ptr(),
+                1,
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        }
+    }
+
+    // ── Mock FFI: server_register_client happy path ─────────────────────────
+
+    #[test]
+    fn test_mock_server_register_client_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let mut cred_size: usize = 0;
+        let status = crate::mock_ffi::mock_server_register_client(
+            std::ptr::null_mut(),
+            &mut cred_size,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_register_client_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let mut cred_size: usize = 0;
+        let status = crate::mock_ffi::mock_server_register_client(
+            std::ptr::null_mut(),
+            &mut cred_size,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_publish happy path ─────────────────────────────────
+
+    #[test]
+    fn test_mock_server_publish_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let key = std::ffi::CString::new("test_key").unwrap();
+        let status = crate::mock_ffi::mock_server_publish(
+            std::ptr::null_mut(),
+            key.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_publish_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let key = std::ffi::CString::new("test_key").unwrap();
+        let status = crate::mock_ffi::mock_server_publish(
+            std::ptr::null_mut(),
+            key.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_lookup happy path ──────────────────────────────────
+
+    #[test]
+    fn test_mock_server_lookup_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let key = std::ffi::CString::new("test_key").unwrap();
+        let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let status = crate::mock_ffi::mock_server_lookup(
+            std::ptr::null_mut(),
+            key.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut val,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_lookup_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let key = std::ffi::CString::new("test_key").unwrap();
+        let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
+        let status = crate::mock_ffi::mock_server_lookup(
+            std::ptr::null_mut(),
+            key.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut val,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_delete happy path ──────────────────────────────────
+
+    #[test]
+    fn test_mock_server_delete_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let key = std::ffi::CString::new("test_key").unwrap();
+        let status = crate::mock_ffi::mock_server_delete(
+            std::ptr::null_mut(),
+            key.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_delete_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let key = std::ffi::CString::new("test_key").unwrap();
+        let status = crate::mock_ffi::mock_server_delete(
+            std::ptr::null_mut(),
+            key.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_fence happy path ───────────────────────────────────
+
+    #[test]
+    fn test_mock_server_fence_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let mut retvals: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut nretvals: usize = 0;
+        let status = crate::mock_ffi::mock_server_fence(
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut retvals,
+            &mut nretvals,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_fence_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let mut retvals: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut nretvals: usize = 0;
+        let status = crate::mock_ffi::mock_server_fence(
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut retvals,
+            &mut nretvals,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_fence_nb happy path ────────────────────────────────
+
+    #[test]
+    fn test_mock_server_fence_nb_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let status = crate::mock_ffi::mock_server_fence_nb(
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_fence_nb_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let status = crate::mock_ffi::mock_server_fence_nb(
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_dmodex_request happy path ──────────────────────────
+
+    #[test]
+    fn test_mock_server_dmodex_request_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let status = crate::mock_ffi::mock_server_dmodex_request(
+            std::ptr::null_mut(),
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_dmodex_request_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let status = crate::mock_ffi::mock_server_dmodex_request(
+            std::ptr::null_mut(),
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_setup_application happy path ───────────────────────
+
+    #[test]
+    fn test_mock_server_setup_application_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let nspace = std::ffi::CString::new("test.nspace").unwrap();
+        let status = crate::mock_ffi::mock_server_setup_application(
+            nspace.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_setup_application_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let nspace = std::ffi::CString::new("test.nspace").unwrap();
+        let status = crate::mock_ffi::mock_server_setup_application(
+            nspace.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_setup_local_support happy path ─────────────────────
+
+    #[test]
+    fn test_mock_server_setup_local_support_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let nspace = std::ffi::CString::new("test.nspace").unwrap();
+        let status = crate::mock_ffi::mock_server_setup_local_support(
+            nspace.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_setup_local_support_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let nspace = std::ffi::CString::new("test.nspace").unwrap();
+        let status = crate::mock_ffi::mock_server_setup_local_support(
+            nspace.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_register_resources happy path ──────────────────────
+
+    #[test]
+    fn test_mock_server_register_resources_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let status = crate::mock_ffi::mock_server_register_resources(
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_register_resources_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let status = crate::mock_ffi::mock_server_register_resources(
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_deregister_resources happy path ────────────────────
+
+    #[test]
+    fn test_mock_server_deregister_resources_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let status = crate::mock_ffi::mock_server_deregister_resources(
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_deregister_resources_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let status = crate::mock_ffi::mock_server_deregister_resources(
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_tool_attach_to_server happy path ───────────────────
+
+    #[test]
+    fn test_mock_server_tool_attach_to_server_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let status = crate::mock_ffi::mock_server_tool_attach_to_server(
+            0,
+            0,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_tool_attach_to_server_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let status = crate::mock_ffi::mock_server_tool_attach_to_server(
+            0,
+            0,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_get_credential happy path ──────────────────────────
+
+    #[test]
+    fn test_mock_server_get_credential_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let mut cred: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let mut cred_size: usize = 0;
+        let status = crate::mock_ffi::mock_server_get_credential(
+            std::ptr::null_mut(),
+            0,
+            &mut cred,
+            &mut cred_size,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_get_credential_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let mut cred: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let mut cred_size: usize = 0;
+        let status = crate::mock_ffi::mock_server_get_credential(
+            std::ptr::null_mut(),
+            0,
+            &mut cred,
+            &mut cred_size,
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_define_process_set happy path ──────────────────────
+
+    #[test]
+    fn test_mock_server_define_process_set_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let pset_name = std::ffi::CString::new("test.pset").unwrap();
+        let status = crate::mock_ffi::mock_server_define_process_set(
+            std::ptr::null_mut(),
+            0,
+            pset_name.as_ptr(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_define_process_set_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let pset_name = std::ffi::CString::new("test.pset").unwrap();
+        let status = crate::mock_ffi::mock_server_define_process_set(
+            std::ptr::null_mut(),
+            0,
+            pset_name.as_ptr(),
+        );
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: server_delete_process_set happy path ──────────────────────
+
+    #[test]
+    fn test_mock_server_delete_process_set_returns_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let pset_name = std::ffi::CString::new("test.pset").unwrap();
+        let status = crate::mock_ffi::mock_server_delete_process_set(pset_name.into_raw());
+        assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_server_delete_process_set_returns_err_when_disabled() {
+        crate::mock_ffi::disable_mock_ffi();
+        let pset_name = std::ffi::CString::new("test.pset").unwrap();
+        let status = crate::mock_ffi::mock_server_delete_process_set(pset_name.into_raw());
+        assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ── Mock FFI: init + finalize lifecycle ─────────────────────────────────
+
+    #[test]
+    fn test_mock_server_init_then_finalize_lifecycle() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        // Simulate server lifecycle
+        let init_status = crate::mock_ffi::mock_server_init(
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        );
+        assert_eq!(init_status, crate::mock_ffi::PMIX_SUCCESS);
+        let finalize_status = crate::mock_ffi::mock_server_finalize();
+        assert_eq!(finalize_status, crate::mock_ffi::PMIX_SUCCESS);
+    }
+
+    // ── Mock FFI: full server workflow simulation ───────────────────────────
+
+    #[test]
+    fn test_mock_server_full_workflow() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        // 1. Init
+        assert_eq!(
+            crate::mock_ffi::mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0),
+            crate::mock_ffi::PMIX_SUCCESS
+        );
+        // 2. Register nspace
+        let nspace = std::ffi::CString::new("workflow.nspace").unwrap();
+        assert_eq!(
+            crate::mock_ffi::mock_server_register_nspace(
+                nspace.as_ptr(), 1, std::ptr::null_mut(), 0, None, std::ptr::null_mut()
+            ),
+            crate::mock_ffi::PMIX_SUCCESS
+        );
+        // 3. Publish
+        let key = std::ffi::CString::new("workflow_key").unwrap();
+        assert_eq!(
+            crate::mock_ffi::mock_server_publish(
+                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0
+            ),
+            crate::mock_ffi::PMIX_SUCCESS
+        );
+        // 4. Lookup
+        let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
+        assert_eq!(
+            crate::mock_ffi::mock_server_lookup(
+                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0,
+                std::ptr::null_mut(), 0, &mut val
+            ),
+            crate::mock_ffi::PMIX_SUCCESS
+        );
+        // 5. Delete
+        assert_eq!(
+            crate::mock_ffi::mock_server_delete(
+                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0
+            ),
+            crate::mock_ffi::PMIX_SUCCESS
+        );
+        // 6. Finalize
+        assert_eq!(
+            crate::mock_ffi::mock_server_finalize(),
+            crate::mock_ffi::PMIX_SUCCESS
+        );
+    }
+
+    // ── Mock FFI: error config overrides for server functions ───────────────
+
+    #[test]
+    fn test_mock_server_publish_with_duplicate_key_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_publish", crate::mock_ffi::PMIX_ERR_DUPLICATE_KEY);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let key = std::ffi::CString::new("dup_key").unwrap();
+            let status = crate::mock_ffi::mock_server_publish(
+                std::ptr::null_mut(),
+                key.as_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_DUPLICATE_KEY);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_lookup_with_not_found_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_lookup", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let key = std::ffi::CString::new("missing_key").unwrap();
+            let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
+            let status = crate::mock_ffi::mock_server_lookup(
+                std::ptr::null_mut(),
+                key.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut val,
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_NOT_FOUND);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_fence_with_timeout_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_fence", crate::mock_ffi::PMIX_ERR_TIMEOUT);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let mut retvals: *mut std::ffi::c_void = std::ptr::null_mut();
+            let mut nretvals: usize = 0;
+            let status = crate::mock_ffi::mock_server_fence(
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut retvals,
+                &mut nretvals,
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_TIMEOUT);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_define_process_set_with_bad_param_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_define_process_set", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let pset_name = std::ffi::CString::new("bad.pset").unwrap();
+            let status = crate::mock_ffi::mock_server_define_process_set(
+                std::ptr::null_mut(),
+                0,
+                pset_name.as_ptr(),
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_dmodex_request_with_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_dmodex_request", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let status = crate::mock_ffi::mock_server_dmodex_request(
+                std::ptr::null_mut(),
+                None,
+                std::ptr::null_mut(),
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_NOT_FOUND);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_setup_application_with_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_setup_application", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let nspace = std::ffi::CString::new("test.nspace").unwrap();
+            let status = crate::mock_ffi::mock_server_setup_application(
+                nspace.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_register_resources_with_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_register_resources", crate::mock_ffi::PMIX_ERR_NOMEM);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let status = crate::mock_ffi::mock_server_register_resources(
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_NOMEM);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_get_credential_with_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_get_credential", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let mut cred: *mut std::os::raw::c_char = std::ptr::null_mut();
+            let mut cred_size: usize = 0;
+            let status = crate::mock_ffi::mock_server_get_credential(
+                std::ptr::null_mut(),
+                0,
+                &mut cred,
+                &mut cred_size,
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_NOT_FOUND);
+        }
+    }
+
+    #[test]
+    fn test_mock_server_tool_attach_to_server_with_error() {
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_tool_attach_to_server", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        {
+            let _guard = crate::mock_ffi::MockGuard::with_config(config);
+            let status = crate::mock_ffi::mock_server_tool_attach_to_server(
+                0, 0, std::ptr::null_mut(), 0, std::ptr::null_mut(), 0,
+            );
+            assert_eq!(status, crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        }
+    }
 }
