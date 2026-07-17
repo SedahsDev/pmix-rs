@@ -53,10 +53,7 @@
 use crate::{PmixDataType, PmixStatus, ffi};
 use std::ptr;
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PmixProc handle (borrowed)
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// A borrowed PMIx process identifier for use as target/source in serialization.
 ///
 /// When `None` is passed to [`data_pack`] or [`data_unpack`], it indicates
@@ -88,10 +85,7 @@ impl<'a> PmixProcRef<'a> {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PmixByteObject — safe wrapper around pmix_byte_object_t
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// A byte object wrapping a contiguous region of memory.
 ///
 /// Corresponds to `pmix_byte_object_t`. The PMIx library allocates the
@@ -182,10 +176,7 @@ impl Drop for PmixByteObject {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PmixDataBuffer — safe wrapper around pmix_data_buffer_t
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// A PMIx data buffer for packing and unpacking typed values.
 ///
 /// Corresponds to `pmix_data_buffer_t`. The buffer manages its own internal
@@ -280,10 +271,7 @@ impl std::fmt::Debug for PmixDataBuffer {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Buffer management
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Create a new PMIx data buffer.
 ///
 /// Allocates and initializes a `pmix_data_buffer_t`. The returned buffer
@@ -342,10 +330,7 @@ pub fn data_buffer_release(buf: &mut PmixDataBuffer) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_pack
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Pack one or more values of a specified type into a data buffer.
 ///
 /// The pack function serializes the value(s) pointed to by `src` into the
@@ -438,10 +423,7 @@ pub fn data_pack<T>(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_unpack
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Unpack one or more values of a specified type from a data buffer.
 ///
 /// The unpack function reads the next value(s) of the specified type from
@@ -530,10 +512,7 @@ pub fn data_unpack<T>(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_unload
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Unload the contents of a data buffer into a byte object.
 ///
 /// Extracts the packed data from the buffer as a raw byte array suitable
@@ -583,10 +562,7 @@ pub fn data_unload(buf: &PmixDataBuffer) -> Result<PmixByteObject, PmixStatus> {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_load
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Load a byte object's payload into a data buffer.
 ///
 /// Replaces the contents of the buffer with the raw bytes from the provided
@@ -636,10 +612,7 @@ pub fn data_load(buf: &PmixDataBuffer, payload: &PmixByteObject) -> Result<(), P
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_copy
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Copy a data value of a specified type.
 ///
 /// Since PMIx data types can be complex structures, this function knows how
@@ -689,10 +662,7 @@ pub fn data_copy<T>(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_copy_payload
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Copy the payload from one buffer to another.
 ///
 /// Copies the raw data payload from the source buffer to the destination
@@ -723,10 +693,7 @@ pub fn data_copy_payload(dest: &PmixDataBuffer, src: &PmixDataBuffer) -> Result<
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_print
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Pretty-print a data value of a specified PMIx type.
 ///
 /// Since registered data types can be complex structures, this function
@@ -900,10 +867,7 @@ impl From<PmixPrintOutput> for String {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_embed
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Embed a raw data payload into a buffer without clearing the source.
 ///
 /// The embed function is identical in operation to [`data_load`] except that
@@ -985,10 +949,7 @@ pub fn data_embed(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_compress
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Compress a block of data using lossless compression (zlib).
 ///
 /// Attempts to losslessly compress the provided data. If the compressed
@@ -1069,10 +1030,7 @@ pub fn data_compress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Data_decompress
-// ─────────────────────────────────────────────────────────────────────────────
-
 /// Decompress data that was compressed by [`data_compress`].
 ///
 /// Only data produced by `PMIx_Data_compress` can be decompressed by this
@@ -1157,7 +1115,6 @@ pub fn data_decompress(input: &[u8]) -> Result<Vec<u8>, PmixStatus> {
 mod tests {
     use super::*;
 
-    // ── Mock FFI imports ────────────────────────────────────────────────────
     // These imports bring in the mock FFI framework so we can test data
     // serialization happy paths without a real PMIx daemon.
     #[cfg(any(test, feature = "mock_ffi"))]
@@ -1285,55 +1242,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_buffer_create needs initialized library; calling without init corrupts global PMIx state for other tests"]
-    fn test_data_buffer_create() {
-        if let Ok(buf) = data_buffer_create() {
-            assert!(buf.is_valid());
-            assert_eq!(buf.bytes_allocated(), 0);
-            assert_eq!(buf.bytes_used(), 0);
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_buffer_create needs initialized library; calling without init corrupts global PMIx state for other tests"]
-    fn test_data_buffer_create_valid_ptr() {
-        let buf = data_buffer_create().expect("create buffer");
-        assert!(!buf.as_mut_ptr().is_null());
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_buffer_create needs initialized library; calling without init corrupts global PMIx state for other tests"]
-    fn test_data_buffer_debug_valid() {
-        let buf = data_buffer_create().expect("create buffer");
-        let s = format!("{:?}", buf);
-        assert!(s.contains("PmixDataBuffer"));
-        assert!(s.contains("ptr"));
-        assert!(s.contains("bytes_allocated"));
-        assert!(s.contains("bytes_used"));
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_buffer_create/release need initialized library; calling without init corrupts global PMIx state for other tests"]
-    fn test_data_buffer_release_idempotent() {
-        let mut buf = data_buffer_create().expect("create buffer");
-        assert!(buf.is_valid());
-        data_buffer_release(&mut buf);
-        assert!(!buf.is_valid());
-        // Calling release again should be safe (no double-free)
-        data_buffer_release(&mut buf);
-        assert!(!buf.is_valid());
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_buffer_create/release need initialized library; calling without init corrupts global PMIx state for other tests"]
-    fn test_data_buffer_drop_after_release() {
-        let mut buf = data_buffer_create().expect("create buffer");
-        data_buffer_release(&mut buf);
-        // Drop should be safe after explicit release (ptr is null)
-        drop(buf);
-    }
-
-    #[test]
     fn test_data_buffer_from_raw_null() {
         let buf = unsafe { PmixDataBuffer::from_raw(ptr::null_mut()) };
         assert!(!buf.is_valid());
@@ -1356,299 +1264,6 @@ mod tests {
         let val: i32 = 42;
         let result = data_pack(None, &buf, &val, -1, PmixDataType::Int32);
         assert!(result.is_err());
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
-    fn test_data_pack_with_target() {
-        let buf = data_buffer_create().expect("create buffer");
-        let val: i32 = 42;
-        let target = PmixProcRef::new("target_ns", 1);
-        // Should not panic — actual result depends on PMIx init state
-        let _result = data_pack(Some(target), &buf, &val, 1, PmixDataType::Int32);
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
-    fn test_data_pack_u8() {
-        let buf = data_buffer_create().expect("create buffer");
-        let val: u8 = 255;
-        let result = data_pack(None, &buf, &val, 1, PmixDataType::Uint8);
-        // May succeed or fail depending on PMIx init — just check it doesn't panic
-        match result {
-            Ok(n) => assert_eq!(n, 1),
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
-    fn test_data_pack_u64() {
-        let buf = data_buffer_create().expect("create buffer");
-        let val: u64 = u64::MAX;
-        let result = data_pack(None, &buf, &val, 1, PmixDataType::Uint64);
-        match result {
-            Ok(n) => assert_eq!(n, 1),
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
-    fn test_data_pack_f64() {
-        let buf = data_buffer_create().expect("create buffer");
-        let val: f64 = 3.14159;
-        let result = data_pack(None, &buf, &val, 1, PmixDataType::Float);
-        match result {
-            Ok(n) => assert_eq!(n, 1),
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_pack needs initialized library"]
-    fn test_data_pack_buffer_grows() {
-        let buf = data_buffer_create().expect("create buffer");
-        let val: i32 = 42;
-        let _ = data_pack(None, &buf, &val, 1, PmixDataType::Int32);
-        // Buffer should have used some bytes after packing
-        // (exact amount depends on PMIx version, but should be > 0 on success)
-    }
-
-    // ── data_unpack ─────────────────────────────────────────────────────────
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_unpack needs initialized library"]
-    fn test_data_unpack_basic() {
-        let buf = data_buffer_create().expect("create buffer");
-        let mut val: i32 = 0;
-        let mut count: i32 = 1;
-        let _result = data_unpack(None, &buf, &mut val, &mut count, PmixDataType::Int32);
-        // Unpacking from empty buffer should fail gracefully
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_unpack needs initialized library"]
-    fn test_data_unpack_with_source() {
-        let buf = data_buffer_create().expect("create buffer");
-        let mut val: i32 = 0;
-        let mut count: i32 = 1;
-        let source = PmixProcRef::new("source_ns", 0);
-        let _result = data_unpack(
-            Some(source),
-            &buf,
-            &mut val,
-            &mut count,
-            PmixDataType::Int32,
-        );
-    }
-
-    // ── data_pack + data_unpack roundtrip ───────────────────────────────────
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_pack/Data_unpack need initialized library"]
-    fn test_pack_unpack_i32_roundtrip() {
-        let buf = data_buffer_create().expect("create buffer");
-        let val: i32 = 42;
-        let packed = data_pack(None, &buf, &val, 1, PmixDataType::Int32);
-        if packed.is_ok() {
-            let mut out: i32 = 0;
-            let mut count: i32 = 1;
-            let unpacked = data_unpack(None, &buf, &mut out, &mut count, PmixDataType::Int32);
-            if unpacked.is_ok() {
-                assert_eq!(out, 42);
-                assert_eq!(count, 1);
-            }
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_pack/Data_unpack need initialized library"]
-    fn test_pack_unpack_u64_roundtrip() {
-        let buf = data_buffer_create().expect("create buffer");
-        let val: u64 = 0xDEADBEEFCAFEBABE;
-        let packed = data_pack(None, &buf, &val, 1, PmixDataType::Uint64);
-        if packed.is_ok() {
-            let mut out: u64 = 0;
-            let mut count: i32 = 1;
-            let unpacked = data_unpack(None, &buf, &mut out, &mut count, PmixDataType::Uint64);
-            if unpacked.is_ok() {
-                assert_eq!(out, 0xDEADBEEFCAFEBABE);
-            }
-        }
-    }
-
-    // ── data_unload / data_load ─────────────────────────────────────────────
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_unload needs initialized library"]
-    fn test_data_unload_basic() {
-        let buf = data_buffer_create().expect("create buffer");
-        let result = data_unload(&buf);
-        match result {
-            Ok(_obj) => {
-                // Unloading empty buffer should give empty or small byte object
-            }
-            Err(_) => {
-                // May fail on empty buffer depending on PMIx version
-            }
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_load needs initialized library"]
-    fn test_data_load_basic() {
-        let buf = data_buffer_create().expect("create buffer");
-        let payload = PmixByteObject::new();
-        let result = data_load(&buf, &payload);
-        // Loading empty payload should succeed or fail gracefully
-        match result {
-            Ok(()) => {}
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_load needs initialized library"]
-    fn test_data_load_from_vec_payload() {
-        let buf = data_buffer_create().expect("create buffer");
-        let payload = PmixByteObject::from(vec![1u8, 2, 3, 4]);
-        let result = data_load(&buf, &payload);
-        match result {
-            Ok(()) => {}
-            Err(_) => {}
-        }
-    }
-
-    // ── data_embed ──────────────────────────────────────────────────────────
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_embed needs initialized library"]
-    fn test_data_embed_none() {
-        let buf = data_buffer_create().expect("create buffer");
-        let result = data_embed(&buf, None);
-        // None payload behavior depends on PMIx version — may succeed or fail
-        match result {
-            Ok(()) => {}
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_embed needs initialized library"]
-    fn test_data_embed_with_payload() {
-        let buf = data_buffer_create().expect("create buffer");
-        let payload = PmixByteObject::from(vec![1u8, 2, 3, 4]);
-        let result = data_embed(&buf, Some(&payload));
-        match result {
-            Ok(()) => {}
-            Err(_) => {}
-        }
-        // payload should still be usable after embed (unlike load)
-        assert_eq!(payload.size(), 4);
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_embed needs initialized library"]
-    fn test_data_embed_preserves_source() {
-        let buf = data_buffer_create().expect("create buffer");
-        let payload = PmixByteObject::from(vec![42u8, 43, 44]);
-        let _ = data_embed(&buf, Some(&payload));
-        // Source payload must be unmodified after embed
-        assert_eq!(payload.as_slice(), &[42, 43, 44]);
-        assert_eq!(payload.size(), 3);
-    }
-
-    // ── data_copy ───────────────────────────────────────────────────────────
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_copy needs initialized library"]
-    fn test_data_copy_basic() {
-        let val: i32 = 42;
-        let result = data_copy(&val, PmixDataType::Int32);
-        match result {
-            Ok(ptr) => {
-                assert!(!ptr.is_null());
-                // Note: caller owns the allocation; we can't safely free it
-                // without knowing the type, so we just verify non-null.
-            }
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_copy needs initialized library"]
-    fn test_data_copy_u8() {
-        let val: u8 = 255;
-        let result = data_copy(&val, PmixDataType::Uint8);
-        match result {
-            Ok(ptr) => assert!(!ptr.is_null()),
-            Err(_) => {}
-        }
-    }
-
-    // ── data_copy_payload ───────────────────────────────────────────────────
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_copy_payload needs initialized library"]
-    fn test_data_copy_payload_basic() {
-        let src = data_buffer_create().expect("create buffer");
-        let dest = data_buffer_create().expect("create buffer");
-        let result = data_copy_payload(&dest, &src);
-        match result {
-            Ok(()) => {}
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_copy_payload needs initialized library"]
-    fn test_data_copy_payload_self() {
-        let buf = data_buffer_create().expect("create buffer");
-        let result = data_copy_payload(&buf, &buf);
-        match result {
-            Ok(()) => {}
-            Err(_) => {}
-        }
-    }
-
-    // ── data_print ──────────────────────────────────────────────────────────
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_print needs initialized library"]
-    fn test_data_print_basic() {
-        let val: i32 = 42;
-        let result = data_print(&val, None, PmixDataType::Int32);
-        match result {
-            Ok(_output) => {
-                // Should contain something (may be empty if not initialized)
-            }
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_print needs initialized library"]
-    fn test_data_print_with_prefix() {
-        let val: i32 = 42;
-        let result = data_print(&val, Some("val="), PmixDataType::Int32);
-        match result {
-            Ok(_output) => {
-                // Output is a valid string
-            }
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_print needs initialized library"]
-    fn test_data_print_empty_prefix() {
-        let val: i32 = 42;
-        let result = data_print(&val, Some(""), PmixDataType::Int32);
-        match result {
-            Ok(_) => {}
-            Err(_) => {}
-        }
     }
 
     // ── PmixPrintOutput ─────────────────────────────────────────────────────
@@ -1702,73 +1317,11 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_compress needs initialized library"]
-    fn test_data_compress_small_data() {
-        // Small data may not compress well
-        let result = data_compress(b"hi");
-        match result {
-            Ok(_) => {}
-            Err(_) => {} // Expected for very small data
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_compress needs initialized library"]
-    fn test_data_compress_repetitive_data() {
-        // Repetitive data should compress well
-        let data = vec![0u8; 4096];
-        let result = data_compress(&data);
-        match result {
-            Ok(compressed) => {
-                assert!(compressed.len() < data.len());
-            }
-            Err(_) => {}
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_compress/Data_decompress need initialized library"]
-    fn test_data_compress_decompress_roundtrip() {
-        let data = b"hello world this is a test of compression";
-        if let Ok(compressed) = data_compress(data) {
-            if let Ok(decompressed) = data_decompress(&compressed) {
-                assert_eq!(decompressed, *data);
-            }
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_compress/Data_decompress need initialized library"]
-    fn test_data_compress_decompress_larger_roundtrip() {
-        let data = vec![42u8; 8192];
-        if let Ok(compressed) = data_compress(&data) {
-            if let Ok(decompressed) = data_decompress(&compressed) {
-                assert_eq!(decompressed, data);
-            }
-        }
-    }
-
     // ── data_decompress ─────────────────────────────────────────────────────
 
     #[test]
     fn test_data_decompress_empty_returns_err() {
         let result = data_decompress(&[]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_decompress needs initialized library"]
-    fn test_data_decompress_invalid_data() {
-        // Random data that wasn't produced by data_compress should fail
-        let result = data_decompress(b"not compressed data");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_decompress needs initialized library"]
-    fn test_data_decompress_random_bytes() {
-        let result = data_decompress(&[0xDE, 0xAD, 0xBE, 0xEF]);
         assert!(result.is_err());
     }
 
@@ -1992,31 +1545,6 @@ mod tests {
         assert_eq!(s1, "");
         assert!(!s2.is_empty()); // Debug contains struct info
         assert!(!s3.is_empty());
-    }
-
-    // ── Additional data_compress edge case tests ────────────────────────────
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_compress needs initialized library"]
-    fn test_data_compress_single_byte_returns_err() {
-        // Single byte is too small to compress meaningfully
-        let result = data_compress(&[42u8]);
-        // May succeed or fail depending on PMIx init — but empty check is bypassed
-        // The function only rejects truly empty input at the param gate
-        match result {
-            Ok(_) => {}  // PMIx may handle single byte
-            Err(_) => {} // Or reject it as not compressible
-        }
-    }
-
-    #[test]
-    #[ignore = "requires PMIx init — PMIx_Data_compress needs initialized library"]
-    fn test_data_compress_two_bytes() {
-        let result = data_compress(&[1u8, 2]);
-        match result {
-            Ok(_) => {}
-            Err(_) => {} // Likely too small to compress
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
