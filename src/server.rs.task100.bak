@@ -4400,12 +4400,84 @@ mod tests {
     // ── Error path tests: FFI calls without server init ──────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_register_nspace_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn RegisterNspaceCallback> = Box::new(TestNspaceCallback {
+            called: Arc::new(AtomicBool::new(false)),
+        });
+        let result = server_register_nspace("test.nspace", 1, &info, callback);
+        assert!(
+            result.is_err(),
+            "register_nspace should fail without server init"
+        );
+    }
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_define_process_set_fails_without_init() {
+        let result = server_define_process_set(&[], "test.pset");
+        assert!(
+            result.is_err(),
+            "define_process_set should fail without server init"
+        );
+    }
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_delete_process_set_fails_without_init() {
+        let result = server_delete_process_set("test.pset");
+        assert!(
+            result.is_err(),
+            "delete_process_set should fail without server init"
+        );
+    }
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_publish_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_publish(&handle, "test.nspace", &info);
+        assert!(
+            result.is_err(),
+            "server_publish should fail without server init"
+        );
+    }
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_lookup_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_lookup(&handle, "test.nspace", "test_key", &[]);
+        assert!(
+            result.is_err(),
+            "server_lookup should fail without server init"
+        );
+    }
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_delete_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_delete(&handle, "test.nspace", "test_key");
+        assert!(
+            result.is_err(),
+            "server_delete should fail without server init"
+        );
+    }
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_fence_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let result = server_fence(&handle, &[], 0);
+        assert!(
+            result.is_err(),
+            "server_fence should fail without server init"
+        );
+    }
+
     #[test]
     fn test_server_connect_rejects_empty_procs() {
         let handle = PmixServerHandle { initialized: true };
@@ -4455,7 +4527,19 @@ mod tests {
     // ── server_register_client error path ────────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_register_client_fails_without_init() {
+        let proc = Proc::new("test.nspace", 0).expect("Proc::new failed");
+        let callback: Box<dyn RegisterClientCallback> = Box::new(TestRegisterClientCallback);
+        let result = server_register_client(&proc, 0, 0, None, callback);
+        assert!(
+            result.is_err(),
+            "register_client should fail without server init"
+        );
+    }
+
     // ── server_deregister_client error path ──────────────────────────────────
+
     #[test]
     fn test_server_deregister_client_compiles() {
         let proc = Proc::new("test.nspace", 0).expect("Proc::new failed");
@@ -4468,17 +4552,87 @@ mod tests {
     // ── server_dmodex_request error path ─────────────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_dmodex_request_fails_without_init() {
+        let proc = Proc::new("test.nspace", 0).expect("Proc::new failed");
+        let callback: Box<dyn DmodexRequestCallback> = Box::new(TestDmodexRequestCallback);
+        let result = server_dmodex_request(&proc, callback);
+        assert!(
+            result.is_err(),
+            "dmodex_request should fail without server init"
+        );
+    }
+
     // ── server_setup_application error path ──────────────────────────────────
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_setup_application_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn SetupApplicationCallback> = Box::new(TestSetupApplicationCallback);
+        let result = server_setup_application("test.nspace", &info, callback);
+        assert!(
+            result.is_err(),
+            "setup_application should fail without server init"
+        );
+    }
+
     // ── server_setup_local_support error path ────────────────────────────────
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_setup_local_support_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn SetupLocalSupportCallback> = Box::new(TestSetupLocalSupportCallback);
+        let result = server_setup_local_support("test.nspace", &info, callback);
+        assert!(
+            result.is_err(),
+            "setup_local_support should fail without server init"
+        );
+    }
+
     // ── server_register_resources error path ─────────────────────────────────
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_register_resources_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn RegisterResourcesCallback> = Box::new(TestRegisterResourcesCallback);
+        let result = server_register_resources(&info, callback);
+        assert!(
+            result.is_err(),
+            "register_resources should fail without server init"
+        );
+    }
+
     // ── server_deregister_resources error path ───────────────────────────────
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_deregister_resources_fails_without_init() {
+        let info = crate::InfoBuilder::new().build();
+        let callback: Box<dyn DeregisterResourcesCallback> =
+            Box::new(TestDeregisterResourcesCallback);
+        let result = server_deregister_resources(&info, callback);
+        assert!(
+            result.is_err(),
+            "deregister_resources should fail without server init"
+        );
+    }
+
     // ── server_fence_nb error path ───────────────────────────────────────────
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_fence_nb_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
+        let result = server_fence_nb(&handle, &[], wrapper);
+        assert!(result.is_err(), "fence_nb should fail without server init");
+    }
+
     // ── server_connect_nb error path ─────────────────────────────────────────
+
     #[test]
     fn test_server_connect_nb_rejects_empty_procs() {
         let handle = PmixServerHandle { initialized: true };
@@ -4503,9 +4657,33 @@ mod tests {
     // ── server_tool_attach_to_server error path ──────────────────────────────
 
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_tool_attach_to_server_fails_without_init() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_tool_attach_to_server(&handle, None, false, &info);
+        assert!(
+            result.is_err(),
+            "tool_attach_to_server should fail without server init"
+        );
+    }
+
     // ── server_get_credential error path ─────────────────────────────────────
+
     #[test]
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    fn test_server_get_credential_fails_without_setup() {
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_get_credential(&handle, &[info]);
+        assert!(
+            result.is_err(),
+            "get_credential should fail without proper setup"
+        );
+    }
+
     // ── server_spawn / server_spawn_nb compilation tests ─────────────────────
+
     #[test]
     fn test_server_spawn_compiles() {
         // Verify the function exists with correct signature
@@ -5624,6 +5802,14 @@ mod tests {
         );
     }
 
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    #[test]
+    fn test_server_define_process_set_empty_members() {
+        // Empty members — FFI will fail without init, but should not panic.
+        let result = server_define_process_set(&[], "testset");
+        let _ = result;
+    }
+
     // ── server_delete_process_set: NUL rejection ───────────────────────────
 
     #[test]
@@ -5818,21 +6004,70 @@ mod tests {
         assert_eq!(ptr1, ptr2, "as_c_ptr should be stable across mutations");
     }
 
+    // ── server_init_minimal: compiles with None ────────────────────────────
+
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    #[test]
+    fn test_server_init_minimal_with_none_module() {
+        let result = server_init_minimal(None);
+        // PMIx server init may succeed when the library is available.
+        // We just verify it doesn't panic.
+        let _ = result;
+    }
+
+    // ── server_init: compiles with empty info ──────────────────────────────
+
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    #[test]
+    fn test_server_init_with_empty_info() {
+        let info = crate::InfoBuilder::new().build();
+        let result = server_init(None, &info);
+        // PMIx server init may succeed when the library is available.
+        // We just verify it doesn't panic.
+        let _ = result;
+    }
+
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    #[test]
+    fn test_server_init_with_some_module_and_empty_info() {
+        let module = PmixServerModule::default();
+        let info = crate::InfoBuilder::new().build();
+        let result = server_init(Some(&module), &info);
+        let _ = result;
+    }
+
+    // ── server_finalize: compiles with handle ──────────────────────────────
+
+    #[ignore = "requires PMIx server init — calling FFI without init corrupts global PMIx state"]
+    #[test]
+    fn test_server_finalize_with_uninitialized_handle() {
+        let handle = PmixServerHandle { initialized: false };
+        let result = server_finalize(handle);
+        // Without PMIx server init, finalize may fail — but should not panic.
+        let _ = result;
+    }
+
     // ── Mock FFI: server_init happy path ────────────────────────────────────
 
     #[test]
     fn test_mock_server_init_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let status =
-            crate::mock_ffi::mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0);
+        let status = crate::mock_ffi::mock_server_init(
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        );
         assert_eq!(status, crate::mock_ffi::PMIX_SUCCESS);
     }
 
     #[test]
     fn test_mock_server_init_returns_err_when_disabled() {
         crate::mock_ffi::disable_mock_ffi();
-        let status =
-            crate::mock_ffi::mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0);
+        let status = crate::mock_ffi::mock_server_init(
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        );
         assert_eq!(status, crate::mock_ffi::PMIX_ERR_INIT);
     }
 
@@ -5851,8 +6086,11 @@ mod tests {
             .with_function_status("PMIx_server_init", crate::mock_ffi::PMIX_ERR_NOMEM);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
-            let status =
-                crate::mock_ffi::mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0);
+            let status = crate::mock_ffi::mock_server_init(
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
+            );
             assert_eq!(status, crate::mock_ffi::PMIX_ERR_NOMEM);
         }
     }
@@ -5907,10 +6145,8 @@ mod tests {
 
     #[test]
     fn test_mock_server_register_nspace_with_error_config() {
-        let config = crate::mock_ffi::MockConfig::new().with_function_status(
-            "PMIx_server_register_nspace",
-            crate::mock_ffi::PMIX_ERR_BAD_PARAM,
-        );
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_register_nspace", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
             let nspace = std::ffi::CString::new("test.nspace").unwrap();
@@ -6364,8 +6600,11 @@ mod tests {
     fn test_mock_server_init_then_finalize_lifecycle() {
         let _guard = crate::mock_ffi::MockGuard::new();
         // Simulate server lifecycle
-        let init_status =
-            crate::mock_ffi::mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0);
+        let init_status = crate::mock_ffi::mock_server_init(
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        );
         assert_eq!(init_status, crate::mock_ffi::PMIX_SUCCESS);
         let finalize_status = crate::mock_ffi::mock_server_finalize();
         assert_eq!(finalize_status, crate::mock_ffi::PMIX_SUCCESS);
@@ -6385,12 +6624,7 @@ mod tests {
         let nspace = std::ffi::CString::new("workflow.nspace").unwrap();
         assert_eq!(
             crate::mock_ffi::mock_server_register_nspace(
-                nspace.as_ptr(),
-                1,
-                std::ptr::null_mut(),
-                0,
-                None,
-                std::ptr::null_mut()
+                nspace.as_ptr(), 1, std::ptr::null_mut(), 0, None, std::ptr::null_mut()
             ),
             crate::mock_ffi::PMIX_SUCCESS
         );
@@ -6398,11 +6632,7 @@ mod tests {
         let key = std::ffi::CString::new("workflow_key").unwrap();
         assert_eq!(
             crate::mock_ffi::mock_server_publish(
-                std::ptr::null_mut(),
-                key.as_ptr(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                0
+                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0
             ),
             crate::mock_ffi::PMIX_SUCCESS
         );
@@ -6410,23 +6640,15 @@ mod tests {
         let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
         assert_eq!(
             crate::mock_ffi::mock_server_lookup(
-                std::ptr::null_mut(),
-                key.as_ptr(),
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                0,
-                &mut val
+                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0,
+                std::ptr::null_mut(), 0, &mut val
             ),
             crate::mock_ffi::PMIX_SUCCESS
         );
         // 5. Delete
         assert_eq!(
             crate::mock_ffi::mock_server_delete(
-                std::ptr::null_mut(),
-                key.as_ptr(),
-                std::ptr::null_mut(),
-                0
+                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0
             ),
             crate::mock_ffi::PMIX_SUCCESS
         );
@@ -6441,10 +6663,8 @@ mod tests {
 
     #[test]
     fn test_mock_server_publish_with_duplicate_key_error() {
-        let config = crate::mock_ffi::MockConfig::new().with_function_status(
-            "PMIx_server_publish",
-            crate::mock_ffi::PMIX_ERR_DUPLICATE_KEY,
-        );
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_publish", crate::mock_ffi::PMIX_ERR_DUPLICATE_KEY);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
             let key = std::ffi::CString::new("dup_key").unwrap();
@@ -6502,10 +6722,8 @@ mod tests {
 
     #[test]
     fn test_mock_server_define_process_set_with_bad_param_error() {
-        let config = crate::mock_ffi::MockConfig::new().with_function_status(
-            "PMIx_server_define_process_set",
-            crate::mock_ffi::PMIX_ERR_BAD_PARAM,
-        );
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_define_process_set", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
             let pset_name = std::ffi::CString::new("bad.pset").unwrap();
@@ -6520,10 +6738,8 @@ mod tests {
 
     #[test]
     fn test_mock_server_dmodex_request_with_error() {
-        let config = crate::mock_ffi::MockConfig::new().with_function_status(
-            "PMIx_server_dmodex_request",
-            crate::mock_ffi::PMIX_ERR_NOT_FOUND,
-        );
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_dmodex_request", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
             let status = crate::mock_ffi::mock_server_dmodex_request(
@@ -6537,10 +6753,8 @@ mod tests {
 
     #[test]
     fn test_mock_server_setup_application_with_error() {
-        let config = crate::mock_ffi::MockConfig::new().with_function_status(
-            "PMIx_server_setup_application",
-            crate::mock_ffi::PMIX_ERR_BAD_PARAM,
-        );
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_setup_application", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
             let nspace = std::ffi::CString::new("test.nspace").unwrap();
@@ -6557,10 +6771,8 @@ mod tests {
 
     #[test]
     fn test_mock_server_register_resources_with_error() {
-        let config = crate::mock_ffi::MockConfig::new().with_function_status(
-            "PMIx_server_register_resources",
-            crate::mock_ffi::PMIX_ERR_NOMEM,
-        );
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_register_resources", crate::mock_ffi::PMIX_ERR_NOMEM);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
             let status = crate::mock_ffi::mock_server_register_resources(
@@ -6575,10 +6787,8 @@ mod tests {
 
     #[test]
     fn test_mock_server_get_credential_with_error() {
-        let config = crate::mock_ffi::MockConfig::new().with_function_status(
-            "PMIx_server_get_credential",
-            crate::mock_ffi::PMIX_ERR_NOT_FOUND,
-        );
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_get_credential", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
             let mut cred: *mut std::os::raw::c_char = std::ptr::null_mut();
@@ -6595,19 +6805,12 @@ mod tests {
 
     #[test]
     fn test_mock_server_tool_attach_to_server_with_error() {
-        let config = crate::mock_ffi::MockConfig::new().with_function_status(
-            "PMIx_server_tool_attach_to_server",
-            crate::mock_ffi::PMIX_ERR_BAD_PARAM,
-        );
+        let config = crate::mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_server_tool_attach_to_server", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         {
             let _guard = crate::mock_ffi::MockGuard::with_config(config);
             let status = crate::mock_ffi::mock_server_tool_attach_to_server(
-                0,
-                0,
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                0,
+                0, 0, std::ptr::null_mut(), 0, std::ptr::null_mut(), 0,
             );
             assert_eq!(status, crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         }
