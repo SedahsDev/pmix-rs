@@ -4191,4 +4191,429 @@ mod tests {
             prev = curr;
         }
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Mock FFI tests for generate_regex, generate_ppn, get_attribute_string,
+    // get_attribute_name — these exercise the mock implementations directly,
+    // replacing the previously ignored tests that required a real PMIx daemon.
+    // ──────────────────────────────────────────────────────────────────────
+
+    use crate::mock_ffi;
+
+    // ── mock_generate_regex tests ──────────────────────────────────────────
+
+    /// Mock generate_regex returns PMIX_SUCCESS when mock is enabled.
+    #[test]
+    fn test_mock_generate_regex_success() {
+        let _guard = mock_ffi::MockGuard::new();
+        let input = std::ffi::CString::new("node001,node002,node003").unwrap();
+        let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_regex(input.as_ptr(), &mut regex_ptr);
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+        assert!(
+            !regex_ptr.is_null(),
+            "regex output should be non-null on success"
+        );
+        // Clean up the mock-allocated string
+        unsafe {
+            drop(std::ffi::CString::from_raw(
+                regex_ptr as *mut std::ffi::c_char,
+            ));
+        }
+    }
+
+    /// Mock generate_regex returns PMIX_ERR_INIT when mock is disabled.
+    #[test]
+    fn test_mock_generate_regex_disabled_returns_init_error() {
+        mock_ffi::disable_mock_ffi();
+        let input = std::ffi::CString::new("node001").unwrap();
+        let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_regex(input.as_ptr(), &mut regex_ptr);
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
+    }
+
+    /// Mock generate_regex returns PMIX_ERR_BAD_PARAM for null input.
+    #[test]
+    fn test_mock_generate_regex_null_input_returns_bad_param() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_regex(std::ptr::null(), &mut regex_ptr);
+        assert_eq!(status, mock_ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    /// Mock generate_regex respects function status override.
+    #[test]
+    fn test_mock_generate_regex_with_override() {
+        let config = mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_generate_regex", mock_ffi::PMIX_ERR_NOMEM);
+        let _guard = mock_ffi::MockGuard::with_config(config);
+        let input = std::ffi::CString::new("node001").unwrap();
+        let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_regex(input.as_ptr(), &mut regex_ptr);
+        assert_eq!(status, mock_ffi::PMIX_ERR_NOMEM);
+    }
+
+    /// Mock generate_regex produces non-empty regex string on success.
+    #[test]
+    fn test_mock_generate_regex_output_non_empty() {
+        let _guard = mock_ffi::MockGuard::new();
+        let input = std::ffi::CString::new("odin001,odin002,odin003").unwrap();
+        let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_regex(input.as_ptr(), &mut regex_ptr);
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+        unsafe {
+            let cstr = std::ffi::CStr::from_ptr(regex_ptr);
+            let result = cstr.to_string_lossy();
+            assert!(!result.is_empty(), "mock regex should not be empty");
+            assert!(
+                result.starts_with("pmix:"),
+                "mock regex should start with pmix:"
+            );
+            drop(std::ffi::CString::from_raw(
+                regex_ptr as *mut std::ffi::c_char,
+            ));
+        }
+    }
+
+    // ── mock_generate_ppn tests ────────────────────────────────────────────
+
+    /// Mock generate_ppn returns PMIX_SUCCESS when mock is enabled.
+    #[test]
+    fn test_mock_generate_ppn_success() {
+        let _guard = mock_ffi::MockGuard::new();
+        let input = std::ffi::CString::new("0-3;4-7;8,9,10").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+        assert!(
+            !ppn_ptr.is_null(),
+            "ppn output should be non-null on success"
+        );
+        unsafe {
+            drop(std::ffi::CString::from_raw(
+                ppn_ptr as *mut std::ffi::c_char,
+            ));
+        }
+    }
+
+    /// Mock generate_ppn returns PMIX_ERR_INIT when mock is disabled.
+    #[test]
+    fn test_mock_generate_ppn_disabled_returns_init_error() {
+        mock_ffi::disable_mock_ffi();
+        let input = std::ffi::CString::new("0-3").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
+    }
+
+    /// Mock generate_ppn returns PMIX_ERR_BAD_PARAM for null input.
+    #[test]
+    fn test_mock_generate_ppn_null_input_returns_bad_param() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(std::ptr::null(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    /// Mock generate_ppn respects function status override.
+    #[test]
+    fn test_mock_generate_ppn_with_override() {
+        let config = mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_generate_ppn", mock_ffi::PMIX_ERR_TIMEOUT);
+        let _guard = mock_ffi::MockGuard::with_config(config);
+        let input = std::ffi::CString::new("0-3;4-7").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_ERR_TIMEOUT);
+    }
+
+    /// Mock generate_ppn produces non-empty PPN string on success.
+    #[test]
+    fn test_mock_generate_ppn_output_non_empty() {
+        let _guard = mock_ffi::MockGuard::new();
+        let input = std::ffi::CString::new("0-15;16-31").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+        unsafe {
+            let cstr = std::ffi::CStr::from_ptr(ppn_ptr);
+            let result = cstr.to_string_lossy();
+            assert!(!result.is_empty(), "mock ppn should not be empty");
+            assert!(
+                result.starts_with("pmix:"),
+                "mock ppn should start with pmix:"
+            );
+            drop(std::ffi::CString::from_raw(
+                ppn_ptr as *mut std::ffi::c_char,
+            ));
+        }
+    }
+
+    /// Mock generate_ppn handles single-node input.
+    #[test]
+    fn test_mock_generate_ppn_single_node() {
+        let _guard = mock_ffi::MockGuard::new();
+        let input = std::ffi::CString::new("0").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+        unsafe {
+            drop(std::ffi::CString::from_raw(
+                ppn_ptr as *mut std::ffi::c_char,
+            ));
+        }
+    }
+
+    /// Mock generate_ppn handles empty input (not null, just empty string).
+    #[test]
+    fn test_mock_generate_ppn_empty_input() {
+        let _guard = mock_ffi::MockGuard::new();
+        let input = std::ffi::CString::new("").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+        unsafe {
+            drop(std::ffi::CString::from_raw(
+                ppn_ptr as *mut std::ffi::c_char,
+            ));
+        }
+    }
+
+    /// Mock generate_ppn handles many-process input.
+    #[test]
+    fn test_mock_generate_ppn_many_procs() {
+        let _guard = mock_ffi::MockGuard::new();
+        let input = std::ffi::CString::new("0-15;16-31;32-47;48-63").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+        unsafe {
+            drop(std::ffi::CString::from_raw(
+                ppn_ptr as *mut std::ffi::c_char,
+            ));
+        }
+    }
+
+    /// Mock generate_ppn handles irregular distribution input.
+    #[test]
+    fn test_mock_generate_ppn_irregular() {
+        let _guard = mock_ffi::MockGuard::new();
+        let input = std::ffi::CString::new("0;1-5;6;7-12;13,14").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+        unsafe {
+            drop(std::ffi::CString::from_raw(
+                ppn_ptr as *mut std::ffi::c_char,
+            ));
+        }
+    }
+
+    // ── mock_get_attribute_string tests ────────────────────────────────────
+
+    /// Mock get_attribute_string returns non-null pointer on success.
+    #[test]
+    fn test_mock_get_attribute_string_success() {
+        let _guard = mock_ffi::MockGuard::new();
+        let attr = std::ffi::CString::new("pmix.host").unwrap();
+        let result = mock_ffi::mock_get_attribute_string(attr.as_ptr());
+        assert!(
+            !result.is_null(),
+            "mock should return non-null pointer on success"
+        );
+    }
+
+    /// Mock get_attribute_string returns null when mock is disabled.
+    #[test]
+    fn test_mock_get_attribute_string_disabled_returns_null() {
+        mock_ffi::disable_mock_ffi();
+        let attr = std::ffi::CString::new("pmix.host").unwrap();
+        let result = mock_ffi::mock_get_attribute_string(attr.as_ptr());
+        assert!(result.is_null(), "mock should return null when disabled");
+    }
+
+    /// Mock get_attribute_string returns null with error override.
+    #[test]
+    fn test_mock_get_attribute_string_with_override() {
+        let config = mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_Get_attribute_string", mock_ffi::PMIX_ERR_NOT_FOUND);
+        let _guard = mock_ffi::MockGuard::with_config(config);
+        let attr = std::ffi::CString::new("pmix.host").unwrap();
+        let result = mock_ffi::mock_get_attribute_string(attr.as_ptr());
+        assert!(
+            result.is_null(),
+            "mock should return null on error override"
+        );
+    }
+
+    /// Mock get_attribute_string echoes input as canonical form.
+    #[test]
+    fn test_mock_get_attribute_string_echoes_input() {
+        let _guard = mock_ffi::MockGuard::new();
+        let attr = std::ffi::CString::new("test.attribute").unwrap();
+        let result = mock_ffi::mock_get_attribute_string(attr.as_ptr());
+        assert!(!result.is_null());
+        unsafe {
+            let cstr = std::ffi::CStr::from_ptr(result);
+            assert_eq!(cstr.to_string_lossy(), "test.attribute");
+        }
+    }
+
+    /// Mock get_attribute_string handles unrecognized attribute gracefully.
+    #[test]
+    fn test_mock_get_attribute_string_unrecognized() {
+        let _guard = mock_ffi::MockGuard::new();
+        let attr = std::ffi::CString::new("pmix.nonexistent_attribute_xyz").unwrap();
+        let result = mock_ffi::mock_get_attribute_string(attr.as_ptr());
+        assert!(
+            !result.is_null(),
+            "mock should handle unrecognized attributes"
+        );
+    }
+
+    /// Mock get_attribute_string is deterministic across calls.
+    #[test]
+    fn test_mock_get_attribute_string_deterministic() {
+        let _guard = mock_ffi::MockGuard::new();
+        let attr = std::ffi::CString::new("pmix.host").unwrap();
+        let first = mock_ffi::mock_get_attribute_string(attr.as_ptr());
+        let second = mock_ffi::mock_get_attribute_string(attr.as_ptr());
+        assert_eq!(first, second, "mock should be deterministic");
+    }
+
+    // ── mock_get_attribute_name tests ──────────────────────────────────────
+
+    /// Mock get_attribute_name returns non-null pointer on success.
+    #[test]
+    fn test_mock_get_attribute_name_success() {
+        let _guard = mock_ffi::MockGuard::new();
+        let attr = std::ffi::CString::new("host name").unwrap();
+        let result = mock_ffi::mock_get_attribute_name(attr.as_ptr());
+        assert!(
+            !result.is_null(),
+            "mock should return non-null pointer on success"
+        );
+    }
+
+    /// Mock get_attribute_name returns null when mock is disabled.
+    #[test]
+    fn test_mock_get_attribute_name_disabled_returns_null() {
+        mock_ffi::disable_mock_ffi();
+        let attr = std::ffi::CString::new("host name").unwrap();
+        let result = mock_ffi::mock_get_attribute_name(attr.as_ptr());
+        assert!(result.is_null(), "mock should return null when disabled");
+    }
+
+    /// Mock get_attribute_name returns null with error override.
+    #[test]
+    fn test_mock_get_attribute_name_with_override() {
+        let config = mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_Get_attribute_name", mock_ffi::PMIX_ERR_BAD_PARAM);
+        let _guard = mock_ffi::MockGuard::with_config(config);
+        let attr = std::ffi::CString::new("host name").unwrap();
+        let result = mock_ffi::mock_get_attribute_name(attr.as_ptr());
+        assert!(
+            result.is_null(),
+            "mock should return null on error override"
+        );
+    }
+
+    /// Mock get_attribute_name echoes input as attribute key.
+    #[test]
+    fn test_mock_get_attribute_name_echoes_input() {
+        let _guard = mock_ffi::MockGuard::new();
+        let attr = std::ffi::CString::new("some_random_string_xyz").unwrap();
+        let result = mock_ffi::mock_get_attribute_name(attr.as_ptr());
+        assert!(!result.is_null());
+        unsafe {
+            let cstr = std::ffi::CStr::from_ptr(result);
+            assert_eq!(cstr.to_string_lossy(), "some_random_string_xyz");
+        }
+    }
+
+    /// Mock get_attribute_name is deterministic across calls.
+    #[test]
+    fn test_mock_get_attribute_name_deterministic() {
+        let _guard = mock_ffi::MockGuard::new();
+        let attr = std::ffi::CString::new("host name").unwrap();
+        let first = mock_ffi::mock_get_attribute_name(attr.as_ptr());
+        let second = mock_ffi::mock_get_attribute_name(attr.as_ptr());
+        assert_eq!(first, second, "mock should be deterministic");
+    }
+
+    // ── Utility mock integration tests ─────────────────────────────────────
+
+    /// All utility mock functions return PMIX_SUCCESS when mock is enabled.
+    #[test]
+    fn test_mock_utility_all_functions_enabled() {
+        let _guard = mock_ffi::MockGuard::new();
+        // generate_regex
+        let input = std::ffi::CString::new("n1,n2").unwrap();
+        let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        assert_eq!(
+            mock_ffi::mock_generate_regex(input.as_ptr(), &mut regex_ptr),
+            mock_ffi::PMIX_SUCCESS
+        );
+        unsafe {
+            drop(std::ffi::CString::from_raw(
+                regex_ptr as *mut std::ffi::c_char,
+            ));
+        }
+        // generate_ppn
+        let input = std::ffi::CString::new("0-3").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        assert_eq!(
+            mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr),
+            mock_ffi::PMIX_SUCCESS
+        );
+        unsafe {
+            drop(std::ffi::CString::from_raw(
+                ppn_ptr as *mut std::ffi::c_char,
+            ));
+        }
+        // get_attribute_string
+        let attr = std::ffi::CString::new("pmix.host").unwrap();
+        assert!(
+            !mock_ffi::mock_get_attribute_string(attr.as_ptr()).is_null(),
+            "get_attribute_string should return non-null"
+        );
+        // get_attribute_name
+        let attr = std::ffi::CString::new("host name").unwrap();
+        assert!(
+            !mock_ffi::mock_get_attribute_name(attr.as_ptr()).is_null(),
+            "get_attribute_name should return non-null"
+        );
+    }
+
+    /// All utility mock functions return error when mock is disabled.
+    #[test]
+    fn test_mock_utility_all_functions_disabled() {
+        mock_ffi::disable_mock_ffi();
+        // generate_regex
+        let input = std::ffi::CString::new("n1").unwrap();
+        let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        assert_eq!(
+            mock_ffi::mock_generate_regex(input.as_ptr(), &mut regex_ptr),
+            mock_ffi::PMIX_ERR_INIT
+        );
+        // generate_ppn
+        let input = std::ffi::CString::new("0").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        assert_eq!(
+            mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr),
+            mock_ffi::PMIX_ERR_INIT
+        );
+        // get_attribute_string
+        let attr = std::ffi::CString::new("pmix.host").unwrap();
+        assert!(
+            mock_ffi::mock_get_attribute_string(attr.as_ptr()).is_null(),
+            "get_attribute_string should return null when disabled"
+        );
+        // get_attribute_name
+        let attr = std::ffi::CString::new("host name").unwrap();
+        assert!(
+            mock_ffi::mock_get_attribute_name(attr.as_ptr()).is_null(),
+            "get_attribute_name should return null when disabled"
+        );
+    }
 }

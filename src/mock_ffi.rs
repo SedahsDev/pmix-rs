@@ -980,13 +980,120 @@ pub fn mock_server_define_process_set(
 }
 
 /// Mock implementation of `PMIx_server_delete_process_set()`.
-pub fn mock_server_delete_process_set(
-    _pset_name: *mut std::os::raw::c_char,
-) -> i32 {
+pub fn mock_server_delete_process_set(_pset_name: *mut std::os::raw::c_char) -> i32 {
     if is_mock_enabled() {
         get_mock_status("PMIx_server_delete_process_set")
     } else {
         PMIX_ERR_INIT
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mock utility FFI implementations
+// ─────────────────────────────────────────────────────────────────────────────
+// These provide controlled mock behavior for the PMIx utility FFI functions
+// used by utility.rs: generate_regex, generate_ppn, get_attribute_string,
+// and get_attribute_name. Each returns the configured status (default
+// PMIX_SUCCESS) so tests can exercise happy-path code paths without a
+// real PMIx daemon.
+
+/// Mock implementation of `PMIx_generate_regex()`.
+///
+/// Simulates generating a compressed regex from a node list.
+/// When mock is enabled, writes a mock regex string to the output pointer
+/// and returns the configured mock status.
+pub fn mock_generate_regex(
+    input: *const std::os::raw::c_char,
+    regex: *mut *mut std::os::raw::c_char,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_generate_regex");
+        // Validate input
+        if input.is_null() {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        // On success, write a mock regex string to the output pointer.
+        // The caller is responsible for freeing this (in real code via free()).
+        // In mock tests, we just check the status and don't dereference.
+        if status == PMIX_SUCCESS && !regex.is_null() {
+            let mock_regex = std::ffi::CString::new("pmix:mock_regex").unwrap();
+            let mock_ptr = mock_regex.into_raw() as *mut std::os::raw::c_char;
+            unsafe {
+                *regex = mock_ptr;
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_generate_ppn()`.
+///
+/// Simulates generating a compressed PPN string from process rank ranges.
+/// When mock is enabled, writes a mock PPN string to the output pointer
+/// and returns the configured mock status.
+pub fn mock_generate_ppn(
+    input: *const std::os::raw::c_char,
+    ppn: *mut *mut std::os::raw::c_char,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_generate_ppn");
+        // Validate input
+        if input.is_null() {
+            return PMIX_ERR_BAD_PARAM;
+        }
+        // On success, write a mock PPN string to the output pointer.
+        if status == PMIX_SUCCESS && !ppn.is_null() {
+            let mock_ppn = std::ffi::CString::new("pmix:mock_ppn").unwrap();
+            let mock_ptr = mock_ppn.into_raw() as *mut std::os::raw::c_char;
+            unsafe {
+                *ppn = mock_ptr;
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Get_attribute_string()`.
+///
+/// Simulates looking up a canonical attribute string.
+/// When mock is enabled, returns a pointer to the input (simulating
+/// the behavior when the attribute is recognized).
+pub fn mock_get_attribute_string(
+    attribute: *const std::os::raw::c_char,
+) -> *const std::os::raw::c_char {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Get_attribute_string");
+        if status != PMIX_SUCCESS {
+            return std::ptr::null();
+        }
+        // Return the input string as the canonical form
+        attribute
+    } else {
+        std::ptr::null()
+    }
+}
+
+/// Mock implementation of `PMIx_Get_attribute_name()`.
+///
+/// Simulates reverse lookup of an attribute key from a canonical string.
+/// When mock is enabled, returns a pointer to the input (simulating
+/// the behavior when the string is recognized).
+pub fn mock_get_attribute_name(
+    attrstring: *const std::os::raw::c_char,
+) -> *const std::os::raw::c_char {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Get_attribute_name");
+        if status != PMIX_SUCCESS {
+            return std::ptr::null();
+        }
+        // Return the input string as the attribute key
+        attrstring
+    } else {
+        std::ptr::null()
     }
 }
 
@@ -1858,7 +1965,12 @@ mod tests {
         enable_mock_ffi();
         let nspace = std::ffi::CString::new("test").unwrap();
         let status = mock_server_register_nspace(
-            nspace.as_ptr(), 1, std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+            nspace.as_ptr(),
+            1,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
         );
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
@@ -1869,7 +1981,12 @@ mod tests {
         disable_mock_ffi();
         let nspace = std::ffi::CString::new("test").unwrap();
         let status = mock_server_register_nspace(
-            nspace.as_ptr(), 1, std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+            nspace.as_ptr(),
+            1,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
         );
         assert_eq!(status, PMIX_ERR_INIT);
     }
@@ -1879,7 +1996,11 @@ mod tests {
         enable_mock_ffi();
         let key = std::ffi::CString::new("k").unwrap();
         let status = mock_server_publish(
-            std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0,
+            std::ptr::null_mut(),
+            key.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
         );
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
@@ -1891,8 +2012,13 @@ mod tests {
         let key = std::ffi::CString::new("k").unwrap();
         let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
         let status = mock_server_lookup(
-            std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0,
-            std::ptr::null_mut(), 0, &mut val,
+            std::ptr::null_mut(),
+            key.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut val,
         );
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
@@ -1902,9 +2028,8 @@ mod tests {
     fn test_mock_server_delete_success() {
         enable_mock_ffi();
         let key = std::ffi::CString::new("k").unwrap();
-        let status = mock_server_delete(
-            std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0,
-        );
+        let status =
+            mock_server_delete(std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0);
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
     }
@@ -1915,7 +2040,12 @@ mod tests {
         let mut retvals: *mut std::ffi::c_void = std::ptr::null_mut();
         let mut nretvals: usize = 0;
         let status = mock_server_fence(
-            std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut retvals, &mut nretvals,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut retvals,
+            &mut nretvals,
         );
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
@@ -1925,7 +2055,12 @@ mod tests {
     fn test_mock_server_fence_nb_success() {
         enable_mock_ffi();
         let status = mock_server_fence_nb(
-            std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
         );
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
@@ -1944,7 +2079,11 @@ mod tests {
         enable_mock_ffi();
         let nspace = std::ffi::CString::new("test").unwrap();
         let status = mock_server_setup_application(
-            nspace.as_ptr(), std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+            nspace.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
         );
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
@@ -1955,7 +2094,11 @@ mod tests {
         enable_mock_ffi();
         let nspace = std::ffi::CString::new("test").unwrap();
         let status = mock_server_setup_local_support(
-            nspace.as_ptr(), std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
+            nspace.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
         );
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
@@ -1964,9 +2107,8 @@ mod tests {
     #[test]
     fn test_mock_server_register_resources_success() {
         enable_mock_ffi();
-        let status = mock_server_register_resources(
-            std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
-        );
+        let status =
+            mock_server_register_resources(std::ptr::null_mut(), 0, None, std::ptr::null_mut());
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
     }
@@ -1974,9 +2116,8 @@ mod tests {
     #[test]
     fn test_mock_server_deregister_resources_success() {
         enable_mock_ffi();
-        let status = mock_server_deregister_resources(
-            std::ptr::null_mut(), 0, None, std::ptr::null_mut(),
-        );
+        let status =
+            mock_server_deregister_resources(std::ptr::null_mut(), 0, None, std::ptr::null_mut());
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
     }
@@ -1985,7 +2126,12 @@ mod tests {
     fn test_mock_server_tool_attach_to_server_success() {
         enable_mock_ffi();
         let status = mock_server_tool_attach_to_server(
-            0, 0, std::ptr::null_mut(), 0, std::ptr::null_mut(), 0,
+            0,
+            0,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
         );
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
@@ -1996,9 +2142,7 @@ mod tests {
         enable_mock_ffi();
         let mut cred: *mut std::os::raw::c_char = std::ptr::null_mut();
         let mut cred_size: usize = 0;
-        let status = mock_server_get_credential(
-            std::ptr::null_mut(), 0, &mut cred, &mut cred_size,
-        );
+        let status = mock_server_get_credential(std::ptr::null_mut(), 0, &mut cred, &mut cred_size);
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
     }
@@ -2007,9 +2151,7 @@ mod tests {
     fn test_mock_server_define_process_set_success() {
         enable_mock_ffi();
         let pset = std::ffi::CString::new("test").unwrap();
-        let status = mock_server_define_process_set(
-            std::ptr::null_mut(), 0, pset.as_ptr(),
-        );
+        let status = mock_server_define_process_set(std::ptr::null_mut(), 0, pset.as_ptr());
         assert_eq!(status, PMIX_SUCCESS);
         disable_mock_ffi();
     }
@@ -2025,8 +2167,7 @@ mod tests {
 
     #[test]
     fn test_mock_server_init_with_override() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_server_init", PMIX_ERR_NOMEM);
+        let config = MockConfig::new().with_function_status("PMIx_server_init", PMIX_ERR_NOMEM);
         {
             let _guard = MockGuard::with_config(config);
             let status = mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0);
@@ -2036,13 +2177,17 @@ mod tests {
 
     #[test]
     fn test_mock_server_publish_with_override() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_server_publish", PMIX_ERR_DUPLICATE_KEY);
+        let config =
+            MockConfig::new().with_function_status("PMIx_server_publish", PMIX_ERR_DUPLICATE_KEY);
         {
             let _guard = MockGuard::with_config(config);
             let key = std::ffi::CString::new("k").unwrap();
             let status = mock_server_publish(
-                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0,
+                std::ptr::null_mut(),
+                key.as_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
             );
             assert_eq!(status, PMIX_ERR_DUPLICATE_KEY);
         }
@@ -2050,15 +2195,20 @@ mod tests {
 
     #[test]
     fn test_mock_server_lookup_with_override() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_server_lookup", PMIX_ERR_NOT_FOUND);
+        let config =
+            MockConfig::new().with_function_status("PMIx_server_lookup", PMIX_ERR_NOT_FOUND);
         {
             let _guard = MockGuard::with_config(config);
             let key = std::ffi::CString::new("k").unwrap();
             let mut val: *mut std::ffi::c_void = std::ptr::null_mut();
             let status = mock_server_lookup(
-                std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0,
-                std::ptr::null_mut(), 0, &mut val,
+                std::ptr::null_mut(),
+                key.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut val,
             );
             assert_eq!(status, PMIX_ERR_NOT_FOUND);
         }
@@ -2066,14 +2216,18 @@ mod tests {
 
     #[test]
     fn test_mock_server_fence_with_override() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_server_fence", PMIX_ERR_TIMEOUT);
+        let config = MockConfig::new().with_function_status("PMIx_server_fence", PMIX_ERR_TIMEOUT);
         {
             let _guard = MockGuard::with_config(config);
             let mut retvals: *mut std::ffi::c_void = std::ptr::null_mut();
             let mut nretvals: usize = 0;
             let status = mock_server_fence(
-                std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut retvals, &mut nretvals,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut retvals,
+                &mut nretvals,
             );
             assert_eq!(status, PMIX_ERR_TIMEOUT);
         }
@@ -2083,24 +2237,120 @@ mod tests {
     fn test_mock_server_all_functions_enabled() {
         let _guard = MockGuard::new();
         // All server mock functions return PMIX_SUCCESS when enabled
-        assert_eq!(mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0), PMIX_SUCCESS);
+        assert_eq!(
+            mock_server_init(std::ptr::null_mut(), std::ptr::null_mut(), 0),
+            PMIX_SUCCESS
+        );
         assert_eq!(mock_server_finalize(), PMIX_SUCCESS);
         let nspace = std::ffi::CString::new("test").unwrap();
-        assert_eq!(mock_server_register_nspace(nspace.as_ptr(), 1, std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
+        assert_eq!(
+            mock_server_register_nspace(
+                nspace.as_ptr(),
+                1,
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut()
+            ),
+            PMIX_SUCCESS
+        );
         let key = std::ffi::CString::new("k").unwrap();
-        assert_eq!(mock_server_publish(std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), 0), PMIX_SUCCESS);
-        assert_eq!(mock_server_delete(std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0), PMIX_SUCCESS);
-        assert_eq!(mock_server_fence(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut std::ptr::null_mut::<std::ffi::c_void>(), &mut 0usize), PMIX_SUCCESS);
-        assert_eq!(mock_server_fence_nb(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
-        assert_eq!(mock_server_dmodex_request(std::ptr::null_mut(), None, std::ptr::null_mut()), PMIX_SUCCESS);
-        assert_eq!(mock_server_setup_application(nspace.as_ptr(), std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
-        assert_eq!(mock_server_setup_local_support(nspace.as_ptr(), std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
-        assert_eq!(mock_server_register_resources(std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
-        assert_eq!(mock_server_deregister_resources(std::ptr::null_mut(), 0, None, std::ptr::null_mut()), PMIX_SUCCESS);
-        assert_eq!(mock_server_tool_attach_to_server(0, 0, std::ptr::null_mut(), 0, std::ptr::null_mut(), 0), PMIX_SUCCESS);
-        assert_eq!(mock_server_get_credential(std::ptr::null_mut(), 0, &mut std::ptr::null_mut::<std::os::raw::c_char>(), &mut 0usize), PMIX_SUCCESS);
+        assert_eq!(
+            mock_server_publish(
+                std::ptr::null_mut(),
+                key.as_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0
+            ),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_delete(std::ptr::null_mut(), key.as_ptr(), std::ptr::null_mut(), 0),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_fence(
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut std::ptr::null_mut::<std::ffi::c_void>(),
+                &mut 0usize
+            ),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_fence_nb(
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut()
+            ),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_dmodex_request(std::ptr::null_mut(), None, std::ptr::null_mut()),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_setup_application(
+                nspace.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut()
+            ),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_setup_local_support(
+                nspace.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut()
+            ),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_register_resources(std::ptr::null_mut(), 0, None, std::ptr::null_mut()),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_deregister_resources(std::ptr::null_mut(), 0, None, std::ptr::null_mut()),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_tool_attach_to_server(
+                0,
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0
+            ),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_get_credential(
+                std::ptr::null_mut(),
+                0,
+                &mut std::ptr::null_mut::<std::os::raw::c_char>(),
+                &mut 0usize
+            ),
+            PMIX_SUCCESS
+        );
         let pset = std::ffi::CString::new("pset").unwrap();
-        assert_eq!(mock_server_define_process_set(std::ptr::null_mut(), 0, pset.as_ptr()), PMIX_SUCCESS);
-        assert_eq!(mock_server_delete_process_set(std::ffi::CString::new("pset").unwrap().into_raw()), PMIX_SUCCESS);
+        assert_eq!(
+            mock_server_define_process_set(std::ptr::null_mut(), 0, pset.as_ptr()),
+            PMIX_SUCCESS
+        );
+        assert_eq!(
+            mock_server_delete_process_set(std::ffi::CString::new("pset").unwrap().into_raw()),
+            PMIX_SUCCESS
+        );
     }
 }
