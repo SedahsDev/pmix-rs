@@ -395,7 +395,7 @@ pub fn heartbeat() -> Result<(), PmixStatus> {
     //   PMIx_Process_monitor_nb(&_in, PMIX_SUCCESS, NULL, 0, NULL, NULL);
     //   PMIX_INFO_DESTRUCT(&_in);
 
-    let mut c_info: ffi::pmix_info_t = unsafe { std::mem::zeroed() };
+    let mut c_info: ffi::pmix_info_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
     let key_cstring = CString::new("pmix.monitor.beat").expect("no interior NUL in key");
 
     unsafe {

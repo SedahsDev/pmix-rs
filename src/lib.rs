@@ -26,7 +26,7 @@ pub mod utility;
 use crate::ffi::*;
 use cstring_array::CStringArray;
 use std::ffi::{CStr, CString, NulError};
-use std::mem::zeroed;
+use std::mem::MaybeUninit;
 use std::os::raw::{c_char, c_void};
 use std::ptr::{null, null_mut};
 use std::{fmt, mem, ptr};
@@ -2195,7 +2195,7 @@ impl Proc {
     pub fn new(nspace: &str, rank: u32) -> Result<Self, NulError> {
         let mut handle: pmix_proc_t;
         unsafe {
-            handle = mem::zeroed();
+            handle = MaybeUninit::zeroed().assume_init();
             PMIx_Proc_construct(&mut handle);
         }
         handle.rank = rank;
@@ -2209,7 +2209,7 @@ impl Proc {
     pub fn new_with_nspace(&self, rank: u32) -> Result<Self, NulError> {
         let mut handle: pmix_proc_t;
         unsafe {
-            handle = mem::zeroed();
+            handle = MaybeUninit::zeroed().assume_init();
             PMIx_Proc_construct(&mut handle);
         }
         handle.rank = rank;
@@ -2624,7 +2624,7 @@ impl PmixValueBuilder {
         let payload = self.payload.ok_or(ValueError::MissingPayload)?;
         // SAFETY: zeroed gives a valid starting state for every scalar field
         // and every pointer field (NULL).
-        let mut v: pmix_value_t = unsafe { std::mem::zeroed() };
+        let mut v: pmix_value_t = unsafe { MaybeUninit::zeroed().assume_init() };
         v.type_ = payload.type_tag();
         write_payload(&mut v, payload);
         Ok(v)
@@ -2642,7 +2642,7 @@ impl PmixValueBuilder {
 fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
     //let &mut dst = &mut dst_in.data;
     // SAFETY: caller has already set v.type_; we write exactly the matching
-    // union arm. All other arms remain as zeroed bytes from `mem::zeroed`.
+    // union arm. All other arms remain as zeroed bytes from `MaybeUninit::zeroed`.
     unsafe {
         match payload {
             PmixPayload::Undef => { /* data stays zeroed */ }
@@ -2680,7 +2680,7 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
 
             // Heap-allocate pmix_proc_t, fill nspace (fixed char array), set rank.
             PmixPayload::Proc(p) => {
-                let mut raw_proc: pmix_proc_t = std::mem::zeroed();
+                let mut raw_proc: pmix_proc_t = std::mem::MaybeUninit::zeroed().assume_init();
                 let copy_len = p.handle.nspace.len().min(raw_proc.nspace.len());
                 ptr::copy_nonoverlapping(
                     p.handle.nspace.as_ptr() as *const c_void,
@@ -3020,7 +3020,7 @@ impl Context {
     pub fn proc_with_nspace(&self, rank: u32) -> Result<Proc, NulError> {
         let mut handle: pmix_proc_t;
         unsafe {
-            handle = mem::zeroed();
+            handle = MaybeUninit::zeroed().assume_init();
             PMIx_Proc_construct(&mut handle);
         }
         handle.rank = rank;

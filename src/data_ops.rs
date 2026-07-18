@@ -243,7 +243,7 @@ extern "C" fn get_value_callback_bridge(
         // PMIx doesn't try to free it.
         let val = unsafe { ptr::read(kv) };
         // Clear the pointer so PMIx doesn't double-free.
-        unsafe { ptr::write(kv, std::mem::zeroed()) };
+        unsafe { ptr::write(kv, std::mem::MaybeUninit::zeroed().assume_init()) };
         Some(PmixOwnedValue { inner: val })
     } else {
         None
@@ -514,7 +514,7 @@ pub fn lookup(
     let mut raw_pdata: Vec<ffi::pmix_pdata_t> = Vec::with_capacity(ndata);
 
     for item in data.iter() {
-        let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::zeroed() };
+        let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
 
         // Copy the key into pdata.key (pmix_key_t = [c_char; 512]).
         let key_bytes = item.key.as_bytes();
@@ -2912,7 +2912,7 @@ mod tests {
         // We can create a zeroed PmixOwnedValue to test drop behavior
         // This verifies the Drop implementation doesn't panic on zeroed data
         let val = PmixOwnedValue {
-            inner: unsafe { std::mem::zeroed() },
+            inner: unsafe { std::mem::MaybeUninit::zeroed().assume_init() },
         };
         // Drop happens at end of scope — should not panic
         drop(val);
@@ -3380,7 +3380,7 @@ mod tests {
         }
 
         // Create a mock pmix_value_t for the callback
-        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
+        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
         mock_value.type_ = PMIX_STRING_U16;
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
@@ -4110,7 +4110,7 @@ mod tests {
         }
 
         // Create a mock pmix_value_t with PMIX_STRING type
-        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
+        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
         mock_value.type_ = PMIX_STRING_U16;
 
         let cbdata = (req_id << 2) as *mut std::os::raw::c_void;

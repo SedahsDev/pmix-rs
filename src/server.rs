@@ -3458,7 +3458,7 @@ pub fn server_lookup(
     _info: &[Info],
 ) -> Result<PmixOwnedValue, PmixStatus> {
     // Build a single pmix_pdata_t for the lookup.
-    let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::zeroed() };
+    let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
 
     // Copy the key into pdata.key.
     let key_bytes = key.as_bytes();
