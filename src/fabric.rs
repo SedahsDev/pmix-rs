@@ -62,7 +62,6 @@ use std::ptr;
 use crate::ffi;
 use crate::{Info, PmixDeviceType, PmixError, PmixStatus};
 
-#[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 
 // ─────────────────────────────────────────────────────────────────────────────
