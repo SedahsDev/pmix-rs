@@ -43,8 +43,8 @@
 //! ```
 
 use std::collections::HashMap;
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_void};
+use std::ffi::CString;
+use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 

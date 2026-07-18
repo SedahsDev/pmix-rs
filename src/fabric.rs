@@ -60,7 +60,9 @@ use std::mem::MaybeUninit;
 use std::ptr;
 
 use crate::ffi;
-use crate::{Info, PmixDeviceType, PmixError, PmixStatus};
+use crate::{Info, PmixDeviceType, PmixStatus};
+
+use crate::mock_ffi;
 
 use crate::mock_ffi;
 

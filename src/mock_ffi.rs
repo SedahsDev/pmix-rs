@@ -504,7 +504,6 @@ impl Drop for MockGuard {
 // realistic state mutations so that calling code paths exercise their
 // success branches without requiring a real PMIx daemon.
 
-use std::ffi::CStr;
 
 /// Mock implementation of `PMIx_Data_buffer_create()`.
 ///

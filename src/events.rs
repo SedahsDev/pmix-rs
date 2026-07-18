@@ -43,7 +43,6 @@
 //! ```
 
 use crate::{Info, PmixDataRange, PmixError, PmixStatus, Proc, ffi};
-use std::ffi::CStr;
 use std::os::raw::c_void;
 use std::ptr;
 
