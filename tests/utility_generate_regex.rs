@@ -12,26 +12,20 @@
 //! The non-ignored tests verify the wrapper's error handling and type
 //! safety without a running PMIx server.
 
+#[path = "common/mod.rs"]
+mod common;
+
+use common::skip_without_server;
 use pmix::PmixError;
 use pmix::PmixStatus;
 use pmix::utility::generate_regex;
 
-/// Try to initialize the PMIx server. Returns `true` if successful,
-/// `false` if server_init failed (e.g., not running as a server process).
-/// Callers should `return` on `false` to skip the test gracefully.
-fn require_server_init() -> bool {
-    match pmix::server::server_init_minimal(None) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
-}
-
 /// Run a generate_regex test, skipping gracefully if server_init fails.
-/// This macro-like helper wraps each test body with server_init + skip.
+/// Uses the shared harness in `tests/common`.
 macro_rules! regex_test {
     ($name:ident, $body:block) => {
         fn $name() {
-            if !require_server_init() {
+            if !skip_without_server() {
                 eprintln!(concat!(stringify!($name), ": server_init failed, skipping"));
                 return;
             }
