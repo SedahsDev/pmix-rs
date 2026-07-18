@@ -28,3 +28,8 @@ criterion = "0.5"
 [[bench]]
 name = "data_serialization_bench"
 harness = false
+
+[features]
+default = []
+# Enable mock FFI stubs outside #[cfg(test)] (integration harnesses / benches).
+mock_ffi = []

@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+#![allow(clippy::cast_sign_loss)]
 #![allow(clippy::ptr_offset_with_cast)]
 
 use std::fmt::Debug;
@@ -11,6 +13,7 @@ pub mod fabric;
 mod ffi;
 pub mod groups;
 pub mod info;
+#[cfg(any(test, feature = "mock_ffi"))]
 pub mod mock_ffi;
 pub mod monitoring;
 pub mod process_mgmt;
@@ -20,12 +23,37 @@ pub mod server;
 pub mod tool;
 pub mod utility;
 
+
+/// Dispatch a PMIx FFI call to the mock implementation when the `mock_ffi`
+/// feature (or `cfg(test)`) is active **and** mocks are enabled at runtime.
+///
+/// In production builds without the feature, only the real call is compiled.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! pmix_ffi_or_mock {
+    (mock = $mock:expr, real = $real:expr $(,)?) => {{
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if $crate::mock_ffi::is_mock_enabled() {
+                $mock
+            } else {
+                $real
+            }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            $real
+        }
+    }};
+}
+
 use crate::ffi::*;
 use cstring_array::CStringArray;
 use std::ffi::{CStr, CString, NulError};
-use std::os::raw::c_void;
+use std::mem::zeroed;
+use std::os::raw::{c_char, c_void};
 use std::ptr::{null, null_mut};
-use std::{mem, ptr};
+use std::{fmt, mem, ptr};
 
 pub const GLOBAL: u8 = PMIX_GLOBAL as u8;
 pub const NUM_NODES: &[u8; 15] = PMIX_NUM_NODES;
