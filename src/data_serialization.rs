@@ -766,7 +766,7 @@ pub fn data_print<T>(
         Some(s) if !s.is_empty() => {
             let c_str = std::ffi::CString::new(s).unwrap_or_else(|_| {
                 // If the prefix contains null bytes, fall back to empty.
-                std::ffi::CString::new("").unwrap()
+                std::ffi::CString::new("").expect("CString::new interior NUL (data_serialization.rs)")
             });
             c_str.into_raw()
         }

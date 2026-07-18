@@ -3039,7 +3039,7 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        finalize(None).unwrap();
+        finalize(None).expect("invariant: unwrap in lib.rs");
     }
 }
 
@@ -3096,7 +3096,7 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
     unsafe {
         status = PmixStatus::from_raw(PMIx_Get(
             &proc.handle,
-            CStr::from_bytes_with_nul(key).unwrap().as_ptr(),
+            CStr::from_bytes_with_nul(key).expect("invariant: unwrap in lib.rs").as_ptr(),
             info_handle,
             ninfos,
             &mut value,
@@ -3169,7 +3169,7 @@ pub fn get_version() -> &'static str {
     unsafe {
         version = CStr::from_ptr(PMIx_Get_version());
     }
-    version.to_str().unwrap()
+    version.to_str().expect("CStr to_str: invalid UTF-8 (lib.rs)")
 }
 pub fn progress() {
     unsafe {
