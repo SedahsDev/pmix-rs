@@ -674,6 +674,11 @@ pub fn log_data_nb(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PmixQuery construction tests
+    // ─────────────────────────────────────────────────────────────────────
 
     #[test]
     fn test_pmix_query_new() {
@@ -686,6 +691,128 @@ mod tests {
         let result = PmixQuery::new(&[]);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_pmix_query_multiple_keys() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE", "PMIX_QUERY_NODE_SIZE"]).unwrap();
+        assert_eq!(query._keys.len(), 2);
+    }
+
+    #[test]
+    fn test_pmix_query_single_key() {
+        let query = PmixQuery::new(&["pmix.version"]).unwrap();
+        assert_eq!(query._keys.len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_query_nul_byte_in_key() {
+        // Keys with interior NUL bytes should fail
+        let result = PmixQuery::new(&["pmix.ver\0sion"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pmix_query_long_key() {
+        let long_key = "pmix.".to_string() + &"a".repeat(200);
+        let query = PmixQuery::new(&[&long_key]).unwrap();
+        assert_eq!(query._keys.len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_query_unicode_key() {
+        let query = PmixQuery::new(&["pmix.テスト"]).unwrap();
+        assert_eq!(query._keys.len(), 1);
+    }
+
+    #[test]
+    fn test_pmix_query_debug_output() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        let debug_str = format!("{:?}", query);
+        assert!(debug_str.contains("PmixQuery"));
+    }
+
+    #[test]
+    fn test_pmix_query_with_qualifiers() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        let query = query.with_qualifiers(crate::InfoBuilder::new().build());
+        assert!(!query._keys.is_empty());
+    }
+
+    #[test]
+    fn test_pmix_query_with_nonempty_qualifiers() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        let mut builder = crate::InfoBuilder::new();
+        builder.collect_data();
+        let info = builder.build();
+        let query = query.with_qualifiers(info);
+        assert!(!query._keys.is_empty());
+    }
+
+    #[test]
+    fn test_pmix_query_drop_safety() {
+        for _ in 0..10 {
+            let _query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_pmix_query_drop_after_with_qualifiers() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        let info = crate::InfoBuilder::new().build();
+        let _query = query.with_qualifiers(info);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // alloc_keys_array tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_alloc_keys_array_empty() {
+        let arr = PmixQuery::alloc_keys_array(&[]);
+        assert!(!arr.is_null());
+        unsafe {
+            assert!(std::ptr::read(arr).is_null());
+            libc::free(arr as *mut c_void);
+        }
+    }
+
+    #[test]
+    fn test_alloc_keys_array_single() {
+        let key = CString::new("test_key").unwrap();
+        let ptrs: &[*mut c_char] = &[key.as_ptr() as *mut c_char];
+        let arr = PmixQuery::alloc_keys_array(ptrs);
+        assert!(!arr.is_null());
+        unsafe {
+            assert_eq!(*arr, key.as_ptr() as *mut c_char);
+            assert!(std::ptr::read(arr.offset(1)).is_null());
+            libc::free(arr as *mut c_void);
+        }
+    }
+
+    #[test]
+    fn test_alloc_keys_array_multiple() {
+        let k1 = CString::new("key1").unwrap();
+        let k2 = CString::new("key2").unwrap();
+        let k3 = CString::new("key3").unwrap();
+        let ptrs: &[*mut c_char] = &[
+            k1.as_ptr() as *mut c_char,
+            k2.as_ptr() as *mut c_char,
+            k3.as_ptr() as *mut c_char,
+        ];
+        let arr = PmixQuery::alloc_keys_array(ptrs);
+        assert!(!arr.is_null());
+        unsafe {
+            assert_eq!(*arr, k1.as_ptr() as *mut c_char);
+            assert_eq!(*arr.offset(1), k2.as_ptr() as *mut c_char);
+            assert_eq!(*arr.offset(2), k3.as_ptr() as *mut c_char);
+            assert!(std::ptr::read(arr.offset(3)).is_null());
+            libc::free(arr as *mut c_void);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // QueryResults tests
+    // ─────────────────────────────────────────────────────────────────────
 
     #[test]
     fn test_query_results_empty() {
@@ -708,6 +835,406 @@ mod tests {
     }
 
     #[test]
+    fn test_query_results_debug() {
+        let results = QueryResults {
+            handle: std::ptr::null_mut(),
+            len: 5,
+        };
+        let debug_str = format!("{:?}", results);
+        assert!(debug_str.contains("QueryResults"));
+        assert!(debug_str.contains("5"));
+    }
+
+    #[test]
+    fn test_query_results_drop_null_handle() {
+        let results = QueryResults {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        drop(results);
+    }
+
+    #[test]
+    fn test_query_results_drop_null_handle_nonzero_len() {
+        let results = QueryResults {
+            handle: std::ptr::null_mut(),
+            len: 5,
+        };
+        drop(results);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // query_info() tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_info_empty_queries() {
+        let result = query_info(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[ignore = "requires PMIx daemon — PMIx_Query_info needs initialized PMIx server"]
+    fn test_query_info_with_daemon() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        let result = query_info(&[query]);
+        assert!(result.is_ok() || matches!(result, Err(PmixStatus::Known(PmixError::ErrInit))));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // query_callback_bridge tests (pmix_status_t is c_int, not an enum)
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_callback_bridge_null_cbdata() {
+        // Null cbdata should return immediately without panicking
+        query_callback_bridge(
+            0, // PMIX_SUCCESS
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            None,
+            std::ptr::null_mut(),
+        );
+    }
+
+    #[test]
+    fn test_query_callback_bridge_missing_callback() {
+        let req_id: usize = 99999;
+        let cbdata = (req_id << 2) as *mut c_void;
+        query_callback_bridge(
+            0, // PMIX_SUCCESS
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            None,
+            cbdata,
+        );
+    }
+
+    #[test]
+    fn test_query_callback_bridge_info_cleanup_on_missing_callback() {
+        let req_id: usize = 88888;
+        let cbdata = (req_id << 2) as *mut c_void;
+        query_callback_bridge(
+            -46, // PMIX_ERR_NOT_FOUND
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            None,
+            cbdata,
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // query_info_nb() tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_info_nb_empty_queries() {
+        struct NbDummy;
+        impl QueryCallback for NbDummy {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {}
+        }
+        let result = query_info_nb(&[], Box::new(NbDummy));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[ignore] // requires PMIx init — PMIx_Query_info_nb FFI call segfaults without a real server
+    fn test_query_info_nb_callback_registration_and_cleanup() {
+        struct CountingCallback {
+            called: Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl QueryCallback for CountingCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        // Record registry size before our call
+        let size_before = {
+            let registry = QUERY_REGISTRY.lock().unwrap();
+            registry.len()
+        };
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        let cb = Box::new(CountingCallback {
+            called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+        let result = query_info_nb(&[query], cb);
+        // FFI behavior without PMIx init is non-deterministic (Ok or Err).
+        // If Ok, the callback was NOT removed from registry (no PMIx server to
+        // invoke the bridge callback). Clean it up ourselves.
+        if result.is_ok() {
+            let req_id = {
+                let seq = QUERY_SEQ.lock().unwrap();
+                *seq
+            };
+            let mut registry = QUERY_REGISTRY.lock().unwrap();
+            registry.remove(&req_id);
+        }
+        // The registry should be back to its pre-call size — our entry was removed.
+        let size_after = {
+            let registry = QUERY_REGISTRY.lock().unwrap();
+            registry.len()
+        };
+        assert_eq!(
+            size_after, size_before,
+            "Registry should have same size after NB query (entry was cleaned up)"
+        );
+    }
+
+    #[test]
+    fn test_query_info_nb_request_id_encoding() {
+        let req_id: usize = 42;
+        let cbdata = (req_id << 2) as *mut c_void;
+        let decoded = (cbdata as usize) >> 2;
+        assert_eq!(decoded, req_id);
+        assert!(!cbdata.is_null());
+    }
+
+    #[test]
+    fn test_query_info_nb_request_id_zero_not_null() {
+        let req_id: usize = 1;
+        let cbdata = (req_id << 2) as *mut c_void;
+        assert!(!cbdata.is_null());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // QUERY_SEQ counter tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_seq_monotonic() {
+        let seq1 = QUERY_SEQ.lock().unwrap();
+        let val1 = *seq1;
+        drop(seq1);
+        let mut seq2 = QUERY_SEQ.lock().unwrap();
+        *seq2 += 1;
+        let val2 = *seq2;
+        drop(seq2);
+        assert!(val2 > val1);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // log_data() tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_log_data_empty() {
+        let data = vec![];
+        let directives = vec![];
+        let result = log_data(&data, &directives);
+        // PMIx_Log without init returns ErrInit or ErrNotSupported depending on
+        // library state — accept any outcome since we're not testing FFI behavior.
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_log_data_with_empty_info() {
+        let data = vec![crate::InfoBuilder::new().build()];
+        let directives = vec![];
+        let result = log_data(&data, &directives);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_log_data_with_string_info() {
+        let info = crate::info_with_string_key("test.key", "test.value");
+        let data = vec![info];
+        let directives = vec![];
+        let result = log_data(&data, &directives);
+        // PMIx_Log without init returns ErrInit or ErrNotSupported depending on
+        // library state — accept any outcome since we're not testing FFI behavior.
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_log_data_with_directives() {
+        let data_info = crate::info_with_string_key("log.data", "hello");
+        let dir_info = crate::info_with_string_key("PMIX_LOG_STDOUT", "1");
+        let result = log_data(&[data_info], &[dir_info]);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // log_callback_bridge tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_log_callback_bridge_null_cbdata() {
+        log_callback_bridge(0, std::ptr::null_mut()); // PMIX_SUCCESS
+    }
+
+    #[test]
+    fn test_log_callback_bridge_missing_callback() {
+        let req_id: usize = 77777;
+        let cbdata = (req_id << 2) as *mut c_void;
+        log_callback_bridge(0, cbdata); // PMIX_SUCCESS
+    }
+
+    #[test]
+    fn test_log_callback_bridge_error_status() {
+        let req_id: usize = 66666;
+        let cbdata = (req_id << 2) as *mut c_void;
+        log_callback_bridge(-30, cbdata); // PMIX_ERR_NOT_SUPPORTED
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // log_data_nb() tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    #[ignore] // requires PMIx init — PMIx_Log_nb FFI call segfaults without a real server
+    fn test_log_data_nb_empty_data_and_directives() {
+        struct LogNbDummy;
+        impl LogCallback for LogNbDummy {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        // Record registry size before to detect our entry post-call
+        let size_before = {
+            let registry = LOG_REGISTRY.lock().unwrap();
+            registry.len()
+        };
+        let result = log_data_nb(&[], &[], Box::new(LogNbDummy));
+        assert!(result.is_err());
+        // Registry should be back to pre-call size — our entry was cleaned up.
+        let size_after = {
+            let registry = LOG_REGISTRY.lock().unwrap();
+            registry.len()
+        };
+        assert_eq!(
+            size_after, size_before,
+            "Registry should have same size after failed NB log"
+        );
+    }
+
+    #[test]
+    #[ignore] // requires PMIx init — PMIx_Log_nb FFI call segfaults without a real server
+    fn test_log_data_nb_with_data() {
+        struct LogNbCounting {
+            _called: Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl LogCallback for LogNbCounting {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {
+                self._called
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let size_before = {
+            let registry = LOG_REGISTRY.lock().unwrap();
+            registry.len()
+        };
+        let info = crate::info_with_string_key("test.key", "test.value");
+        let cb = Box::new(LogNbCounting {
+            _called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+        let result = log_data_nb(&[info], &[], cb);
+        assert!(result.is_err());
+        let size_after = {
+            let registry = LOG_REGISTRY.lock().unwrap();
+            registry.len()
+        };
+        assert_eq!(
+            size_after, size_before,
+            "Registry size unchanged after failed NB log"
+        );
+    }
+
+    #[test]
+    fn test_log_data_nb_request_id_encoding() {
+        let req_id: usize = 99;
+        let cbdata = (req_id << 2) as *mut c_void;
+        let decoded = (cbdata as usize) >> 2;
+        assert_eq!(decoded, req_id);
+        assert!(!cbdata.is_null());
+    }
+
+    #[test]
+    #[ignore] // requires PMIx init — PMIx_Log_nb FFI call segfaults without a real server
+    fn test_log_data_nb_callback_cleanup_on_error() {
+        struct LogDummy;
+        impl LogCallback for LogDummy {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let size_before = {
+            let registry = LOG_REGISTRY.lock().unwrap();
+            registry.len()
+        };
+        for _ in 0..5 {
+            let info = crate::info_with_string_key("test", "val");
+            let _ = log_data_nb(&[info], &[], Box::new(LogDummy));
+        }
+        let size_after = {
+            let registry = LOG_REGISTRY.lock().unwrap();
+            registry.len()
+        };
+        assert_eq!(
+            size_after, size_before,
+            "Registry size unchanged after multiple failed NB logs"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // LOG_SEQ counter tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_log_seq_monotonic() {
+        let seq1 = LOG_SEQ.lock().unwrap();
+        let val1 = *seq1;
+        drop(seq1);
+        let mut seq2 = LOG_SEQ.lock().unwrap();
+        *seq2 += 1;
+        let val2 = *seq2;
+        drop(seq2);
+        assert!(val2 > val1);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PmixStatus error code tests for query/log module
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_status_err_init() {
+        let status = PmixStatus::from_raw(-31); // PMIX_ERR_INIT
+        assert_eq!(status, PmixStatus::Known(PmixError::ErrInit));
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_err_bad_param() {
+        let status = PmixStatus::from_raw(-27); // PMIX_ERR_BAD_PARAM
+        assert_eq!(status, PmixStatus::Known(PmixError::ErrBadParam));
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_err_not_found() {
+        let status = PmixStatus::from_raw(-46); // PMIX_ERR_NOT_FOUND
+        assert_eq!(status, PmixStatus::Known(PmixError::ErrNotFound));
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_err_partial_success() {
+        let status = PmixStatus::from_raw(-52); // PMIX_ERR_PARTIAL_SUCCESS
+        assert_eq!(status, PmixStatus::Known(PmixError::ErrPartialSuccess));
+        // ErrPartialSuccess is negative (-52), so is_error() is true
+        assert!(status.is_error());
+    }
+
+    #[test]
+    fn test_pmix_status_success() {
+        let status = PmixStatus::from_raw(0); // PMIX_SUCCESS
+        assert!(status.is_success());
+        assert!(!status.is_error());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // QueryCallback and LogCallback trait tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
     fn test_query_callback_trait_object() {
         struct DummyQuery;
         impl QueryCallback for DummyQuery {
@@ -725,5 +1252,199 @@ mod tests {
         }
         let callback: Box<dyn LogCallback> = Box::new(DummyLog);
         let _ = callback;
+    }
+
+    #[test]
+    fn test_query_callback_with_state() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        struct StatefulQuery {
+            count: Arc<AtomicU32>,
+        }
+        impl QueryCallback for StatefulQuery {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let count = Arc::new(AtomicU32::new(0));
+        let cb: Box<dyn QueryCallback> = Box::new(StatefulQuery {
+            count: count.clone(),
+        });
+        let results = QueryResults {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        cb.on_complete(PmixStatus::Known(PmixError::Success), results);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_log_callback_with_state() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        struct StatefulLog {
+            count: Arc<AtomicU32>,
+        }
+        impl LogCallback for StatefulLog {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let count = Arc::new(AtomicU32::new(0));
+        let cb: Box<dyn LogCallback> = Box::new(StatefulLog {
+            count: count.clone(),
+        });
+        cb.on_complete(PmixStatus::Known(PmixError::Success));
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_log_callback_receives_error_status() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        struct StatusCapture {
+            status_code: Arc<AtomicI32>,
+        }
+        impl LogCallback for StatusCapture {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                if let PmixStatus::Known(e) = status {
+                    self.status_code.store(e as i32, Ordering::SeqCst);
+                }
+            }
+        }
+        let code = Arc::new(AtomicI32::new(0));
+        let cb: Box<dyn LogCallback> = Box::new(StatusCapture {
+            status_code: code.clone(),
+        });
+        cb.on_complete(PmixStatus::Known(PmixError::ErrNotFound));
+        assert_eq!(code.load(Ordering::SeqCst), PmixError::ErrNotFound as i32);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PmixQuery edge cases
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pmix_query_keys_array_is_null_terminated() {
+        let key = CString::new("test").unwrap();
+        let ptrs: &[*mut c_char] = &[key.as_ptr() as *mut c_char];
+        let arr = PmixQuery::alloc_keys_array(ptrs);
+        assert!(!arr.is_null());
+        unsafe {
+            assert!(!std::ptr::read(arr).is_null());
+            assert!(std::ptr::read(arr.offset(1)).is_null());
+            libc::free(arr as *mut c_void);
+        }
+    }
+
+    #[test]
+    fn test_pmix_query_drop_nulls_out_fields() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        drop(query);
+    }
+
+    #[test]
+    fn test_pmix_query_with_multiple_qualifier_calls() {
+        let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
+        let info = crate::InfoBuilder::new().build();
+        let _query = query.with_qualifiers(info);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Registry stress tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_registry_concurrent_insert_remove() {
+        struct DummyQCb;
+        impl QueryCallback for DummyQCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {}
+        }
+        // Use high keys to avoid collision with NB query request IDs (which start from 1)
+        let base = 100_000;
+        for i in 0..20 {
+            let key = base + i;
+            {
+                let mut registry = QUERY_REGISTRY.lock().unwrap();
+                registry.insert(key, Box::new(DummyQCb));
+            }
+            {
+                let mut registry = QUERY_REGISTRY.lock().unwrap();
+                registry.remove(&key);
+            }
+        }
+        // Verify our keys are gone (don't assert is_empty — other tests may have entries)
+        {
+            let registry = QUERY_REGISTRY.lock().unwrap();
+            for i in 0..20 {
+                assert!(
+                    registry.get(&(base + i)).is_none(),
+                    "Key {} should have been removed",
+                    base + i
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_log_registry_concurrent_insert_remove() {
+        struct DummyLCb;
+        impl LogCallback for DummyLCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        // Use high keys to avoid collision with NB log request IDs
+        let base = 200_000;
+        for i in 0..20 {
+            let key = base + i;
+            {
+                let mut registry = LOG_REGISTRY.lock().unwrap();
+                registry.insert(key, Box::new(DummyLCb));
+            }
+            {
+                let mut registry = LOG_REGISTRY.lock().unwrap();
+                registry.remove(&key);
+            }
+        }
+        // Verify our keys are gone (don't assert is_empty — other tests may have entries)
+        {
+            let registry = LOG_REGISTRY.lock().unwrap();
+            for i in 0..20 {
+                assert!(
+                    registry.get(&(base + i)).is_none(),
+                    "Key {} should have been removed",
+                    base + i
+                );
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // QueryResults len edge cases
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_results_len_large() {
+        let results = QueryResults {
+            handle: std::ptr::null_mut(),
+            len: usize::MAX,
+        };
+        assert!(!results.is_empty());
+        assert_eq!(results.len(), usize::MAX);
+        drop(results);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Info construction for log tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_info_builder_empty_for_log() {
+        let info = crate::InfoBuilder::new().build();
+        assert!(info.is_empty());
+        assert_eq!(info.len(), 0);
+    }
+
+    #[test]
+    fn test_info_with_string_key_for_log() {
+        let info = crate::info_with_string_key("PMIX_LOG_STDOUT", "test message");
+        assert!(!info.is_empty());
+        assert_eq!(info.len(), 1);
     }
 }

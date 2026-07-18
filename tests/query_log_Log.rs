@@ -124,10 +124,9 @@ fn test_recording_log_callback() {
 
 /// Integration test: log empty data to stdout.
 ///
-/// This test requires a running PMIx daemon. It will fail with
-/// PMIX_ERR_INIT if PMIx has not been initialized.
+/// This test handles both daemon-up (returns Ok) and daemon-down
+/// (returns PMIX_ERR_INIT or PMIX_ERR_NOT_SUPPORTED) cases gracefully.
 #[test]
-#[ignore]
 fn test_log_data_stdout() {
     // We need an Info object with a log directive to direct output to stdout.
     // Since constructing Info requires PMIx_Info_create (which needs a server),
@@ -152,9 +151,8 @@ fn test_log_data_stdout() {
 
 /// Integration test: log data with directives via non-blocking API.
 ///
-/// This test requires a running PMIx daemon.
+/// This test handles both daemon-up and daemon-down cases gracefully.
 #[test]
-#[ignore]
 fn test_log_data_nb_stdout() {
     let data: Vec<pmix::Info> = Vec::new();
     let directives: Vec<pmix::Info> = Vec::new();
@@ -178,10 +176,9 @@ fn test_log_data_nb_stdout() {
 
 /// Integration test: verify log_data_nb callback is invoked.
 ///
-/// This test requires a running PMIx daemon. It creates a callback that
-/// records the status and verifies the callback is eventually called.
+/// This test handles both daemon-up (callback invoked async) and daemon-down
+/// (immediate error, callback NOT invoked) cases gracefully.
 #[test]
-#[ignore]
 fn test_log_data_nb_callback_invoked() {
     use std::sync::{Arc, Mutex};
 

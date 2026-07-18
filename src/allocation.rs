@@ -1164,4 +1164,387 @@ mod tests {
         let result = allocation_request(PmixAllocDirective::AllocExtend, &[]);
         assert!(result.is_err());
     }
+
+    // ── PmixAllocDirective edge cases ──
+
+    #[test]
+    fn test_alloc_directive_from_raw_boundary_zero() {
+        // Raw value 0 is not a valid directive — should map to Unknown(0)
+        let d = PmixAllocDirective::from_raw(0);
+        assert!(matches!(d, PmixAllocDirective::Unknown(0)));
+        assert_eq!(d.to_raw(), 0);
+    }
+
+    #[test]
+    fn test_alloc_directive_from_raw_boundary_max() {
+        // Raw value 255 (max u8) should map to Unknown(255)
+        let d = PmixAllocDirective::from_raw(255);
+        assert!(matches!(d, PmixAllocDirective::Unknown(255)));
+        assert_eq!(d.to_raw(), 255);
+    }
+
+    #[test]
+    fn test_alloc_directive_from_raw_just_below_external() {
+        // Raw value 127 is just below AllocExternal (128) — Unknown
+        let d = PmixAllocDirective::from_raw(127);
+        assert!(matches!(d, PmixAllocDirective::Unknown(127)));
+    }
+
+    #[test]
+    fn test_alloc_directive_from_raw_just_above_external() {
+        // Raw value 129 is just above AllocExternal (128) — Unknown
+        let d = PmixAllocDirective::from_raw(129);
+        assert!(matches!(d, PmixAllocDirective::Unknown(129)));
+    }
+
+    #[test]
+    fn test_alloc_directive_unknown_display() {
+        // Display for Unknown variant should include the raw value
+        let d = PmixAllocDirective::Unknown(42);
+        assert_eq!(format!("{}", d), "UNKNOWN_DIRECTIVE (42)");
+    }
+
+    #[test]
+    fn test_alloc_directive_all_from_raw_roundtrip() {
+        // Every known directive round-trips correctly through from_raw/to_raw
+        let directives = [
+            PmixAllocDirective::AllocNew,
+            PmixAllocDirective::AllocExtend,
+            PmixAllocDirective::AllocRelease,
+            PmixAllocDirective::AllocReacquire,
+            PmixAllocDirective::AllocExternal,
+        ];
+        for d in directives {
+            let raw = d.to_raw();
+            let round = PmixAllocDirective::from_raw(raw);
+            assert_eq!(round.to_raw(), raw, "Roundtrip failed for {:?}", d);
+        }
+    }
+
+    // ── PmixJobCtrlAction keys ──
+
+    #[test]
+    fn test_job_ctrl_action_pause_key() {
+        assert_eq!(PmixJobCtrlAction::Pause.key(), "pmix.jctrl.pause");
+    }
+
+    #[test]
+    fn test_job_ctrl_action_resume_key() {
+        assert_eq!(PmixJobCtrlAction::Resume.key(), "pmix.jctrl.resume");
+    }
+
+    #[test]
+    fn test_job_ctrl_action_kill_key() {
+        assert_eq!(PmixJobCtrlAction::Kill.key(), "pmix.jctrl.kill");
+    }
+
+    #[test]
+    fn test_job_ctrl_action_signal_key() {
+        assert_eq!(PmixJobCtrlAction::Signal(9).key(), "pmix.jctrl.sig");
+        assert_eq!(PmixJobCtrlAction::Signal(0).key(), "pmix.jctrl.sig");
+    }
+
+    #[test]
+    fn test_job_ctrl_action_terminate_key() {
+        assert_eq!(PmixJobCtrlAction::Terminate.key(), "pmix.jctrl.term");
+    }
+
+    #[test]
+    fn test_job_ctrl_action_cancel_key() {
+        assert_eq!(
+            PmixJobCtrlAction::Cancel("abc123".to_string()).key(),
+            "pmix.jctrl.cancel"
+        );
+    }
+
+    #[test]
+    fn test_job_ctrl_action_restart_key() {
+        assert_eq!(
+            PmixJobCtrlAction::Restart("ckpt-1".to_string()).key(),
+            "pmix.jctrl.restart"
+        );
+    }
+
+    // ── PmixJobCtrlAction Display ──
+
+    #[test]
+    fn test_job_ctrl_action_display() {
+        assert_eq!(format!("{}", PmixJobCtrlAction::Pause), "PAUSE");
+        assert_eq!(format!("{}", PmixJobCtrlAction::Resume), "RESUME");
+        assert_eq!(format!("{}", PmixJobCtrlAction::Kill), "KILL");
+        assert_eq!(format!("{}", PmixJobCtrlAction::Signal(15)), "SIGNAL(15)");
+        assert_eq!(format!("{}", PmixJobCtrlAction::Terminate), "TERMINATE");
+    }
+
+    #[test]
+    fn test_job_ctrl_action_display_cancel_restart() {
+        assert_eq!(
+            format!("{}", PmixJobCtrlAction::Cancel("req-42".to_string())),
+            "CANCEL(req-42)"
+        );
+        assert_eq!(
+            format!("{}", PmixJobCtrlAction::Restart("ckpt-7".to_string())),
+            "RESTART(ckpt-7)"
+        );
+    }
+
+    #[test]
+    fn test_job_ctrl_action_eq() {
+        assert_eq!(PmixJobCtrlAction::Pause, PmixJobCtrlAction::Pause);
+        assert_ne!(PmixJobCtrlAction::Pause, PmixJobCtrlAction::Kill);
+        assert_eq!(PmixJobCtrlAction::Signal(9), PmixJobCtrlAction::Signal(9));
+        assert_ne!(PmixJobCtrlAction::Signal(9), PmixJobCtrlAction::Signal(15));
+        assert_eq!(
+            PmixJobCtrlAction::Cancel("x".to_string()),
+            PmixJobCtrlAction::Cancel("x".to_string())
+        );
+        assert_ne!(
+            PmixJobCtrlAction::Cancel("x".to_string()),
+            PmixJobCtrlAction::Cancel("y".to_string())
+        );
+    }
+
+    #[test]
+    fn test_job_ctrl_action_clone() {
+        let a = PmixJobCtrlAction::Signal(42);
+        let b = a.clone();
+        assert_eq!(format!("{}", a), format!("{}", b));
+    }
+
+    // ── JobControlResults ──
+
+    #[test]
+    fn test_job_control_results_new_empty() {
+        let results = JobControlResults::new_empty();
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_job_control_results_debug() {
+        let results = JobControlResults::new_empty();
+        let s = format!("{:?}", results);
+        assert!(s.contains("JobControlResults"));
+    }
+
+    // ── SessionControlResults ──
+
+    #[test]
+    fn test_session_control_results_empty() {
+        let results = SessionControlResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_session_control_results_debug() {
+        let results = SessionControlResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        let s = format!("{:?}", results);
+        assert!(s.contains("SessionControlResults"));
+    }
+
+    // ── job_control (requires PMIx init — error path) ──
+
+    #[test]
+    fn test_job_control_requires_init() {
+        // Without PMIx_Init, job_control should return an error.
+        let result = job_control(&[], &[]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(!err.is_success());
+    }
+
+    #[test]
+    fn test_job_control_empty_targets_and_directives() {
+        // Empty targets + empty directives should still hit the FFI and fail
+        let result = job_control(&[], &[]);
+        assert!(result.is_err());
+    }
+
+    // ── job_control_nb (requires PMIx init — error path) ──
+
+    #[test]
+    fn test_job_control_nb_requires_init() {
+        // Without PMIx_Init, job_control_nb should return an error
+        // and NOT invoke the callback.
+        struct TestJobCtrlCb;
+        impl JobControlCallback for TestJobCtrlCb {
+            fn on_complete(&self, _status: PmixStatus, _results: JobControlResults) {
+                panic!("Callback should not be called on rejected request");
+            }
+        }
+        let result = job_control_nb(&[], &[], Box::new(TestJobCtrlCb));
+        assert!(result.is_err());
+    }
+
+    // ── allocation_request_nb (requires PMIx init — error path) ──
+
+    #[test]
+    fn test_allocation_request_nb_requires_init() {
+        // Without PMIx_Init, allocation_request_nb should return an error
+        // and NOT invoke the callback.
+        struct TestAllocCb;
+        impl AllocationCallback for TestAllocCb {
+            fn on_complete(&self, _status: PmixStatus, _results: AllocationResults) {
+                panic!("Callback should not be called on rejected request");
+            }
+        }
+        let result =
+            allocation_request_nb(PmixAllocDirective::AllocNew, &[], Box::new(TestAllocCb));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_allocation_request_nb_directive_variants() {
+        // Each directive variant should produce the same error (not initialized).
+        // This verifies the FFI call path for all directive types.
+        struct NoopAllocCb;
+        impl AllocationCallback for NoopAllocCb {
+            fn on_complete(&self, _status: PmixStatus, _results: AllocationResults) {}
+        }
+        let directives = [
+            PmixAllocDirective::AllocNew,
+            PmixAllocDirective::AllocExtend,
+            PmixAllocDirective::AllocRelease,
+            PmixAllocDirective::AllocReacquire,
+            PmixAllocDirective::AllocExternal,
+        ];
+        for d in directives {
+            let result = allocation_request_nb(d, &[], Box::new(NoopAllocCb));
+            assert!(result.is_err(), "Expected error for directive {:?}", d);
+        }
+    }
+
+    // ── session_control (requires PMIx init — error path) ──
+
+    #[test]
+    fn test_session_control_blocking_requires_init() {
+        // Blocking session_control without PMIx_Init should return error
+        let result = session_control(0, &[], None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_session_control_nb_requires_init() {
+        // Non-blocking session_control without PMIx_Init should return error
+        struct TestSessionCb;
+        impl SessionControlCallback for TestSessionCb {
+            fn on_complete(&self, _status: PmixStatus, _results: SessionControlResults) {
+                panic!("Callback should not be called on rejected request");
+            }
+        }
+        let result = session_control(0, &[], Some(Box::new(TestSessionCb)));
+        assert!(result.is_err());
+    }
+
+    // ── AllocationResults safety ──
+
+    #[test]
+    fn test_allocation_results_null_drop_safe() {
+        // Dropping an AllocationResults with null handle should not crash.
+        // This verifies the Drop impl handles the null case gracefully.
+        let results = AllocationResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        drop(results); // Should not panic or segfault
+    }
+
+    #[test]
+    fn test_job_control_results_null_drop_safe() {
+        // Dropping a JobControlResults with null handle should not crash.
+        let results = JobControlResults::new_empty();
+        drop(results); // Should not panic or segfault
+    }
+
+    #[test]
+    fn test_session_control_results_null_drop_safe() {
+        // Dropping a SessionControlResults with null handle should not crash.
+        let results = SessionControlResults {
+            handle: ptr::null_mut(),
+            len: 0,
+        };
+        drop(results); // Should not panic or segfault
+    }
+
+    // ── PmixAllocDirective Display remaining variants ──
+
+    #[test]
+    fn test_alloc_directive_display_all() {
+        // Verify Display for all variants including Unknown
+        assert_eq!(format!("{}", PmixAllocDirective::AllocNew), "ALLOC_NEW");
+        assert_eq!(
+            format!("{}", PmixAllocDirective::AllocExtend),
+            "ALLOC_EXTEND"
+        );
+        assert_eq!(
+            format!("{}", PmixAllocDirective::AllocRelease),
+            "ALLOC_RELEASE"
+        );
+        assert_eq!(
+            format!("{}", PmixAllocDirective::AllocReacquire),
+            "ALLOC_REAQUIRE"
+        );
+        assert_eq!(
+            format!("{}", PmixAllocDirective::AllocExternal),
+            "ALLOC_EXTERNAL"
+        );
+        assert_eq!(
+            format!("{}", PmixAllocDirective::Unknown(0)),
+            "UNKNOWN_DIRECTIVE (0)"
+        );
+        assert_eq!(
+            format!("{}", PmixAllocDirective::Unknown(255)),
+            "UNKNOWN_DIRECTIVE (255)"
+        );
+    }
+
+    // ── allocation_request with all directives (error path) ──
+
+    #[test]
+    fn test_allocation_request_all_directives_fail_without_init() {
+        // All directive variants should produce consistent errors without init.
+        let directives = [
+            PmixAllocDirective::AllocNew,
+            PmixAllocDirective::AllocExtend,
+            PmixAllocDirective::AllocRelease,
+            PmixAllocDirective::AllocReacquire,
+            PmixAllocDirective::AllocExternal,
+            PmixAllocDirective::Unknown(99),
+        ];
+        for d in directives {
+            let result = allocation_request(d, &[]);
+            assert!(result.is_err(), "Expected error for directive {:?}", d);
+        }
+    }
+
+    // ── job_control_nb with all action types (error path) ──
+
+    #[test]
+    fn test_job_control_nb_all_actions_fail_without_init() {
+        // Verify each job control action produces an error without init.
+        struct NoopJobCtrlCb;
+        impl JobControlCallback for NoopJobCtrlCb {
+            fn on_complete(&self, _status: PmixStatus, _results: JobControlResults) {}
+        }
+        let actions = [
+            PmixJobCtrlAction::Pause,
+            PmixJobCtrlAction::Resume,
+            PmixJobCtrlAction::Kill,
+            PmixJobCtrlAction::Signal(9),
+            PmixJobCtrlAction::Terminate,
+            PmixJobCtrlAction::Cancel("x".to_string()),
+            PmixJobCtrlAction::Restart("y".to_string()),
+        ];
+        for _a in actions {
+            let result = job_control_nb(&[], &[], Box::new(NoopJobCtrlCb));
+            assert!(result.is_err(), "Expected error for job control");
+        }
+    }
 }

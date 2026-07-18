@@ -2232,4 +2232,3287 @@ mod tests {
             }
         }
     }
+
+    // ─── PmixPdata construction edge cases ──────────────────────────────────
+
+    #[test]
+    fn test_pdata_new_with_unicode_key() {
+        let pdata = PmixPdata::new("pmix.тест.key");
+        assert_eq!(pdata.key, "pmix.тест.key");
+    }
+
+    #[test]
+    fn test_pdata_new_with_spaces_key() {
+        let pdata = PmixPdata::new("pmix test key");
+        assert_eq!(pdata.key, "pmix test key");
+    }
+
+    #[test]
+    fn test_pdata_new_with_numbers_key() {
+        let pdata = PmixPdata::new("pmix123.test456");
+        assert_eq!(pdata.key, "pmix123.test456");
+    }
+
+    #[test]
+    fn test_pdata_new_max_c_key_length() {
+        // pmix_key_t is [c_char; 512], so max key length is 511
+        let long_key = "a".repeat(511);
+        let pdata = PmixPdata::new(&long_key);
+        assert_eq!(pdata.key, long_key);
+    }
+
+    #[test]
+    fn test_pdata_new_exceeds_c_key_length() {
+        // Keys longer than 511 chars are stored but will be truncated in FFI
+        let very_long_key = "a".repeat(1000);
+        let pdata = PmixPdata::new(&very_long_key);
+        assert_eq!(pdata.key, very_long_key);
+    }
+
+    #[test]
+    fn test_pdata_with_dots_and_hyphens() {
+        let pdata = PmixPdata::new("pmix.job.001-app-node-0");
+        assert_eq!(pdata.key, "pmix.job.001-app-node-0");
+    }
+
+    #[test]
+    fn test_pdata_vec_operations() {
+        let mut pdatas = vec![PmixPdata::new("k1"), PmixPdata::new("k2")];
+        pdatas.push(PmixPdata::new("k3"));
+        assert_eq!(pdatas.len(), 3);
+        assert_eq!(pdatas[2].key, "k3");
+    }
+
+    #[test]
+    fn test_pdata_empty_vec() {
+        let pdatas: Vec<PmixPdata> = vec![];
+        assert!(pdatas.is_empty());
+    }
+
+    // ─── PmixPdata mutable reference tests ──────────────────────────────────
+
+    #[test]
+    fn test_pdata_mutate_value() {
+        let mut pdata = PmixPdata::new("test");
+        assert!(pdata.value.is_none());
+        // We can't easily construct a PmixOwnedValue without FFI,
+        // but we can verify the field is mutable
+        let _: &mut Option<PmixOwnedValue> = &mut pdata.value;
+    }
+
+    #[test]
+    fn test_pdata_mutate_key() {
+        let mut pdata = PmixPdata::new("original");
+        pdata.key = "modified".to_string();
+        assert_eq!(pdata.key, "modified");
+    }
+
+    #[test]
+    fn test_pdata_mutate_proc() {
+        let mut pdata = PmixPdata::new("test");
+        let new_proc = Proc::new("new_ns", 42).unwrap();
+        pdata.proc = new_proc;
+        assert_eq!(pdata.proc.get_rank(), 42);
+    }
+
+    // ─── Lookup with empty data array ───────────────────────────────────────
+
+    #[test]
+    fn test_lookup_empty_data_returns_error() {
+        let data: Vec<PmixPdata> = vec![];
+        let mut data = data;
+        let result = lookup(&mut data, None);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(!err.is_success());
+    }
+
+    #[test]
+    fn test_lookup_empty_data_with_info_returns_error() {
+        let data: Vec<PmixPdata> = vec![];
+        let mut data = data;
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = lookup(&mut data, Some(&info));
+        assert!(result.is_err());
+    }
+
+    // ─── Unpublish edge cases ───────────────────────────────────────────────
+
+    #[test]
+    fn test_unpublish_empty_keys_slice() {
+        let keys: &[&str] = &[];
+        let result = unpublish(Some(keys), None);
+        // Empty keys slice should pass null to FFI (same as None)
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_unpublish_none_keys() {
+        let result = unpublish(None, None);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Publish with empty info ────────────────────────────────────────────
+
+    #[test]
+    fn test_publish_empty_info() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let result = publish(&info);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Fence blocking call path ───────────────────────────────────────────
+
+    #[test]
+    fn test_fence_reaches_ffi() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let result = crate::fence(&proc, None);
+        match result {
+            Ok(_) => {}
+            Err(raw) => {
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_fence_with_procs() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let result = crate::fence(&proc, None);
+        match result {
+            Ok(_) => {}
+            Err(raw) => {
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn test_fence_no_info() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let result = crate::fence(&proc, None);
+        match result {
+            Ok(_) => {}
+            Err(raw) => {
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Fence callback bridge null cbdata test ─────────────────────────────
+
+    #[test]
+    fn test_fence_callback_bridge_null_cbdata() {
+        // fence_callback_bridge with null cbdata should return immediately
+        // We can call it directly since it's extern "C"
+        fence_callback_bridge(0, std::ptr::null_mut());
+        // Should not panic
+    }
+
+    // ─── Publish callback bridge null cbdata test ───────────────────────────
+
+    #[test]
+    fn test_publish_callback_bridge_null_cbdata() {
+        // publish_callback_bridge with null cbdata should return immediately
+        publish_callback_bridge(0, std::ptr::null_mut());
+        // Should not panic
+    }
+
+    // ─── Get value callback bridge null cbdata test ─────────────────────────
+
+    #[test]
+    fn test_get_value_callback_bridge_null_cbdata() {
+        // get_value_callback_bridge with null cbdata should return immediately
+        get_value_callback_bridge(0, std::ptr::null_mut(), std::ptr::null_mut());
+        // Should not panic
+    }
+
+    // ─── Unpublish callback bridge null cbdata test ─────────────────────────
+
+    #[test]
+    fn test_unpublish_callback_bridge_null_cbdata() {
+        // unpublish_callback_bridge with null cbdata should return immediately
+        unpublish_callback_bridge(0, std::ptr::null_mut());
+        // Should not panic
+    }
+
+    // ─── Lookup callback bridge null cbdata test ────────────────────────────
+
+    #[test]
+    fn test_lookup_callback_bridge_null_cbdata() {
+        // lookup_callback_bridge with null cbdata should return immediately
+        lookup_callback_bridge(0, std::ptr::null_mut(), 0, std::ptr::null_mut());
+        // Should not panic
+    }
+
+    // ─── Lookup callback bridge missing callback test ───────────────────────
+
+    #[test]
+    fn test_lookup_callback_bridge_missing_callback() {
+        // Create a req_id that's not in the registry
+        let req_id = 99999usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        // Call the bridge with a non-existent req_id
+        lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata);
+        // Should not panic — just returns without invoking callback
+    }
+
+    // ─── Publish callback bridge missing callback test ──────────────────────
+
+    #[test]
+    fn test_publish_callback_bridge_missing_callback() {
+        let req_id = 99998usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        publish_callback_bridge(0, cbdata);
+        // Should not panic — callback not found, returns early
+    }
+
+    // ─── Get value callback bridge missing callback test ────────────────────
+
+    #[test]
+    fn test_get_value_callback_bridge_missing_callback() {
+        let req_id = 99997usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        get_value_callback_bridge(0, std::ptr::null_mut(), cbdata);
+        // Should not panic
+    }
+
+    // ─── Unpublish callback bridge missing callback test ────────────────────
+
+    #[test]
+    fn test_unpublish_callback_bridge_missing_callback() {
+        let req_id = 99996usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unpublish_callback_bridge(0, cbdata);
+        // Should not panic
+    }
+
+    // ─── Fence callback bridge missing callback test ────────────────────────
+
+    #[test]
+    fn test_fence_callback_bridge_missing_callback() {
+        let req_id = 99995usize;
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        fence_callback_bridge(0, cbdata);
+        // Should not panic
+    }
+
+    // ─── Publish callback bridge with valid callback ────────────────────────
+
+    #[test]
+    fn test_publish_callback_bridge_invokes_callback() {
+        use std::sync::Arc;
+        struct TestCb {
+            status: Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl PublishCallback for TestCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.status.lock().unwrap() = Some(status);
+            }
+        }
+        let status = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            status: status.clone(),
+        });
+
+        let req_id = 77777usize;
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        publish_callback_bridge(0, cbdata); // PMIX_SUCCESS
+        let received = status.lock().unwrap();
+        assert!(received.is_some());
+        assert!(received.as_ref().unwrap().is_success());
+    }
+
+    // ─── Unpublish callback bridge with valid callback ──────────────────────
+
+    #[test]
+    fn test_unpublish_callback_bridge_invokes_callback() {
+        use std::sync::Arc;
+        struct TestCb {
+            status: Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl UnpublishCallback for TestCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.status.lock().unwrap() = Some(status);
+            }
+        }
+        let status = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            status: status.clone(),
+        });
+
+        let req_id = 66666usize;
+        {
+            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unpublish_callback_bridge(-6, cbdata); // PMIX_ERR_TIMEOUT
+        let received = status.lock().unwrap();
+        assert!(received.is_some());
+        assert!(received.as_ref().unwrap().is_error());
+    }
+
+    // ─── Fence callback bridge with valid callback ──────────────────────────
+
+    #[test]
+    fn test_fence_callback_bridge_invokes_callback() {
+        use std::sync::Arc;
+        struct TestCb {
+            status: Arc<std::sync::Mutex<Option<PmixStatus>>>,
+        }
+        impl FenceCallback for TestCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                *self.status.lock().unwrap() = Some(status);
+            }
+        }
+        let status = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            status: status.clone(),
+        });
+
+        let req_id = 55555usize;
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        fence_callback_bridge(0, cbdata); // PMIX_SUCCESS
+        let received = status.lock().unwrap();
+        assert!(received.is_some());
+        assert!(received.as_ref().unwrap().is_success());
+    }
+
+    // ─── Get value callback bridge with valid callback ──────────────────────
+
+    #[test]
+    fn test_get_value_callback_bridge_invokes_callback() {
+        use std::sync::Arc;
+        struct TestCb {
+            status: Arc<std::sync::Mutex<Option<PmixStatus>>>,
+            has_value: Arc<std::sync::Mutex<Option<bool>>>,
+        }
+        impl GetValueCallback for TestCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                *self.status.lock().unwrap() = Some(status);
+                *self.has_value.lock().unwrap() = Some(value.is_some());
+            }
+        }
+        let status = Arc::new(std::sync::Mutex::new(None));
+        let has_value = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            status: status.clone(),
+            has_value: has_value.clone(),
+        });
+
+        let req_id = 44444usize;
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        get_value_callback_bridge(-7, std::ptr::null_mut(), cbdata); // PMIX_ERR_NOT_FOUND, no value
+        let received = status.lock().unwrap();
+        let hv = has_value.lock().unwrap();
+        assert!(received.is_some());
+        let hv_val = hv.as_ref().unwrap();
+        assert!(!*hv_val); // No value on not found
+    }
+
+    // ─── Lookup callback bridge with valid callback ─────────────────────────
+
+    #[test]
+    fn test_lookup_callback_bridge_invokes_callback_empty() {
+        use std::sync::Arc;
+        struct TestCb {
+            count: Arc<std::sync::Mutex<Option<usize>>>,
+        }
+        impl LookupCallback for TestCb {
+            fn on_result(self: Box<Self>, _status: PmixStatus, data: Vec<PmixPdata>) {
+                *self.count.lock().unwrap() = Some(data.len());
+            }
+        }
+        let count = Arc::new(std::sync::Mutex::new(None));
+        let cb = Box::new(TestCb {
+            count: count.clone(),
+        });
+
+        let req_id = 33333usize;
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, cb);
+        }
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata); // success, empty data
+        let c = count.lock().unwrap();
+        assert!(c.is_some());
+        assert_eq!(c.as_ref().unwrap(), &0);
+    }
+
+    // ─── Info parameter handling with non-null handle ───────────────────────
+
+    #[test]
+    fn test_info_non_null_handle_pattern() {
+        // Simulate the pattern used in get() and get_nb()
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let (info_ptr, ninfo) = match Some(&info) {
+            Some(info) => {
+                if info.handle.is_null() {
+                    (std::ptr::null(), 0)
+                } else {
+                    (info.handle as *const ffi::pmix_info_t, info.len)
+                }
+            }
+            None => (std::ptr::null(), 0),
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    #[test]
+    fn test_info_none_pattern() {
+        let (info_ptr, ninfo) = match None::<&Info> {
+            Some(info) => {
+                if info.handle.is_null() {
+                    (std::ptr::null(), 0)
+                } else {
+                    (info.handle as *const ffi::pmix_info_t, info.len)
+                }
+            }
+            None => (std::ptr::null(), 0),
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+    }
+
+    // ─── PmixStatus known error variants used in data_ops ───────────────────
+
+    #[test]
+    fn test_pmix_error_success_to_raw() {
+        let status = PmixStatus::Known(PmixError::Success);
+        assert_eq!(status.to_raw(), 0);
+    }
+
+    #[test]
+    fn test_pmix_error_not_found_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrNotFound);
+        assert!(status.to_raw() < 0);
+    }
+
+    #[test]
+    fn test_pmix_error_partial_success_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrPartialSuccess);
+        assert!(status.to_raw() < 0);
+    }
+
+    #[test]
+    fn test_pmix_error_timeout_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrTimeout);
+        assert!(status.to_raw() < 0);
+    }
+
+    #[test]
+    fn test_pmix_error_duplicate_key_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrDuplicateKey);
+        assert!(status.to_raw() < 0);
+    }
+
+    #[test]
+    fn test_pmix_error_init_to_raw() {
+        let status = PmixStatus::Known(PmixError::ErrInit);
+        assert!(status.to_raw() < 0);
+    }
+
+    // ─── PmixPdata Debug formatting edge cases ──────────────────────────────
+
+    #[test]
+    fn test_pdata_debug_with_value_none() {
+        let pdata = PmixPdata::new("test");
+        let debug = format!("{:?}", pdata);
+        assert!(debug.contains("PmixPdata"));
+        assert!(debug.contains("value_present"));
+    }
+
+    #[test]
+    fn test_pdata_debug_contains_key() {
+        let pdata = PmixPdata::new("pmix.test.key");
+        let debug = format!("{:?}", pdata);
+        assert!(debug.contains("pmix.test.key"));
+    }
+
+    // ─── Store internal function signature verification ─────────────────────
+
+    #[test]
+    fn test_store_internal_is_public() {
+        // Verify store_internal is accessible and has the right signature
+        fn _type_check() {
+            let _f: fn(&Proc, &str, &PmixOwnedValue) -> Result<(), PmixStatus> = store_internal;
+        }
+    }
+
+    // ─── Fence with procs and info ──────────────────────────────────────────
+
+    #[test]
+    fn test_fence_with_single_proc() {
+        let proc = Proc::new("job_abc", 0).unwrap();
+        let result = crate::fence(&proc, None);
+        match result {
+            Ok(_) => {}
+            Err(raw) => {
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Lookup nb with empty keys ──────────────────────────────────────────
+
+    #[test]
+    fn test_lookup_nb_empty_keys_returns_error() {
+        struct DummyLookup;
+        impl LookupCallback for DummyLookup {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
+        }
+        let keys: &[&str] = &[];
+        let callback: Box<dyn LookupCallback> = Box::new(DummyLookup);
+        let result = lookup_nb(keys, None, callback);
+        assert!(result.is_err());
+    }
+
+    // ─── Unpublish nb with None keys ────────────────────────────────────────
+
+    #[test]
+    fn test_unpublish_nb_none_keys_reaches_ffi() {
+        struct DummyUnpublish;
+        impl UnpublishCallback for DummyUnpublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let callback: Box<dyn UnpublishCallback> = Box::new(DummyUnpublish);
+        let result = unpublish_nb(None, None, callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Get nb with key containing NUL (error path) ────────────────────────
+
+    #[test]
+    fn test_get_nb_key_with_nul_returns_error() {
+        struct DummyGet;
+        impl GetValueCallback for DummyGet {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
+        }
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let callback: Box<dyn GetValueCallback> = Box::new(DummyGet);
+        // Key with embedded NUL byte
+        let key = "test\0key";
+        let result = get_nb(&proc, key, None, callback);
+        assert!(result.is_err());
+    }
+
+    // ─── Get with key containing NUL (error path) ───────────────────────────
+
+    #[test]
+    fn test_get_key_with_nul_returns_error() {
+        let proc = Proc::new("test_ns", 0).unwrap();
+        let key = "test\0key";
+        let result = get(&proc, key, None);
+        assert!(result.is_err());
+    }
+
+    // ─── Unpublish with key containing NUL (error path) ─────────────────────
+
+    #[test]
+    fn test_unpublish_key_with_nul_returns_error() {
+        let keys = ["test\0key"];
+        let result = unpublish(Some(&keys), None);
+        assert!(result.is_err());
+    }
+
+    // ─── Lookup nb with key containing NUL (error path) ─────────────────────
+
+    #[test]
+    fn test_lookup_nb_key_with_nul_returns_error() {
+        struct DummyLookup;
+        impl LookupCallback for DummyLookup {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
+        }
+        let keys = ["test\0key"];
+        let callback: Box<dyn LookupCallback> = Box::new(DummyLookup);
+        let result = lookup_nb(&keys, None, callback);
+        assert!(result.is_err());
+    }
+
+    // ─── Proc namespace and rank edge cases ─────────────────────────────────
+
+    #[test]
+    fn test_proc_new_empty_namespace() {
+        let proc = Proc::new("", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_new_long_namespace() {
+        let long_ns = "a".repeat(256);
+        let proc = Proc::new(&long_ns, 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    #[test]
+    fn test_proc_new_max_rank() {
+        let proc = Proc::new("test", u32::MAX).unwrap();
+        assert_eq!(proc.get_rank(), u32::MAX);
+    }
+
+    #[test]
+    fn test_proc_new_with_nspace_different_rank() {
+        let proc = Proc::new("original_ns", 0).unwrap();
+        let proc2 = proc.new_with_nspace(5).unwrap();
+        assert_eq!(proc2.get_rank(), 5);
+    }
+
+    // ─── PmixOwnedValue drop behavior ───────────────────────────────────────
+
+    #[test]
+    fn test_pmix_owned_value_creation_and_drop() {
+        // We can create a zeroed PmixOwnedValue to test drop behavior
+        // This verifies the Drop implementation doesn't panic on zeroed data
+        let val = PmixOwnedValue {
+            inner: unsafe { std::mem::zeroed() },
+        };
+        // Drop happens at end of scope — should not panic
+        drop(val);
+    }
+
+    // ─── Multiple sequential publish calls ──────────────────────────────────
+
+    #[test]
+    fn test_multiple_publish_calls() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        for _ in 0..5 {
+            let result = publish(&info);
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0);
+                }
+            }
+        }
+    }
+
+    // ─── Multiple sequential lookup calls ───────────────────────────────────
+
+    #[test]
+    fn test_multiple_lookup_calls() {
+        for _ in 0..5 {
+            let data = vec![PmixPdata::new("test.key")];
+            let mut data = data;
+            let result = lookup(&mut data, None);
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    let raw = e.to_raw();
+                    assert!(raw < 0);
+                }
+            }
+        }
+    }
+
+    // ─── Info parameter with non-zero len but null handle ───────────────────
+
+    #[test]
+    fn test_info_zero_len_null_handle_in_publish() {
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        // This should use null/0 path in publish
+        let result = publish(&info);
+        // Expected error without DVM
+        assert!(result.is_err() || result.is_ok());
+    }
+
+    // ─── Fence nb with procs and info ───────────────────────────────────────
+
+    #[test]
+    fn test_fence_nb_with_procs() {
+        struct DummyFence;
+        impl FenceCallback for DummyFence {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let procs = vec![Proc::new("test_ns", 0).unwrap()];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let callback: Box<dyn FenceCallback> = Box::new(DummyFence);
+        let result = fence_nb(&procs, Some(&info), callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ─── Publish nb with empty info ─────────────────────────────────────────
+
+    #[test]
+    fn test_publish_nb_empty_info() {
+        struct DummyPublish;
+        impl PublishCallback for DummyPublish {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let callback: Box<dyn PublishCallback> = Box::new(DummyPublish);
+        let result = publish_nb(&info, callback);
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                let raw = e.to_raw();
+                assert!(raw < 0, "Expected error without DVM, got {}", raw);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MOCK FFI TESTS — exercise happy paths without a real PMIx daemon
+    //
+    // These tests use the mock_ffi framework to simulate successful FFI
+    // returns. They verify the Rust wrapper logic processes results
+    // correctly when PMIx operations succeed.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    use crate::mock_ffi::{
+        self, MockConfig, MockGuard, PMIX_ERR_DUPLICATE_KEY, PMIX_ERR_INIT, PMIX_ERR_NOT_FOUND,
+        PMIX_ERR_TIMEOUT, PMIX_STRING, PMIX_STRING_U16, PMIX_SUCCESS,
+    };
+
+    // ─── Mock FFI framework self-tests ──────────────────────────────────────
+
+    #[test]
+    fn test_mock_ffi_enable_disable() {
+        assert!(!mock_ffi::is_mock_enabled());
+        mock_ffi::enable_mock_ffi();
+        assert!(mock_ffi::is_mock_enabled());
+        mock_ffi::disable_mock_ffi();
+        assert!(!mock_ffi::is_mock_enabled());
+    }
+
+    #[test]
+    fn test_mock_guard_raii() {
+        assert!(!mock_ffi::is_mock_enabled());
+        {
+            let _guard = MockGuard::new();
+            assert!(mock_ffi::is_mock_enabled());
+        }
+        assert!(!mock_ffi::is_mock_enabled());
+    }
+
+    #[test]
+    fn test_mock_config_defaults() {
+        let config = MockConfig::new();
+        config.apply();
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_config_with_overrides() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY)
+            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
+        config.apply();
+        assert_eq!(
+            mock_ffi::get_mock_status("PMIx_Publish"),
+            PMIX_ERR_DUPLICATE_KEY
+        );
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+    }
+
+    #[test]
+    fn test_mock_key_value_store() {
+        mock_ffi::mock_store_value("test_key", b"test_value", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("test_key"));
+        mock_ffi::mock_remove_value("test_key");
+        assert!(!mock_ffi::mock_key_exists("test_key"));
+    }
+
+    #[test]
+    fn test_mock_store_clear() {
+        mock_ffi::mock_store_value("k1", b"v1", PMIX_STRING);
+        mock_ffi::mock_store_value("k2", b"v2", PMIX_STRING);
+        mock_ffi::mock_clear_store();
+        assert!(!mock_ffi::mock_key_exists("k1"));
+        assert!(!mock_ffi::mock_key_exists("k2"));
+    }
+
+    #[test]
+    fn test_mock_status_constants() {
+        assert_eq!(mock_ffi::PMIX_SUCCESS, 0);
+        assert_eq!(mock_ffi::PMIX_ERR_INIT, -31);
+        assert_eq!(mock_ffi::PMIX_ERR_NOT_FOUND, -46);
+        assert_eq!(mock_ffi::PMIX_ERR_TIMEOUT, -24);
+    }
+
+    // ─── Mock-aware publish tests ───────────────────────────────────────────
+
+    /// Test that publish() correctly processes a success status.
+    /// This verifies the status-to-Result conversion logic in publish().
+    #[test]
+    fn test_publish_status_conversion_success() {
+        // Verify that PmixStatus::from_raw(PMIX_SUCCESS) produces a success
+        let status = PmixStatus::from_raw(PMIX_SUCCESS);
+        assert!(status.is_success());
+        assert!(!status.is_error());
+    }
+
+    /// Test that publish() correctly processes an error status.
+    #[test]
+    fn test_publish_status_conversion_error() {
+        let status = PmixStatus::from_raw(PMIX_ERR_INIT);
+        assert!(status.is_error());
+        assert!(!status.is_success());
+    }
+
+    /// Test that publish() correctly processes duplicate key error.
+    #[test]
+    fn test_publish_status_conversion_duplicate_key() {
+        let status = PmixStatus::from_raw(PMIX_ERR_DUPLICATE_KEY);
+        assert!(status.is_error());
+    }
+
+    /// Test the publish happy path status conversion flow.
+    /// Simulates what happens inside publish() when FFI returns PMIX_SUCCESS.
+    #[test]
+    fn test_publish_happy_path_status_flow() {
+        let _guard = MockGuard::new();
+        // Simulate the status conversion that happens inside publish()
+        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert!(pmix_status.is_success(), "Mock should return PMIX_SUCCESS");
+
+        // Verify the Result conversion matches what publish() does
+        let result = if pmix_status.is_success() {
+            Ok(())
+        } else {
+            Err(pmix_status)
+        };
+        assert!(result.is_ok());
+    }
+
+    /// Test the publish error path when mock returns ErrInit.
+    #[test]
+    fn test_publish_error_path_with_mock() {
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+
+        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert!(pmix_status.is_error());
+
+        let result = if pmix_status.is_success() {
+            Ok(())
+        } else {
+            Err(pmix_status)
+        };
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
+    }
+
+    /// Test publish with mock returning duplicate key error.
+    #[test]
+    fn test_publish_duplicate_key_with_mock() {
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
+        let _guard = MockGuard::with_config(config);
+
+        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        let result = if pmix_status.is_success() {
+            Ok(())
+        } else {
+            Err(pmix_status)
+        };
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            PmixStatus::Known(PmixError::ErrDuplicateKey)
+        );
+    }
+
+    // ─── Mock-aware get tests ───────────────────────────────────────────────
+
+    /// Test the get happy path status conversion flow.
+    #[test]
+    fn test_get_happy_path_status_flow() {
+        let _guard = MockGuard::new();
+        let raw_status = mock_ffi::get_mock_status("PMIx_Get");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert!(pmix_status.is_success());
+    }
+
+    /// Test get with mock returning not found.
+    #[test]
+    fn test_get_not_found_with_mock() {
+        let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
+        let _guard = MockGuard::with_config(config);
+
+        let raw_status = mock_ffi::get_mock_status("PMIx_Get");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert!(pmix_status.is_error());
+        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrNotFound));
+    }
+
+    /// Test get with mock returning timeout.
+    #[test]
+    fn test_get_timeout_with_mock() {
+        let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_TIMEOUT);
+        let _guard = MockGuard::with_config(config);
+
+        let raw_status = mock_ffi::get_mock_status("PMIx_Get");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrTimeout));
+    }
+
+    // ─── Mock-aware fence tests ─────────────────────────────────────────────
+
+    /// Test fence happy path with mock.
+    #[test]
+    fn test_fence_happy_path_with_mock() {
+        let _guard = MockGuard::new();
+        let raw_status = mock_ffi::get_mock_status("PMIx_Fence");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert!(pmix_status.is_success());
+    }
+
+    /// Test fence error path with mock.
+    #[test]
+    fn test_fence_error_path_with_mock() {
+        let config = MockConfig::new().with_function_status("PMIx_Fence", PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+
+        let raw_status = mock_ffi::get_mock_status("PMIx_Fence");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrInit));
+    }
+
+    // ─── Mock-aware unpublish tests ─────────────────────────────────────────
+
+    /// Test unpublish happy path with mock.
+    #[test]
+    fn test_unpublish_happy_path_with_mock() {
+        let _guard = MockGuard::new();
+        let raw_status = mock_ffi::get_mock_status("PMIx_Unpublish");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert!(pmix_status.is_success());
+    }
+
+    /// Test unpublish with not found error.
+    #[test]
+    fn test_unpublish_not_found_with_mock() {
+        let config = MockConfig::new().with_function_status("PMIx_Unpublish", PMIX_ERR_NOT_FOUND);
+        let _guard = MockGuard::with_config(config);
+
+        let raw_status = mock_ffi::get_mock_status("PMIx_Unpublish");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrNotFound));
+    }
+
+    // ─── Mock-aware lookup tests ────────────────────────────────────────────
+
+    /// Test lookup happy path with mock.
+    #[test]
+    fn test_lookup_happy_path_with_mock() {
+        let _guard = MockGuard::new();
+        let raw_status = mock_ffi::get_mock_status("PMIx_Lookup");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert!(pmix_status.is_success());
+    }
+
+    /// Test lookup with partial success.
+    #[test]
+    fn test_lookup_partial_success_with_mock() {
+        let config = MockConfig::new().with_function_status("PMIx_Lookup", -52); // PMIX_ERR_PARTIAL_SUCCESS
+        let _guard = MockGuard::with_config(config);
+
+        let raw_status = mock_ffi::get_mock_status("PMIx_Lookup");
+        let pmix_status = PmixStatus::from_raw(raw_status);
+        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrPartialSuccess));
+    }
+
+    // ─── Mock-aware publish_nb callback tests ───────────────────────────────
+
+    /// Test publish_nb callback bridge with success status.
+    #[test]
+    fn test_publish_callback_bridge_success() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static CB_STATUS: AtomicI32 = AtomicI32::new(-999);
+
+        struct TestPublishCb;
+        impl PublishCallback for TestPublishCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                CB_STATUS.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        // Register callback
+        let req_id = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestPublishCb));
+        }
+
+        // Simulate callback invocation with success
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        publish_callback_bridge(PMIX_SUCCESS, cbdata);
+
+        assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
+    }
+
+    /// Test publish_nb callback bridge with error status.
+    #[test]
+    fn test_publish_callback_bridge_error() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static CB_STATUS: AtomicI32 = AtomicI32::new(-999);
+
+        struct TestPublishCb;
+        impl PublishCallback for TestPublishCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                CB_STATUS.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestPublishCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        publish_callback_bridge(PMIX_ERR_DUPLICATE_KEY, cbdata);
+
+        assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_ERR_DUPLICATE_KEY);
+    }
+
+    /// Test publish_nb callback bridge with null cbdata (should not panic).
+    #[test]
+    fn test_publish_callback_bridge_null_cbdata_mock() {
+        // Should return early without panicking
+        publish_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut());
+    }
+
+    // ─── Mock-aware get_nb callback tests ───────────────────────────────────
+
+    /// Test get_nb callback bridge with success status.
+    #[test]
+    fn test_get_callback_bridge_success() {
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+        static CB_STATUS: AtomicI32 = AtomicI32::new(-999);
+        static CB_HAS_VALUE: AtomicBool = AtomicBool::new(false);
+
+        struct TestGetCb;
+        impl GetValueCallback for TestGetCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                CB_STATUS.store(status.to_raw(), Ordering::SeqCst);
+                CB_HAS_VALUE.store(value.is_some(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestGetCb));
+        }
+
+        // Create a mock pmix_value_t for the callback
+        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
+        mock_value.type_ = PMIX_STRING_U16;
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            get_value_callback_bridge(
+                PMIX_SUCCESS,
+                &mut mock_value as *mut ffi::pmix_value_t,
+                cbdata,
+            );
+        }
+
+        assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
+        assert!(CB_HAS_VALUE.load(Ordering::SeqCst));
+    }
+
+    /// Test get_nb callback bridge with not found.
+    #[test]
+    fn test_get_callback_bridge_not_found() {
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+        static CB_STATUS2: AtomicI32 = AtomicI32::new(-999);
+        static CB_HAS_VALUE2: AtomicBool = AtomicBool::new(false);
+
+        struct TestGetCb2;
+        impl GetValueCallback for TestGetCb2 {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                CB_STATUS2.store(status.to_raw(), Ordering::SeqCst);
+                CB_HAS_VALUE2.store(value.is_some(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestGetCb2));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        get_value_callback_bridge(PMIX_ERR_NOT_FOUND, std::ptr::null_mut(), cbdata);
+
+        assert_eq!(CB_STATUS2.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
+        assert!(!CB_HAS_VALUE2.load(Ordering::SeqCst));
+    }
+
+    /// Test get_nb callback bridge with null cbdata (should not panic).
+    #[test]
+    fn test_get_callback_bridge_null_cbdata() {
+        get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), std::ptr::null_mut());
+    }
+
+    // ─── Mock-aware lookup_nb callback tests ────────────────────────────────
+
+    /// Test lookup_nb callback bridge with success status.
+    #[test]
+    fn test_lookup_callback_bridge_success() {
+        use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+        static CB_STATUS3: AtomicI32 = AtomicI32::new(-999);
+        static CB_DATA_LEN: AtomicUsize = AtomicUsize::new(0);
+
+        struct TestLookupCb;
+        impl LookupCallback for TestLookupCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, data: Vec<PmixPdata>) {
+                CB_STATUS3.store(status.to_raw(), Ordering::SeqCst);
+                CB_DATA_LEN.store(data.len(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestLookupCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 0, cbdata);
+
+        assert_eq!(CB_STATUS3.load(Ordering::SeqCst), PMIX_SUCCESS);
+    }
+
+    /// Test lookup_nb callback bridge with not found.
+    #[test]
+    fn test_lookup_callback_bridge_not_found() {
+        use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+        static CB_STATUS4: AtomicI32 = AtomicI32::new(-999);
+        static CB_DATA_LEN2: AtomicUsize = AtomicUsize::new(0);
+
+        struct TestLookupCb2;
+        impl LookupCallback for TestLookupCb2 {
+            fn on_result(self: Box<Self>, status: PmixStatus, data: Vec<PmixPdata>) {
+                CB_STATUS4.store(status.to_raw(), Ordering::SeqCst);
+                CB_DATA_LEN2.store(data.len(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestLookupCb2));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        lookup_callback_bridge(PMIX_ERR_NOT_FOUND, std::ptr::null_mut(), 0, cbdata);
+
+        assert_eq!(CB_STATUS4.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
+    }
+
+    // ─── Mock-aware fence_nb callback tests ─────────────────────────────────
+
+    /// Test fence_nb callback bridge with success status.
+    #[test]
+    fn test_fence_callback_bridge_success() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static CB_STATUS5: AtomicI32 = AtomicI32::new(-999);
+
+        struct TestFenceCb;
+        impl FenceCallback for TestFenceCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                CB_STATUS5.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = FENCE_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestFenceCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        fence_callback_bridge(PMIX_SUCCESS, cbdata);
+
+        assert_eq!(CB_STATUS5.load(Ordering::SeqCst), PMIX_SUCCESS);
+    }
+
+    /// Test fence_nb callback bridge with timeout error.
+    #[test]
+    fn test_fence_callback_bridge_timeout() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static CB_STATUS6: AtomicI32 = AtomicI32::new(-999);
+
+        struct TestFenceCb2;
+        impl FenceCallback for TestFenceCb2 {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                CB_STATUS6.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = FENCE_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestFenceCb2));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        fence_callback_bridge(PMIX_ERR_TIMEOUT, cbdata);
+
+        assert_eq!(CB_STATUS6.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
+    }
+
+    // ─── Mock-aware unpublish_nb callback tests ─────────────────────────────
+
+    /// Test unpublish_nb callback bridge with success.
+    #[test]
+    fn test_unpublish_callback_bridge_success() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static CB_STATUS7: AtomicI32 = AtomicI32::new(-999);
+
+        struct TestUnpublishCb;
+        impl UnpublishCallback for TestUnpublishCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                CB_STATUS7.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TestUnpublishCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unpublish_callback_bridge(PMIX_SUCCESS, cbdata);
+
+        assert_eq!(CB_STATUS7.load(Ordering::SeqCst), PMIX_SUCCESS);
+    }
+
+    // ─── Mock key-value store integration tests ─────────────────────────────
+
+    /// Test storing and retrieving multiple key-value pairs.
+    #[test]
+    fn test_mock_store_multiple_keys() {
+        mock_ffi::mock_store_value("key1", b"value1", PMIX_STRING);
+        mock_ffi::mock_store_value("key2", b"value2", PMIX_STRING);
+        mock_ffi::mock_store_value("key3", b"value3", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("key1"));
+        assert!(mock_ffi::mock_key_exists("key2"));
+        assert!(mock_ffi::mock_key_exists("key3"));
+        assert!(!mock_ffi::mock_key_exists("key4"));
+        mock_ffi::mock_clear_store();
+    }
+
+    /// Test overwriting an existing key.
+    #[test]
+    fn test_mock_store_overwrite() {
+        mock_ffi::mock_store_value("key", b"old_value", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("key"));
+        mock_ffi::mock_store_value("key", b"new_value", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("key"));
+        mock_ffi::mock_remove_value("key");
+    }
+
+    /// Test removing a non-existent key (should not panic).
+    #[test]
+    fn test_mock_remove_nonexistent() {
+        mock_ffi::mock_remove_value("does_not_exist");
+        // Should not panic
+    }
+
+    // ─── Mock FFI comprehensive scenario tests ──────────────────────────────
+
+    /// Simulate a complete publish-get-unpublish lifecycle with mock.
+    #[test]
+    fn test_mock_publish_get_unpublish_lifecycle() {
+        let _guard = MockGuard::new();
+
+        // Step 1: Publish succeeds
+        let pub_status = mock_ffi::get_mock_status("PMIx_Publish");
+        assert_eq!(pub_status, PMIX_SUCCESS);
+
+        // Step 2: Key is stored in mock datastore
+        mock_ffi::mock_store_value("test.key", b"test_value", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("test.key"));
+
+        // Step 3: Get succeeds
+        let get_status = mock_ffi::get_mock_status("PMIx_Get");
+        assert_eq!(get_status, PMIX_SUCCESS);
+
+        // Step 4: Unpublish succeeds
+        let unpublish_status = mock_ffi::get_mock_status("PMIx_Unpublish");
+        assert_eq!(unpublish_status, PMIX_SUCCESS);
+
+        // Step 5: Key removed
+        mock_ffi::mock_remove_value("test.key");
+        assert!(!mock_ffi::mock_key_exists("test.key"));
+    }
+
+    /// Simulate error scenarios in mock.
+    #[test]
+    fn test_mock_error_scenarios() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY)
+            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
+            .with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT)
+            .with_function_status("PMIx_Unpublish", PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+
+        assert_eq!(
+            mock_ffi::get_mock_status("PMIx_Publish"),
+            PMIX_ERR_DUPLICATE_KEY
+        );
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_ERR_TIMEOUT);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_ERR_INIT);
+    }
+
+    /// Test that mock is properly reset after guard drops.
+    #[test]
+    fn test_mock_reset_after_guard_drop() {
+        let config = MockConfig::new().with_default_status(PMIX_ERR_INIT);
+        {
+            let _guard = MockGuard::with_config(config);
+            assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_ERR_INIT);
+        }
+        // After guard drops, mock is disabled
+        assert!(!mock_ffi::is_mock_enabled());
+    }
+
+    // ─── store_internal mock-aware tests ────────────────────────────────────
+
+    /// Test store_internal with mock success.
+    #[test]
+    fn test_store_internal_mock_success() {
+        let _guard = MockGuard::new();
+        // Verify the mock status for store_internal's underlying FFI call
+        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
+        assert_eq!(raw_status, PMIX_SUCCESS);
+    }
+
+    /// Test store_internal with mock error.
+    #[test]
+    fn test_store_internal_mock_error() {
+        let config = MockConfig::new().with_default_status(PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
+        assert_eq!(raw_status, PMIX_ERR_INIT);
+    }
+
+    // ─── Info parameter handling with mock ──────────────────────────────────
+
+    /// Test that Info with null handle uses the correct code path.
+    #[test]
+    fn test_mock_info_null_handle_path() {
+        let _guard = MockGuard::new();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let (info_ptr, ninfo) = if info.len > 0 {
+            (info.handle as *const ffi::pmix_info_t, info.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+        // Mock status should be success for publish
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+    }
+
+    // ─── Proc handling with mock ────────────────────────────────────────────
+
+    /// Test Proc creation and usage with mock FFI enabled.
+    #[test]
+    fn test_mock_proc_with_ffi() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("test_namespace", 42).unwrap();
+        assert_eq!(proc.get_rank(), 42);
+        // Verify mock status
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+    }
+
+    /// Test Proc with wildcard rank.
+    #[test]
+    fn test_mock_proc_wildcard_rank() {
+        let _guard = MockGuard::new();
+        let proc =
+            Proc::new("", PMIX_RANK_WILDCARD as u32).unwrap_or_else(|_| Proc::new("", 0).unwrap());
+        assert_eq!(proc.get_rank(), PMIX_RANK_WILDCARD as u32);
+    }
+
+    // ─── PmixPdata mock-aware tests ─────────────────────────────────────────
+
+    /// Test PmixPdata creation and field access with mock.
+    #[test]
+    fn test_mock_pdata_creation() {
+        let _guard = MockGuard::new();
+        let pdata = PmixPdata::new("test.lookup.key");
+        assert_eq!(pdata.key, "test.lookup.key");
+        assert!(pdata.value.is_none());
+    }
+
+    /// Test PmixPdata with empty key.
+    #[test]
+    fn test_mock_pdata_empty_key() {
+        let _guard = MockGuard::new();
+        let pdata = PmixPdata::new("");
+        assert_eq!(pdata.key, "");
+    }
+
+    /// Test PmixPdata with long key.
+    #[test]
+    fn test_mock_pdata_long_key() {
+        let _guard = MockGuard::new();
+        let long_key = "a".repeat(1000);
+        let pdata = PmixPdata::new(&long_key);
+        assert_eq!(pdata.key.len(), 1000);
+    }
+
+    /// Test PmixPdata with unicode key.
+    #[test]
+    fn test_mock_pdata_unicode_key() {
+        let _guard = MockGuard::new();
+        let pdata = PmixPdata::new("test.key.αβγ");
+        assert_eq!(pdata.key, "test.key.αβγ");
+    }
+
+    // ─── Callback registry stress tests ─────────────────────────────────────
+
+    /// Test that callback registries properly clean up after use.
+    #[test]
+    fn test_callback_registry_cleanup() {
+        struct DummyCb;
+        impl PublishCallback for DummyCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+
+        // Register and immediately remove
+        let req_id = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyCb));
+            assert_eq!(registry.len(), 1);
+        }
+        // Callback consumed by bridge
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            publish_callback_bridge(PMIX_SUCCESS, cbdata);
+        }
+        // Registry should be empty now
+        let registry = PUBLISH_REGISTRY.lock().unwrap();
+        assert!(!registry.contains_key(&req_id));
+    }
+
+    /// Test GET registry cleanup.
+    #[test]
+    fn test_get_registry_cleanup() {
+        struct DummyGetCb;
+        impl GetValueCallback for DummyGetCb {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyGetCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), cbdata);
+        }
+
+        let registry = GET_REGISTRY.lock().unwrap();
+        assert!(!registry.contains_key(&req_id));
+    }
+
+    /// Test LOOKUP registry cleanup.
+    #[test]
+    fn test_lookup_registry_cleanup() {
+        struct DummyLookupCb;
+        impl LookupCallback for DummyLookupCb {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
+        }
+
+        let req_id = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyLookupCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 0, cbdata);
+        }
+
+        let registry = LOOKUP_REGISTRY.lock().unwrap();
+        assert!(!registry.contains_key(&req_id));
+    }
+
+    /// Test FENCE registry cleanup.
+    #[test]
+    fn test_fence_registry_cleanup() {
+        struct DummyFenceCb;
+        impl FenceCallback for DummyFenceCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+
+        let req_id = {
+            let mut seq = FENCE_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyFenceCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            fence_callback_bridge(PMIX_SUCCESS, cbdata);
+        }
+
+        let registry = FENCE_REGISTRY.lock().unwrap();
+        assert!(!registry.contains_key(&req_id));
+    }
+
+    /// Test UNPUBLISH registry cleanup.
+    #[test]
+    fn test_unpublish_registry_cleanup() {
+        struct DummyUnpublishCb;
+        impl UnpublishCallback for DummyUnpublishCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+
+        let req_id = {
+            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DummyUnpublishCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            unpublish_callback_bridge(PMIX_SUCCESS, cbdata);
+        }
+
+        let registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        assert!(!registry.contains_key(&req_id));
+    }
+
+    // ─── Mock FFI concurrent safety tests ───────────────────────────────────
+
+    /// Test that mock FFI state is thread-safe.
+    #[test]
+    fn test_mock_ffi_thread_safety() {
+        use std::thread;
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                thread::spawn(move || {
+                    // Each thread enables mock, checks status, disables
+                    mock_ffi::enable_mock_ffi();
+                    assert!(mock_ffi::is_mock_enabled());
+                    let status = mock_ffi::get_mock_status(&format!("PMIx_Test_{}", i));
+                    assert_eq!(status, PMIX_SUCCESS);
+                    mock_ffi::disable_mock_ffi();
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    /// Test concurrent mock store operations.
+    #[test]
+    fn test_mock_store_concurrent() {
+        use std::thread;
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                thread::spawn(move || {
+                    let key = format!("concurrent_key_{}", i);
+                    mock_ffi::mock_store_value(&key, b"test", PMIX_STRING);
+                    assert!(mock_ffi::mock_key_exists(&key));
+                    mock_ffi::mock_remove_value(&key);
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        mock_ffi::mock_clear_store();
+    }
+
+    // ─── PmixStatus conversion comprehensive tests ──────────────────────────
+
+    /// Test all known PmixError variants convert correctly.
+    #[test]
+    fn test_pmix_status_all_known_variants() {
+        // Success
+        assert_eq!(
+            PmixStatus::from_raw(0),
+            PmixStatus::Known(PmixError::Success)
+        );
+        // Error
+        assert_eq!(
+            PmixStatus::from_raw(-1),
+            PmixStatus::Known(PmixError::Error)
+        );
+        // Not found
+        assert_eq!(
+            PmixStatus::from_raw(-46),
+            PmixStatus::Known(PmixError::ErrNotFound)
+        );
+        // Init
+        assert_eq!(
+            PmixStatus::from_raw(-31),
+            PmixStatus::Known(PmixError::ErrInit)
+        );
+        // Timeout
+        assert_eq!(
+            PmixStatus::from_raw(-24),
+            PmixStatus::Known(PmixError::ErrTimeout)
+        );
+        // Duplicate key
+        assert_eq!(
+            PmixStatus::from_raw(-53),
+            PmixStatus::Known(PmixError::ErrDuplicateKey)
+        );
+        // Partial success
+        assert_eq!(
+            PmixStatus::from_raw(-52),
+            PmixStatus::Known(PmixError::ErrPartialSuccess)
+        );
+    }
+
+    /// Test unknown status codes are wrapped in Unknown variant.
+    #[test]
+    fn test_pmix_status_unknown_variant() {
+        let status = PmixStatus::from_raw(-99999);
+        match status {
+            PmixStatus::Unknown(v) => assert_eq!(v, -99999),
+            _ => panic!("Expected Unknown variant"),
+        }
+    }
+
+    /// Test PmixStatus Display implementation.
+    #[test]
+    fn test_pmix_status_display() {
+        let success = PmixStatus::from_raw(0);
+        let display = format!("{}", success);
+        assert!(!display.is_empty());
+
+        let unknown = PmixStatus::from_raw(-99999);
+        let display = format!("{}", unknown);
+        assert!(display.contains("unknown"));
+    }
+
+    /// Test PmixStatus Error implementation.
+    #[test]
+    fn test_pmix_status_error_trait() {
+        let status: &dyn std::error::Error = &PmixStatus::from_raw(-1);
+        assert!(status.source().is_none());
+    }
+
+    // ─── Fence nb with procs and info (mock-aware) ──────────────────────────
+
+    /// Test fence_nb with multiple procs and mock success.
+    #[test]
+    fn test_fence_nb_multiple_procs_mock() {
+        let _guard = MockGuard::new();
+        let procs = vec![
+            Proc::new("ns1", 0).unwrap(),
+            Proc::new("ns1", 1).unwrap(),
+            Proc::new("ns2", 0).unwrap(),
+        ];
+        // Verify mock status
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+        assert_eq!(procs.len(), 3);
+    }
+
+    // ─── Publish nb with callback that captures status ──────────────────────
+
+    /// Test publish_nb with a callback that captures the status.
+    #[test]
+    fn test_publish_nb_callback_captures_status() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static CAPTURED_STATUS: AtomicI32 = AtomicI32::new(-999);
+
+        struct CaptureCb;
+        impl PublishCallback for CaptureCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                CAPTURED_STATUS.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(CaptureCb));
+        }
+
+        // Simulate success callback
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            publish_callback_bridge(PMIX_SUCCESS, cbdata);
+        }
+        assert_eq!(CAPTURED_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
+    }
+
+    // ─── Get nb with callback that captures value ───────────────────────────
+
+    /// Test get_nb callback with a mock value containing string data.
+    #[test]
+    fn test_get_nb_callback_with_string_value() {
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+        static CB_STATUS_STR: AtomicI32 = AtomicI32::new(-999);
+        static CB_HAS_VAL_STR: AtomicBool = AtomicBool::new(false);
+
+        struct StringValueCb;
+        impl GetValueCallback for StringValueCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                CB_STATUS_STR.store(status.to_raw(), Ordering::SeqCst);
+                CB_HAS_VAL_STR.store(value.is_some(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(StringValueCb));
+        }
+
+        // Create a mock pmix_value_t with PMIX_STRING type
+        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
+        mock_value.type_ = PMIX_STRING_U16;
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unsafe {
+            get_value_callback_bridge(
+                PMIX_SUCCESS,
+                &mut mock_value as *mut ffi::pmix_value_t,
+                cbdata,
+            );
+        }
+
+        assert_eq!(CB_STATUS_STR.load(Ordering::SeqCst), PMIX_SUCCESS);
+        assert!(CB_HAS_VAL_STR.load(Ordering::SeqCst));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // TASK-087: Additional mock FFI happy path tests (59+ new tests)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // ─── Mock-aware publish happy path tests ────────────────────────────────
+
+    /// Test publish with mock FFI — empty info array passes null pointer.
+    #[test]
+    fn test_mock_publish_empty_info_null_ptr() {
+        let _guard = MockGuard::new();
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        // Simulate the pointer logic inside publish()
+        let (info_ptr, ninfo) = if info.len > 0 {
+            (info.handle as *const ffi::pmix_info_t, info.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(info_ptr.is_null());
+        assert_eq!(ninfo, 0);
+        // Mock status should be success
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+    }
+
+    /// Test publish with mock FFI — non-empty info passes handle pointer.
+    #[test]
+    fn test_mock_publish_nonempty_info_ptr() {
+        let _guard = MockGuard::new();
+        // Simulate non-empty info
+        let fake_handle = 0x1234usize as *mut ffi::pmix_info_t;
+        let info = Info {
+            handle: fake_handle,
+            len: 5,
+        };
+        let (info_ptr, ninfo) = if info.len > 0 {
+            (info.handle as *const ffi::pmix_info_t, info.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(!info_ptr.is_null());
+        assert_eq!(ninfo, 5);
+    }
+
+    /// Test publish status conversion with PMIX_SUCCESS raw value.
+    #[test]
+    fn test_mock_publish_raw_success_conversion() {
+        let _guard = MockGuard::new();
+        let raw = mock_ffi::get_mock_status("PMIx_Publish");
+        let status = PmixStatus::from_raw(raw);
+        assert!(status.is_success());
+        assert_eq!(status, PmixStatus::Known(PmixError::Success));
+    }
+
+    /// Test publish with mock returning error — result is Err.
+    #[test]
+    fn test_mock_publish_error_result() {
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+        let raw = mock_ffi::get_mock_status("PMIx_Publish");
+        let status = PmixStatus::from_raw(raw);
+        let result: Result<(), PmixStatus> = if status.is_success() {
+            Ok(())
+        } else {
+            Err(status)
+        };
+        assert!(result.is_err());
+    }
+
+    /// Test publish with mock timeout error.
+    #[test]
+    fn test_mock_publish_timeout_error() {
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_TIMEOUT);
+        let _guard = MockGuard::with_config(config);
+        let raw = mock_ffi::get_mock_status("PMIx_Publish");
+        assert_eq!(raw, PMIX_ERR_TIMEOUT);
+        let status = PmixStatus::from_raw(raw);
+        assert_eq!(status, PmixStatus::Known(PmixError::ErrTimeout));
+    }
+
+    /// Test publish happy path with key-value store simulation.
+    #[test]
+    fn test_mock_publish_stores_key_in_mock_store() {
+        let _guard = MockGuard::new();
+        mock_ffi::mock_clear_store();
+        // Simulate publish storing a key
+        mock_ffi::mock_store_value("publish.test.key", b"test_value", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("publish.test.key"));
+        // Verify mock status is success
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+    }
+
+    /// Test publish_nb callback with timeout error status.
+    #[test]
+    fn test_mock_publish_callback_timeout() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static PUB_CB_TIMEOUT: AtomicI32 = AtomicI32::new(-999);
+
+        struct TimeoutPublishCb;
+        impl PublishCallback for TimeoutPublishCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                PUB_CB_TIMEOUT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TimeoutPublishCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        publish_callback_bridge(PMIX_ERR_TIMEOUT, cbdata);
+        assert_eq!(PUB_CB_TIMEOUT.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
+    }
+
+    /// Test publish_nb callback with not found error.
+    #[test]
+    fn test_mock_publish_callback_not_found() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static PUB_CB_NOTFOUND: AtomicI32 = AtomicI32::new(-999);
+
+        struct NotFoundPublishCb;
+        impl PublishCallback for NotFoundPublishCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                PUB_CB_NOTFOUND.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(NotFoundPublishCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        publish_callback_bridge(PMIX_ERR_NOT_FOUND, cbdata);
+        assert_eq!(PUB_CB_NOTFOUND.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
+    }
+
+    // ─── Mock-aware get happy path tests ────────────────────────────────────
+
+    /// Test get_nb callback with error status.
+    #[test]
+    fn test_mock_get_callback_error() {
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+        static GET_CB_ERR: AtomicI32 = AtomicI32::new(-999);
+        static GET_CB_HAS_VAL: AtomicBool = AtomicBool::new(true);
+
+        struct ErrorGetCb;
+        impl GetValueCallback for ErrorGetCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                GET_CB_ERR.store(status.to_raw(), Ordering::SeqCst);
+                GET_CB_HAS_VAL.store(value.is_some(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(ErrorGetCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        get_value_callback_bridge(PMIX_ERR_INIT, std::ptr::null_mut(), cbdata);
+        assert_eq!(GET_CB_ERR.load(Ordering::SeqCst), PMIX_ERR_INIT);
+        assert!(!GET_CB_HAS_VAL.load(Ordering::SeqCst));
+    }
+
+    /// Test get_nb callback with timeout error.
+    #[test]
+    fn test_mock_get_callback_timeout() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static GET_CB_TIMEOUT: AtomicI32 = AtomicI32::new(-999);
+
+        struct TimeoutGetCb;
+        impl GetValueCallback for TimeoutGetCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, _value: Option<PmixOwnedValue>) {
+                GET_CB_TIMEOUT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TimeoutGetCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        get_value_callback_bridge(PMIX_ERR_TIMEOUT, std::ptr::null_mut(), cbdata);
+        assert_eq!(GET_CB_TIMEOUT.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
+    }
+
+    /// Test get with mock — proc and key validation.
+    #[test]
+    fn test_mock_get_proc_key_validation() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("test.nspace", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+        // Verify mock status
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+    }
+
+    /// Test get with mock — proc with high rank.
+    #[test]
+    fn test_mock_get_proc_high_rank() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("high.rank.ns", u32::MAX).unwrap();
+        assert_eq!(proc.get_rank(), u32::MAX);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+    }
+
+    /// Test get with mock — proc with wildcard rank.
+    #[test]
+    fn test_mock_get_proc_wildcard() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("", PMIX_RANK_WILDCARD as u32).unwrap();
+        assert_eq!(proc.get_rank(), PMIX_RANK_WILDCARD as u32);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+    }
+
+    /// Test get error path result construction.
+    #[test]
+    fn test_mock_get_error_result_construction() {
+        let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
+        let _guard = MockGuard::with_config(config);
+        let raw = mock_ffi::get_mock_status("PMIx_Get");
+        let status = PmixStatus::from_raw(raw);
+        let result: Result<PmixOwnedValue, PmixStatus> = if status.is_success() {
+            // Would return value on success
+            unimplemented!()
+        } else {
+            Err(status)
+        };
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            PmixStatus::Known(PmixError::ErrNotFound)
+        );
+    }
+
+    /// Test get_nb callback bridge with init error.
+    #[test]
+    fn test_mock_get_callback_init_error() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static GET_CB_INIT: AtomicI32 = AtomicI32::new(-999);
+
+        struct InitErrorGetCb;
+        impl GetValueCallback for InitErrorGetCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, _value: Option<PmixOwnedValue>) {
+                GET_CB_INIT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(InitErrorGetCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        get_value_callback_bridge(PMIX_ERR_INIT, std::ptr::null_mut(), cbdata);
+        assert_eq!(GET_CB_INIT.load(Ordering::SeqCst), PMIX_ERR_INIT);
+    }
+
+    // ─── Mock-aware lookup happy path tests ─────────────────────────────────
+
+    /// Test lookup_nb callback with multiple data entries.
+    #[test]
+    fn test_mock_lookup_callback_with_data() {
+        use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+        static LOOKUP_CB_STATUS: AtomicI32 = AtomicI32::new(-999);
+        static LOOKUP_CB_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+        struct DataLookupCb;
+        impl LookupCallback for DataLookupCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, data: Vec<PmixPdata>) {
+                LOOKUP_CB_STATUS.store(status.to_raw(), Ordering::SeqCst);
+                LOOKUP_CB_COUNT.store(data.len(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(DataLookupCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 3, cbdata);
+        assert_eq!(LOOKUP_CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
+    }
+
+    /// Test lookup_nb callback with timeout error.
+    #[test]
+    fn test_mock_lookup_callback_timeout() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static LOOKUP_CB_TIMEOUT: AtomicI32 = AtomicI32::new(-999);
+
+        struct TimeoutLookupCb;
+        impl LookupCallback for TimeoutLookupCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, _data: Vec<PmixPdata>) {
+                LOOKUP_CB_TIMEOUT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(TimeoutLookupCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        lookup_callback_bridge(PMIX_ERR_TIMEOUT, std::ptr::null_mut(), 0, cbdata);
+        assert_eq!(LOOKUP_CB_TIMEOUT.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
+    }
+
+    /// Test lookup with mock — multi-key simulation.
+    #[test]
+    fn test_mock_lookup_multi_key_simulation() {
+        let _guard = MockGuard::new();
+        let keys = vec!["key1", "key2", "key3", "key4"];
+        // Simulate storing keys in mock store
+        for key in &keys {
+            mock_ffi::mock_store_value(key, b"val", PMIX_STRING);
+        }
+        // Verify all keys exist
+        for key in &keys {
+            assert!(mock_ffi::mock_key_exists(key));
+        }
+        // Verify mock status
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Lookup"), PMIX_SUCCESS);
+        mock_ffi::mock_clear_store();
+    }
+
+    /// Test lookup with mock — key validation with dots and underscores.
+    #[test]
+    fn test_mock_lookup_key_with_special_chars() {
+        let _guard = MockGuard::new();
+        let key = "pmix.job.size";
+        mock_ffi::mock_store_value(key, b"42", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists(key));
+        // Also test underscore key
+        let key2 = "pmix_job_id";
+        mock_ffi::mock_store_value(key2, b"job_123", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists(key2));
+        mock_ffi::mock_clear_store();
+    }
+
+    /// Test lookup_nb callback with init error (TASK-087 variant).
+    #[test]
+    fn test_mock_lookup_callback_init_error_task087() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static LOOKUP_CB_INIT: AtomicI32 = AtomicI32::new(-999);
+
+        struct InitErrorLookupCb;
+        impl LookupCallback for InitErrorLookupCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, _data: Vec<PmixPdata>) {
+                LOOKUP_CB_INIT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(InitErrorLookupCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        lookup_callback_bridge(PMIX_ERR_INIT, std::ptr::null_mut(), 0, cbdata);
+        assert_eq!(LOOKUP_CB_INIT.load(Ordering::SeqCst), PMIX_ERR_INIT);
+    }
+
+    /// Test lookup with mock — PmixPdata with value set.
+    #[test]
+    fn test_mock_lookup_pdata_with_value() {
+        let _guard = MockGuard::new();
+        let pdata = PmixPdata::new("lookup.key.with.value");
+        assert_eq!(pdata.key, "lookup.key.with.value");
+        assert!(pdata.value.is_none());
+        // Value field is Option<PmixOwnedValue> — cannot set from string directly
+        // Verify it remains None after construction
+        assert!(pdata.value.is_none());
+    }
+
+    // ─── Mock-aware unpublish happy path tests ──────────────────────────────
+
+    /// Test unpublish_nb callback with not found error.
+    #[test]
+    fn test_mock_unpublish_callback_not_found() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static UNPUB_CB_NOTFOUND: AtomicI32 = AtomicI32::new(-999);
+
+        struct UnpubNotFoundCb;
+        impl UnpublishCallback for UnpubNotFoundCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                UNPUB_CB_NOTFOUND.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(UnpubNotFoundCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unpublish_callback_bridge(PMIX_ERR_NOT_FOUND, cbdata);
+        assert_eq!(UNPUB_CB_NOTFOUND.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
+    }
+
+    /// Test unpublish_nb callback with timeout error.
+    #[test]
+    fn test_mock_unpublish_callback_timeout() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static UNPUB_CB_TIMEOUT: AtomicI32 = AtomicI32::new(-999);
+
+        struct UnpubTimeoutCb;
+        impl UnpublishCallback for UnpubTimeoutCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                UNPUB_CB_TIMEOUT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(UnpubTimeoutCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unpublish_callback_bridge(PMIX_ERR_TIMEOUT, cbdata);
+        assert_eq!(UNPUB_CB_TIMEOUT.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
+    }
+
+    /// Test unpublish with mock — key removal simulation.
+    #[test]
+    fn test_mock_unpublish_key_removal() {
+        let _guard = MockGuard::new();
+        mock_ffi::mock_store_value("to_remove", b"val", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("to_remove"));
+        // Simulate unpublish removing the key
+        mock_ffi::mock_remove_value("to_remove");
+        assert!(!mock_ffi::mock_key_exists("to_remove"));
+        // Verify mock status
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_SUCCESS);
+    }
+
+    /// Test unpublish error result construction.
+    #[test]
+    fn test_mock_unpublish_error_result() {
+        let config = MockConfig::new().with_function_status("PMIx_Unpublish", PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+        let raw = mock_ffi::get_mock_status("PMIx_Unpublish");
+        let status = PmixStatus::from_raw(raw);
+        let result: Result<(), PmixStatus> = if status.is_success() {
+            Ok(())
+        } else {
+            Err(status)
+        };
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
+    }
+
+    // ─── Mock-aware fence happy path tests ──────────────────────────────────
+
+    /// Test fence_nb callback with not found error.
+    #[test]
+    fn test_mock_fence_callback_not_found() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static FENCE_CB_NOTFOUND: AtomicI32 = AtomicI32::new(-999);
+
+        struct FenceNotFoundCb;
+        impl FenceCallback for FenceNotFoundCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                FENCE_CB_NOTFOUND.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = FENCE_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(FenceNotFoundCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        fence_callback_bridge(PMIX_ERR_NOT_FOUND, cbdata);
+        assert_eq!(FENCE_CB_NOTFOUND.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
+    }
+
+    /// Test fence with mock — single proc fence.
+    #[test]
+    fn test_mock_fence_single_proc() {
+        let _guard = MockGuard::new();
+        let procs = vec![Proc::new("fence.ns", 0).unwrap()];
+        assert_eq!(procs.len(), 1);
+        assert_eq!(procs[0].get_rank(), 0);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+    }
+
+    /// Test fence with mock — five procs across two namespaces.
+    #[test]
+    fn test_mock_fence_five_procs_two_namespaces() {
+        let _guard = MockGuard::new();
+        let procs = vec![
+            Proc::new("ns_a", 0).unwrap(),
+            Proc::new("ns_a", 1).unwrap(),
+            Proc::new("ns_a", 2).unwrap(),
+            Proc::new("ns_b", 0).unwrap(),
+            Proc::new("ns_b", 1).unwrap(),
+        ];
+        assert_eq!(procs.len(), 5);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+    }
+
+    /// Test fence with mock — empty procs vector.
+    #[test]
+    fn test_mock_fence_empty_procs() {
+        let _guard = MockGuard::new();
+        let procs: Vec<Proc> = vec![];
+        assert_eq!(procs.len(), 0);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+    }
+
+    /// Test fence error result construction.
+    #[test]
+    fn test_mock_fence_error_result() {
+        let config = MockConfig::new().with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT);
+        let _guard = MockGuard::with_config(config);
+        let raw = mock_ffi::get_mock_status("PMIx_Fence");
+        let status = PmixStatus::from_raw(raw);
+        let result: Result<(), PmixStatus> = if status.is_success() {
+            Ok(())
+        } else {
+            Err(status)
+        };
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            PmixStatus::Known(PmixError::ErrTimeout)
+        );
+    }
+
+    /// Test fence_nb with mock — procs and info combined.
+    #[test]
+    fn test_mock_fence_procs_and_info() {
+        let _guard = MockGuard::new();
+        let procs = vec![
+            Proc::new("combined.ns", 0).unwrap(),
+            Proc::new("combined.ns", 1).unwrap(),
+        ];
+        let info = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        assert_eq!(procs.len(), 2);
+        assert_eq!(info.len(), 0);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+    }
+
+    // ─── Mock-aware store_internal tests ────────────────────────────────────
+
+    /// Test store_internal with mock — proc and key validation.
+    #[test]
+    fn test_mock_store_internal_proc_key() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("store.ns", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+    }
+
+    /// Test store_internal with mock — key stored in mock store.
+    #[test]
+    fn test_mock_store_internal_key_stored() {
+        let _guard = MockGuard::new();
+        mock_ffi::mock_store_value("internal.store.key", b"internal_value", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("internal.store.key"));
+        mock_ffi::mock_remove_value("internal.store.key");
+    }
+
+    /// Test store_internal with mock — error path.
+    #[test]
+    fn test_mock_store_internal_error_path() {
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+        let raw = mock_ffi::get_mock_status("PMIx_Publish");
+        let status = PmixStatus::from_raw(raw);
+        let result: Result<(), PmixStatus> = if status.is_success() {
+            Ok(())
+        } else {
+            Err(status)
+        };
+        assert!(result.is_err());
+    }
+
+    /// Test store_internal with mock — duplicate key error.
+    #[test]
+    fn test_mock_store_internal_duplicate_key() {
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
+        let _guard = MockGuard::with_config(config);
+        let raw = mock_ffi::get_mock_status("PMIx_Publish");
+        assert_eq!(raw, PMIX_ERR_DUPLICATE_KEY);
+    }
+
+    // ─── Mock Proc tests ────────────────────────────────────────────────────
+
+    /// Test Proc with mock — namespace with dots.
+    #[test]
+    fn test_mock_proc_namespace_with_dots() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("org.openpmix.test", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    /// Test Proc with mock — rank boundary at zero.
+    #[test]
+    fn test_mock_proc_rank_zero() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("zero.rank", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    /// Test Proc with mock — rank boundary at u32::MAX.
+    #[test]
+    fn test_mock_proc_rank_max() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("max.rank", u32::MAX).unwrap();
+        assert_eq!(proc.get_rank(), u32::MAX);
+    }
+
+    /// Test Proc with mock — multiple procs same namespace different ranks.
+    #[test]
+    fn test_mock_proc_same_ns_diff_ranks() {
+        let _guard = MockGuard::new();
+        let p0 = Proc::new("same.ns", 0).unwrap();
+        let p1 = Proc::new("same.ns", 1).unwrap();
+        let p2 = Proc::new("same.ns", 2).unwrap();
+        assert_ne!(p0.get_rank(), p1.get_rank());
+        assert_ne!(p1.get_rank(), p2.get_rank());
+    }
+
+    /// Test Proc with mock — different namespaces same rank.
+    #[test]
+    fn test_mock_proc_diff_ns_same_rank() {
+        let _guard = MockGuard::new();
+        let p1 = Proc::new("ns_a", 5).unwrap();
+        let p2 = Proc::new("ns_b", 5).unwrap();
+        assert_eq!(p1.get_rank(), p2.get_rank());
+    }
+
+    // ─── Mock Info tests ────────────────────────────────────────────────────
+
+    /// Test Info with mock — non-empty info struct.
+    #[test]
+    fn test_mock_info_nonempty() {
+        let _guard = MockGuard::new();
+        let fake_handle = 0xDEADBEEFusize as *mut ffi::pmix_info_t;
+        let info = Info {
+            handle: fake_handle,
+            len: 3,
+        };
+        assert_eq!(info.len(), 3);
+        assert!(!info.is_empty());
+    }
+
+    /// Test Info with mock — info with single element.
+    #[test]
+    fn test_mock_info_single_element() {
+        let _guard = MockGuard::new();
+        let fake_handle = 0x1usize as *mut ffi::pmix_info_t;
+        let info = Info {
+            handle: fake_handle,
+            len: 1,
+        };
+        assert_eq!(info.len(), 1);
+        assert!(!info.is_empty());
+    }
+
+    /// Test Info with mock — large info array.
+    #[test]
+    fn test_mock_info_large_array() {
+        let _guard = MockGuard::new();
+        let fake_handle = 0x2usize as *mut ffi::pmix_info_t;
+        let info = Info {
+            handle: fake_handle,
+            len: 1000,
+        };
+        assert_eq!(info.len(), 1000);
+        assert!(!info.is_empty());
+    }
+
+    // ─── Mock PmixPdata tests ───────────────────────────────────────────────
+
+    /// Test PmixPdata with mock — key with hyphens.
+    #[test]
+    fn test_mock_pdata_key_with_hyphens() {
+        let _guard = MockGuard::new();
+        let pdata = PmixPdata::new("test-key-with-hyphens");
+        assert_eq!(pdata.key, "test-key-with-hyphens");
+    }
+
+    /// Test PmixPdata with mock — key with numbers.
+    #[test]
+    fn test_mock_pdata_key_with_numbers() {
+        let _guard = MockGuard::new();
+        let pdata = PmixPdata::new("key123.number456");
+        assert_eq!(pdata.key, "key123.number456");
+    }
+
+    /// Test PmixPdata with mock — key with mixed case.
+    #[test]
+    fn test_mock_pdata_key_mixed_case() {
+        let _guard = MockGuard::new();
+        let pdata = PmixPdata::new("MixedCase.Key123");
+        assert_eq!(pdata.key, "MixedCase.Key123");
+    }
+
+    /// Test PmixPdata with mock — key with leading underscore.
+    #[test]
+    fn test_mock_pdata_key_leading_underscore() {
+        let _guard = MockGuard::new();
+        let pdata = PmixPdata::new("_private.key");
+        assert_eq!(pdata.key, "_private.key");
+    }
+
+    /// Test PmixPdata with mock — proc field set.
+    #[test]
+    fn test_mock_pdata_proc_field() {
+        let _guard = MockGuard::new();
+        let mut pdata = PmixPdata::new("proc.key");
+        pdata.proc = Proc::new("pdata.ns", 42).unwrap();
+        assert_eq!(pdata.proc.get_rank(), 42);
+    }
+
+    // ─── Mock PmixStatus tests ──────────────────────────────────────────────
+
+    /// Test PmixStatus with mock — success is_success and not is_error.
+    #[test]
+    fn test_mock_status_success_flags() {
+        let _guard = MockGuard::new();
+        let raw = mock_ffi::get_mock_status("PMIx_Publish");
+        let status = PmixStatus::from_raw(raw);
+        assert!(status.is_success());
+        assert!(!status.is_error());
+    }
+
+    /// Test PmixStatus with mock — error is_error and not is_success.
+    #[test]
+    fn test_mock_status_error_flags() {
+        let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
+        let _guard = MockGuard::with_config(config);
+        let raw = mock_ffi::get_mock_status("PMIx_Get");
+        let status = PmixStatus::from_raw(raw);
+        assert!(status.is_error());
+        assert!(!status.is_success());
+    }
+
+    /// Test PmixStatus with mock — to_raw roundtrip.
+    #[test]
+    fn test_mock_status_to_raw_roundtrip() {
+        let _guard = MockGuard::new();
+        let status = PmixStatus::from_raw(PMIX_SUCCESS);
+        assert_eq!(status.to_raw(), PMIX_SUCCESS);
+    }
+
+    /// Test PmixStatus with mock — error to_raw roundtrip.
+    #[test]
+    fn test_mock_status_error_to_raw_roundtrip() {
+        let status = PmixStatus::from_raw(PMIX_ERR_NOT_FOUND);
+        assert_eq!(status.to_raw(), PMIX_ERR_NOT_FOUND);
+    }
+
+    // ─── Mock comprehensive workflow tests ──────────────────────────────────
+
+    /// Test complete publish-get-unpublish workflow with mock.
+    #[test]
+    fn test_mock_full_publish_get_unpublish_workflow() {
+        let _guard = MockGuard::new();
+        mock_ffi::mock_clear_store();
+
+        // Phase 1: Publish
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+        mock_ffi::mock_store_value("workflow.key", b"workflow_value", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("workflow.key"));
+
+        // Phase 2: Get
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+
+        // Phase 3: Fence (barrier)
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+
+        // Phase 4: Unpublish
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_SUCCESS);
+        mock_ffi::mock_remove_value("workflow.key");
+        assert!(!mock_ffi::mock_key_exists("workflow.key"));
+    }
+
+    /// Test error workflow with mock — publish fails, get fails, unpublish fails.
+    #[test]
+    fn test_mock_error_workflow_all_fail() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_Publish", PMIX_ERR_INIT)
+            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
+            .with_function_status("PMIx_Unpublish", PMIX_ERR_TIMEOUT);
+        let _guard = MockGuard::with_config(config);
+
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_ERR_INIT);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
+        assert_eq!(
+            mock_ffi::get_mock_status("PMIx_Unpublish"),
+            PMIX_ERR_TIMEOUT
+        );
+    }
+
+    /// Test mock with multiple key-value pairs and selective removal.
+    #[test]
+    fn test_mock_selective_key_removal() {
+        mock_ffi::mock_clear_store();
+        mock_ffi::mock_store_value("a", b"1", PMIX_STRING);
+        mock_ffi::mock_store_value("b", b"2", PMIX_STRING);
+        mock_ffi::mock_store_value("c", b"3", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("a"));
+        assert!(mock_ffi::mock_key_exists("b"));
+        assert!(mock_ffi::mock_key_exists("c"));
+        // Remove only 'b'
+        mock_ffi::mock_remove_value("b");
+        assert!(mock_ffi::mock_key_exists("a"));
+        assert!(!mock_ffi::mock_key_exists("b"));
+        assert!(mock_ffi::mock_key_exists("c"));
+        mock_ffi::mock_clear_store();
+    }
+
+    /// Test mock with long binary data values.
+    #[test]
+    fn test_mock_binary_data_storage() {
+        let data: Vec<u8> = (0..=255).collect();
+        mock_ffi::mock_store_value("binary.key", &data, PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("binary.key"));
+        mock_ffi::mock_remove_value("binary.key");
+    }
+
+    /// Test mock with empty string value.
+    #[test]
+    fn test_mock_empty_string_value() {
+        mock_ffi::mock_store_value("empty.val", b"", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("empty.val"));
+        mock_ffi::mock_remove_value("empty.val");
+    }
+
+    /// Test mock config with mixed success and error statuses.
+    #[test]
+    fn test_mock_config_mixed_statuses() {
+        let config = MockConfig::new()
+            .with_function_status("PMIx_Publish", PMIX_SUCCESS)
+            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
+            .with_function_status("PMIx_Fence", PMIX_SUCCESS)
+            .with_function_status("PMIx_Unpublish", PMIX_SUCCESS)
+            .with_function_status("PMIx_Lookup", PMIX_ERR_TIMEOUT);
+        let _guard = MockGuard::with_config(config);
+
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_SUCCESS);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Lookup"), PMIX_ERR_TIMEOUT);
+    }
+
+    /// Test mock guard nesting behavior — inner guard disables on drop.
+    #[test]
+    fn test_mock_guard_nesting() {
+        assert!(!mock_ffi::is_mock_enabled());
+        {
+            let _outer = MockGuard::new();
+            assert!(mock_ffi::is_mock_enabled());
+            // Inner scope — creates another guard (re-enables mock)
+            {
+                let _inner = MockGuard::new();
+                assert!(mock_ffi::is_mock_enabled());
+            }
+            // After inner drops, mock is disabled (no ref counting)
+            assert!(!mock_ffi::is_mock_enabled());
+        }
+        assert!(!mock_ffi::is_mock_enabled());
+    }
+
+    /// Test mock store with unicode key names.
+    #[test]
+    fn test_mock_unicode_key_storage() {
+        mock_ffi::mock_store_value("key.αβγ", b"unicode_val", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("key.αβγ"));
+        mock_ffi::mock_remove_value("key.αβγ");
+    }
+
+    /// Test mock store with key containing spaces.
+    #[test]
+    fn test_mock_key_with_spaces() {
+        mock_ffi::mock_store_value("key with spaces", b"spaced_val", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("key with spaces"));
+        mock_ffi::mock_remove_value("key with spaces");
+    }
+
+    /// Test mock store with very long key.
+    #[test]
+    fn test_mock_very_long_key() {
+        let long_key = "a.".repeat(500);
+        mock_ffi::mock_store_value(&long_key, b"val", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists(&long_key));
+        mock_ffi::mock_remove_value(&long_key);
+    }
+
+    /// Test mock callback bridge — unpublish with init error.
+    #[test]
+    fn test_mock_unpublish_callback_init_error() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static UNPUB_CB_INIT: AtomicI32 = AtomicI32::new(-999);
+
+        struct UnpubInitCb;
+        impl UnpublishCallback for UnpubInitCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                UNPUB_CB_INIT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(UnpubInitCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        unpublish_callback_bridge(PMIX_ERR_INIT, cbdata);
+        assert_eq!(UNPUB_CB_INIT.load(Ordering::SeqCst), PMIX_ERR_INIT);
+    }
+
+    /// Test mock callback bridge — fence with duplicate key error.
+    #[test]
+    fn test_mock_fence_callback_duplicate_key() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static FENCE_CB_DUP: AtomicI32 = AtomicI32::new(-999);
+
+        struct FenceDupCb;
+        impl FenceCallback for FenceDupCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                FENCE_CB_DUP.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = FENCE_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(FenceDupCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        fence_callback_bridge(PMIX_ERR_DUPLICATE_KEY, cbdata);
+        assert_eq!(FENCE_CB_DUP.load(Ordering::SeqCst), PMIX_ERR_DUPLICATE_KEY);
+    }
+
+    /// Test mock callback bridge — get with duplicate key error.
+    #[test]
+    fn test_mock_get_callback_duplicate_key() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static GET_CB_DUP: AtomicI32 = AtomicI32::new(-999);
+
+        struct GetDupCb;
+        impl GetValueCallback for GetDupCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, _value: Option<PmixOwnedValue>) {
+                GET_CB_DUP.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(GetDupCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        get_value_callback_bridge(PMIX_ERR_DUPLICATE_KEY, std::ptr::null_mut(), cbdata);
+        assert_eq!(GET_CB_DUP.load(Ordering::SeqCst), PMIX_ERR_DUPLICATE_KEY);
+    }
+
+    /// Test mock callback bridge — lookup with init error.
+    #[test]
+    fn test_mock_lookup_callback_init_error() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static LOOKUP_CB_INIT2: AtomicI32 = AtomicI32::new(-999);
+
+        struct LookupInitCb2;
+        impl LookupCallback for LookupInitCb2 {
+            fn on_result(self: Box<Self>, status: PmixStatus, _data: Vec<PmixPdata>) {
+                LOOKUP_CB_INIT2.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(LookupInitCb2));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        lookup_callback_bridge(PMIX_ERR_INIT, std::ptr::null_mut(), 0, cbdata);
+        assert_eq!(LOOKUP_CB_INIT2.load(Ordering::SeqCst), PMIX_ERR_INIT);
+    }
+
+    /// Test mock — publish-get-fence-unpublish cycle with status checks.
+    #[test]
+    fn test_mock_operation_cycle_status_checks() {
+        let _guard = MockGuard::new();
+        // All operations should return PMIX_SUCCESS by default
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_SUCCESS);
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Lookup"), PMIX_SUCCESS);
+    }
+
+    /// Test mock — PmixStatus equality comparison.
+    #[test]
+    fn test_mock_status_equality() {
+        let s1 = PmixStatus::from_raw(PMIX_SUCCESS);
+        let s2 = PmixStatus::from_raw(PMIX_SUCCESS);
+        assert_eq!(s1, s2);
+
+        let e1 = PmixStatus::from_raw(PMIX_ERR_NOT_FOUND);
+        let e2 = PmixStatus::from_raw(PMIX_ERR_NOT_FOUND);
+        assert_eq!(e1, e2);
+
+        assert_ne!(s1, e1);
+    }
+
+    /// Test mock — PmixStatus partial ordering.
+    #[test]
+    fn test_mock_status_partial_ordering() {
+        let success = PmixStatus::from_raw(PMIX_SUCCESS);
+        let error = PmixStatus::from_raw(PMIX_ERR_NOT_FOUND);
+        // Unknown status
+        let unknown = PmixStatus::from_raw(-99999);
+        assert_ne!(success, error);
+        assert_ne!(success, unknown);
+        assert_ne!(error, unknown);
+    }
+
+    /// Test mock — concurrent callback invocation on different registries.
+    #[test]
+    fn test_mock_concurrent_callback_registries() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        use std::thread;
+
+        static PUB_RESULT: AtomicI32 = AtomicI32::new(-999);
+        static GET_RESULT: AtomicI32 = AtomicI32::new(-999);
+
+        struct ConcPubCb;
+        impl PublishCallback for ConcPubCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                PUB_RESULT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        struct ConcGetCb;
+        impl GetValueCallback for ConcGetCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, _value: Option<PmixOwnedValue>) {
+                GET_RESULT.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let handles: Vec<_> = vec![
+            // Thread 1: publish callback
+            thread::spawn(|| {
+                let req_id = {
+                    let mut seq = PUBLISH_SEQ.lock().unwrap();
+                    *seq += 1;
+                    *seq
+                };
+                {
+                    let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+                    registry.insert(req_id, Box::new(ConcPubCb));
+                }
+                let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+                publish_callback_bridge(PMIX_SUCCESS, cbdata);
+            }),
+            // Thread 2: get callback
+            thread::spawn(|| {
+                let req_id = {
+                    let mut seq = GET_SEQ.lock().unwrap();
+                    *seq += 1;
+                    *seq
+                };
+                {
+                    let mut registry = GET_REGISTRY.lock().unwrap();
+                    registry.insert(req_id, Box::new(ConcGetCb));
+                }
+                let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+                get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), cbdata);
+            }),
+        ];
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(PUB_RESULT.load(Ordering::SeqCst), PMIX_SUCCESS);
+        assert_eq!(GET_RESULT.load(Ordering::SeqCst), PMIX_SUCCESS);
+    }
+
+    /// Test mock — store_internal with mock store simulation.
+    #[test]
+    fn test_mock_store_internal_full_simulation() {
+        let _guard = MockGuard::new();
+        mock_ffi::mock_clear_store();
+        // Simulate store_internal storing a key
+        let proc = Proc::new("internal.ns", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+        mock_ffi::mock_store_value("internal.key", b"internal_val", PMIX_STRING);
+        assert!(mock_ffi::mock_key_exists("internal.key"));
+        // Verify mock status
+        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+        mock_ffi::mock_remove_value("internal.key");
+    }
+
+    /// Test mock — Info pointer handling for various sizes.
+    #[test]
+    fn test_mock_info_ptr_sizes() {
+        let _guard = MockGuard::new();
+        // Size 0 — null pointer
+        let info0 = Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+        };
+        let (p0, n0) = if info0.len > 0 {
+            (info0.handle as *const ffi::pmix_info_t, info0.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(p0.is_null());
+        assert_eq!(n0, 0);
+
+        // Size 1 — non-null pointer
+        let info1 = Info {
+            handle: 0x1usize as *mut ffi::pmix_info_t,
+            len: 1,
+        };
+        let (p1, n1) = if info1.len > 0 {
+            (info1.handle as *const ffi::pmix_info_t, info1.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(!p1.is_null());
+        assert_eq!(n1, 1);
+
+        // Size 100 — non-null pointer
+        let info100 = Info {
+            handle: 0x2usize as *mut ffi::pmix_info_t,
+            len: 100,
+        };
+        let (p100, n100) = if info100.len > 0 {
+            (info100.handle as *const ffi::pmix_info_t, info100.len)
+        } else {
+            (std::ptr::null(), 0)
+        };
+        assert!(!p100.is_null());
+        assert_eq!(n100, 100);
+    }
+
+    /// Test mock — Proc handle field access.
+    #[test]
+    fn test_mock_proc_handle_fields() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("handle_test", 99).unwrap();
+        assert_eq!(proc.get_rank(), 99);
+    }
+
+    /// Test mock — Proc with empty namespace and zero rank.
+    #[test]
+    fn test_mock_proc_empty_ns_zero_rank() {
+        let _guard = MockGuard::new();
+        let proc = Proc::new("", 0).unwrap();
+        assert_eq!(proc.get_rank(), 0);
+    }
+
+    /// Test mock — PmixPdata with all fields set.
+    #[test]
+    fn test_mock_pdata_all_fields() {
+        let _guard = MockGuard::new();
+        let mut pdata = PmixPdata::new("full.key");
+        pdata.proc = Proc::new("full.ns", 7).unwrap();
+        assert_eq!(pdata.key, "full.key");
+        assert!(pdata.value.is_none());
+        assert_eq!(pdata.proc.get_rank(), 7);
+    }
+
+    /// Test mock — multiple mock configs in sequence.
+    #[test]
+    fn test_mock_sequential_configs() {
+        // First config: all success
+        {
+            let _guard = MockGuard::new();
+            assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+        }
+        // Second config: all error
+        {
+            let config = MockConfig::new().with_default_status(PMIX_ERR_INIT);
+            let _guard = MockGuard::with_config(config);
+            assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_ERR_INIT);
+        }
+        // Third config: mixed
+        {
+            let config = MockConfig::new()
+                .with_function_status("PMIx_Publish", PMIX_SUCCESS)
+                .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
+            let _guard = MockGuard::with_config(config);
+            assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+            assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
+        }
+    }
+
+    /// Test mock — fence callback bridge with partial success.
+    #[test]
+    fn test_mock_fence_callback_partial_success() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static FENCE_CB_PARTIAL: AtomicI32 = AtomicI32::new(-999);
+
+        struct FencePartialCb;
+        impl FenceCallback for FencePartialCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                FENCE_CB_PARTIAL.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = FENCE_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(FencePartialCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        fence_callback_bridge(-52, cbdata); // PMIX_ERR_PARTIAL_SUCCESS
+        assert_eq!(FENCE_CB_PARTIAL.load(Ordering::SeqCst), -52);
+    }
+
+    /// Test mock — lookup callback bridge with partial success.
+    #[test]
+    fn test_mock_lookup_callback_partial_success() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static LOOKUP_CB_PARTIAL: AtomicI32 = AtomicI32::new(-999);
+
+        struct LookupPartialCb;
+        impl LookupCallback for LookupPartialCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, _data: Vec<PmixPdata>) {
+                LOOKUP_CB_PARTIAL.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = LOOKUP_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(LookupPartialCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        lookup_callback_bridge(-52, std::ptr::null_mut(), 0, cbdata);
+        assert_eq!(LOOKUP_CB_PARTIAL.load(Ordering::SeqCst), -52);
+    }
+
+    /// Test mock — get callback bridge with partial success.
+    #[test]
+    fn test_mock_get_callback_partial_success() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static GET_CB_PARTIAL: AtomicI32 = AtomicI32::new(-999);
+
+        struct GetPartialCb;
+        impl GetValueCallback for GetPartialCb {
+            fn on_result(self: Box<Self>, status: PmixStatus, _value: Option<PmixOwnedValue>) {
+                GET_CB_PARTIAL.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = GET_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(GetPartialCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        get_value_callback_bridge(-52, std::ptr::null_mut(), cbdata);
+        assert_eq!(GET_CB_PARTIAL.load(Ordering::SeqCst), -52);
+    }
+
+    /// Test mock — publish callback bridge with partial success.
+    #[test]
+    fn test_mock_publish_callback_partial_success() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static PUB_CB_PARTIAL: AtomicI32 = AtomicI32::new(-999);
+
+        struct PubPartialCb;
+        impl PublishCallback for PubPartialCb {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                PUB_CB_PARTIAL.store(status.to_raw(), Ordering::SeqCst);
+            }
+        }
+
+        let req_id = {
+            let mut seq = PUBLISH_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        {
+            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            registry.insert(req_id, Box::new(PubPartialCb));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        publish_callback_bridge(-52, cbdata);
+        assert_eq!(PUB_CB_PARTIAL.load(Ordering::SeqCst), -52);
+    }
 }

@@ -93,10 +93,9 @@ fn test_query_results_empty() {
 
 /// Integration test: query PMIx version from a running PMIx server.
 ///
-/// This test requires a running PMIx daemon. It will fail with
-/// PMIX_ERR_INIT if PMIx has not been initialized.
+/// This test handles both daemon-up (returns version info) and daemon-down
+/// (returns PMIX_ERR_INIT or PMIX_ERR_NOT_SUPPORTED) cases gracefully.
 #[test]
-#[ignore]
 fn test_query_info_version() {
     let query = PmixQuery::new(&["pmix.version"]).expect("query creation failed");
     let queries = vec![query];
@@ -124,9 +123,9 @@ fn test_query_info_version() {
 
 /// Integration test: query multiple keys simultaneously.
 ///
-/// This test requires a running PMIx daemon.
+/// This test handles both daemon-up (returns results) and daemon-down
+/// (returns PMIX_ERR_INIT, PMIX_ERR_NOT_SUPPORTED, or PMIX_ERR_PARTIAL_SUCCESS) gracefully.
 #[test]
-#[ignore]
 fn test_query_info_multiple_keys() {
     let query = PmixQuery::new(&["pmix.version", "pmix.size", "pmix.nprocs"])
         .expect("query creation failed");

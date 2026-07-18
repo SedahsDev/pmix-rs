@@ -13,6 +13,8 @@ pub mod fabric;
 mod ffi;
 pub mod groups;
 pub mod info;
+#[cfg(test)]
+pub mod mock_ffi;
 pub mod monitoring;
 pub mod process_mgmt;
 pub mod query_log;
