@@ -67,181 +67,498 @@ use std::sync::{LazyLock, Mutex};
 ///
 /// # C API
 /// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
+/// Safe Rust wrapper around `pmix_server_module_t`.
+///
+/// Each field corresponds to a callback the PMIx server library will
+/// invoke. All fields default to `None`, meaning the callback is not
+/// implemented by the server. The PMIx library checks for null before
+/// calling each callback, so it is safe to set only the ones you need.
+///
+/// The field types use the bindgen-generated callback typedefs directly
+/// (e.g. `ffi::pmix_server_client_connected_fn_t`), ensuring the struct
+/// layout is binary-compatible with `pmix_server_module_t` for safe FFI
+/// casting via [`as_c_ptr`](#method.as_c_ptr).
+///
+/// # C API
+/// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
+///
+/// # Callback signatures
+///
+/// Each callback field is typed as the bindgen-generated `Option<unsafe extern "C" fn(...)>`
+/// matching the PMIx C header. The actual parameter lists vary per callback —
+/// see the individual field documentation below. To set a callback, provide
+/// a function matching the signature or use `None` to leave it unimplemented.
+///
+/// # Example
+///
+/// ```ignore
+/// use pmix::server::PmixServerModule;
+///
+/// let mut module = PmixServerModule::default();
+///
+/// // Set a client_connected callback
+/// module.client_connected = Some(client_connected_handler);
+///
+/// extern "C" fn client_connected_handler(
+///     proc_: *const pmix_proc_t,
+///     server_object: *mut std::os::raw::c_void,
+///     cbfunc: pmix_op_cbfunc_t,
+///     cbdata: *mut std::os::raw::c_void,
+/// ) -> pmix_status_t {
+///     // handle connection...
+///     0 // PMIX_SUCCESS
+/// }
+/// ```
 #[derive(Debug, Default)]
 pub struct PmixServerModule {
     /// Called when a client process connects to this server.
     ///
-    /// # C type
-    /// `pmix_server_client_connected_fn_t`
-    pub client_connected: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*client_connected)(
+    ///     const pmix_proc_t *proc,
+    ///     void *server_object,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub client_connected: ffi::pmix_server_client_connected_fn_t,
 
     /// Called when a client process finalizes its connection.
     ///
-    /// # C type
-    /// `pmix_server_client_finalized_fn_t`
-    pub client_finalized: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*client_finalized)(
+    ///     const pmix_proc_t *proc,
+    ///     void *server_object,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub client_finalized: ffi::pmix_server_client_finalized_fn_t,
 
     /// Called when a client requests an abort.
     ///
-    /// # C type
-    /// `pmix_server_abort_fn_t`
-    pub abort: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*abort)(
+    ///     const pmix_proc_t *proc,
+    ///     void *server_object,
+    ///     int status,
+    ///     const char *msg,
+    ///     pmix_proc_t procs[],
+    ///     size_t nprocs,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub abort: ffi::pmix_server_abort_fn_t,
 
     /// Non-blocking fence callback.
     ///
-    /// # C type
-    /// `pmix_server_fencenb_fn_t`
-    pub fence_nb: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*fence_nb)(
+    ///     const pmix_proc_t procs[],
+    ///     size_t nprocs,
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     char *data,
+    ///     size_t ndata,
+    ///     pmix_modex_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub fence_nb: ffi::pmix_server_fencenb_fn_t,
 
     /// Direct modex request callback.
     ///
-    /// # C type
-    /// `pmix_server_dmodex_req_fn_t`
-    pub direct_modex: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*direct_modex)(
+    ///     const pmix_proc_t *proc,
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_modex_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub direct_modex: ffi::pmix_server_dmodex_req_fn_t,
 
     /// Publish callback — client requests to publish data.
     ///
-    /// # C type
-    /// `pmix_server_publish_fn_t`
-    pub publish: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*publish)(
+    ///     const pmix_proc_t *proc,
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub publish: ffi::pmix_server_publish_fn_t,
 
     /// Lookup callback — client requests to lookup data.
     ///
-    /// # C type
-    /// `pmix_server_lookup_fn_t`
-    pub lookup: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*lookup)(
+    ///     const pmix_proc_t *proc,
+    ///     char keys[][],
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_lookup_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub lookup: ffi::pmix_server_lookup_fn_t,
 
     /// Unpublish callback — client requests to remove published data.
     ///
-    /// # C type
-    /// `pmix_server_unpublish_fn_t`
-    pub unpublish: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*unpublish)(
+    ///     const pmix_proc_t *proc,
+    ///     char keys[][],
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub unpublish: ffi::pmix_server_unpublish_fn_t,
 
     /// Spawn callback — client requests to spawn new processes.
     ///
-    /// # C type
-    /// `pmix_server_spawn_fn_t`
-    pub spawn: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*spawn)(
+    ///     const pmix_proc_t *proc,
+    ///     const pmix_info_t job_info[],
+    ///     size_t ninfo,
+    ///     const pmix_app_t apps[],
+    ///     size_t napps,
+    ///     pmix_spawn_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub spawn: ffi::pmix_server_spawn_fn_t,
 
     /// Connect callback — client requests to establish a connection.
     ///
-    /// # C type
-    /// `pmix_server_connect_fn_t`
-    pub connect: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*connect)(
+    ///     const pmix_proc_t procs[],
+    ///     size_t nprocs,
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub connect: ffi::pmix_server_connect_fn_t,
 
     /// Disconnect callback — client requests to disconnect.
     ///
-    /// # C type
-    /// `pmix_server_disconnect_fn_t`
-    pub disconnect: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*disconnect)(
+    ///     const pmix_proc_t procs[],
+    ///     size_t nprocs,
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub disconnect: ffi::pmix_server_disconnect_fn_t,
 
     /// Register events callback.
     ///
-    /// # C type
-    /// `pmix_server_register_events_fn_t`
-    pub register_events: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*register_events)(
+    ///     pmix_status_t codes[],
+    ///     size_t ncodes,
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub register_events: ffi::pmix_server_register_events_fn_t,
 
     /// Deregister events callback.
     ///
-    /// # C type
-    /// `pmix_server_deregister_events_fn_t`
-    pub deregister_events: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*deregister_events)(
+    ///     pmix_status_t codes[],
+    ///     size_t ncodes,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub deregister_events: ffi::pmix_server_deregister_events_fn_t,
 
     /// Listener callback — for server-to-server communication.
     ///
-    /// # C type
-    /// `pmix_server_listener_fn_t`
-    pub listener: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*listener)(
+    ///     int listening_sd,
+    ///     pmix_connection_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub listener: ffi::pmix_server_listener_fn_t,
 
     /// Notify event callback — deliver notifications to the server.
     ///
-    /// # C type
-    /// `pmix_server_notify_event_fn_t`
-    pub notify_event: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*notify_event)(
+    ///     pmix_status_t code,
+    ///     const pmix_proc_t *source,
+    ///     pmix_data_range_t range,
+    ///     pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub notify_event: ffi::pmix_server_notify_event_fn_t,
 
     /// Query callback — client requests server-side query.
     ///
-    /// # C type
-    /// `pmix_server_query_fn_t`
-    pub query: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*query)(
+    ///     pmix_proc_t *proct,
+    ///     pmix_query_t queries[],
+    ///     size_t nqueries,
+    ///     pmix_info_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub query: ffi::pmix_server_query_fn_t,
 
     /// Tool connection callback — accepts tool connections.
     ///
-    /// # C type
-    /// `pmix_server_tool_connection_fn_t`
-    pub tool_connected: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// void (*tool_connected)(
+    ///     pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_tool_connection_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub tool_connected: ffi::pmix_server_tool_connection_fn_t,
 
     /// Log callback — client requests logging.
     ///
-    /// # C type
-    /// `pmix_server_log_fn_t`
-    pub log: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// void (*log)(
+    ///     const pmix_proc_t *client,
+    ///     const pmix_info_t data[],
+    ///     size_t ndata,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub log: ffi::pmix_server_log_fn_t,
 
     /// Allocation callback — client requests resource allocation.
     ///
-    /// # C type
-    /// `pmix_server_alloc_fn_t`
-    pub allocate: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*allocate)(
+    ///     const pmix_proc_t *client,
+    ///     pmix_alloc_directive_t directive,
+    ///     const pmix_info_t data[],
+    ///     size_t ndata,
+    ///     pmix_info_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub allocate: ffi::pmix_server_alloc_fn_t,
 
     /// Job control callback.
     ///
-    /// # C type
-    /// `pmix_server_job_control_fn_t`
-    pub job_control: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*job_control)(
+    ///     const pmix_proc_t *requestor,
+    ///     const pmix_proc_t targets[],
+    ///     size_t ntargets,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_info_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub job_control: ffi::pmix_server_job_control_fn_t,
 
     /// Monitoring callback — client requests monitoring.
     ///
-    /// # C type
-    /// `pmix_server_monitor_fn_t`
-    pub monitor: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*monitor)(
+    ///     const pmix_proc_t *requestor,
+    ///     const pmix_info_t *monitor,
+    ///     pmix_status_t error,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_info_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub monitor: ffi::pmix_server_monitor_fn_t,
 
     /// Get credential callback.
     ///
-    /// # C type
-    /// `pmix_server_get_cred_fn_t`
-    pub get_credential: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*get_credential)(
+    ///     const pmix_proc_t *proc,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_credential_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub get_credential: ffi::pmix_server_get_cred_fn_t,
 
     /// Validate credential callback.
     ///
-    /// # C type
-    /// `pmix_server_validate_cred_fn_t`
-    pub validate_credential: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*validate_credential)(
+    ///     const pmix_proc_t *proc,
+    ///     const pmix_byte_object_t *cred,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_validation_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub validate_credential: ffi::pmix_server_validate_cred_fn_t,
 
     /// I/O forwarding pull callback.
     ///
-    /// # C type
-    /// `pmix_server_iof_fn_t`
-    pub iof_pull: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*iof_pull)(
+    ///     const pmix_proc_t procs[],
+    ///     size_t nprocs,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_iof_channel_t channels,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub iof_pull: ffi::pmix_server_iof_fn_t,
 
     /// Push stdin callback.
     ///
-    /// # C type
-    /// `pmix_server_stdin_fn_t`
-    pub push_stdin: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*push_stdin)(
+    ///     const pmix_proc_t *source,
+    ///     const pmix_proc_t targets[],
+    ///     size_t ntargets,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     const pmix_byte_object_t *bo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub push_stdin: ffi::pmix_server_stdin_fn_t,
 
     /// Group operations callback.
     ///
-    /// # C type
-    /// `pmix_server_grp_fn_t`
-    pub group: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*group)(
+    ///     pmix_group_operation_t op,
+    ///     char *grp,
+    ///     const pmix_proc_t procs[],
+    ///     size_t nprocs,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_info_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub group: ffi::pmix_server_grp_fn_t,
 
     /// Fabric operations callback.
     ///
-    /// # C type
-    /// `pmix_server_fabric_fn_t`
-    pub fabric: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*fabric)(
+    ///     const pmix_proc_t *requestor,
+    ///     pmix_fabric_operation_t op,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_info_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub fabric: ffi::pmix_server_fabric_fn_t,
 
     /// Client connected v2 callback.
     ///
-    /// # C type
-    /// `pmix_server_client_connected2_fn_t`
-    pub client_connected2: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*client_connected2)(
+    ///     const pmix_proc_t *proc,
+    ///     void *server_object,
+    ///     pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub client_connected2: ffi::pmix_server_client_connected2_fn_t,
+
+    /// Tool connection v2 callback.
+    ///
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*tool_connected2)(
+    ///     pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_tool_connection_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub tool_connected2: ffi::pmix_server_tool_connection2_fn_t,
+
+    /// Log v2 callback.
+    ///
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*log2)(
+    ///     const pmix_proc_t *client,
+    ///     const pmix_info_t data[],
+    ///     size_t ndata,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub log2: ffi::pmix_server_log2_fn_t,
 
     /// Session control callback (PMIx 5.x).
     ///
-    /// # C type
-    /// `pmix_server_session_control_fn_t`
-    pub session_control: Option<unsafe extern "C" fn()>,
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*session_control)(
+    ///     const pmix_proc_t *requestor,
+    ///     uint32_t sessionID,
+    ///     const pmix_info_t directives[],
+    ///     size_t ndirs,
+    ///     pmix_info_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub session_control: ffi::pmix_server_session_control_fn_t,
+
+    /// Resource block callback (PMIx 5.x).
+    ///
+    /// # C signature
+    /// ```c
+    /// pmix_status_t (*resource_block)(
+    ///     const pmix_proc_t *requestor,
+    ///     pmix_resource_block_directive_t directive,
+    ///     const char *block,
+    ///     const pmix_resource_unit_t units[],
+    ///     size_t nunit,
+    ///     const pmix_info_t info[],
+    ///     size_t ninfo,
+    ///     pmix_op_cbfunc_t cbfunc,
+    ///     void *cbdata);
+    /// ```
+    pub resource_block: ffi::pmix_server_resource_block_fn_t,
 }
 
 impl PmixServerModule {
