@@ -371,7 +371,7 @@ extern "C" fn query_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = QUERY_REGISTRY.lock().unwrap();
+        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -421,12 +421,12 @@ pub fn query_info_nb(
 
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = QUERY_SEQ.lock().unwrap();
+        let mut seq = QUERY_SEQ.lock().expect("mutex poisoned (query_log.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = QUERY_REGISTRY.lock().unwrap();
+        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -452,7 +452,7 @@ pub fn query_info_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = QUERY_REGISTRY.lock().unwrap();
+        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -573,7 +573,7 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = LOG_REGISTRY.lock().unwrap();
+        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -613,12 +613,12 @@ pub fn log_data_nb(
 
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = LOG_SEQ.lock().unwrap();
+        let mut seq = LOG_SEQ.lock().expect("mutex poisoned (query_log.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = LOG_REGISTRY.lock().unwrap();
+        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -665,7 +665,7 @@ pub fn log_data_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = LOG_REGISTRY.lock().unwrap();
+        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
