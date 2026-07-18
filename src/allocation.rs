@@ -54,6 +54,7 @@ use std::sync::Mutex;
 use std::sync::LazyLock;
 
 use crate::ffi;
+use crate::cbdata::{decode_req_id, encode_req_id};
 use crate::{Info, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -312,7 +313,7 @@ extern "C" fn allocation_callback_bridge(
     }
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -380,8 +381,8 @@ pub fn allocation_request_nb(
     };
 
     // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1, so shifted value >= 4).
-    let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+    // is never null (req_id starts at 1).
+    let cbdata = encode_req_id(req_id);
 
     {
         let mut registry = ALLOCATION_REGISTRY.lock().unwrap();
@@ -678,7 +679,7 @@ extern "C" fn job_control_callback_bridge(
     }
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -746,8 +747,8 @@ pub fn job_control_nb(
     };
 
     // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1, so shifted value >= 4).
-    let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+    // is never null (req_id starts at 1).
+    let cbdata = encode_req_id(req_id);
 
     {
         let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
@@ -868,7 +869,7 @@ extern "C" fn session_control_callback_bridge(
         return;
     }
 
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = decode_req_id(cbdata);
 
     let cb = {
         let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
@@ -938,7 +939,7 @@ pub fn session_control(
                 *seq += 1;
                 *seq
             };
-            let cbdata = (req_id << 2) as *mut c_void;
+            let cbdata = encode_req_id(req_id);
 
             {
                 let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
