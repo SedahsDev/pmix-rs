@@ -317,7 +317,7 @@ extern "C" fn allocation_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = ALLOCATION_REGISTRY.lock().unwrap();
+        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -375,7 +375,7 @@ pub fn allocation_request_nb(
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
     let req_id = {
-        let mut seq = ALLOCATION_SEQ.lock().unwrap();
+        let mut seq = ALLOCATION_SEQ.lock().expect("mutex poisoned (allocation.rs)");
         *seq += 1;
         *seq
     };
@@ -385,7 +385,7 @@ pub fn allocation_request_nb(
     let cbdata = encode_req_id(req_id);
 
     {
-        let mut registry = ALLOCATION_REGISTRY.lock().unwrap();
+        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -423,7 +423,7 @@ pub fn allocation_request_nb(
         Ok(())
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = ALLOCATION_REGISTRY.lock().unwrap();
+        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -683,7 +683,7 @@ extern "C" fn job_control_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
+        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -741,7 +741,7 @@ pub fn job_control_nb(
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
     let req_id = {
-        let mut seq = JOB_CTRL_SEQ.lock().unwrap();
+        let mut seq = JOB_CTRL_SEQ.lock().expect("mutex poisoned (allocation.rs)");
         *seq += 1;
         *seq
     };
@@ -751,7 +751,7 @@ pub fn job_control_nb(
     let cbdata = encode_req_id(req_id);
 
     {
-        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
+        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -802,7 +802,7 @@ pub fn job_control_nb(
         Ok(())
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
+        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -872,7 +872,7 @@ extern "C" fn session_control_callback_bridge(
     let req_id = decode_req_id(cbdata);
 
     let cb = {
-        let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+        let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -935,14 +935,14 @@ pub fn session_control(
         Some(cb) => {
             // Non-blocking mode
             let req_id = {
-                let mut seq = SESSION_CTRL_SEQ.lock().unwrap();
+                let mut seq = SESSION_CTRL_SEQ.lock().expect("mutex poisoned (allocation.rs)");
                 *seq += 1;
                 *seq
             };
             let cbdata = encode_req_id(req_id);
 
             {
-                let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+                let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
                 registry.insert(req_id, cb);
             }
 
@@ -960,7 +960,7 @@ pub fn session_control(
             if pmix_status.is_success() {
                 Ok(None)
             } else {
-                let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+                let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
                 registry.remove(&req_id);
                 Err(pmix_status)
             }
