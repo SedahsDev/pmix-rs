@@ -54,6 +54,7 @@ use std::sync::Mutex;
 use std::sync::LazyLock;
 
 use crate::ffi;
+use crate::cbdata::{decode_req_id, encode_req_id};
 use crate::{Info, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -312,11 +313,11 @@ extern "C" fn allocation_callback_bridge(
     }
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = ALLOCATION_REGISTRY.lock().unwrap();
+        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -374,17 +375,17 @@ pub fn allocation_request_nb(
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
     let req_id = {
-        let mut seq = ALLOCATION_SEQ.lock().unwrap();
+        let mut seq = ALLOCATION_SEQ.lock().expect("mutex poisoned (allocation.rs)");
         *seq += 1;
         *seq
     };
 
     // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1, so shifted value >= 4).
-    let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+    // is never null (req_id starts at 1).
+    let cbdata = encode_req_id(req_id);
 
     {
-        let mut registry = ALLOCATION_REGISTRY.lock().unwrap();
+        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -422,7 +423,7 @@ pub fn allocation_request_nb(
         Ok(())
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = ALLOCATION_REGISTRY.lock().unwrap();
+        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -678,11 +679,11 @@ extern "C" fn job_control_callback_bridge(
     }
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
+        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -740,17 +741,17 @@ pub fn job_control_nb(
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
     let req_id = {
-        let mut seq = JOB_CTRL_SEQ.lock().unwrap();
+        let mut seq = JOB_CTRL_SEQ.lock().expect("mutex poisoned (allocation.rs)");
         *seq += 1;
         *seq
     };
 
     // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1, so shifted value >= 4).
-    let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+    // is never null (req_id starts at 1).
+    let cbdata = encode_req_id(req_id);
 
     {
-        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
+        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -801,7 +802,7 @@ pub fn job_control_nb(
         Ok(())
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = JOB_CTRL_REGISTRY.lock().unwrap();
+        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -868,10 +869,10 @@ extern "C" fn session_control_callback_bridge(
         return;
     }
 
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = decode_req_id(cbdata);
 
     let cb = {
-        let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+        let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -934,14 +935,14 @@ pub fn session_control(
         Some(cb) => {
             // Non-blocking mode
             let req_id = {
-                let mut seq = SESSION_CTRL_SEQ.lock().unwrap();
+                let mut seq = SESSION_CTRL_SEQ.lock().expect("mutex poisoned (allocation.rs)");
                 *seq += 1;
                 *seq
             };
-            let cbdata = (req_id << 2) as *mut c_void;
+            let cbdata = encode_req_id(req_id);
 
             {
-                let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+                let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
                 registry.insert(req_id, cb);
             }
 
@@ -959,7 +960,7 @@ pub fn session_control(
             if pmix_status.is_success() {
                 Ok(None)
             } else {
-                let mut registry = SESSION_CTRL_REGISTRY.lock().unwrap();
+                let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
                 registry.remove(&req_id);
                 Err(pmix_status)
             }

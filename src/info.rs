@@ -1,23 +1,170 @@
-//! PMIx Info helpers.
-//!
-//! Thin ergonomic layer over crate-root [`Info`] / [`InfoBuilder`] for common
-//! info arrays used with fence, get, and tool APIs.
-//!
-//! # Scope
-//!
-//! - Build empty or directive-bearing `Info` arrays
-//! - String key/value pairs (including keys longer than 12 bytes)
-//! - Re-export of core types for `use pmix::info::*`
-//!
-//! Full `PMIx_Info_*` C surface (load/unload/list free) remains available via
-//! the raw bindings / crate root. Publish/lookup APIs live under other modules
-//! as they mature.
-//!
-//! For basic K/V put/get, prefer crate-root `put_value` / `get_value` / `commit` / `fence`.
-//!
-//! Spec: <https://pmix.github.io/>
+//! PMIx `Info` / `InfoBuilder` and convenience helpers.
 
-pub use crate::{Info, InfoBuilder, PmixStatus, info_with_string_key};
+use crate::ffi::*;
+use crate::types::BuilderError;
+use std::ffi::CString;
+use std::os::raw::{c_char, c_void};
+use std::ptr;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InfoFlags — type-safe bitmask over pmix_info_directives_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Newtype over the raw `pmix_info_directives_t` (u32 bitmask).
+///
+/// Predefined constants mirror the `PMIX_INFO_*` C macros.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct InfoFlags(pub pmix_info_directives_t);
+
+impl InfoFlags {
+    /// `PMIX_INFO_REQD` — fail if the attribute is unsupported.
+    pub const REQD: Self = Self(PMIX_INFO_REQD);
+    /// `PMIX_INFO_QUALIFIER` — qualifies a peer key.
+    pub const QUALIFIER: Self = Self(PMIX_INFO_QUALIFIER);
+    /// `PMIX_INFO_PERSISTENT` — do not release after processing.
+    pub const PERSISTENT: Self = Self(PMIX_INFO_PERSISTENT);
+    /// `PMIX_INFO_REQD_PROCESSED` — set by the library upon processing.
+    pub const REQD_PROCESSED: Self = Self(PMIX_INFO_REQD_PROCESSED);
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+    pub fn contains(self, f: Self) -> bool {
+        (self.0 & f.0) == f.0
+    }
+    /// Return the raw `pmix_info_directives_t` value.
+    pub fn raw(self) -> pmix_info_directives_t {
+        self.0
+    }
+}
+
+impl std::ops::BitOr for InfoFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl std::ops::BitOrAssign for InfoFlags {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+pub struct Info {
+    pub(crate) handle: *mut pmix_info_t,
+    pub(crate) len: usize,
+}
+
+impl Info {
+    /// Number of entries in this info array.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// True if there are no entries.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Raw pointer for FFI (valid for `len()` elements).
+    pub fn as_ptr(&self) -> *mut pmix_info_t {
+        self.handle
+    }
+}
+
+struct InfoEntry {
+    key: &'static [u8; 13],
+    value: *const std::ffi::c_void,
+    data_type: pmix_data_type_t,
+}
+
+#[derive(Default)]
+pub struct InfoBuilder {
+    infos: Vec<InfoEntry>,
+}
+
+impl InfoBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(
+        &mut self,
+        key: &'static [u8; 13],
+        value: *const std::ffi::c_void,
+        data_type: pmix_data_type_t,
+    ) {
+        assert_ne!(key.as_ptr(), std::ptr::null());
+        self.infos.push(InfoEntry {
+            key,
+            value,
+            data_type,
+        })
+    }
+    pub fn collect_data(&mut self) -> &mut InfoBuilder {
+        let collect = true;
+        self.add(
+            PMIX_COLLECT_DATA,
+            &collect as *const bool as *const c_void,
+            PMIX_BOOL as pmix_data_type_t,
+        );
+        self
+    }
+    pub fn build(self) -> Info {
+        let info_ptr: *mut pmix_info_t;
+        let mut idx: usize = 0;
+        unsafe { info_ptr = PMIx_Info_create(self.infos.len()) }
+        for info in &self.infos {
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr().cast(),
+                    info.value,
+                    info.data_type,
+                )
+            };
+            if status != PMIX_SUCCESS as i32 {
+                panic!("Error loading info: {}", status);
+            }
+            idx += 1;
+        }
+        Info {
+            handle: info_ptr,
+            len: idx,
+        }
+    }
+}
+
+/// Create an `Info` array with a single string key/value pair, bypassing
+/// the 13-byte key limit of `InfoBuilder::add()`.
+///
+/// This is useful for keys like `"pmix.srvr.uri"` (14 bytes) which don't
+/// fit in `InfoBuilder::add(key: &'static [u8; 13])`.
+pub fn info_with_string_key(key: &str, value: &str) -> Info {
+    let info_ptr = unsafe { PMIx_Info_create(1) };
+    let key_cstr = CString::new(key).expect("key must not contain null bytes");
+    let value_cstr = CString::new(value).expect("value must not contain null bytes");
+    unsafe {
+        let status = PMIx_Info_load(
+            info_ptr,
+            key_cstr.as_ptr(),
+            value_cstr.as_ptr() as *const c_void,
+            PMIX_STRING as pmix_data_type_t,
+        );
+        if status != PMIX_SUCCESS as i32 {
+            panic!("PMIx_Info_load failed for key {}: {}", key, status);
+        }
+    }
+    // Leak the CString allocations — the PMIx library copies the data
+    // internally and the Info handle is managed by the library.
+    std::mem::forget(key_cstr);
+    std::mem::forget(value_cstr);
+    Info {
+        handle: info_ptr,
+        len: 1,
+    }
+}
+
+
 
 /// Create an empty `Info` list (length 0).
 pub fn empty() -> Info {
@@ -32,13 +179,6 @@ pub fn with_collect_data() -> Info {
 }
 
 /// Single string key/value info entry (no 13-byte key limit).
-///
-/// # Example
-///
-/// ```no_run
-/// let info = pmix::info::string_kv("pmix.srvr.uri", "tcp://127.0.0.1:1234");
-/// let _ = info;
-/// ```
 pub fn string_kv(key: &str, value: &str) -> Info {
     info_with_string_key(key, value)
 }
