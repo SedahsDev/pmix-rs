@@ -67,498 +67,181 @@ use std::sync::{LazyLock, Mutex};
 ///
 /// # C API
 /// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
-/// Safe Rust wrapper around `pmix_server_module_t`.
-///
-/// Each field corresponds to a callback the PMIx server library will
-/// invoke. All fields default to `None`, meaning the callback is not
-/// implemented by the server. The PMIx library checks for null before
-/// calling each callback, so it is safe to set only the ones you need.
-///
-/// The field types use the bindgen-generated callback typedefs directly
-/// (e.g. `ffi::pmix_server_client_connected_fn_t`), ensuring the struct
-/// layout is binary-compatible with `pmix_server_module_t` for safe FFI
-/// casting via [`as_c_ptr`](#method.as_c_ptr).
-///
-/// # C API
-/// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
-///
-/// # Callback signatures
-///
-/// Each callback field is typed as the bindgen-generated `Option<unsafe extern "C" fn(...)>`
-/// matching the PMIx C header. The actual parameter lists vary per callback —
-/// see the individual field documentation below. To set a callback, provide
-/// a function matching the signature or use `None` to leave it unimplemented.
-///
-/// # Example
-///
-/// ```ignore
-/// use pmix::server::PmixServerModule;
-///
-/// let mut module = PmixServerModule::default();
-///
-/// // Set a client_connected callback
-/// module.client_connected = Some(client_connected_handler);
-///
-/// extern "C" fn client_connected_handler(
-///     proc_: *const pmix_proc_t,
-///     server_object: *mut std::os::raw::c_void,
-///     cbfunc: pmix_op_cbfunc_t,
-///     cbdata: *mut std::os::raw::c_void,
-/// ) -> pmix_status_t {
-///     // handle connection...
-///     0 // PMIX_SUCCESS
-/// }
-/// ```
 #[derive(Debug, Default)]
 pub struct PmixServerModule {
     /// Called when a client process connects to this server.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*client_connected)(
-    ///     const pmix_proc_t *proc,
-    ///     void *server_object,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub client_connected: ffi::pmix_server_client_connected_fn_t,
+    /// # C type
+    /// `pmix_server_client_connected_fn_t`
+    pub client_connected: Option<unsafe extern "C" fn()>,
 
     /// Called when a client process finalizes its connection.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*client_finalized)(
-    ///     const pmix_proc_t *proc,
-    ///     void *server_object,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub client_finalized: ffi::pmix_server_client_finalized_fn_t,
+    /// # C type
+    /// `pmix_server_client_finalized_fn_t`
+    pub client_finalized: Option<unsafe extern "C" fn()>,
 
     /// Called when a client requests an abort.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*abort)(
-    ///     const pmix_proc_t *proc,
-    ///     void *server_object,
-    ///     int status,
-    ///     const char *msg,
-    ///     pmix_proc_t procs[],
-    ///     size_t nprocs,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub abort: ffi::pmix_server_abort_fn_t,
+    /// # C type
+    /// `pmix_server_abort_fn_t`
+    pub abort: Option<unsafe extern "C" fn()>,
 
     /// Non-blocking fence callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*fence_nb)(
-    ///     const pmix_proc_t procs[],
-    ///     size_t nprocs,
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     char *data,
-    ///     size_t ndata,
-    ///     pmix_modex_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub fence_nb: ffi::pmix_server_fencenb_fn_t,
+    /// # C type
+    /// `pmix_server_fencenb_fn_t`
+    pub fence_nb: Option<unsafe extern "C" fn()>,
 
     /// Direct modex request callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*direct_modex)(
-    ///     const pmix_proc_t *proc,
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_modex_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub direct_modex: ffi::pmix_server_dmodex_req_fn_t,
+    /// # C type
+    /// `pmix_server_dmodex_req_fn_t`
+    pub direct_modex: Option<unsafe extern "C" fn()>,
 
     /// Publish callback — client requests to publish data.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*publish)(
-    ///     const pmix_proc_t *proc,
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub publish: ffi::pmix_server_publish_fn_t,
+    /// # C type
+    /// `pmix_server_publish_fn_t`
+    pub publish: Option<unsafe extern "C" fn()>,
 
     /// Lookup callback — client requests to lookup data.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*lookup)(
-    ///     const pmix_proc_t *proc,
-    ///     char keys[][],
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_lookup_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub lookup: ffi::pmix_server_lookup_fn_t,
+    /// # C type
+    /// `pmix_server_lookup_fn_t`
+    pub lookup: Option<unsafe extern "C" fn()>,
 
     /// Unpublish callback — client requests to remove published data.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*unpublish)(
-    ///     const pmix_proc_t *proc,
-    ///     char keys[][],
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub unpublish: ffi::pmix_server_unpublish_fn_t,
+    /// # C type
+    /// `pmix_server_unpublish_fn_t`
+    pub unpublish: Option<unsafe extern "C" fn()>,
 
     /// Spawn callback — client requests to spawn new processes.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*spawn)(
-    ///     const pmix_proc_t *proc,
-    ///     const pmix_info_t job_info[],
-    ///     size_t ninfo,
-    ///     const pmix_app_t apps[],
-    ///     size_t napps,
-    ///     pmix_spawn_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub spawn: ffi::pmix_server_spawn_fn_t,
+    /// # C type
+    /// `pmix_server_spawn_fn_t`
+    pub spawn: Option<unsafe extern "C" fn()>,
 
     /// Connect callback — client requests to establish a connection.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*connect)(
-    ///     const pmix_proc_t procs[],
-    ///     size_t nprocs,
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub connect: ffi::pmix_server_connect_fn_t,
+    /// # C type
+    /// `pmix_server_connect_fn_t`
+    pub connect: Option<unsafe extern "C" fn()>,
 
     /// Disconnect callback — client requests to disconnect.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*disconnect)(
-    ///     const pmix_proc_t procs[],
-    ///     size_t nprocs,
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub disconnect: ffi::pmix_server_disconnect_fn_t,
+    /// # C type
+    /// `pmix_server_disconnect_fn_t`
+    pub disconnect: Option<unsafe extern "C" fn()>,
 
     /// Register events callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*register_events)(
-    ///     pmix_status_t codes[],
-    ///     size_t ncodes,
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub register_events: ffi::pmix_server_register_events_fn_t,
+    /// # C type
+    /// `pmix_server_register_events_fn_t`
+    pub register_events: Option<unsafe extern "C" fn()>,
 
     /// Deregister events callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*deregister_events)(
-    ///     pmix_status_t codes[],
-    ///     size_t ncodes,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub deregister_events: ffi::pmix_server_deregister_events_fn_t,
+    /// # C type
+    /// `pmix_server_deregister_events_fn_t`
+    pub deregister_events: Option<unsafe extern "C" fn()>,
 
     /// Listener callback — for server-to-server communication.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*listener)(
-    ///     int listening_sd,
-    ///     pmix_connection_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub listener: ffi::pmix_server_listener_fn_t,
+    /// # C type
+    /// `pmix_server_listener_fn_t`
+    pub listener: Option<unsafe extern "C" fn()>,
 
     /// Notify event callback — deliver notifications to the server.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*notify_event)(
-    ///     pmix_status_t code,
-    ///     const pmix_proc_t *source,
-    ///     pmix_data_range_t range,
-    ///     pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub notify_event: ffi::pmix_server_notify_event_fn_t,
+    /// # C type
+    /// `pmix_server_notify_event_fn_t`
+    pub notify_event: Option<unsafe extern "C" fn()>,
 
     /// Query callback — client requests server-side query.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*query)(
-    ///     pmix_proc_t *proct,
-    ///     pmix_query_t queries[],
-    ///     size_t nqueries,
-    ///     pmix_info_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub query: ffi::pmix_server_query_fn_t,
+    /// # C type
+    /// `pmix_server_query_fn_t`
+    pub query: Option<unsafe extern "C" fn()>,
 
     /// Tool connection callback — accepts tool connections.
     ///
-    /// # C signature
-    /// ```c
-    /// void (*tool_connected)(
-    ///     pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_tool_connection_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub tool_connected: ffi::pmix_server_tool_connection_fn_t,
+    /// # C type
+    /// `pmix_server_tool_connection_fn_t`
+    pub tool_connected: Option<unsafe extern "C" fn()>,
 
     /// Log callback — client requests logging.
     ///
-    /// # C signature
-    /// ```c
-    /// void (*log)(
-    ///     const pmix_proc_t *client,
-    ///     const pmix_info_t data[],
-    ///     size_t ndata,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub log: ffi::pmix_server_log_fn_t,
+    /// # C type
+    /// `pmix_server_log_fn_t`
+    pub log: Option<unsafe extern "C" fn()>,
 
     /// Allocation callback — client requests resource allocation.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*allocate)(
-    ///     const pmix_proc_t *client,
-    ///     pmix_alloc_directive_t directive,
-    ///     const pmix_info_t data[],
-    ///     size_t ndata,
-    ///     pmix_info_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub allocate: ffi::pmix_server_alloc_fn_t,
+    /// # C type
+    /// `pmix_server_alloc_fn_t`
+    pub allocate: Option<unsafe extern "C" fn()>,
 
     /// Job control callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*job_control)(
-    ///     const pmix_proc_t *requestor,
-    ///     const pmix_proc_t targets[],
-    ///     size_t ntargets,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_info_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub job_control: ffi::pmix_server_job_control_fn_t,
+    /// # C type
+    /// `pmix_server_job_control_fn_t`
+    pub job_control: Option<unsafe extern "C" fn()>,
 
     /// Monitoring callback — client requests monitoring.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*monitor)(
-    ///     const pmix_proc_t *requestor,
-    ///     const pmix_info_t *monitor,
-    ///     pmix_status_t error,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_info_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub monitor: ffi::pmix_server_monitor_fn_t,
+    /// # C type
+    /// `pmix_server_monitor_fn_t`
+    pub monitor: Option<unsafe extern "C" fn()>,
 
     /// Get credential callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*get_credential)(
-    ///     const pmix_proc_t *proc,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_credential_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub get_credential: ffi::pmix_server_get_cred_fn_t,
+    /// # C type
+    /// `pmix_server_get_cred_fn_t`
+    pub get_credential: Option<unsafe extern "C" fn()>,
 
     /// Validate credential callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*validate_credential)(
-    ///     const pmix_proc_t *proc,
-    ///     const pmix_byte_object_t *cred,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_validation_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub validate_credential: ffi::pmix_server_validate_cred_fn_t,
+    /// # C type
+    /// `pmix_server_validate_cred_fn_t`
+    pub validate_credential: Option<unsafe extern "C" fn()>,
 
     /// I/O forwarding pull callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*iof_pull)(
-    ///     const pmix_proc_t procs[],
-    ///     size_t nprocs,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_iof_channel_t channels,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub iof_pull: ffi::pmix_server_iof_fn_t,
+    /// # C type
+    /// `pmix_server_iof_fn_t`
+    pub iof_pull: Option<unsafe extern "C" fn()>,
 
     /// Push stdin callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*push_stdin)(
-    ///     const pmix_proc_t *source,
-    ///     const pmix_proc_t targets[],
-    ///     size_t ntargets,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     const pmix_byte_object_t *bo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub push_stdin: ffi::pmix_server_stdin_fn_t,
+    /// # C type
+    /// `pmix_server_stdin_fn_t`
+    pub push_stdin: Option<unsafe extern "C" fn()>,
 
     /// Group operations callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*group)(
-    ///     pmix_group_operation_t op,
-    ///     char *grp,
-    ///     const pmix_proc_t procs[],
-    ///     size_t nprocs,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_info_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub group: ffi::pmix_server_grp_fn_t,
+    /// # C type
+    /// `pmix_server_grp_fn_t`
+    pub group: Option<unsafe extern "C" fn()>,
 
     /// Fabric operations callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*fabric)(
-    ///     const pmix_proc_t *requestor,
-    ///     pmix_fabric_operation_t op,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_info_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub fabric: ffi::pmix_server_fabric_fn_t,
+    /// # C type
+    /// `pmix_server_fabric_fn_t`
+    pub fabric: Option<unsafe extern "C" fn()>,
 
     /// Client connected v2 callback.
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*client_connected2)(
-    ///     const pmix_proc_t *proc,
-    ///     void *server_object,
-    ///     pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub client_connected2: ffi::pmix_server_client_connected2_fn_t,
-
-    /// Tool connection v2 callback.
-    ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*tool_connected2)(
-    ///     pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_tool_connection_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub tool_connected2: ffi::pmix_server_tool_connection2_fn_t,
-
-    /// Log v2 callback.
-    ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*log2)(
-    ///     const pmix_proc_t *client,
-    ///     const pmix_info_t data[],
-    ///     size_t ndata,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub log2: ffi::pmix_server_log2_fn_t,
+    /// # C type
+    /// `pmix_server_client_connected2_fn_t`
+    pub client_connected2: Option<unsafe extern "C" fn()>,
 
     /// Session control callback (PMIx 5.x).
     ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*session_control)(
-    ///     const pmix_proc_t *requestor,
-    ///     uint32_t sessionID,
-    ///     const pmix_info_t directives[],
-    ///     size_t ndirs,
-    ///     pmix_info_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub session_control: ffi::pmix_server_session_control_fn_t,
-
-    /// Resource block callback (PMIx 5.x).
-    ///
-    /// # C signature
-    /// ```c
-    /// pmix_status_t (*resource_block)(
-    ///     const pmix_proc_t *requestor,
-    ///     pmix_resource_block_directive_t directive,
-    ///     const char *block,
-    ///     const pmix_resource_unit_t units[],
-    ///     size_t nunit,
-    ///     const pmix_info_t info[],
-    ///     size_t ninfo,
-    ///     pmix_op_cbfunc_t cbfunc,
-    ///     void *cbdata);
-    /// ```
-    pub resource_block: ffi::pmix_server_resource_block_fn_t,
+    /// # C type
+    /// `pmix_server_session_control_fn_t`
+    pub session_control: Option<unsafe extern "C" fn()>,
 }
 
 impl PmixServerModule {
@@ -3775,7 +3458,7 @@ pub fn server_lookup(
     _info: &[Info],
 ) -> Result<PmixOwnedValue, PmixStatus> {
     // Build a single pmix_pdata_t for the lookup.
-    let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::zeroed() };
+    let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
 
     // Copy the key into pdata.key.
     let key_bytes = key.as_bytes();
@@ -4415,70 +4098,60 @@ mod tests {
 
     // ── New: PmixServerModule callback manipulation ──────────────────────────
 
-    // Proper callback matching pmix_server_client_connected_fn_t signature
-    extern "C" fn dummy_client_connected(
-        _proc: *const ffi::pmix_proc_t,
-        _server_object: *mut c_void,
-        _cbfunc: ffi::pmix_op_cbfunc_t,
-        _cbdata: *mut c_void,
-    ) -> c_int {
-        0 // PMIX_SUCCESS
-    }
+    extern "C" fn dummy_callback() {}
 
     #[test]
     fn test_server_module_set_single_callback() {
         let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_client_connected);
+        module.client_connected = Some(dummy_callback);
         assert!(module.client_connected.is_some());
         assert!(module.client_finalized.is_none());
         assert!(module.abort.is_none());
     }
 
     #[test]
-    fn test_server_module_set_and_clear_callback() {
+    fn test_server_module_set_all_callbacks() {
         let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_client_connected);
+        module.client_connected = Some(dummy_callback);
+        module.client_finalized = Some(dummy_callback);
+        module.abort = Some(dummy_callback);
+        module.fence_nb = Some(dummy_callback);
+        module.direct_modex = Some(dummy_callback);
+        module.publish = Some(dummy_callback);
+        module.lookup = Some(dummy_callback);
+        module.unpublish = Some(dummy_callback);
+        module.spawn = Some(dummy_callback);
+        module.connect = Some(dummy_callback);
+        module.disconnect = Some(dummy_callback);
+        module.register_events = Some(dummy_callback);
+        module.deregister_events = Some(dummy_callback);
+        module.listener = Some(dummy_callback);
+        module.notify_event = Some(dummy_callback);
+        module.query = Some(dummy_callback);
+        module.tool_connected = Some(dummy_callback);
+        module.log = Some(dummy_callback);
+        module.allocate = Some(dummy_callback);
+        module.job_control = Some(dummy_callback);
+        module.monitor = Some(dummy_callback);
+        module.get_credential = Some(dummy_callback);
+        module.validate_credential = Some(dummy_callback);
+        module.iof_pull = Some(dummy_callback);
+        module.push_stdin = Some(dummy_callback);
+        module.group = Some(dummy_callback);
+        module.fabric = Some(dummy_callback);
+        module.client_connected2 = Some(dummy_callback);
+        module.session_control = Some(dummy_callback);
+        assert!(module.client_connected.is_some());
+        assert!(module.session_control.is_some());
+    }
+
+    #[test]
+    fn test_server_module_clear_callback() {
+        let mut module = PmixServerModule::default();
+        module.client_connected = Some(dummy_callback);
         assert!(module.client_connected.is_some());
         module.client_connected = None;
         assert!(module.client_connected.is_none());
-    }
-
-    #[test]
-    fn test_server_module_all_fields_default_to_none() {
-        let module = PmixServerModule::default();
-        // Verify all 34 callback fields default to None
-        assert!(module.client_connected.is_none());
-        assert!(module.client_finalized.is_none());
-        assert!(module.abort.is_none());
-        assert!(module.fence_nb.is_none());
-        assert!(module.direct_modex.is_none());
-        assert!(module.publish.is_none());
-        assert!(module.lookup.is_none());
-        assert!(module.unpublish.is_none());
-        assert!(module.spawn.is_none());
-        assert!(module.connect.is_none());
-        assert!(module.disconnect.is_none());
-        assert!(module.register_events.is_none());
-        assert!(module.deregister_events.is_none());
-        assert!(module.listener.is_none());
-        assert!(module.notify_event.is_none());
-        assert!(module.query.is_none());
-        assert!(module.tool_connected.is_none());
-        assert!(module.log.is_none());
-        assert!(module.allocate.is_none());
-        assert!(module.job_control.is_none());
-        assert!(module.monitor.is_none());
-        assert!(module.get_credential.is_none());
-        assert!(module.validate_credential.is_none());
-        assert!(module.iof_pull.is_none());
-        assert!(module.push_stdin.is_none());
-        assert!(module.group.is_none());
-        assert!(module.fabric.is_none());
-        assert!(module.client_connected2.is_none());
-        assert!(module.tool_connected2.is_none());
-        assert!(module.log2.is_none());
-        assert!(module.session_control.is_none());
-        assert!(module.resource_block.is_none());
     }
 
     #[test]
@@ -4896,48 +4569,48 @@ mod tests {
     #[test]
     fn test_server_module_set_fence_nb_direct_modex() {
         let mut module = PmixServerModule::default();
-        module.fence_nb = None;
-        module.direct_modex = None;
-        assert!(module.fence_nb.is_none());
-        assert!(module.direct_modex.is_none());
+        module.fence_nb = Some(dummy_callback);
+        module.direct_modex = Some(dummy_callback);
+        assert!(module.fence_nb.is_some());
+        assert!(module.direct_modex.is_some());
     }
 
     #[test]
     fn test_server_module_set_monitor_group_fabric() {
         let mut module = PmixServerModule::default();
-        module.monitor = None;
-        module.group = None;
-        module.fabric = None;
-        assert!(module.monitor.is_none());
-        assert!(module.group.is_none());
-        assert!(module.fabric.is_none());
+        module.monitor = Some(dummy_callback);
+        module.group = Some(dummy_callback);
+        module.fabric = Some(dummy_callback);
+        assert!(module.monitor.is_some());
+        assert!(module.group.is_some());
+        assert!(module.fabric.is_some());
     }
 
     #[test]
     fn test_server_module_set_credential_callbacks() {
         let mut module = PmixServerModule::default();
-        module.get_credential = None;
-        module.validate_credential = None;
-        assert!(module.get_credential.is_none());
-        assert!(module.validate_credential.is_none());
+        module.get_credential = Some(dummy_callback);
+        module.validate_credential = Some(dummy_callback);
+        assert!(module.get_credential.is_some());
+        assert!(module.validate_credential.is_some());
     }
 
     #[test]
     fn test_server_module_set_iof_callbacks() {
         let mut module = PmixServerModule::default();
-        module.iof_pull = None;
-        module.push_stdin = None;
-        assert!(module.iof_pull.is_none());
-        assert!(module.push_stdin.is_none());
+        module.iof_pull = Some(dummy_callback);
+        module.push_stdin = Some(dummy_callback);
+        assert!(module.iof_pull.is_some());
+        assert!(module.push_stdin.is_some());
     }
 
     #[test]
     fn test_server_module_set_session_control() {
         let mut module = PmixServerModule::default();
-        module.session_control = None;
-        module.client_connected2 = None;
-        assert!(module.session_control.is_none());
-        assert!(module.client_connected2.is_none());
+        module.session_control = Some(dummy_callback);
+        module.client_connected2 = Some(dummy_callback);
+        assert!(module.session_control.is_some());
+        assert!(module.client_connected2.is_some());
     }
 
     // ── PmixServerHandle: field coverage ────────────────────────────────────
@@ -5471,9 +5144,9 @@ mod tests {
     #[test]
     fn test_server_module_debug_with_callbacks_set() {
         let mut module = PmixServerModule::default();
-        module.client_connected = None;
+        module.client_connected = Some(dummy_callback);
         let debug_str = format!("{:?}", module);
-        assert!(debug_str.contains("PmixServerModule"));
+        assert!(debug_str.contains("Some"));
     }
 
     // ── CollectInventoryResults: additional construction & property tests ─
@@ -5696,94 +5369,94 @@ mod tests {
     #[test]
     fn test_server_module_set_abort_callback() {
         let mut module = PmixServerModule::default();
-        module.abort = None;
-        assert!(module.abort.is_none());
+        module.abort = Some(dummy_callback);
+        assert!(module.abort.is_some());
         assert!(module.client_connected.is_none());
     }
 
     #[test]
     fn test_server_module_set_fence_callback() {
         let mut module = PmixServerModule::default();
-        module.fence_nb = None;
-        assert!(module.fence_nb.is_none());
+        module.fence_nb = Some(dummy_callback);
+        assert!(module.fence_nb.is_some());
     }
 
     #[test]
     fn test_server_module_set_publish_lookup_unpublish() {
         let mut module = PmixServerModule::default();
-        module.publish = None;
-        module.lookup = None;
-        module.unpublish = None;
-        assert!(module.publish.is_none());
-        assert!(module.lookup.is_none());
-        assert!(module.unpublish.is_none());
+        module.publish = Some(dummy_callback);
+        module.lookup = Some(dummy_callback);
+        module.unpublish = Some(dummy_callback);
+        assert!(module.publish.is_some());
+        assert!(module.lookup.is_some());
+        assert!(module.unpublish.is_some());
     }
 
     #[test]
     fn test_server_module_set_spawn_callback() {
         let mut module = PmixServerModule::default();
-        module.spawn = None;
-        assert!(module.spawn.is_none());
+        module.spawn = Some(dummy_callback);
+        assert!(module.spawn.is_some());
     }
 
     #[test]
     fn test_server_module_set_connect_disconnect() {
         let mut module = PmixServerModule::default();
-        module.connect = None;
-        module.disconnect = None;
-        assert!(module.connect.is_none());
-        assert!(module.disconnect.is_none());
+        module.connect = Some(dummy_callback);
+        module.disconnect = Some(dummy_callback);
+        assert!(module.connect.is_some());
+        assert!(module.disconnect.is_some());
     }
 
     #[test]
     fn test_server_module_set_event_callbacks() {
         let mut module = PmixServerModule::default();
-        module.register_events = None;
-        module.deregister_events = None;
-        assert!(module.register_events.is_none());
-        assert!(module.deregister_events.is_none());
+        module.register_events = Some(dummy_callback);
+        module.deregister_events = Some(dummy_callback);
+        assert!(module.register_events.is_some());
+        assert!(module.deregister_events.is_some());
     }
 
     #[test]
     fn test_server_module_set_listener_notify() {
         let mut module = PmixServerModule::default();
-        module.listener = None;
-        module.notify_event = None;
-        assert!(module.listener.is_none());
-        assert!(module.notify_event.is_none());
+        module.listener = Some(dummy_callback);
+        module.notify_event = Some(dummy_callback);
+        assert!(module.listener.is_some());
+        assert!(module.notify_event.is_some());
     }
 
     #[test]
     fn test_server_module_set_query_callback() {
         let mut module = PmixServerModule::default();
-        module.query = None;
-        assert!(module.query.is_none());
+        module.query = Some(dummy_callback);
+        assert!(module.query.is_some());
     }
 
     #[test]
     fn test_server_module_set_tool_and_log() {
         let mut module = PmixServerModule::default();
-        module.tool_connected = None;
-        module.log = None;
-        assert!(module.tool_connected.is_none());
-        assert!(module.log.is_none());
+        module.tool_connected = Some(dummy_callback);
+        module.log = Some(dummy_callback);
+        assert!(module.tool_connected.is_some());
+        assert!(module.log.is_some());
     }
 
     #[test]
     fn test_server_module_set_allocate_and_job_control() {
         let mut module = PmixServerModule::default();
-        module.allocate = None;
-        module.job_control = None;
-        assert!(module.allocate.is_none());
-        assert!(module.job_control.is_none());
+        module.allocate = Some(dummy_callback);
+        module.job_control = Some(dummy_callback);
+        assert!(module.allocate.is_some());
+        assert!(module.job_control.is_some());
     }
 
     #[test]
     fn test_server_module_clear_all_callbacks() {
         let mut module = PmixServerModule::default();
-        module.client_connected = None;
-        module.client_finalized = None;
-        module.abort = None;
+        module.client_connected = Some(dummy_callback);
+        module.client_finalized = Some(dummy_callback);
+        module.abort = Some(dummy_callback);
         // Clear them all
         module.client_connected = None;
         module.client_finalized = None;
@@ -6140,7 +5813,7 @@ mod tests {
     fn test_server_module_as_c_ptr_mutable_module() {
         let mut module = PmixServerModule::default();
         let ptr1 = module.as_c_ptr();
-        module.abort = None;
+        module.abort = Some(dummy_callback);
         let ptr2 = module.as_c_ptr();
         assert_eq!(ptr1, ptr2, "as_c_ptr should be stable across mutations");
     }
