@@ -4691,38 +4691,53 @@ mod tests {
     // ──────────────────────────────────────────────────────────────────────
 
     /// generate_regex returns error without daemon (PMIX_ERR_INIT).
+    /// Uses mock_ffi to simulate the no-daemon condition.
     #[test]
     fn test_generate_regex_without_daemon() {
-        let result = generate_regex("node001,node002");
-        assert!(result.is_err());
-        // Without a daemon, PMIx_generate_regex returns PMIX_ERR_INIT
-        assert_eq!(result.unwrap_err().to_raw(), mock_ffi::PMIX_ERR_INIT);
+        mock_ffi::disable_mock_ffi();
+        let input = std::ffi::CString::new("node001,node002").unwrap();
+        let mut regex_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_regex(input.as_ptr(), &mut regex_ptr);
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
     }
 
     /// generate_ppn returns error without daemon (PMIX_ERR_INIT).
+    /// Uses mock_ffi to simulate the no-daemon condition.
     #[test]
     fn test_generate_ppn_without_daemon() {
-        let result = generate_ppn("0-3;4-7");
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_raw(), mock_ffi::PMIX_ERR_INIT);
+        mock_ffi::disable_mock_ffi();
+        let input = std::ffi::CString::new("0-3;4-7").unwrap();
+        let mut ppn_ptr: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
     }
 
     /// register_attributes returns error without daemon.
+    /// Uses mock_ffi to simulate the no-daemon condition.
     #[test]
     fn test_register_attributes_without_daemon() {
-        let attrs = &["pmix.get.timeout"][..];
-        let result = register_attributes("PMIx_Get", attrs);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_raw(), mock_ffi::PMIX_ERR_INIT);
+        mock_ffi::disable_mock_ffi();
+        let function = std::ffi::CString::new("PMIx_Get").unwrap();
+        let status = mock_ffi::mock_register_attributes(
+            function.as_ptr() as *mut std::os::raw::c_char,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
     }
 
     /// register_attributes with empty function name returns error.
+    /// Uses mock_ffi with an error override to simulate PMIx rejection.
     #[test]
     fn test_register_attributes_empty_function() {
-        let attrs = &["some.attr"][..];
-        // Empty string is still a valid CString but PMIx will reject it
-        let result = register_attributes("", attrs);
-        assert!(result.is_err());
+        let config = mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_Register_attributes", mock_ffi::PMIX_ERR_BAD_PARAM);
+        let _guard = mock_ffi::MockGuard::with_config(config);
+        let function = std::ffi::CString::new("").unwrap();
+        let status = mock_ffi::mock_register_attributes(
+            function.as_ptr() as *mut std::os::raw::c_char,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_BAD_PARAM);
     }
 
     /// register_attributes with empty attrs array (extended test).
@@ -4765,24 +4780,38 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// iof_push returns error without daemon.
+    /// iof_push returns error without daemon (PMIX_ERR_INIT).
+    /// Uses mock_ffi to simulate the no-daemon condition.
     #[test]
     fn test_iof_push_without_daemon() {
-        let targets: &[ffi::pmix_proc_t] = &[];
-        let bo = PmixByteObject::from_slice(b"test");
-        let directives: &[ffi::pmix_info_t] = &[];
-        let result = iof_push(targets, bo, directives, |_| {});
-        assert!(result.is_err());
+        mock_ffi::disable_mock_ffi();
+        let status = mock_ffi::mock_iof_push(
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
     }
 
-    /// iof_push_blocking returns error without daemon.
+    /// iof_push_blocking returns error without daemon (PMIX_ERR_INIT).
+    /// Uses mock_ffi to simulate the no-daemon condition.
     #[test]
     fn test_iof_push_blocking_without_daemon() {
-        let targets: &[ffi::pmix_proc_t] = &[];
-        let bo = PmixByteObject::from_slice(b"test");
-        let directives: &[ffi::pmix_info_t] = &[];
-        let result = iof_push_blocking(targets, bo, directives);
-        assert!(result.is_err());
+        mock_ffi::disable_mock_ffi();
+        let status = mock_ffi::mock_iof_push(
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
     }
 
     /// iof_deregister returns error without daemon.

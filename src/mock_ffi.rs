@@ -1097,6 +1097,21 @@ pub fn mock_get_attribute_name(
     }
 }
 
+/// Mock implementation of `PMIx_Register_attributes()`.
+///
+/// Simulates registering host environment attributes for a PMIx function.
+/// When mock is enabled, returns the configured mock status.
+pub fn mock_register_attributes(
+    _function: *mut std::os::raw::c_char,
+    _attrs: *mut *mut std::os::raw::c_char,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Register_attributes")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock IOF FFI implementations
 // ─────────────────────────────────────────────────────────────────────────────
