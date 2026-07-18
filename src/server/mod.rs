@@ -284,17 +284,47 @@ impl PmixServerModule {
 
 /// RAII handle returned by [`server_init`].
 ///
-/// Dropping this handle does **not** automatically call
-/// `PMIx_server_finalize` — the server must be explicitly finalized
-/// via [`server_finalize`] to ensure proper cleanup of internal
-/// communication channels and memory.
+/// Dropping this handle **does** automatically call
+/// `PMIx_server_finalize` to ensure proper cleanup. If you need
+/// manual control, use [`server_finalize`] (which disarms Drop) or
+/// [`PmixServerHandle::into_raw`] to leak the handle.
 ///
-/// The handle exists to track that the server library has been
-/// initialized and to prevent double-initialization.
+/// Failures during Drop are logged via `eprintln!` — they are never
+/// panicked (double-panic in Drop causes abort).
+#[must_use = "dropping PmixServerHandle finalizes the PMIx server; bind it or call server_finalize"]
 #[derive(Debug)]
 pub struct PmixServerHandle {
-    #[allow(dead_code)]
-    initialized: bool,
+    active: bool,
+}
+
+impl PmixServerHandle {
+    pub(crate) fn new_active() -> Self {
+        Self { active: true }
+    }
+
+    pub(crate) fn inactive() -> Self {
+        Self { active: false }
+    }
+
+    /// Leak this handle — Drop will not call `PMIx_server_finalize`.
+    /// The caller must ensure the server is finalized elsewhere.
+    pub fn into_raw(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for PmixServerHandle {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        let status = unsafe { ffi::PMIx_server_finalize() };
+        let pmix_status = PmixStatus::from_raw(status);
+        if !pmix_status.is_success() {
+            eprintln!("pmix: server_finalize in PmixServerHandle::Drop failed: status={pmix_status}");
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -372,7 +402,7 @@ pub fn server_init(
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
-        Ok(PmixServerHandle { initialized: true })
+        Ok(PmixServerHandle::new_active())
     } else {
         Err(pmix_status)
     }
@@ -418,7 +448,7 @@ pub fn server_init_minimal(
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
-        Ok(PmixServerHandle { initialized: true })
+        Ok(PmixServerHandle::new_active())
     } else {
         Err(pmix_status)
     }
@@ -457,7 +487,13 @@ pub fn server_init_minimal(
 /// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
-pub fn server_finalize(_handle: PmixServerHandle) -> Result<(), PmixStatus> {
+pub fn server_finalize(handle: PmixServerHandle) -> Result<(), PmixStatus> {
+    // Disarm Drop — we are finalizing here, so PmixServerHandle::Drop
+    // must not call PMIx_server_finalize again.
+    let mut handle = handle;
+    handle.active = false;
+    std::mem::forget(handle);
+
     let status = unsafe {
         // SAFETY: PMIx_server_finalize takes no parameters and returns
         // a status code. It is a cleanup function that releases internal

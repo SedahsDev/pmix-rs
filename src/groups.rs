@@ -99,6 +99,7 @@ pub fn group_construct(
                 vec.push(Info {
                     handle: arr_ptr.add(i),
                     len: 1,
+                _not_thread_safe: std::marker::PhantomData,
                 });
             }
             #[allow(unused_assignments)]
@@ -162,6 +163,7 @@ pub unsafe extern "C" fn group_construct_callback_bridge(
                     vec.push(Info {
                         handle: info.add(i),
                         len: 1,
+                    _not_thread_safe: std::marker::PhantomData,
                     });
                 }
                 vec
@@ -308,6 +310,7 @@ pub fn group_invite(
                 vec.push(Info {
                     handle: arr_ptr.add(i),
                     len: 1,
+                _not_thread_safe: std::marker::PhantomData,
                 });
             }
             #[allow(unused_assignments)]
@@ -367,6 +370,7 @@ pub unsafe extern "C" fn group_invite_callback_bridge(
                     vec.push(Info {
                         handle: info.add(i),
                         len: 1,
+                    _not_thread_safe: std::marker::PhantomData,
                     });
                 }
                 vec
@@ -514,6 +518,7 @@ pub fn group_join(
                 vec.push(Info {
                     handle: arr_ptr.add(i),
                     len: 1,
+                _not_thread_safe: std::marker::PhantomData,
                 });
             }
             #[allow(unused_assignments)]
@@ -573,6 +578,7 @@ pub unsafe extern "C" fn group_join_callback_bridge(
                     vec.push(Info {
                         handle: info.add(i),
                         len: 1,
+                    _not_thread_safe: std::marker::PhantomData,
                     });
                 }
                 vec

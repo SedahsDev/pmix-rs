@@ -441,6 +441,7 @@ extern "C" fn credential_callback_bridge(
                     info_vec.push(Info {
                         handle: new_info,
                         len: 1,
+                    _not_thread_safe: std::marker::PhantomData,
                     });
                 }
             }
