@@ -60,6 +60,12 @@ fn main() {
 ### Examples
 
 ```bash
+# Role-based entry points
+cargo run --example client_minimal
+cargo run --example server_minimal
+cargo run --example tool_attach
+
+# Additional demos
 cargo run --example simple_put_get
 cargo run --example simple_fence
 cargo run --example data_packing
