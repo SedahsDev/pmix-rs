@@ -1,35 +1,15 @@
 //! Mock FFI implementations for testing without a PMIx daemon.
 //!
-//! This module provides stub implementations of PMIx FFI functions that return
-//! controlled results, enabling unit tests to exercise "happy path" code paths
-//! that would normally require a running PMIx daemon (prrte/pmix-server).
+//! **Availability:** this module is compiled only under `cfg(test)` or the
+//! optional Cargo feature `mock_ffi`:
 //!
-//! ## Design
-//!
-//! The mock uses function pointer swapping at runtime. Tests call
-//! [`enable_mock_ffi()`] before running and [`disable_mock_ffi()`] after.
-//! While enabled, all FFI calls go through mock implementations instead of
-//! the real (non-functional) bindings.
-//!
-//! ## Usage in tests
-//!
-//! ```rust,ignore
-//! use pmix::mock_ffi;
-//!
-//! #[test]
-//! fn test_publish_happy_path() {
-//!     mock_ffi::enable_mock_ffi();
-//!     // Now FFI calls return PMIX_SUCCESS
-//!     let result = pmix::data_ops::publish(&info);
-//!     assert!(result.is_ok());
-//!     mock_ffi::disable_mock_ffi();
-//! }
+//! ```toml
+//! pmix = { version = "0.1", features = ["mock_ffi"] }
 //! ```
 //!
-//! ## Mock behavior
-//!
-//! By default, all mock functions return `PMIX_SUCCESS` (0). You can configure
-//! specific functions to return errors using [`MockConfig`].
+//! Prefer [`MockGuard`] in tests so enable/disable is RAII-safe (including
+//! panic paths). Direct [`enable_mock_ffi`] / [`disable_mock_ffi`] remain for
+//! low-level control.
 
 use std::cell::RefCell;
 use std::collections::HashMap;

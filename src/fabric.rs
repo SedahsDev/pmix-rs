@@ -62,6 +62,7 @@ use std::ptr;
 use crate::ffi;
 use crate::{Info, PmixDeviceType, PmixError, PmixStatus};
 
+#[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,13 +261,23 @@ pub fn fabric_register(fabric: &mut PmixFabric, directives: &[Info]) -> Result<(
     };
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe {
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe {
             mock_ffi::mock_fabric_register(fabric_ptr, dirs_ptr, ndirs)
         }
-    } else {
-        unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) }
-    };
+        } else {
+            unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) }
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -328,8 +339,11 @@ pub fn fabric_register_nb(
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe {
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe {
             mock_ffi::mock_fabric_register_nb(
                 fabric_ptr,
                 dirs_ptr,
@@ -338,8 +352,8 @@ pub fn fabric_register_nb(
                 wrapper_ptr,
             )
         }
-    } else {
-        unsafe {
+        } else {
+            unsafe {
             ffi::PMIx_Fabric_register_nb(
                 fabric_ptr,
                 dirs_ptr,
@@ -348,7 +362,22 @@ pub fn fabric_register_nb(
                 wrapper_ptr,
             )
         }
-    };
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe {
+            ffi::PMIx_Fabric_register_nb(
+                fabric_ptr,
+                dirs_ptr,
+                ndirs,
+                Some(fabric_register_cb),
+                wrapper_ptr,
+            )
+        }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -386,11 +415,21 @@ pub fn fabric_update(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe { mock_ffi::mock_fabric_update(fabric_ptr) }
-    } else {
-        unsafe { ffi::PMIx_Fabric_update(fabric_ptr) }
-    };
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe { mock_ffi::mock_fabric_update(fabric_ptr) }
+        } else {
+            unsafe { ffi::PMIx_Fabric_update(fabric_ptr) }
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe { ffi::PMIx_Fabric_update(fabric_ptr) }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -425,13 +464,23 @@ pub fn fabric_update_nb(
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe {
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe {
             mock_ffi::mock_fabric_update_nb(fabric_ptr, Some(fabric_update_cb), wrapper_ptr)
         }
-    } else {
-        unsafe { ffi::PMIx_Fabric_update_nb(fabric_ptr, Some(fabric_update_cb), wrapper_ptr) }
-    };
+        } else {
+            unsafe { ffi::PMIx_Fabric_update_nb(fabric_ptr, Some(fabric_update_cb), wrapper_ptr) }
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe { ffi::PMIx_Fabric_update_nb(fabric_ptr, Some(fabric_update_cb), wrapper_ptr) }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -463,11 +512,21 @@ pub fn fabric_deregister(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe { mock_ffi::mock_fabric_deregister(fabric_ptr) }
-    } else {
-        unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) }
-    };
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe { mock_ffi::mock_fabric_deregister(fabric_ptr) }
+        } else {
+            unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) }
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -507,19 +566,31 @@ pub fn fabric_deregister_nb(
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe {
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe {
             mock_ffi::mock_fabric_deregister_nb(
                 fabric_ptr,
                 Some(fabric_deregister_cb),
                 wrapper_ptr,
             )
         }
-    } else {
-        unsafe {
+        } else {
+            unsafe {
             ffi::PMIx_Fabric_deregister_nb(fabric_ptr, Some(fabric_deregister_cb), wrapper_ptr)
         }
-    };
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe {
+            ffi::PMIx_Fabric_deregister_nb(fabric_ptr, Some(fabric_deregister_cb), wrapper_ptr)
+        }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -629,9 +700,16 @@ impl Drop for PmixTopology {
             let raw_ptr = self.as_mut_ptr();
             // SAFETY: PMIx_Topology_destruct is the designated destructor
             // for pmix_topology_t objects that have been loaded.
-            if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-                unsafe { mock_ffi::mock_topology_destruct(raw_ptr) };
-            } else {
+                        #[cfg(any(test, feature = "mock_ffi"))]
+            {
+                if mock_ffi::is_mock_enabled() {
+                    unsafe { mock_ffi::mock_topology_destruct(raw_ptr) };
+                } else {
+                    unsafe { ffi::PMIx_Topology_destruct(raw_ptr) };
+                }
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            {
                 unsafe { ffi::PMIx_Topology_destruct(raw_ptr) };
             }
             self.loaded = false;
@@ -672,9 +750,16 @@ impl PmixCpuset {
         };
         let raw_ptr = this.raw.as_mut_ptr();
         // SAFETY: PMIx_Cpuset_construct initializes a pmix_cpuset_t.
-        if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-            unsafe { mock_ffi::mock_cpuset_construct(raw_ptr) };
-        } else {
+                #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                unsafe { mock_ffi::mock_cpuset_construct(raw_ptr) };
+            } else {
+                unsafe { ffi::PMIx_Cpuset_construct(raw_ptr) };
+            }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
             unsafe { ffi::PMIx_Cpuset_construct(raw_ptr) };
         }
         this.constructed = true;
@@ -711,9 +796,16 @@ impl Drop for PmixCpuset {
         if self.constructed {
             // SAFETY: PMIx_Cpuset_destruct is the designated destructor
             // for pmix_cpuset_t objects that have been constructed.
-            if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-                unsafe { mock_ffi::mock_cpuset_destruct(self.raw.as_mut_ptr()) };
-            } else {
+                        #[cfg(any(test, feature = "mock_ffi"))]
+            {
+                if mock_ffi::is_mock_enabled() {
+                    unsafe { mock_ffi::mock_cpuset_destruct(self.raw.as_mut_ptr()) };
+                } else {
+                    unsafe { ffi::PMIx_Cpuset_destruct(self.raw.as_mut_ptr()) };
+                }
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            {
                 unsafe { ffi::PMIx_Cpuset_destruct(self.raw.as_mut_ptr()) };
             }
             self.constructed = false;
@@ -956,11 +1048,21 @@ struct ComputeDistancesCallbackWrapper {
 /// `pmix_status_t PMIx_Load_topology(pmix_topology_t *topo);`
 pub fn load_topology(topo: &mut PmixTopology) -> Result<(), PmixStatus> {
     let raw_ptr = topo.as_mut_ptr();
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe { mock_ffi::mock_load_topology(raw_ptr) }
-    } else {
-        unsafe { ffi::PMIx_Load_topology(raw_ptr) }
-    };
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe { mock_ffi::mock_load_topology(raw_ptr) }
+        } else {
+            unsafe { ffi::PMIx_Load_topology(raw_ptr) }
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe { ffi::PMIx_Load_topology(raw_ptr) }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -1030,8 +1132,11 @@ pub fn compute_distances(
     let mut raw_distances: *mut ffi::pmix_device_distance_t = ptr::null_mut();
     let mut ndist: usize = 0;
 
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe {
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe {
             mock_ffi::mock_compute_distances(
                 topo_ptr,
                 cpuset_ptr,
@@ -1041,8 +1146,8 @@ pub fn compute_distances(
                 &mut ndist,
             )
         }
-    } else {
-        unsafe {
+        } else {
+            unsafe {
             ffi::PMIx_Compute_distances(
                 topo_ptr,
                 cpuset_ptr,
@@ -1052,7 +1157,23 @@ pub fn compute_distances(
                 &mut ndist,
             )
         }
-    };
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe {
+            ffi::PMIx_Compute_distances(
+                topo_ptr,
+                cpuset_ptr,
+                info_ptr,
+                ninfo,
+                &mut raw_distances,
+                &mut ndist,
+            )
+        }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if !pmix_status.is_success() {
@@ -1164,8 +1285,11 @@ pub fn compute_distances_nb(
     let topo_ptr = topo.as_mut_ptr();
     let cpuset_ptr = cpuset.as_mut_ptr();
 
-    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        unsafe {
+        let status;
+    #[cfg(any(test, feature = "mock_ffi"))]
+    {
+        status = if mock_ffi::is_mock_enabled() {
+            unsafe {
             mock_ffi::mock_compute_distances_nb(
                 topo_ptr,
                 cpuset_ptr,
@@ -1175,8 +1299,8 @@ pub fn compute_distances_nb(
                 wrapper_ptr,
             )
         }
-    } else {
-        unsafe {
+        } else {
+            unsafe {
             ffi::PMIx_Compute_distances_nb(
                 topo_ptr,
                 cpuset_ptr,
@@ -1186,7 +1310,23 @@ pub fn compute_distances_nb(
                 wrapper_ptr,
             )
         }
-    };
+        };
+    }
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    {
+        status = {
+            unsafe {
+            ffi::PMIx_Compute_distances_nb(
+                topo_ptr,
+                cpuset_ptr,
+                info_ptr,
+                ninfo,
+                Some(compute_distances_cb),
+                wrapper_ptr,
+            )
+        }
+        };
+    }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {

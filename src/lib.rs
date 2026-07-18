@@ -13,6 +13,7 @@ pub mod fabric;
 mod ffi;
 pub mod groups;
 pub mod info;
+#[cfg(any(test, feature = "mock_ffi"))]
 pub mod mock_ffi;
 pub mod monitoring;
 pub mod process_mgmt;
@@ -21,6 +22,30 @@ pub mod security;
 pub mod server;
 pub mod tool;
 pub mod utility;
+
+
+/// Dispatch a PMIx FFI call to the mock implementation when the `mock_ffi`
+/// feature (or `cfg(test)`) is active **and** mocks are enabled at runtime.
+///
+/// In production builds without the feature, only the real call is compiled.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! pmix_ffi_or_mock {
+    (mock = $mock:expr, real = $real:expr $(,)?) => {{
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if $crate::mock_ffi::is_mock_enabled() {
+                $mock
+            } else {
+                $real
+            }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            $real
+        }
+    }};
+}
 
 use crate::ffi::*;
 use cstring_array::CStringArray;
