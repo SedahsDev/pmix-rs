@@ -906,7 +906,7 @@ pub fn register_attributes(function: &str, attrs: &[&str]) -> Result<(), PmixSta
     // a null terminator. The CStrs and the Vec must outlive the FFI call.
     let cstrings: Vec<std::ffi::CString> = attrs
         .iter()
-        .map(|s| std::ffi::CString::new(*s).unwrap_or_else(|_| std::ffi::CString::new("").unwrap()))
+        .map(|s| std::ffi::CString::new(*s).unwrap_or_else(|_| std::ffi::CString::new("").expect("CString::new interior NUL (utility.rs)")))
         .collect();
 
     // Build the NULL-terminated pointer array.
@@ -1004,7 +1004,7 @@ extern "C" fn io_callback_bridge(
     _ninfo: usize,
 ) {
     // Look up the context in the registry.
-    let registry = IOF_REGISTRY.lock().unwrap();
+    let registry = IOF_REGISTRY.lock().expect("mutex poisoned (utility.rs)");
     let ctx_ptr = match registry.get(&iofhdlr) {
         Some(wrapped) => wrapped.0,
         None => return, // Context not found — skip.
@@ -1060,7 +1060,7 @@ extern "C" fn reg_callback_bridge(
     // Register the handle in the global registry so the IO callback
     // can look it up later.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
+        let mut registry = IOF_REGISTRY.lock().expect("mutex poisoned (utility.rs)");
         registry.insert(refid, SendSyncPtr(cbdata as *mut IoPullContext));
     }
 
@@ -1225,7 +1225,7 @@ where
 
         // Store the context in the registry so the IO callback can find it.
         {
-            let mut registry = IOF_REGISTRY.lock().unwrap();
+            let mut registry = IOF_REGISTRY.lock().expect("mutex poisoned (utility.rs)");
             registry.insert(handle, SendSyncPtr(ctx_ptr));
         }
         Ok(handle)
@@ -1311,7 +1311,7 @@ where
     // Remove the handle from the global registry immediately so no further
     // IO callbacks will be delivered for this registration.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
+        let mut registry = IOF_REGISTRY.lock().expect("mutex poisoned (utility.rs)");
         if let Some(ctx_wrapped) = registry.remove(&handle) {
             let ctx_ptr = ctx_wrapped.0;
             if !ctx_ptr.is_null() {
@@ -1381,7 +1381,7 @@ pub fn iof_deregister_blocking(
 ) -> Result<(), PmixStatus> {
     // Remove the handle from the global registry immediately.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
+        let mut registry = IOF_REGISTRY.lock().expect("mutex poisoned (utility.rs)");
         if let Some(ctx_wrapped) = registry.remove(&handle) {
             let ctx_ptr = ctx_wrapped.0;
             if !ctx_ptr.is_null() {

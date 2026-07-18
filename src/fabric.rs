@@ -906,7 +906,7 @@ impl Drop for DeviceDistances {
                     std::mem::size_of::<ffi::pmix_device_distance_t>() * self.len,
                     std::mem::align_of::<ffi::pmix_device_distance_t>(),
                 )
-                .unwrap();
+                .expect("invariant: unwrap in fabric.rs");
                 std::alloc::dealloc(self.raw_ptr as *mut u8, layout);
             }
             self.raw_ptr = ptr::null_mut();

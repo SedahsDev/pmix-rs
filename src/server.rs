@@ -245,7 +245,25 @@ pub struct PmixServerModule {
     pub session_control: Option<unsafe extern "C" fn()>,
 }
 
+/// Stub callback type currently used by [`PmixServerModule`] fields.
+///
+/// Note: issue #1 / PR #11 replaces these with full bindgen signatures.
+pub type PmixServerCallback = Option<unsafe extern "C" fn()>;
+
 impl PmixServerModule {
+    /// Start a builder with every callback unset (`None`).
+    ///
+    /// ```ignore
+    /// let module = PmixServerModule::builder()
+    ///     .client_connected(Some(my_cb))
+    ///     .build();
+    /// ```
+    pub fn builder() -> PmixServerModuleBuilder {
+        PmixServerModuleBuilder {
+            module: PmixServerModule::default(),
+        }
+    }
+
     /// Convert this safe module into the raw C `pmix_server_module_t`.
     ///
     /// The returned pointer points to stack memory that is valid for
@@ -259,6 +277,144 @@ impl PmixServerModule {
     /// library (i.e., until `PMIx_server_finalize` is called).
     pub fn as_c_ptr(&self) -> *const ffi::pmix_server_module_t {
         self as *const Self as *const ffi::pmix_server_module_t
+    }
+}
+
+/// Fluent builder for [`PmixServerModule`].
+///
+/// Prefer this over struct-literal construction so new callback fields
+/// can be added without breaking call sites.
+#[derive(Debug, Default)]
+pub struct PmixServerModuleBuilder {
+    module: PmixServerModule,
+}
+
+impl PmixServerModuleBuilder {
+    /// Create an empty builder (all callbacks `None`).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Finish and return the module.
+    pub fn build(self) -> PmixServerModule {
+        self.module
+    }
+
+    pub fn client_connected(mut self, cb: PmixServerCallback) -> Self {
+        self.module.client_connected = cb;
+        self
+    }
+    pub fn client_finalized(mut self, cb: PmixServerCallback) -> Self {
+        self.module.client_finalized = cb;
+        self
+    }
+    pub fn abort(mut self, cb: PmixServerCallback) -> Self {
+        self.module.abort = cb;
+        self
+    }
+    pub fn fence_nb(mut self, cb: PmixServerCallback) -> Self {
+        self.module.fence_nb = cb;
+        self
+    }
+    pub fn direct_modex(mut self, cb: PmixServerCallback) -> Self {
+        self.module.direct_modex = cb;
+        self
+    }
+    pub fn publish(mut self, cb: PmixServerCallback) -> Self {
+        self.module.publish = cb;
+        self
+    }
+    pub fn lookup(mut self, cb: PmixServerCallback) -> Self {
+        self.module.lookup = cb;
+        self
+    }
+    pub fn unpublish(mut self, cb: PmixServerCallback) -> Self {
+        self.module.unpublish = cb;
+        self
+    }
+    pub fn spawn(mut self, cb: PmixServerCallback) -> Self {
+        self.module.spawn = cb;
+        self
+    }
+    pub fn connect(mut self, cb: PmixServerCallback) -> Self {
+        self.module.connect = cb;
+        self
+    }
+    pub fn disconnect(mut self, cb: PmixServerCallback) -> Self {
+        self.module.disconnect = cb;
+        self
+    }
+    pub fn register_events(mut self, cb: PmixServerCallback) -> Self {
+        self.module.register_events = cb;
+        self
+    }
+    pub fn deregister_events(mut self, cb: PmixServerCallback) -> Self {
+        self.module.deregister_events = cb;
+        self
+    }
+    pub fn listener(mut self, cb: PmixServerCallback) -> Self {
+        self.module.listener = cb;
+        self
+    }
+    pub fn notify_event(mut self, cb: PmixServerCallback) -> Self {
+        self.module.notify_event = cb;
+        self
+    }
+    pub fn query(mut self, cb: PmixServerCallback) -> Self {
+        self.module.query = cb;
+        self
+    }
+    pub fn tool_connected(mut self, cb: PmixServerCallback) -> Self {
+        self.module.tool_connected = cb;
+        self
+    }
+    pub fn log(mut self, cb: PmixServerCallback) -> Self {
+        self.module.log = cb;
+        self
+    }
+    pub fn allocate(mut self, cb: PmixServerCallback) -> Self {
+        self.module.allocate = cb;
+        self
+    }
+    pub fn job_control(mut self, cb: PmixServerCallback) -> Self {
+        self.module.job_control = cb;
+        self
+    }
+    pub fn monitor(mut self, cb: PmixServerCallback) -> Self {
+        self.module.monitor = cb;
+        self
+    }
+    pub fn get_credential(mut self, cb: PmixServerCallback) -> Self {
+        self.module.get_credential = cb;
+        self
+    }
+    pub fn validate_credential(mut self, cb: PmixServerCallback) -> Self {
+        self.module.validate_credential = cb;
+        self
+    }
+    pub fn iof_pull(mut self, cb: PmixServerCallback) -> Self {
+        self.module.iof_pull = cb;
+        self
+    }
+    pub fn push_stdin(mut self, cb: PmixServerCallback) -> Self {
+        self.module.push_stdin = cb;
+        self
+    }
+    pub fn group(mut self, cb: PmixServerCallback) -> Self {
+        self.module.group = cb;
+        self
+    }
+    pub fn fabric(mut self, cb: PmixServerCallback) -> Self {
+        self.module.fabric = cb;
+        self
+    }
+    pub fn client_connected2(mut self, cb: PmixServerCallback) -> Self {
+        self.module.client_connected2 = cb;
+        self
+    }
+    pub fn session_control(mut self, cb: PmixServerCallback) -> Self {
+        self.module.session_control = cb;
+        self
     }
 }
 
@@ -494,7 +650,7 @@ extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_status_t, cbdata
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -589,12 +745,12 @@ pub fn server_register_nspace(
 
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
+        let mut seq = REGISTER_NS_SPACE_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -634,7 +790,7 @@ pub fn server_register_nspace(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -709,7 +865,7 @@ extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_status_t, cbda
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -794,12 +950,12 @@ pub fn server_deregister_nspace(nspace: &str, callback: Option<Box<dyn Deregiste
         Some(cb) => {
             // Non-blocking mode: register callback and pass bridge to FFI.
             let req_id = {
-                let mut seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
+                let mut seq = DEREGISTER_NS_SPACE_SEQ.lock().expect("mutex poisoned (server.rs)");
                 *seq += 1;
                 *seq
             };
             {
-                let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+                let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().expect("mutex poisoned (server.rs)");
                 registry.insert(req_id, cb);
             }
 
@@ -870,7 +1026,7 @@ extern "C" fn register_client_callback_bridge(status: ffi::pmix_status_t, cbdata
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -952,12 +1108,12 @@ pub fn server_register_client(
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = REGISTER_CLIENT_SEQ.lock().unwrap();
+        let mut seq = REGISTER_CLIENT_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -1000,7 +1156,7 @@ pub fn server_register_client(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1042,7 +1198,7 @@ extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_status_t, cbda
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -1113,12 +1269,12 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
         Some(cb) => {
             // Non-blocking mode: register callback and pass bridge to FFI.
             let req_id = {
-                let mut seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
+                let mut seq = DEREGISTER_CLIENT_SEQ.lock().expect("mutex poisoned (server.rs)");
                 *seq += 1;
                 *seq
             };
             {
-                let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+                let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
                 registry.insert(req_id, cb);
             }
 
@@ -1430,7 +1586,7 @@ extern "C" fn dmodex_request_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -1518,12 +1674,12 @@ pub fn server_dmodex_request(
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = DMODEX_REQUEST_SEQ.lock().unwrap();
+        let mut seq = DMODEX_REQUEST_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -1556,7 +1712,7 @@ pub fn server_dmodex_request(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1690,7 +1846,7 @@ extern "C" fn setup_application_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -1789,12 +1945,12 @@ pub fn server_setup_application(
 
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = SETUP_APPLICATION_SEQ.lock().unwrap();
+        let mut seq = SETUP_APPLICATION_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -1841,7 +1997,7 @@ pub fn server_setup_application(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1886,7 +2042,7 @@ extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_status_t, cb
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -1978,12 +2134,12 @@ pub fn server_setup_local_support(
 
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = SETUP_LOCAL_SUPPORT_SEQ.lock().unwrap();
+        let mut seq = SETUP_LOCAL_SUPPORT_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -2028,7 +2184,7 @@ pub fn server_setup_local_support(
         // callback will NOT be called.
         if pmix_status.to_raw() == -157 {
             // PMIX_OPERATION_SUCCEEDED — callback not called, so remove it.
-            let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+            let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
             registry.remove(&req_id);
             // Return success — the operation completed immediately.
             Ok(())
@@ -2039,7 +2195,7 @@ pub fn server_setup_local_support(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -2091,7 +2247,7 @@ extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t, cbdata: *m
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -2195,12 +2351,12 @@ pub fn server_iof_deliver(
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = IOF_DELIVER_SEQ.lock().unwrap();
+        let mut seq = IOF_DELIVER_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -2259,7 +2415,7 @@ pub fn server_iof_deliver(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -2354,7 +2510,7 @@ extern "C" fn collect_inventory_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -2451,7 +2607,7 @@ pub fn server_collect_inventory(
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
     let req_id = {
-        let mut seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
+        let mut seq = COLLECT_INVENTORY_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
@@ -2461,7 +2617,7 @@ pub fn server_collect_inventory(
     let cbdata = (req_id << 2) as *mut c_void;
 
     {
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -2500,7 +2656,7 @@ pub fn server_collect_inventory(
         Ok(())
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -2566,7 +2722,7 @@ extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_status_t, cbda
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = DELIVER_INVENTORY_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -2655,7 +2811,7 @@ pub fn server_deliver_inventory(
     // If a callback is provided, register it for async completion.
     if let Some(cb) = callback {
         let req_id = {
-            let mut seq = DELIVER_INVENTORY_SEQ.lock().unwrap();
+            let mut seq = DELIVER_INVENTORY_SEQ.lock().expect("mutex poisoned (server.rs)");
             *seq += 1;
             *seq
         };
@@ -2665,7 +2821,7 @@ pub fn server_deliver_inventory(
         let cbdata = (req_id << 2) as *mut c_void;
 
         {
-            let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+            let mut registry = DELIVER_INVENTORY_REGISTRY.lock().expect("mutex poisoned (server.rs)");
             registry.insert(req_id, cb);
         }
 
@@ -2715,7 +2871,7 @@ pub fn server_deliver_inventory(
             Ok(())
         } else {
             // Request was rejected — remove the callback so it doesn't leak.
-            let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+            let mut registry = DELIVER_INVENTORY_REGISTRY.lock().expect("mutex poisoned (server.rs)");
             registry.remove(&req_id);
             Err(pmix_status)
         }
@@ -3121,7 +3277,7 @@ extern "C" fn register_resources_callback_bridge(status: ffi::pmix_status_t, cbd
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -3194,12 +3350,12 @@ pub fn server_register_resources(
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = REGISTER_RESOURCES_SEQ.lock().unwrap();
+        let mut seq = REGISTER_RESOURCES_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -3251,7 +3407,7 @@ pub fn server_register_resources(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -3297,7 +3453,7 @@ extern "C" fn deregister_resources_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id)
     };
 
@@ -3370,12 +3526,12 @@ pub fn server_deregister_resources(
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = DEREGISTER_RESOURCES_SEQ.lock().unwrap();
+        let mut seq = DEREGISTER_RESOURCES_SEQ.lock().expect("mutex poisoned (server.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -3427,7 +3583,7 @@ pub fn server_deregister_resources(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().expect("mutex poisoned (server.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -4191,6 +4347,19 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     // ── PmixServerModule tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_server_module_builder_sets_one_callback() {
+        extern "C" fn dummy() {}
+        let module = PmixServerModule::builder()
+            .client_connected(Some(dummy))
+            .abort(Some(dummy))
+            .build();
+        assert!(module.client_connected.is_some());
+        assert!(module.abort.is_some());
+        assert!(module.client_finalized.is_none());
+    }
+
 
     #[test]
     fn test_server_module_default() {

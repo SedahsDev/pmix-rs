@@ -1015,7 +1015,7 @@ pub fn mock_generate_regex(
         // The caller is responsible for freeing this (in real code via free()).
         // In mock tests, we just check the status and don't dereference.
         if status == PMIX_SUCCESS && !regex.is_null() {
-            let mock_regex = std::ffi::CString::new("pmix:mock_regex").unwrap();
+            let mock_regex = std::ffi::CString::new("pmix:mock_regex").expect("CString::new interior NUL (mock_ffi.rs)");
             let mock_ptr = mock_regex.into_raw() as *mut std::os::raw::c_char;
             unsafe {
                 *regex = mock_ptr;
@@ -1044,7 +1044,7 @@ pub fn mock_generate_ppn(
         }
         // On success, write a mock PPN string to the output pointer.
         if status == PMIX_SUCCESS && !ppn.is_null() {
-            let mock_ppn = std::ffi::CString::new("pmix:mock_ppn").unwrap();
+            let mock_ppn = std::ffi::CString::new("pmix:mock_ppn").expect("CString::new interior NUL (mock_ffi.rs)");
             let mock_ptr = mock_ppn.into_raw() as *mut std::os::raw::c_char;
             unsafe {
                 *ppn = mock_ptr;
@@ -1459,13 +1459,13 @@ pub fn mock_compute_distances(
                 let layout = std::alloc::Layout::from_size_align(
                     std::mem::size_of::<crate::ffi::pmix_device_distance_t>() * count,
                     std::mem::align_of::<crate::ffi::pmix_device_distance_t>(),
-                ).unwrap();
+                ).expect("invariant: unwrap in mock_ffi.rs");
                 let ptr = unsafe { std::alloc::alloc(layout) as *mut crate::ffi::pmix_device_distance_t };
                 if !ptr.is_null() {
                     for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate() {
                         let entry = unsafe { &mut *ptr.add(i) };
-                        entry.uuid = std::ffi::CString::new(uuid.as_str()).unwrap().into_raw();
-                        entry.osname = std::ffi::CString::new(osname.as_str()).unwrap().into_raw();
+                        entry.uuid = std::ffi::CString::new(uuid.as_str()).expect("invariant: unwrap in mock_ffi.rs").into_raw();
+                        entry.osname = std::ffi::CString::new(osname.as_str()).expect("invariant: unwrap in mock_ffi.rs").into_raw();
                         entry.type_ = *dtype;
                         entry.mindist = *mind;
                         entry.maxdist = *maxd;
