@@ -2970,7 +2970,8 @@ impl Drop for Info {
 }
 
 struct InfoEntry {
-    key: &'static [u8; 13],
+    /// Owned key bytes including trailing NUL when loaded via CString path.
+    key: CString,
     value: *const std::ffi::c_void,
     data_type: pmix_data_type_t,
 }
@@ -2985,22 +2986,56 @@ impl InfoBuilder {
         Self::default()
     }
 
-    pub fn add(
+    /// Add an entry with a compile-time 13-byte key (12 chars + NUL), matching
+    /// fixed PMIx key tables.
+    ///
+    /// Prefer [`Self::add`] for runtime/`&str` keys (including long keys such as
+    /// `pmix.srvr.uri`).
+    pub fn add_const(
         &mut self,
         key: &'static [u8; 13],
         value: *const std::ffi::c_void,
         data_type: pmix_data_type_t,
     ) {
         assert_ne!(key.as_ptr(), std::ptr::null());
+        // Treat as C string; require trailing NUL in the array.
+        let cstr = CStr::from_bytes_with_nul(key)
+            .unwrap_or_else(|_| panic!("add_const key must be NUL-terminated 13-byte array"));
         self.infos.push(InfoEntry {
-            key,
+            key: CString::from(cstr),
             value,
             data_type,
         })
     }
+
+    /// Add an entry with a runtime key (`&str`, `&[u8]`, etc.).
+    ///
+    /// Keys must be shorter than `PMIX_MAX_KEYLEN` (511) and must not contain
+    /// interior NUL bytes.
+    pub fn add<K: AsRef<[u8]>>(
+        &mut self,
+        key: K,
+        value: *const std::ffi::c_void,
+        data_type: pmix_data_type_t,
+    ) {
+        let bytes = key.as_ref();
+        assert!(
+            bytes.len() < PMIX_MAX_KEYLEN as usize,
+            "key length {} exceeds PMIX_MAX_KEYLEN ({})",
+            bytes.len(),
+            PMIX_MAX_KEYLEN
+        );
+        let cstring = CString::new(bytes).expect("info key must not contain interior NUL");
+        self.infos.push(InfoEntry {
+            key: cstring,
+            value,
+            data_type,
+        })
+    }
+
     pub fn collect_data(&mut self) -> &mut InfoBuilder {
         let collect = true;
-        self.add(
+        self.add_const(
             PMIX_COLLECT_DATA,
             &collect as *const bool as *const c_void,
             PMIX_BOOL as pmix_data_type_t,
@@ -3018,7 +3053,7 @@ impl InfoBuilder {
             let status = unsafe {
                 PMIx_Info_load(
                     info_ptr.add(idx),
-                    info.key.as_ptr().cast(),
+                    info.key.as_ptr(),
                     info.value,
                     info.data_type,
                 )
@@ -3261,6 +3296,27 @@ pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_info_builder_add_long_key() {
+        let mut b = InfoBuilder::new();
+        let flag = true;
+        b.add(
+            "pmix.srvr.uri",
+            &flag as *const bool as *const std::os::raw::c_void,
+            PMIX_BOOL as pmix_data_type_t,
+        );
+        let info = b.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_info_builder_add_const_still_works() {
+        let mut b = InfoBuilder::new();
+        b.collect_data();
+        let info = b.build();
+        assert!(!info.is_empty());
+    }
+
     #[test]
     fn test_info_drop_does_not_panic() {
         // Building and dropping Info must free via PMIx_Info_free without panic.
