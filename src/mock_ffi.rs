@@ -1098,6 +1098,144 @@ pub fn mock_get_attribute_name(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Mock IOF FFI implementations
+// ─────────────────────────────────────────────────────────────────────────────
+// These provide controlled mock behavior for the PMIx IO forwarding FFI
+// functions used by utility.rs: PMIx_IOF_pull, PMIx_IOF_deregister,
+// PMIx_IOF_push. Each returns the configured status (default PMIX_SUCCESS)
+// so tests can exercise happy-path code paths without a real PMIx daemon.
+
+thread_local! {
+    /// Mock IOF registration handle counter (auto-incremented per call).
+    static MOCK_IOF_HANDLE: RefCell<usize> = RefCell::new(1);
+    /// Mock IOF registry: maps handles to their context pointers.
+    static MOCK_IOF_REGISTRY: RefCell<HashMap<usize, *mut std::os::raw::c_void>> = RefCell::new(HashMap::new());
+}
+
+/// Set the mock IOF handle counter to a specific value.
+pub fn mock_set_iof_handle(handle: usize) {
+    MOCK_IOF_HANDLE.with(|cell| {
+        *cell.borrow_mut() = handle;
+    });
+}
+
+/// Reset the mock IOF registry (clear all handles).
+pub fn mock_reset_iof_registry() {
+    MOCK_IOF_REGISTRY.with(|cell| {
+        cell.borrow_mut().clear();
+    });
+}
+
+/// Mock implementation of `PMIx_IOF_pull()`.
+///
+/// When mock is enabled, returns the configured mock status.
+/// On success, returns a mock handle (auto-incrementing counter)
+/// and stores the context pointer for later deregistration.
+pub fn mock_iof_pull(
+    _procs: *const crate::ffi::pmix_proc_t,
+    _nprocs: usize,
+    _directives: *const crate::ffi::pmix_info_t,
+    _ndirs: usize,
+    _channel: crate::ffi::pmix_iof_channel_t,
+    _cbfunc: Option<
+        unsafe extern "C" fn(
+            usize,
+            crate::ffi::pmix_iof_channel_t,
+            *mut crate::ffi::pmix_proc_t,
+            *mut crate::ffi::pmix_byte_object_t,
+            *mut crate::ffi::pmix_info_t,
+            usize,
+        ),
+    >,
+    regcbfunc: Option<
+        unsafe extern "C" fn(crate::ffi::pmix_status_t, usize, *mut std::os::raw::c_void),
+    >,
+    regcbdata: *mut std::os::raw::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_IOF_pull");
+        if status == PMIX_SUCCESS {
+            // Generate a mock handle
+            let handle = MOCK_IOF_HANDLE.with(|cell| {
+                let h = *cell.borrow();
+                *cell.borrow_mut() = h + 1;
+                h
+            });
+            // Store the context pointer for later deregistration
+            if !regcbdata.is_null() {
+                MOCK_IOF_REGISTRY.with(|cell| {
+                    cell.borrow_mut().insert(handle, regcbdata);
+                });
+            }
+            // If a registration callback is provided, invoke it with the handle
+            if let Some(cb) = regcbfunc {
+                unsafe { cb(status, handle, regcbdata); }
+            }
+            // In blocking mode (no regcbfunc), return the handle as status
+            // (matching real PMIx behavior where blocking returns the handle)
+            if regcbfunc.is_none() {
+                return handle as i32;
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_IOF_deregister()`.
+///
+/// When mock is enabled, returns the configured mock status.
+/// Cleans up the mock registry entry for the given handle.
+pub fn mock_iof_deregister(
+    handle: usize,
+    _directives: *const crate::ffi::pmix_info_t,
+    _ndirs: usize,
+    cbfunc: Option<unsafe extern "C" fn(crate::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+    cbdata: *mut std::os::raw::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_IOF_deregister");
+        // Remove the handle from the mock registry
+        MOCK_IOF_REGISTRY.with(|cell| {
+            cell.borrow_mut().remove(&handle);
+        });
+        // Invoke the callback if provided (async mode)
+        if let Some(cb) = cbfunc {
+            unsafe { cb(status, cbdata); }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_IOF_push()`.
+///
+/// When mock is enabled, returns the configured mock status.
+/// Does not actually push data — just simulates the operation.
+pub fn mock_iof_push(
+    _targets: *const crate::ffi::pmix_proc_t,
+    _ntargets: usize,
+    _bo: *mut crate::ffi::pmix_byte_object_t,
+    _directives: *const crate::ffi::pmix_info_t,
+    _ndirs: usize,
+    cbfunc: Option<unsafe extern "C" fn(crate::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+    cbdata: *mut std::os::raw::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_IOF_push");
+        // Invoke the callback if provided (async mode)
+        if let Some(cb) = cbfunc {
+            unsafe { cb(status, cbdata); }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Mock fabric FFI implementations
 // ─────────────────────────────────────────────────────────────────────────────
 // These provide controlled mock behavior for the PMIx fabric FFI functions

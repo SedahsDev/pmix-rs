@@ -4470,4 +4470,334 @@ mod tests {
             "get_attribute_name should return null when disabled"
         );
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // IOF mock tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// IOF pull mock returns success with a valid handle when enabled.
+    #[test]
+    fn test_mock_iof_pull_success() {
+        let _guard = mock_ffi::MockGuard::new();
+        mock_ffi::mock_reset_iof_registry();
+        mock_ffi::mock_set_iof_handle(42);
+
+        let status = mock_ffi::mock_iof_pull(
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            0,
+            0,
+            None,
+            None, // blocking mode
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, 42i32, "blocking mode returns handle as status");
+    }
+
+    /// IOF pull mock returns configured error status.
+    #[test]
+    fn test_mock_iof_pull_error_status() {
+        let config = mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_IOF_pull", mock_ffi::PMIX_ERR_BAD_PARAM);
+        let _guard = mock_ffi::MockGuard::with_config(config);
+
+        let status = mock_ffi::mock_iof_pull(
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            0,
+            0,
+            None,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    /// IOF pull mock returns PMIX_ERR_INIT when mock is disabled.
+    #[test]
+    fn test_mock_iof_pull_disabled() {
+        mock_ffi::disable_mock_ffi();
+        let status = mock_ffi::mock_iof_pull(
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            0,
+            0,
+            None,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
+    }
+
+    /// IOF deregister mock returns success and cleans up registry.
+    #[test]
+    fn test_mock_iof_deregister_success() {
+        let _guard = mock_ffi::MockGuard::new();
+
+        let status =
+            mock_ffi::mock_iof_deregister(42, std::ptr::null(), 0, None, std::ptr::null_mut());
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+    }
+
+    /// IOF deregister mock returns error status when configured.
+    #[test]
+    fn test_mock_iof_deregister_error() {
+        let config = mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_IOF_deregister", mock_ffi::PMIX_ERR_NOT_FOUND);
+        let _guard = mock_ffi::MockGuard::with_config(config);
+
+        let status = mock_ffi::mock_iof_deregister(
+            999,
+            std::ptr::null(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_NOT_FOUND);
+    }
+
+    /// IOF push mock returns success.
+    #[test]
+    fn test_mock_iof_push_success() {
+        let _guard = mock_ffi::MockGuard::new();
+
+        let status = mock_ffi::mock_iof_push(
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_SUCCESS);
+    }
+
+    /// IOF push mock returns error status when configured.
+    #[test]
+    fn test_mock_iof_push_error() {
+        let config = mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_IOF_push", mock_ffi::PMIX_ERR_BAD_PARAM);
+        let _guard = mock_ffi::MockGuard::with_config(config);
+
+        let status = mock_ffi::mock_iof_push(
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    /// IOF push mock returns PMIX_ERR_INIT when disabled.
+    #[test]
+    fn test_mock_iof_push_disabled() {
+        mock_ffi::disable_mock_ffi();
+        let status = mock_ffi::mock_iof_push(
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        assert_eq!(status, mock_ffi::PMIX_ERR_INIT);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // PmixByteObject additional tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// PmixByteObject::from_vec takes ownership of the vector (extended test).
+    #[test]
+    fn test_byte_object_from_vec_extended() {
+        let data = vec![1, 2, 3, 4, 5];
+        let bo = PmixByteObject::from_vec(data);
+        assert_eq!(bo.as_slice(), &[1, 2, 3, 4, 5]);
+        assert_eq!(bo.len(), 5);
+        assert!(!bo.is_empty());
+    }
+
+    /// PmixByteObject::empty creates an empty byte object (extended test).
+    #[test]
+    fn test_byte_object_empty_extended() {
+        let bo = PmixByteObject::empty();
+        assert!(bo.is_empty());
+        assert_eq!(bo.len(), 0);
+        assert!(bo.as_slice().is_empty());
+    }
+
+    /// PmixByteObject as_ref returns the underlying bytes (extended test).
+    #[test]
+    fn test_byte_object_as_ref_extended() {
+        let bo = PmixByteObject::from_slice(b"test data");
+        let slice: &[u8] = bo.as_ref();
+        assert_eq!(slice, b"test data");
+    }
+
+    /// PmixByteObject clone produces an independent copy (extended test).
+    #[test]
+    fn test_byte_object_clone_extended() {
+        let bo1 = PmixByteObject::from_slice(b"original");
+        let bo2 = bo1.clone();
+        assert_eq!(bo1.as_slice(), bo2.as_slice());
+        assert_eq!(bo1.len(), bo2.len());
+    }
+
+    /// PmixByteObject with large data handles correctly.
+    #[test]
+    fn test_byte_object_large_data() {
+        let data = vec![0u8; 65536];
+        let bo = PmixByteObject::from_vec(data);
+        assert_eq!(bo.len(), 65536);
+        assert!(!bo.is_empty());
+    }
+
+    /// PmixByteObject C pointer round-trip for non-empty data.
+    #[test]
+    fn test_byte_object_c_ptr_roundtrip() {
+        let bo = PmixByteObject::from_slice(b"hello");
+        let c_ptr = bo.as_c_mut_ptr();
+        assert!(!c_ptr.is_null());
+        unsafe {
+            assert_eq!((*c_ptr).size, 5);
+            assert!(!(*c_ptr).bytes.is_null());
+            PmixByteObject::free_c_ptr(c_ptr);
+        }
+    }
+
+    /// PmixByteObject C pointer for empty data has null bytes.
+    #[test]
+    fn test_byte_object_c_ptr_empty() {
+        let bo = PmixByteObject::empty();
+        let c_ptr = bo.as_c_mut_ptr();
+        assert!(!c_ptr.is_null());
+        unsafe {
+            assert_eq!((*c_ptr).size, 0);
+            assert!((*c_ptr).bytes.is_null());
+            PmixByteObject::free_c_ptr(c_ptr);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // generate_regex and generate_ppn error path tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// generate_regex returns error without daemon (PMIX_ERR_INIT).
+    #[test]
+    fn test_generate_regex_without_daemon() {
+        let result = generate_regex("node001,node002");
+        assert!(result.is_err());
+        // Without a daemon, PMIx_generate_regex returns PMIX_ERR_INIT
+        assert_eq!(result.unwrap_err().to_raw(), mock_ffi::PMIX_ERR_INIT);
+    }
+
+    /// generate_ppn returns error without daemon (PMIX_ERR_INIT).
+    #[test]
+    fn test_generate_ppn_without_daemon() {
+        let result = generate_ppn("0-3;4-7");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_raw(), mock_ffi::PMIX_ERR_INIT);
+    }
+
+    /// register_attributes returns error without daemon.
+    #[test]
+    fn test_register_attributes_without_daemon() {
+        let attrs = &["pmix.get.timeout"][..];
+        let result = register_attributes("PMIx_Get", attrs);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_raw(), mock_ffi::PMIX_ERR_INIT);
+    }
+
+    /// register_attributes with empty function name returns error.
+    #[test]
+    fn test_register_attributes_empty_function() {
+        let attrs = &["some.attr"][..];
+        // Empty string is still a valid CString but PMIx will reject it
+        let result = register_attributes("", attrs);
+        assert!(result.is_err());
+    }
+
+    /// register_attributes with empty attrs array (extended test).
+    #[test]
+    fn test_register_attributes_empty_attrs_extended() {
+        let result = register_attributes("PMIx_Get", &[]);
+        assert!(result.is_err());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // IOF wrapper error path tests (without daemon)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// iof_pull returns error without daemon.
+    #[test]
+    fn test_iof_pull_without_daemon() {
+        let procs: &[ffi::pmix_proc_t] = &[];
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_pull::<_, _>(
+            procs,
+            directives,
+            IOFChannelFlags::STDOUT,
+            |_, _, _, _| {},
+            |_, _| {},
+        );
+        assert!(result.is_err());
+    }
+
+    /// iof_pull_blocking returns error without daemon.
+    #[test]
+    fn test_iof_pull_blocking_without_daemon() {
+        let procs: &[ffi::pmix_proc_t] = &[];
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_pull_blocking(
+            procs,
+            directives,
+            IOFChannelFlags::STDOUT,
+            |_, _, _, _| {},
+        );
+        assert!(result.is_err());
+    }
+
+    /// iof_push returns error without daemon.
+    #[test]
+    fn test_iof_push_without_daemon() {
+        let targets: &[ffi::pmix_proc_t] = &[];
+        let bo = PmixByteObject::from_slice(b"test");
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_push(targets, bo, directives, |_| {});
+        assert!(result.is_err());
+    }
+
+    /// iof_push_blocking returns error without daemon.
+    #[test]
+    fn test_iof_push_blocking_without_daemon() {
+        let targets: &[ffi::pmix_proc_t] = &[];
+        let bo = PmixByteObject::from_slice(b"test");
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_push_blocking(targets, bo, directives);
+        assert!(result.is_err());
+    }
+
+    /// iof_deregister returns error without daemon.
+    #[test]
+    fn test_iof_deregister_without_daemon() {
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_deregister(999, directives, |_| {});
+        assert!(result.is_err());
+    }
+
+    /// iof_deregister_blocking returns error without daemon.
+    #[test]
+    fn test_iof_deregister_blocking_without_daemon() {
+        let directives: &[ffi::pmix_info_t] = &[];
+        let result = iof_deregister_blocking(999, directives);
+        assert!(result.is_err());
+    }
 }
