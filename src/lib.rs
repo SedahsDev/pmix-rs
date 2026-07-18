@@ -20,6 +20,7 @@ pub mod process_mgmt;
 pub mod query_log;
 pub mod security;
 pub mod server;
+pub mod cbdata;
 pub mod tool;
 pub mod utility;
 

@@ -48,6 +48,7 @@
 //! ```
 
 use crate::security::PmixCredential;
+use crate::cbdata::{decode_req_id, encode_req_id};
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
@@ -487,9 +488,8 @@ extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_status_t, cbdata
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -598,7 +598,7 @@ pub fn server_register_nspace(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = encode_req_id(req_id);
 
     // Prepare info parameters.
     let (info_ptr, ninfo) = if info.len > 0 {
@@ -702,9 +702,8 @@ extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_status_t, cbda
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -803,7 +802,7 @@ pub fn server_deregister_nspace(nspace: &str, callback: Option<Box<dyn Deregiste
             }
 
             // Encode the request ID as a non-null pointer for cbdata.
-            let cbdata = (req_id << 2) as *mut c_void;
+            let cbdata = encode_req_id(req_id);
 
             // SAFETY: PMIx_server_deregister_nspace is a non-blocking server API.
             // - nspace_c.as_ptr() is a valid null-terminated string for the
@@ -863,9 +862,8 @@ extern "C" fn register_client_callback_bridge(status: ffi::pmix_status_t, cbdata
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -961,7 +959,7 @@ pub fn server_register_client(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = encode_req_id(req_id);
 
     // Get a pointer to the proc's internal pmix_proc_t for FFI.
     let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
@@ -1035,9 +1033,8 @@ extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_status_t, cbda
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -1122,7 +1119,7 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
             }
 
             // Encode the request ID as a non-null pointer for cbdata.
-            let cbdata = (req_id << 2) as *mut c_void;
+            let cbdata = encode_req_id(req_id);
 
             // Get a pointer to the proc's internal pmix_proc_t for FFI.
             let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
@@ -1412,9 +1409,8 @@ extern "C" fn dmodex_request_callback_bridge(
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Copy the data blob before the PMIx library frees it.
     // The PMIx docs state: "The PMIx server will free the data blob
@@ -1528,8 +1524,8 @@ pub fn server_dmodex_request(
 
     // Encode the request ID as a non-null pointer for cbdata.
     // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1, so req_id << 2 >= 4).
-    let cbdata = (req_id << 2) as *mut c_void;
+    // and non-null (req_id starts from 1).
+    let cbdata = encode_req_id(req_id);
 
     // Get a pointer to the proc's internal pmix_proc_t for FFI.
     let proc_ptr = &proc.handle as *const ffi::pmix_proc_t;
@@ -1619,7 +1615,7 @@ extern "C" fn setup_application_callback_bridge(
 
     // SAFETY: provided_cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
-    let req_id = (provided_cbdata as usize) >> 2;
+    let req_id = decode_req_id(provided_cbdata);
 
     // Copy the info array before the PMIx library frees it.
     // The info array is owned by PMIx until we call the ack callback.
@@ -1799,8 +1795,8 @@ pub fn server_setup_application(
 
     // Encode the request ID as a non-null pointer for cbdata.
     // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1, so req_id << 2 >= 4).
-    let cbdata = (req_id << 2) as *mut c_void;
+    // and non-null (req_id starts from 1).
+    let cbdata = encode_req_id(req_id);
 
     // Get the info array pointer and length.
     let info_ptr = if info.len > 0 {
@@ -1879,9 +1875,8 @@ extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_status_t, cb
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -1988,8 +1983,8 @@ pub fn server_setup_local_support(
 
     // Encode the request ID as a non-null pointer for cbdata.
     // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1, so req_id << 2 >= 4).
-    let cbdata = (req_id << 2) as *mut c_void;
+    // and non-null (req_id starts from 1).
+    let cbdata = encode_req_id(req_id);
 
     // Prepare info parameters.
     let (info_ptr, ninfo) = if info.len > 0 {
@@ -2084,9 +2079,8 @@ extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t, cbdata: *m
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -2205,8 +2199,8 @@ pub fn server_iof_deliver(
 
     // Encode the request ID as a non-null pointer for cbdata.
     // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1, so req_id << 2 >= 4).
-    let cbdata = (req_id << 2) as *mut c_void;
+    // and non-null (req_id starts from 1).
+    let cbdata = encode_req_id(req_id);
 
     // Get a pointer to the source proc's internal pmix_proc_t for FFI.
     let source_ptr = &source.handle as *const ffi::pmix_proc_t;
@@ -2347,9 +2341,8 @@ extern "C" fn collect_inventory_callback_bridge(
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -2456,8 +2449,8 @@ pub fn server_collect_inventory(
     };
 
     // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1, so shifted value >= 4).
-    let cbdata = (req_id << 2) as *mut c_void;
+    // is never null (req_id starts at 1).
+    let cbdata = encode_req_id(req_id);
 
     {
         let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
@@ -2559,9 +2552,8 @@ extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_status_t, cbda
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -2660,8 +2652,8 @@ pub fn server_deliver_inventory(
         };
 
         // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-        // is never null (req_id starts at 1, so shifted value >= 4).
-        let cbdata = (req_id << 2) as *mut c_void;
+        // is never null (req_id starts at 1).
+        let cbdata = encode_req_id(req_id);
 
         {
             let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
@@ -3088,9 +3080,8 @@ extern "C" fn register_resources_callback_bridge(status: ffi::pmix_status_t, cbd
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -3177,7 +3168,7 @@ pub fn server_register_resources(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = encode_req_id(req_id);
 
     // Get a pointer to the info array for FFI.
     let info_ptr = if info.len > 0 {
@@ -3253,9 +3244,8 @@ extern "C" fn deregister_resources_callback_bridge(
         return;
     }
 
-    // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    // SAFETY: cbdata was produced by encode_req_id; reverse with decode_req_id.
+    let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -3342,7 +3332,7 @@ pub fn server_deregister_resources(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = encode_req_id(req_id);
 
     // Get a pointer to the info array for FFI.
     let info_ptr = if info.len > 0 {

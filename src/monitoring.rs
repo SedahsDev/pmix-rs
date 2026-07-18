@@ -49,6 +49,7 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
+use crate::cbdata::{decode_req_id_u64, encode_req_id_u64};
 use crate::{Info, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ unsafe extern "C" fn monitor_callback_bridge(
     _release_cbdata: *mut c_void,
 ) {
     // Decode the request ID from the cbdata pointer.
-    let req_id = (cbdata as u64) >> 2;
+    let req_id = decode_req_id_u64(cbdata);
 
     // Remove the callback from the registry — it is consumed exactly once.
     let mut registry = MONITOR_REGISTRY.lock().unwrap();
@@ -314,7 +315,7 @@ pub fn process_monitor_nb(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = encode_req_id_u64(req_id);
 
     // Build directive pointer array.
     let (dirs_ptr, ndirs) = if directives.is_empty() {
