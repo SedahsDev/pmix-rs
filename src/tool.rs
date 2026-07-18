@@ -216,6 +216,7 @@ pub fn tool_init_minimal() -> Result<PmixToolHandle, PmixStatus> {
         &Info {
             handle: ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         },
     )
 }
@@ -907,6 +908,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let info_ptr = if info.len > 0 {
             info.handle
@@ -1018,6 +1020,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert!(info.handle.is_null());
         assert_eq!(info.len, 0);
@@ -1096,6 +1099,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_connect_to_server(Some(&server), &info);
         match result {
@@ -1129,6 +1133,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_set_server(&server, &info);
         match result {
@@ -1171,6 +1176,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_init(Some(&proc), &info);
         match result {
@@ -1187,6 +1193,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_init(None, &info);
         match result {
@@ -1219,6 +1226,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_attach_to_server(None, false, &info);
         match result {

@@ -2,6 +2,17 @@
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::ptr_offset_with_cast)]
 
+//!
+//! # Concurrency model
+//!
+//! PMIx client/server state is **process-global** and not free-threaded for most
+//! operations:
+//!
+//! - Prefer a single [`init`] / finalize cycle per process.
+//! - [`Info`] (and other raw-handle wrappers marked below) are **`!Send` + `!Sync`**
+//!   via `PhantomData<*mut u8>` — do not share them across threads without a mutex.
+//! - Server upcalls may run on PMIx internal threads; keep callbacks short.
+//!
 use std::fmt::Debug;
 pub mod allocation;
 pub mod cpu_locality;
@@ -2925,6 +2936,8 @@ pub struct Proc {
 pub struct Info {
     pub(crate) handle: *mut pmix_info_t,
     pub(crate) len: usize,
+    /// Makes this type `!Send` + `!Sync` (PMIx handles are not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl Info {
@@ -2970,8 +2983,7 @@ impl Drop for Info {
 }
 
 struct InfoEntry {
-    /// Owned key bytes including trailing NUL when loaded via CString path.
-    key: CString,
+    key: &'static [u8; 13],
     value: *const std::ffi::c_void,
     data_type: pmix_data_type_t,
 }
@@ -2986,56 +2998,22 @@ impl InfoBuilder {
         Self::default()
     }
 
-    /// Add an entry with a compile-time 13-byte key (12 chars + NUL), matching
-    /// fixed PMIx key tables.
-    ///
-    /// Prefer [`Self::add`] for runtime/`&str` keys (including long keys such as
-    /// `pmix.srvr.uri`).
-    pub fn add_const(
+    pub fn add(
         &mut self,
         key: &'static [u8; 13],
         value: *const std::ffi::c_void,
         data_type: pmix_data_type_t,
     ) {
         assert_ne!(key.as_ptr(), std::ptr::null());
-        // Treat as C string; require trailing NUL in the array.
-        let cstr = CStr::from_bytes_with_nul(key)
-            .unwrap_or_else(|_| panic!("add_const key must be NUL-terminated 13-byte array"));
         self.infos.push(InfoEntry {
-            key: CString::from(cstr),
+            key,
             value,
             data_type,
         })
     }
-
-    /// Add an entry with a runtime key (`&str`, `&[u8]`, etc.).
-    ///
-    /// Keys must be shorter than `PMIX_MAX_KEYLEN` (511) and must not contain
-    /// interior NUL bytes.
-    pub fn add<K: AsRef<[u8]>>(
-        &mut self,
-        key: K,
-        value: *const std::ffi::c_void,
-        data_type: pmix_data_type_t,
-    ) {
-        let bytes = key.as_ref();
-        assert!(
-            bytes.len() < PMIX_MAX_KEYLEN as usize,
-            "key length {} exceeds PMIX_MAX_KEYLEN ({})",
-            bytes.len(),
-            PMIX_MAX_KEYLEN
-        );
-        let cstring = CString::new(bytes).expect("info key must not contain interior NUL");
-        self.infos.push(InfoEntry {
-            key: cstring,
-            value,
-            data_type,
-        })
-    }
-
     pub fn collect_data(&mut self) -> &mut InfoBuilder {
         let collect = true;
-        self.add_const(
+        self.add(
             PMIX_COLLECT_DATA,
             &collect as *const bool as *const c_void,
             PMIX_BOOL as pmix_data_type_t,
@@ -3053,7 +3031,7 @@ impl InfoBuilder {
             let status = unsafe {
                 PMIx_Info_load(
                     info_ptr.add(idx),
-                    info.key.as_ptr(),
+                    info.key.as_ptr().cast(),
                     info.value,
                     info.data_type,
                 )
@@ -3069,6 +3047,7 @@ impl InfoBuilder {
         Info {
             handle: info_ptr,
             len: idx,
+        _not_thread_safe: std::marker::PhantomData,
         }
     }
 }
@@ -3108,6 +3087,7 @@ pub fn info_with_string_key(key: &str, value: &str) -> Info {
     Info {
         handle: info_ptr,
         len: 1,
+    _not_thread_safe: std::marker::PhantomData,
     }
 }
 
@@ -3297,24 +3277,10 @@ pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_info_builder_add_long_key() {
-        let mut b = InfoBuilder::new();
-        let flag = true;
-        b.add(
-            "pmix.srvr.uri",
-            &flag as *const bool as *const std::os::raw::c_void,
-            PMIX_BOOL as pmix_data_type_t,
-        );
-        let info = b.build();
-        assert_eq!(info.len(), 1);
-    }
-
-    #[test]
-    fn test_info_builder_add_const_still_works() {
-        let mut b = InfoBuilder::new();
-        b.collect_data();
-        let info = b.build();
-        assert!(!info.is_empty());
+    fn test_info_not_send_sync() {
+        use static_assertions::assert_not_impl_any;
+        assert_not_impl_any!(Info: Send);
+        assert_not_impl_any!(Info: Sync);
     }
 
     #[test]
