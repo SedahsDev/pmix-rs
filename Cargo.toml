@@ -1,5 +1,6 @@
 [package]
 name = "pmix"
+authors = ["SedahsDev"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -8,7 +9,9 @@ license = "BSD-3-Clause"
 readme = "README.md"
 keywords = ["pmix", "hpc", "mpi", "process-management"]
 categories = ["api-bindings", "science"]
-repository = "https://github.com/KirgenR/pmix-rs"
+repository = "https://github.com/SedahsDev/pmix-rs"
+homepage = "https://github.com/SedahsDev/pmix-rs"
+documentation = "https://docs.rs/pmix"
 
 [build-dependencies]
 bindgen = "0.72.1"
