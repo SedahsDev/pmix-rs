@@ -3075,7 +3075,12 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        finalize(None).unwrap();
+        // Always log finalize failures (including release builds). This runs at
+        // end-of-scope / process teardown where diagnostics matter more than
+        // avoiding a single eprintln. Never panic in Drop (double-panic → abort).
+        if let Err(status) = finalize(None) {
+            eprintln!("pmix: finalize in Context::Drop failed: status={status}");
+        }
     }
 }
 
