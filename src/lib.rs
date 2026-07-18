@@ -5,6 +5,7 @@
 use std::fmt::Debug;
 pub mod allocation;
 pub mod cpu_locality;
+pub mod cbdata;
 pub mod data_ops;
 pub mod data_serialization;
 pub mod events;
@@ -2922,8 +2923,8 @@ pub struct Proc {
 }
 
 pub struct Info {
-    handle: *mut pmix_info_t,
-    len: usize,
+    pub(crate) handle: *mut pmix_info_t,
+    pub(crate) len: usize,
 }
 
 impl Info {

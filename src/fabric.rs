@@ -65,7 +65,8 @@ use crate::{Info, PmixDeviceType, PmixError, PmixStatus};
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 
-use crate::mock_ffi;
+#[cfg(any(test, feature = "mock_ffi"))]
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixFabric — safe wrapper for pmix_fabric_t
