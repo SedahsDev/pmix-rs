@@ -70,7 +70,7 @@ impl<'a> PmixProcRef<'a> {
     }
 
     fn to_raw(&self) -> ffi::pmix_proc_t {
-        let mut proc = unsafe { std::mem::zeroed::<ffi::pmix_proc_t>() };
+        let mut proc: ffi::pmix_proc_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
         let bytes = self.nspace.as_bytes();
         // pmix_nspace_t is [c_char; 256]; c_char is i8 on Linux.
         let nspace_len = std::mem::size_of::<ffi::pmix_nspace_t>();

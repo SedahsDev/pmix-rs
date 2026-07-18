@@ -2,6 +2,7 @@
 name = "pmix"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "Low-level Rust bindings for PMIx (Process Management Interface for Exascale)"
 license = "BSD-3-Clause"
 readme = "README.md"
