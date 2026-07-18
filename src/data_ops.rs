@@ -97,7 +97,7 @@ extern "C" fn publish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+        let mut registry = PUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id)
     };
 
@@ -135,12 +135,12 @@ extern "C" fn publish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c
 pub fn publish_nb(info: &Info, callback: Box<dyn PublishCallback>) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = PUBLISH_SEQ.lock().unwrap();
+        let mut seq = PUBLISH_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+        let mut registry = PUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -173,7 +173,7 @@ pub fn publish_nb(info: &Info, callback: Box<dyn PublishCallback>) -> Result<(),
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+        let mut registry = PUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -224,7 +224,7 @@ extern "C" fn get_value_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = GET_REGISTRY.lock().unwrap();
+        let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id)
     };
 
@@ -284,12 +284,12 @@ pub fn get_nb(
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = GET_SEQ.lock().unwrap();
+        let mut seq = GET_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = GET_REGISTRY.lock().unwrap();
+        let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -303,7 +303,7 @@ pub fn get_nb(
         Ok(c) => c,
         Err(_) => {
             // Key contains NUL — remove callback and return error.
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
             registry.remove(&req_id);
             return Err(PmixStatus::Known(PmixError::Error));
         }
@@ -340,7 +340,7 @@ pub fn get_nb(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = GET_REGISTRY.lock().unwrap();
+        let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -466,7 +466,7 @@ impl PmixPdata {
     pub fn new(key: &str) -> Self {
         Self {
             proc: Proc::new("", PMIX_RANK_WILDCARD as u32)
-                .unwrap_or_else(|_| Proc::new("", 0).unwrap()),
+                .unwrap_or_else(|_| Proc::new("", 0).expect("invariant: unwrap in data_ops.rs")),
             key: key.to_string(),
             value: None,
         }
@@ -572,7 +572,7 @@ pub fn lookup(
                 .into_owned()
         };
         let rank = pdata.proc_.rank;
-        let proc = Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).unwrap());
+        let proc = Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).expect("invariant: unwrap in data_ops.rs"));
 
         // Extract the value if the type is not PMIX_UNDEF.
         let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
@@ -646,7 +646,7 @@ extern "C" fn lookup_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+        let mut registry = LOOKUP_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -686,7 +686,7 @@ extern "C" fn lookup_callback_bridge(
                 let rank = pdata_ref.proc_.rank;
 
                 let proc =
-                    Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).unwrap());
+                    Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).expect("invariant: unwrap in data_ops.rs"));
 
                 // Take ownership of the value.
                 let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
@@ -755,12 +755,12 @@ pub fn lookup_nb(
 
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = LOOKUP_SEQ.lock().unwrap();
+        let mut seq = LOOKUP_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+        let mut registry = LOOKUP_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -778,7 +778,7 @@ pub fn lookup_nb(
             }
             Err(_) => {
                 // Key contains NUL — clean up and return error.
-                let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+                let mut registry = LOOKUP_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
                 registry.remove(&req_id);
                 return Err(PmixStatus::Known(PmixError::Error));
             }
@@ -820,7 +820,7 @@ pub fn lookup_nb(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+        let mut registry = LOOKUP_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -862,7 +862,7 @@ extern "C" fn unpublish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        let mut registry = UNPUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id)
     };
 
@@ -998,12 +998,12 @@ pub fn unpublish_nb(
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = UNPUBLISH_SEQ.lock().unwrap();
+        let mut seq = UNPUBLISH_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        let mut registry = UNPUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -1025,7 +1025,7 @@ pub fn unpublish_nb(
                     }
                     Err(_) => {
                         // Key contains NUL — clean up and return error.
-                        let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+                        let mut registry = UNPUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
                         registry.remove(&req_id);
                         return Err(PmixStatus::Known(PmixError::Error));
                     }
@@ -1076,7 +1076,7 @@ pub fn unpublish_nb(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        let mut registry = UNPUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1185,7 +1185,7 @@ extern "C" fn fence_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_v
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = FENCE_REGISTRY.lock().unwrap();
+        let mut registry = FENCE_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id)
     };
 
@@ -1248,12 +1248,12 @@ pub fn fence_nb(
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
     let req_id = {
-        let mut seq = FENCE_SEQ.lock().unwrap();
+        let mut seq = FENCE_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
         *seq += 1;
         *seq
     };
     {
-        let mut registry = FENCE_REGISTRY.lock().unwrap();
+        let mut registry = FENCE_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -1314,7 +1314,7 @@ pub fn fence_nb(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = FENCE_REGISTRY.lock().unwrap();
+        let mut registry = FENCE_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }

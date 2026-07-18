@@ -97,7 +97,7 @@ static TOOL_INITIALIZED: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(fal
 /// Returns `true` if `tool_init` has been called more times than
 /// `tool_finalize` (i.e., the reference count is positive).
 pub fn is_tool_initialized() -> bool {
-    *TOOL_INITIALIZED.lock().unwrap()
+    *TOOL_INITIALIZED.lock().expect("mutex poisoned (tool.rs)")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,7 +185,7 @@ pub fn tool_init(_proc: Option<&Proc>, _info: &Info) -> Result<PmixToolHandle, P
             handle: proc_raw,
             len: 1,
         };
-        *TOOL_INITIALIZED.lock().unwrap() = true;
+        *TOOL_INITIALIZED.lock().expect("mutex poisoned (tool.rs)") = true;
         Ok(PmixToolHandle { proc })
     } else {
         Err(pmix_status)
@@ -250,7 +250,7 @@ pub fn tool_finalize(_handle: PmixToolHandle) -> Result<(), PmixStatus> {
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
-        *TOOL_INITIALIZED.lock().unwrap() = false;
+        *TOOL_INITIALIZED.lock().expect("mutex poisoned (tool.rs)") = false;
         Ok(())
     } else {
         Err(pmix_status)
