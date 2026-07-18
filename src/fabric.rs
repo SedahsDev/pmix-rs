@@ -64,6 +64,8 @@ use crate::{Info, PmixDeviceType, PmixStatus};
 
 use crate::mock_ffi;
 
+use crate::mock_ffi;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixFabric — safe wrapper for pmix_fabric_t
 // ─────────────────────────────────────────────────────────────────────────────
