@@ -674,6 +674,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (info_ptr, ninfo) = if info.len > 0 {
             (info.handle as *const ffi::pmix_info_t, info.len)
@@ -771,6 +772,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&[], &info, None, None);
         // Without PMIx init, this returns an error (not BAD_PARAM)
@@ -792,6 +794,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -821,6 +824,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, Some(dummy_handler), None);
         match result {
@@ -841,6 +845,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler_nb(
             &codes,
@@ -864,6 +869,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result =
             register_event_handler_nb(&[], &info, None, Some(dummy_reg_cb), std::ptr::null_mut());
@@ -942,6 +948,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrJobAborted),
@@ -964,6 +971,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         for range_raw in [0u8, 1, 2, 3] {
             let range = PmixDataRange::from_raw(range_raw);
@@ -994,6 +1002,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrNotSupported),
@@ -1019,6 +1028,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event_nb(
             PmixStatus::Known(PmixError::ErrJobAborted),
@@ -1100,6 +1110,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
 
@@ -1286,6 +1297,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let ranges = [
             PmixDataRange::Undef,
@@ -1323,6 +1335,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let ranges = [
             PmixDataRange::Undef,
@@ -1367,6 +1380,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1399,6 +1413,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler_nb(
             &codes,
@@ -1473,6 +1488,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (info_ptr, ninfo) = if info.len > 0 {
             (info.handle as *const ffi::pmix_info_t, info.len)
@@ -1511,6 +1527,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event_nb(
             PmixStatus::Known(PmixError::ErrJobAborted),
@@ -1538,6 +1555,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler_nb(
             &codes,
@@ -1562,6 +1580,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
         for _ in 0..5 {
@@ -1600,6 +1619,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         for _ in 0..5 {
             let result = notify_event(
@@ -1627,6 +1647,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         // Register with callback (non-blocking style, though we test synchronously)
         let result = register_event_handler(&codes, &info, None, Some(dummy_reg_cb));
@@ -1645,6 +1666,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1666,6 +1688,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1692,6 +1715,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1718,6 +1742,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1744,6 +1769,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1770,6 +1796,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1796,6 +1823,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1822,6 +1850,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1850,6 +1879,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1866,6 +1896,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1882,6 +1913,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1898,6 +1930,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1914,6 +1947,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1930,6 +1964,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1948,6 +1983,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1969,6 +2005,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrNotSupported),
@@ -1990,6 +2027,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrBadParam),
@@ -2011,6 +2049,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrInit),
@@ -2035,6 +2074,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event_nb(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2059,6 +2099,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event_nb(
             PmixStatus::Known(PmixError::ErrLostConnection),
@@ -2233,6 +2274,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         // Pass a non-null cbdata pointer (user data)
         let user_data: u32 = 42;
@@ -2281,6 +2323,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let user_data: u64 = 0xDEADBEEF;
         let result = notify_event_nb(
@@ -2308,6 +2351,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2324,6 +2368,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2340,6 +2385,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2356,6 +2402,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {

@@ -2,6 +2,17 @@
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::ptr_offset_with_cast)]
 
+//!
+//! # Concurrency model
+//!
+//! PMIx client/server state is **process-global** and not free-threaded for most
+//! operations:
+//!
+//! - Prefer a single [`init`] / finalize cycle per process.
+//! - [`Info`] (and other raw-handle wrappers marked below) are **`!Send` + `!Sync`**
+//!   via `PhantomData<*mut u8>` — do not share them across threads without a mutex.
+//! - Server upcalls may run on PMIx internal threads; keep callbacks short.
+//!
 use std::fmt::Debug;
 pub mod allocation;
 pub mod cpu_locality;
@@ -2925,6 +2936,8 @@ pub struct Proc {
 pub struct Info {
     pub(crate) handle: *mut pmix_info_t,
     pub(crate) len: usize,
+    /// Makes this type `!Send` + `!Sync` (PMIx handles are not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl Info {
@@ -3034,6 +3047,7 @@ impl InfoBuilder {
         Info {
             handle: info_ptr,
             len: idx,
+        _not_thread_safe: std::marker::PhantomData,
         }
     }
 }
@@ -3073,6 +3087,7 @@ pub fn info_with_string_key(key: &str, value: &str) -> Info {
     Info {
         handle: info_ptr,
         len: 1,
+    _not_thread_safe: std::marker::PhantomData,
     }
 }
 
@@ -3261,6 +3276,13 @@ pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_info_not_send_sync() {
+        use static_assertions::assert_not_impl_any;
+        assert_not_impl_any!(Info: Send);
+        assert_not_impl_any!(Info: Sync);
+    }
+
     #[test]
     fn test_info_drop_does_not_panic() {
         // Building and dropping Info must free via PMIx_Info_free without panic.

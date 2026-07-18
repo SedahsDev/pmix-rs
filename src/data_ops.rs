@@ -1701,6 +1701,7 @@ mod tests {
         let info = crate::Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (info_ptr, ninfo) = if info.len > 0 {
             (info.handle as *const ffi::pmix_info_t, info.len)
@@ -1716,6 +1717,7 @@ mod tests {
         let info = crate::Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         // This is the pattern used in get() and lookup()
         let (info_ptr, ninfo) = match Some(&info) {
@@ -1946,6 +1948,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = publish(&info);
         match result {
@@ -1968,6 +1971,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let callback: Box<dyn PublishCallback> = Box::new(DummyPublish);
         let result = publish_nb(&info, callback);
@@ -2001,6 +2005,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = get(&proc, "test.key", Some(&info));
         match result {
@@ -2040,6 +2045,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let mut data = data;
         let result = lookup(&mut data, Some(&info));
@@ -2062,6 +2068,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let mut data = data;
         let result = lookup(&mut data, Some(&info));
@@ -2102,6 +2109,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = unpublish(Some(&keys), Some(&info));
         match result {
@@ -2118,6 +2126,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = unpublish(None, Some(&info));
         match result {
@@ -2188,6 +2197,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let callback: Box<dyn FenceCallback> = Box::new(DummyFence);
         let result = fence_nb(&procs, Some(&info), callback);
@@ -2208,6 +2218,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
 
         // Publish (expected to fail without DVM)
@@ -2334,6 +2345,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = lookup(&mut data, Some(&info));
         assert!(result.is_err());
@@ -2374,6 +2386,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let result = publish(&info);
         match result {
@@ -2685,6 +2698,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (info_ptr, ninfo) = match Some(&info) {
             Some(info) => {
@@ -2925,6 +2939,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         for _ in 0..5 {
             let result = publish(&info);
@@ -2963,6 +2978,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         // This should use null/0 path in publish
         let result = publish(&info);
@@ -2982,6 +2998,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let callback: Box<dyn FenceCallback> = Box::new(DummyFence);
         let result = fence_nb(&procs, Some(&info), callback);
@@ -3005,6 +3022,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let callback: Box<dyn PublishCallback> = Box::new(DummyPublish);
         let result = publish_nb(&info, callback);
@@ -3709,6 +3727,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (info_ptr, ninfo) = if info.len > 0 {
             (info.handle as *const ffi::pmix_info_t, info.len)
@@ -4139,6 +4158,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         // Simulate the pointer logic inside publish()
         let (info_ptr, ninfo) = if info.len > 0 {
@@ -4161,6 +4181,7 @@ mod tests {
         let info = Info {
             handle: fake_handle,
             len: 5,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (info_ptr, ninfo) = if info.len > 0 {
             (info.handle as *const ffi::pmix_info_t, info.len)
@@ -4725,6 +4746,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert_eq!(procs.len(), 2);
         assert_eq!(info.len(), 0);
@@ -4831,6 +4853,7 @@ mod tests {
         let info = Info {
             handle: fake_handle,
             len: 3,
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert_eq!(info.len(), 3);
         assert!(!info.is_empty());
@@ -4844,6 +4867,7 @@ mod tests {
         let info = Info {
             handle: fake_handle,
             len: 1,
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert_eq!(info.len(), 1);
         assert!(!info.is_empty());
@@ -4857,6 +4881,7 @@ mod tests {
         let info = Info {
             handle: fake_handle,
             len: 1000,
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert_eq!(info.len(), 1000);
         assert!(!info.is_empty());
@@ -5316,6 +5341,7 @@ mod tests {
         let info0 = Info {
             handle: std::ptr::null_mut(),
             len: 0,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (p0, n0) = if info0.len > 0 {
             (info0.handle as *const ffi::pmix_info_t, info0.len)
@@ -5329,6 +5355,7 @@ mod tests {
         let info1 = Info {
             handle: 0x1usize as *mut ffi::pmix_info_t,
             len: 1,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (p1, n1) = if info1.len > 0 {
             (info1.handle as *const ffi::pmix_info_t, info1.len)
@@ -5342,6 +5369,7 @@ mod tests {
         let info100 = Info {
             handle: 0x2usize as *mut ffi::pmix_info_t,
             len: 100,
+        _not_thread_safe: std::marker::PhantomData,
         };
         let (p100, n100) = if info100.len > 0 {
             (info100.handle as *const ffi::pmix_info_t, info100.len)
