@@ -2913,6 +2913,31 @@ impl Info {
     pub fn as_ptr(&self) -> *mut pmix_info_t {
         self.handle
     }
+
+    /// Transfer ownership of the raw PMIx info array to the caller.
+    ///
+    /// After this call, [`Drop`] will not free the handle — the caller must
+    /// free it with `PMIx_Info_free` (or equivalent).
+    pub fn into_raw(self) -> (*mut pmix_info_t, usize) {
+        let handle = self.handle;
+        let len = self.len;
+        std::mem::forget(self);
+        (handle, len)
+    }
+}
+
+impl Drop for Info {
+    fn drop(&mut self) {
+        if !self.handle.is_null() {
+            // SAFETY: handle came from PMIx_Info_create(len) in InfoBuilder /
+            // info_with_string_key. PMIx_Info_free destructs and frees the array.
+            unsafe {
+                PMIx_Info_free(self.handle, self.len);
+            }
+            self.handle = std::ptr::null_mut();
+            self.len = 0;
+        }
+    }
 }
 
 struct InfoEntry {
@@ -2954,9 +2979,12 @@ impl InfoBuilder {
         self
     }
     pub fn build(self) -> Info {
-        let info_ptr: *mut pmix_info_t;
+        let n = self.infos.len();
+        let info_ptr = unsafe { PMIx_Info_create(n) };
+        if info_ptr.is_null() && n > 0 {
+            panic!("PMIx_Info_create({n}) returned null");
+        }
         let mut idx: usize = 0;
-        unsafe { info_ptr = PMIx_Info_create(self.infos.len()) }
         for info in &self.infos {
             let status = unsafe {
                 PMIx_Info_load(
@@ -2967,6 +2995,9 @@ impl InfoBuilder {
                 )
             };
             if status != PMIX_SUCCESS as i32 {
+                unsafe {
+                    PMIx_Info_free(info_ptr, n);
+                }
                 panic!("Error loading info: {}", status);
             }
             idx += 1;
@@ -2985,23 +3016,31 @@ impl InfoBuilder {
 /// fit in `InfoBuilder::add(key: &'static [u8; 13])`.
 pub fn info_with_string_key(key: &str, value: &str) -> Info {
     let info_ptr = unsafe { PMIx_Info_create(1) };
+    if info_ptr.is_null() {
+        panic!("PMIx_Info_create(1) returned null");
+    }
     let key_cstr = CString::new(key).expect("key must not contain null bytes");
     let value_cstr = CString::new(value).expect("value must not contain null bytes");
-    unsafe {
-        let status = PMIx_Info_load(
+    // PMIx_Info_load copies key/value into the info array (PMIx 4+/5+/6+).
+    // Keep CStrings alive only for the duration of the load call, then drop.
+    let status = unsafe {
+        PMIx_Info_load(
             info_ptr,
             key_cstr.as_ptr(),
             value_cstr.as_ptr() as *const c_void,
             PMIX_STRING as pmix_data_type_t,
-        );
-        if status != PMIX_SUCCESS as i32 {
-            panic!("PMIx_Info_load failed for key {}: {}", key, status);
+        )
+    };
+    // CStrings drop here — PMIx has already copied the bytes into the info array.
+    drop(key_cstr);
+    drop(value_cstr);
+    if status != PMIX_SUCCESS as i32 {
+        // Free the half-built array before panicking.
+        unsafe {
+            PMIx_Info_free(info_ptr, 1);
         }
+        panic!("PMIx_Info_load failed for key {}: {}", key, status);
     }
-    // Leak the CString allocations — the PMIx library copies the data
-    // internally and the Info handle is managed by the library.
-    std::mem::forget(key_cstr);
-    std::mem::forget(value_cstr);
     Info {
         handle: info_ptr,
         len: 1,
@@ -3188,6 +3227,30 @@ pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_info_drop_does_not_panic() {
+        // Building and dropping Info must free via PMIx_Info_free without panic.
+        let info = InfoBuilder::new().build();
+        assert_eq!(info.len(), 0);
+        drop(info);
+        let info2 = info_with_string_key("pmix.srvr.uri", "tcp://127.0.0.1:1");
+        assert_eq!(info2.len(), 1);
+        assert!(!info2.as_ptr().is_null());
+        drop(info2);
+    }
+
+    #[test]
+    fn test_info_into_raw_skips_drop_free() {
+        let info = InfoBuilder::new().build();
+        let (ptr, len) = info.into_raw();
+        // We own the pointer now — free explicitly so this test does not leak.
+        if !ptr.is_null() {
+            unsafe {
+                PMIx_Info_free(ptr, len);
+            }
+        }
+    }
+
     use super::*;
 
     // ──────────────────────────────────────────────────────────────────────
