@@ -269,17 +269,53 @@ impl PmixServerModule {
 
 /// RAII handle returned by [`server_init`].
 ///
-/// Dropping this handle does **not** automatically call
-/// `PMIx_server_finalize` — the server must be explicitly finalized
-/// via [`server_finalize`] to ensure proper cleanup of internal
-/// communication channels and memory.
+/// Dropping this handle **finalizes** the PMIx server library (same path as
+/// [`server_finalize`]). This matches idiomatic Rust handle types and keeps
+/// lifecycle consistent with [`crate::Context`]'s Drop behavior.
 ///
-/// The handle exists to track that the server library has been
-/// initialized and to prevent double-initialization.
+/// To suppress finalize on drop (e.g. intentional process teardown hand-off),
+/// use [`std::mem::forget`] or [`PmixServerHandle::into_raw`].
+///
+/// Explicit [`server_finalize`] still works: it consumes the handle with
+/// `mem::forget` so Drop does not double-finalize.
 #[derive(Debug)]
+#[must_use = "dropping PmixServerHandle finalizes the PMIx server; bind it or call server_finalize"]
 pub struct PmixServerHandle {
-    #[allow(dead_code)]
-    initialized: bool,
+    /// When false, Drop is a no-op (handle already finalized / emptied).
+    active: bool,
+}
+
+impl PmixServerHandle {
+    pub(crate) fn new_active() -> Self {
+        Self { active: true }
+    }
+
+    /// Construct a disarmed handle (Drop is a no-op). Used in unit tests that
+    /// do not perform a real `server_init`.
+    #[cfg(test)]
+    pub(crate) fn inactive() -> Self {
+        Self { active: false }
+    }
+
+    /// Disarm Drop without finalizing. Caller becomes responsible for cleanup.
+    pub fn into_raw(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for PmixServerHandle {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        let status = unsafe { ffi::PMIx_server_finalize() };
+        let pmix_status = PmixStatus::from_raw(status);
+        if !pmix_status.is_success() {
+            // Always log — end-of-scope diagnostics matter more than silence.
+            eprintln!("pmix: server_finalize in PmixServerHandle::Drop failed: status={pmix_status}");
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -357,7 +393,7 @@ pub fn server_init(
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
-        Ok(PmixServerHandle { initialized: true })
+        Ok(PmixServerHandle::new_active())
     } else {
         Err(pmix_status)
     }
@@ -403,7 +439,7 @@ pub fn server_init_minimal(
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
-        Ok(PmixServerHandle { initialized: true })
+        Ok(PmixServerHandle::new_active())
     } else {
         Err(pmix_status)
     }
@@ -442,7 +478,12 @@ pub fn server_init_minimal(
 /// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
-pub fn server_finalize(_handle: PmixServerHandle) -> Result<(), PmixStatus> {
+pub fn server_finalize(handle: PmixServerHandle) -> Result<(), PmixStatus> {
+    // Disarm Drop so we do not double-finalize.
+    let mut handle = handle;
+    handle.active = false;
+    std::mem::forget(handle);
+
     let status = unsafe {
         // SAFETY: PMIx_server_finalize takes no parameters and returns
         // a status code. It is a cleanup function that releases internal
@@ -4530,7 +4571,7 @@ mod tests {
 
     #[test]
     fn test_server_handle_debug_format() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let debug_str = format!("{:?}", handle);
         assert!(!debug_str.is_empty(), "Debug output should not be empty");
         assert!(debug_str.starts_with("PmixServerHandle"));
@@ -4538,8 +4579,12 @@ mod tests {
 
     #[test]
     fn test_server_handle_construction() {
-        let handle = PmixServerHandle { initialized: true };
-        assert!(handle.initialized);
+        let handle = PmixServerHandle::inactive();
+        assert!(!handle.active);
+        let active = PmixServerHandle::new_active();
+        assert!(active.active);
+        // Disarm before drop to avoid calling finalize without init in unit tests.
+        let _ = std::mem::ManuallyDrop::new(active);
     }
 
     // ── is_server_initialized tests ──────────────────────────────────────────
@@ -4744,7 +4789,7 @@ mod tests {
     #[test]
     #[test]
     fn test_server_connect_rejects_empty_procs() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_connect(&handle, &[], &[]);
         assert!(
             result.is_err(),
@@ -4754,7 +4799,7 @@ mod tests {
 
     #[test]
     fn test_server_disconnect_rejects_empty_procs() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_disconnect(&handle, &[], &[]);
         assert!(
             result.is_err(),
@@ -4817,7 +4862,7 @@ mod tests {
     // ── server_connect_nb error path ─────────────────────────────────────────
     #[test]
     fn test_server_connect_nb_rejects_empty_procs() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
         let result = server_connect_nb(&handle, &[], &[], wrapper);
         assert!(result.is_err(), "connect_nb should reject empty proc list");
@@ -4827,7 +4872,7 @@ mod tests {
 
     #[test]
     fn test_server_disconnect_nb_rejects_empty_procs() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
         let result = server_disconnect_nb(&handle, &[], &[], wrapper);
         assert!(
@@ -4953,14 +4998,15 @@ mod tests {
 
     #[test]
     fn test_server_handle_initialized_true() {
-        let handle = PmixServerHandle { initialized: true };
-        assert!(handle.initialized);
+        let handle = PmixServerHandle::new_active();
+        assert!(handle.active);
+        std::mem::forget(handle); // disarm Drop
     }
 
     #[test]
     fn test_server_handle_initialized_false() {
-        let handle = PmixServerHandle { initialized: false };
-        assert!(!handle.initialized);
+        let handle = PmixServerHandle { active: false };
+        assert!(!handle.active);
     }
 
     // ── Registry and sequence counter tests ────────────────────────────────
@@ -5469,7 +5515,7 @@ mod tests {
 
     #[test]
     fn test_server_handle_debug_format_false() {
-        let handle = PmixServerHandle { initialized: false };
+        let handle = PmixServerHandle { active: false };
         let debug_str = format!("{:?}", handle);
         assert!(debug_str.contains("PmixServerHandle"));
         assert!(debug_str.contains("false"));
@@ -5594,7 +5640,7 @@ mod tests {
 
     #[test]
     fn test_server_delete_rejects_nul_in_key() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_delete(&handle, "testnspace", "test\0key");
         assert!(
             result.is_err(),
@@ -5604,7 +5650,7 @@ mod tests {
 
     #[test]
     fn test_server_delete_empty_key() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         // Empty key is valid (no NUL), but will fail on FFi without init.
         // We just verify it doesn't panic on the CString::new path.
         let result = server_delete(&handle, "testnspace", "");
@@ -5616,7 +5662,7 @@ mod tests {
 
     #[test]
     fn test_server_lookup_empty_key() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_lookup(&handle, "testnspace", "", &[]);
         // Empty key is technically valid input — FFi will fail without init.
         let _ = result;
@@ -5624,7 +5670,7 @@ mod tests {
 
     #[test]
     fn test_server_lookup_long_key_truncated() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         // Key longer than 511 chars should be silently truncated by the
         // implementation (pdata.key is fixed-size).
         let long_key = "a".repeat(600);
@@ -5636,7 +5682,7 @@ mod tests {
 
     #[test]
     fn test_server_publish_empty_info() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = crate::InfoBuilder::new().build();
         let result = server_publish(&handle, "testnspace", &info);
         let _ = result;
@@ -5646,7 +5692,7 @@ mod tests {
 
     #[test]
     fn test_server_fence_zero_timeout() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_fence(&handle, &[], 0);
         let _ = result;
     }
@@ -5806,19 +5852,20 @@ mod tests {
 
     #[test]
     fn test_server_handle_multiple_constructions() {
-        let h1 = PmixServerHandle { initialized: true };
-        let h2 = PmixServerHandle { initialized: false };
+        let h1 = PmixServerHandle::new_active();
+        let h2 = PmixServerHandle { active: false };
         let d1 = format!("{:?}", h1);
         let d2 = format!("{:?}", h2);
         assert!(d1.contains("true"));
         assert!(d2.contains("false"));
+        std::mem::forget(h1);
     }
 
     // ── server_connect: additional proc validation ─────────────────────────
 
     #[test]
     fn test_server_connect_rejects_empty_procs_with_info() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = crate::InfoBuilder::new().build();
         let result = server_connect(&handle, &[], &[info]);
         assert!(result.is_err());
@@ -5826,7 +5873,7 @@ mod tests {
 
     #[test]
     fn test_server_disconnect_rejects_empty_procs_with_info() {
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = crate::InfoBuilder::new().build();
         let result = server_disconnect(&handle, &[], &[info]);
         assert!(result.is_err());
@@ -6955,7 +7002,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_publish_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = crate::InfoBuilder::new().build();
         let result = server_publish(&handle, "test.nspace", &info);
         assert!(result.is_ok(), "server_publish wrapper should succeed with mocks");
@@ -6966,7 +7013,7 @@ mod tests {
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_publish", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = crate::InfoBuilder::new().build();
         let result = server_publish(&handle, "test.nspace", &info);
         assert!(result.is_err(), "server_publish wrapper should fail with configured error");
@@ -6976,7 +7023,7 @@ mod tests {
     #[ignore] // Mock returns success but doesn't populate pdata.value, so wrapper returns ErrNotFound
     fn test_mock_wrapper_server_lookup_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_lookup(&handle, "test.nspace", "test_key", &[]);
         assert!(result.is_ok(), "server_lookup wrapper should succeed with mocks");
     }
@@ -6984,7 +7031,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_lookup_returns_error_with_default_mocks() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_lookup(&handle, "test.nspace", "missing_key", &[]);
         // Default mock returns PMIX_ERR_NOT_FOUND for lookup
         assert!(result.is_err(), "server_lookup wrapper should fail for missing key with mocks");
@@ -6993,7 +7040,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_delete_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_delete(&handle, "test.nspace", "test_key");
         assert!(result.is_ok(), "server_delete wrapper should succeed with mocks");
     }
@@ -7003,7 +7050,7 @@ mod tests {
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_delete", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_delete(&handle, "test.nspace", "test_key");
         assert!(result.is_err(), "server_delete wrapper should fail with configured error");
     }
@@ -7011,7 +7058,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_fence_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_fence(&handle, &[], 5000);
         assert!(result.is_ok(), "server_fence wrapper should succeed with mocks");
     }
@@ -7021,7 +7068,7 @@ mod tests {
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_fence", crate::mock_ffi::PMIX_ERR_TIMEOUT);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_fence(&handle, &[], 5000);
         assert!(result.is_err(), "server_fence wrapper should fail with configured error");
     }
@@ -7029,7 +7076,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_connect_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let procs = vec![Proc::new("test.nspace", 0).unwrap()];
         let result = server_connect(&handle, &procs, &[]);
         assert!(result.is_ok(), "server_connect wrapper should succeed with mocks");
@@ -7038,7 +7085,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_connect_rejects_empty_procs() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_connect(&handle, &[], &[]);
         assert!(result.is_err(), "server_connect wrapper should reject empty procs");
     }
@@ -7048,7 +7095,7 @@ mod tests {
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_fence", crate::mock_ffi::PMIX_ERR_TIMEOUT);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let procs = vec![Proc::new("test.nspace", 0).unwrap()];
         let result = server_connect(&handle, &procs, &[]);
         assert!(result.is_err(), "server_connect wrapper should fail with configured error");
@@ -7057,7 +7104,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_disconnect_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let procs = vec![Proc::new("test.nspace", 0).unwrap()];
         let result = server_disconnect(&handle, &procs, &[]);
         assert!(result.is_ok(), "server_disconnect wrapper should succeed with mocks");
@@ -7066,7 +7113,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_disconnect_rejects_empty_procs() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let result = server_disconnect(&handle, &[], &[]);
         assert!(result.is_err(), "server_disconnect wrapper should reject empty procs");
     }
@@ -7076,7 +7123,7 @@ mod tests {
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_fence", crate::mock_ffi::PMIX_ERR_TIMEOUT);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let procs = vec![Proc::new("test.nspace", 0).unwrap()];
         let result = server_disconnect(&handle, &procs, &[]);
         assert!(result.is_err(), "server_disconnect wrapper should fail with configured error");
@@ -7182,7 +7229,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_tool_attach_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = crate::InfoBuilder::new().build();
         let result = server_tool_attach_to_server(&handle, None, false, &info);
         assert!(result.is_ok(), "server_tool_attach_to_server wrapper should succeed with mocks");
@@ -7193,7 +7240,7 @@ mod tests {
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_tool_attach_to_server", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = crate::InfoBuilder::new().build();
         let result = server_tool_attach_to_server(&handle, None, false, &info);
         assert!(result.is_err(), "server_tool_attach_to_server should fail with configured error");
@@ -7202,7 +7249,7 @@ mod tests {
     #[test]
     fn test_mock_wrapper_server_get_credential_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = vec![];
         let result = server_get_credential(&handle, &info);
         assert!(result.is_ok(), "server_get_credential wrapper should succeed with mocks");
@@ -7213,7 +7260,7 @@ mod tests {
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_get_credential", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { initialized: true };
+        let handle = PmixServerHandle::inactive();
         let info = vec![];
         let result = server_get_credential(&handle, &info);
         assert!(result.is_err(), "server_get_credential should fail with configured error");
