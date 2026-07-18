@@ -13,7 +13,6 @@ use crate::{
     IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType,
     PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus, ffi,
 };
-use std::ffi::CStr;
 use std::ptr;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3849,7 +3848,7 @@ mod tests {
     #[test]
     #[ignore = "requires PMIx daemon and initialization"]
     fn test_iof_push_requires_dvm() {
-        use crate::IOFChannelFlags;
+        
         let targets: &[ffi::pmix_proc_t] = &[];
         let bo = PmixByteObject::from_slice(b"test");
         let directives: &[ffi::pmix_info_t] = &[];

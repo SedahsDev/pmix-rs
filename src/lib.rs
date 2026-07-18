@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-#![allow(clippy::cast_sign_loss)]
 #![allow(clippy::ptr_offset_with_cast)]
 
 use std::fmt::Debug;
@@ -25,10 +23,9 @@ pub mod utility;
 use crate::ffi::*;
 use cstring_array::CStringArray;
 use std::ffi::{CStr, CString, NulError};
-use std::mem::zeroed;
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_void;
 use std::ptr::{null, null_mut};
-use std::{fmt, mem, ptr};
+use std::{mem, ptr};
 
 pub const GLOBAL: u8 = PMIX_GLOBAL as u8;
 pub const NUM_NODES: &[u8; 15] = PMIX_NUM_NODES;

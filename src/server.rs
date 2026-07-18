@@ -51,7 +51,7 @@ use crate::mock_ffi;
 use crate::security::PmixCredential;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_void};
+use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
@@ -4165,7 +4165,7 @@ pub fn server_get_credential(
     info: &[Info],
 ) -> Result<PmixCredential, PmixStatus> {
     if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
-        let mut cred = unsafe { std::mem::zeroed::<ffi::pmix_byte_object_t>() };
+        let _cred = unsafe { std::mem::zeroed::<ffi::pmix_byte_object_t>() };
         let status = unsafe {
             mock_ffi::mock_server_get_credential(
                 ptr::null_mut(),
@@ -4188,7 +4188,7 @@ pub fn server_get_credential(
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     // ── PmixServerModule tests ───────────────────────────────────────────────
 
