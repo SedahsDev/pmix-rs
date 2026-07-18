@@ -245,7 +245,25 @@ pub struct PmixServerModule {
     pub session_control: Option<unsafe extern "C" fn()>,
 }
 
+/// Stub callback type currently used by [`PmixServerModule`] fields.
+///
+/// Note: issue #1 / PR #11 replaces these with full bindgen signatures.
+pub type PmixServerCallback = Option<unsafe extern "C" fn()>;
+
 impl PmixServerModule {
+    /// Start a builder with every callback unset (`None`).
+    ///
+    /// ```ignore
+    /// let module = PmixServerModule::builder()
+    ///     .client_connected(Some(my_cb))
+    ///     .build();
+    /// ```
+    pub fn builder() -> PmixServerModuleBuilder {
+        PmixServerModuleBuilder {
+            module: PmixServerModule::default(),
+        }
+    }
+
     /// Convert this safe module into the raw C `pmix_server_module_t`.
     ///
     /// The returned pointer points to stack memory that is valid for
@@ -259,6 +277,144 @@ impl PmixServerModule {
     /// library (i.e., until `PMIx_server_finalize` is called).
     pub fn as_c_ptr(&self) -> *const ffi::pmix_server_module_t {
         self as *const Self as *const ffi::pmix_server_module_t
+    }
+}
+
+/// Fluent builder for [`PmixServerModule`].
+///
+/// Prefer this over struct-literal construction so new callback fields
+/// can be added without breaking call sites.
+#[derive(Debug, Default)]
+pub struct PmixServerModuleBuilder {
+    module: PmixServerModule,
+}
+
+impl PmixServerModuleBuilder {
+    /// Create an empty builder (all callbacks `None`).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Finish and return the module.
+    pub fn build(self) -> PmixServerModule {
+        self.module
+    }
+
+    pub fn client_connected(mut self, cb: PmixServerCallback) -> Self {
+        self.module.client_connected = cb;
+        self
+    }
+    pub fn client_finalized(mut self, cb: PmixServerCallback) -> Self {
+        self.module.client_finalized = cb;
+        self
+    }
+    pub fn abort(mut self, cb: PmixServerCallback) -> Self {
+        self.module.abort = cb;
+        self
+    }
+    pub fn fence_nb(mut self, cb: PmixServerCallback) -> Self {
+        self.module.fence_nb = cb;
+        self
+    }
+    pub fn direct_modex(mut self, cb: PmixServerCallback) -> Self {
+        self.module.direct_modex = cb;
+        self
+    }
+    pub fn publish(mut self, cb: PmixServerCallback) -> Self {
+        self.module.publish = cb;
+        self
+    }
+    pub fn lookup(mut self, cb: PmixServerCallback) -> Self {
+        self.module.lookup = cb;
+        self
+    }
+    pub fn unpublish(mut self, cb: PmixServerCallback) -> Self {
+        self.module.unpublish = cb;
+        self
+    }
+    pub fn spawn(mut self, cb: PmixServerCallback) -> Self {
+        self.module.spawn = cb;
+        self
+    }
+    pub fn connect(mut self, cb: PmixServerCallback) -> Self {
+        self.module.connect = cb;
+        self
+    }
+    pub fn disconnect(mut self, cb: PmixServerCallback) -> Self {
+        self.module.disconnect = cb;
+        self
+    }
+    pub fn register_events(mut self, cb: PmixServerCallback) -> Self {
+        self.module.register_events = cb;
+        self
+    }
+    pub fn deregister_events(mut self, cb: PmixServerCallback) -> Self {
+        self.module.deregister_events = cb;
+        self
+    }
+    pub fn listener(mut self, cb: PmixServerCallback) -> Self {
+        self.module.listener = cb;
+        self
+    }
+    pub fn notify_event(mut self, cb: PmixServerCallback) -> Self {
+        self.module.notify_event = cb;
+        self
+    }
+    pub fn query(mut self, cb: PmixServerCallback) -> Self {
+        self.module.query = cb;
+        self
+    }
+    pub fn tool_connected(mut self, cb: PmixServerCallback) -> Self {
+        self.module.tool_connected = cb;
+        self
+    }
+    pub fn log(mut self, cb: PmixServerCallback) -> Self {
+        self.module.log = cb;
+        self
+    }
+    pub fn allocate(mut self, cb: PmixServerCallback) -> Self {
+        self.module.allocate = cb;
+        self
+    }
+    pub fn job_control(mut self, cb: PmixServerCallback) -> Self {
+        self.module.job_control = cb;
+        self
+    }
+    pub fn monitor(mut self, cb: PmixServerCallback) -> Self {
+        self.module.monitor = cb;
+        self
+    }
+    pub fn get_credential(mut self, cb: PmixServerCallback) -> Self {
+        self.module.get_credential = cb;
+        self
+    }
+    pub fn validate_credential(mut self, cb: PmixServerCallback) -> Self {
+        self.module.validate_credential = cb;
+        self
+    }
+    pub fn iof_pull(mut self, cb: PmixServerCallback) -> Self {
+        self.module.iof_pull = cb;
+        self
+    }
+    pub fn push_stdin(mut self, cb: PmixServerCallback) -> Self {
+        self.module.push_stdin = cb;
+        self
+    }
+    pub fn group(mut self, cb: PmixServerCallback) -> Self {
+        self.module.group = cb;
+        self
+    }
+    pub fn fabric(mut self, cb: PmixServerCallback) -> Self {
+        self.module.fabric = cb;
+        self
+    }
+    pub fn client_connected2(mut self, cb: PmixServerCallback) -> Self {
+        self.module.client_connected2 = cb;
+        self
+    }
+    pub fn session_control(mut self, cb: PmixServerCallback) -> Self {
+        self.module.session_control = cb;
+        self
     }
 }
 
@@ -4191,6 +4347,19 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── PmixServerModule tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_server_module_builder_sets_one_callback() {
+        extern "C" fn dummy() {}
+        let module = PmixServerModule::builder()
+            .client_connected(Some(dummy))
+            .abort(Some(dummy))
+            .build();
+        assert!(module.client_connected.is_some());
+        assert!(module.abort.is_some());
+        assert!(module.client_finalized.is_none());
+    }
+
 
     #[test]
     fn test_server_module_default() {
