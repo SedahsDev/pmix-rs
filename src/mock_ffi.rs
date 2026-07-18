@@ -1098,6 +1098,295 @@ pub fn mock_get_attribute_name(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Mock fabric FFI implementations
+// ─────────────────────────────────────────────────────────────────────────────
+// These provide controlled mock behavior for the PMIx fabric FFI functions
+// used by fabric.rs: Fabric_register, Fabric_update, Fabric_deregister,
+// Load_topology, Compute_distances. Each returns the configured status
+// (default PMIX_SUCCESS) so tests can exercise happy-path code paths without
+// a real PMIx daemon.
+
+thread_local! {
+    /// Mock fabric state: whether the fabric is registered.
+    static MOCK_FABRIC_REGISTERED: RefCell<bool> = RefCell::new(false);
+    /// Mock fabric index value.
+    static MOCK_FABRIC_INDEX: RefCell<usize> = RefCell::new(1);
+    /// Mock topology state: whether topology is loaded.
+    static MOCK_TOPOLOGY_LOADED: RefCell<bool> = RefCell::new(false);
+    /// Mock device distances to return from Compute_distances.
+    static MOCK_DEVICE_DISTANCES: RefCell<Vec<(String, String, u64, u16, u16)>> = RefCell::new(Vec::new());
+}
+
+/// Set whether the mock fabric is registered.
+pub fn mock_set_fabric_registered(registered: bool) {
+    MOCK_FABRIC_REGISTERED.with(|cell| {
+        *cell.borrow_mut() = registered;
+    });
+}
+
+/// Set the mock fabric index value.
+pub fn mock_set_fabric_index(index: usize) {
+    MOCK_FABRIC_INDEX.with(|cell| {
+        *cell.borrow_mut() = index;
+    });
+}
+
+/// Set whether the mock topology is loaded.
+pub fn mock_set_topology_loaded(loaded: bool) {
+    MOCK_TOPOLOGY_LOADED.with(|cell| {
+        *cell.borrow_mut() = loaded;
+    });
+}
+
+/// Set mock device distances to return from Compute_distances.
+pub fn mock_set_device_distances(distances: Vec<(String, String, u64, u16, u16)>) {
+    MOCK_DEVICE_DISTANCES.with(|cell| {
+        *cell.borrow_mut() = distances;
+    });
+}
+
+/// Mock implementation of `PMIx_Fabric_register()`.
+///
+/// When mock is enabled, populates the fabric struct with mock values
+/// (index=1, module=null) and returns the configured mock status.
+pub fn mock_fabric_register(
+    fabric: *mut crate::ffi::pmix_fabric_t,
+    _directives: *const crate::ffi::pmix_info_t,
+    _ndirs: usize,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Fabric_register");
+        if status == PMIX_SUCCESS && !fabric.is_null() {
+            unsafe {
+                (*fabric).index = 1;
+                (*fabric).info = std::ptr::null_mut();
+                (*fabric).ninfo = 0;
+                (*fabric).module = std::ptr::null_mut();
+            }
+            MOCK_FABRIC_REGISTERED.with(|cell| {
+                *cell.borrow_mut() = true;
+            });
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Fabric_register_nb()`.
+pub fn mock_fabric_register_nb(
+    fabric: *mut crate::ffi::pmix_fabric_t,
+    _directives: *const crate::ffi::pmix_info_t,
+    _ndirs: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::os::raw::c_void)>,
+    _cbdata: *mut std::os::raw::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Fabric_register_nb");
+        if status == PMIX_SUCCESS && !fabric.is_null() {
+            unsafe {
+                (*fabric).index = 1;
+                (*fabric).info = std::ptr::null_mut();
+                (*fabric).ninfo = 0;
+                (*fabric).module = std::ptr::null_mut();
+            }
+            MOCK_FABRIC_REGISTERED.with(|cell| {
+                *cell.borrow_mut() = true;
+            });
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Fabric_update()`.
+pub fn mock_fabric_update(fabric: *mut crate::ffi::pmix_fabric_t) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Fabric_update");
+        if status == PMIX_SUCCESS && !fabric.is_null() {
+            let index = MOCK_FABRIC_INDEX.with(|cell| *cell.borrow());
+            unsafe {
+                (*fabric).index = index;
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Fabric_update_nb()`.
+pub fn mock_fabric_update_nb(
+    fabric: *mut crate::ffi::pmix_fabric_t,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::os::raw::c_void)>,
+    _cbdata: *mut std::os::raw::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Fabric_update_nb");
+        if status == PMIX_SUCCESS && !fabric.is_null() {
+            let index = MOCK_FABRIC_INDEX.with(|cell| *cell.borrow());
+            unsafe {
+                (*fabric).index = index;
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Fabric_deregister()`.
+pub fn mock_fabric_deregister(fabric: *mut crate::ffi::pmix_fabric_t) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Fabric_deregister");
+        if status == PMIX_SUCCESS && !fabric.is_null() {
+            unsafe {
+                (*fabric).index = 0;
+                (*fabric).info = std::ptr::null_mut();
+                (*fabric).ninfo = 0;
+                (*fabric).module = std::ptr::null_mut();
+            }
+            MOCK_FABRIC_REGISTERED.with(|cell| {
+                *cell.borrow_mut() = false;
+            });
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Fabric_deregister_nb()`.
+pub fn mock_fabric_deregister_nb(
+    fabric: *mut crate::ffi::pmix_fabric_t,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::os::raw::c_void)>,
+    _cbdata: *mut std::os::raw::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Fabric_deregister_nb");
+        if status == PMIX_SUCCESS && !fabric.is_null() {
+            unsafe {
+                (*fabric).index = 0;
+                (*fabric).info = std::ptr::null_mut();
+                (*fabric).ninfo = 0;
+                (*fabric).module = std::ptr::null_mut();
+            }
+            MOCK_FABRIC_REGISTERED.with(|cell| {
+                *cell.borrow_mut() = false;
+            });
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Load_topology()`.
+pub fn mock_load_topology(topo: *mut crate::ffi::pmix_topology_t) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Load_topology");
+        if status == PMIX_SUCCESS && !topo.is_null() {
+            unsafe {
+                (*topo).topology = std::ptr::null_mut();
+            }
+            MOCK_TOPOLOGY_LOADED.with(|cell| {
+                *cell.borrow_mut() = true;
+            });
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Compute_distances()`.
+///
+/// When mock is enabled, writes the mock device distances to the output
+/// pointers and returns the configured mock status.
+pub fn mock_compute_distances(
+    _topo: *mut crate::ffi::pmix_topology_t,
+    _cpuset: *mut crate::ffi::pmix_cpuset_t,
+    _info: *mut crate::ffi::pmix_info_t,
+    _ninfo: usize,
+    distances: *mut *mut crate::ffi::pmix_device_distance_t,
+    ndist: *mut usize,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Compute_distances");
+        if status == PMIX_SUCCESS && !distances.is_null() && !ndist.is_null() {
+            let mock_distances = MOCK_DEVICE_DISTANCES.with(|cell| cell.borrow().clone());
+            if !mock_distances.is_empty() {
+                let count = mock_distances.len();
+                // Allocate array of device_distance_t
+                let layout = std::alloc::Layout::from_size_align(
+                    std::mem::size_of::<crate::ffi::pmix_device_distance_t>() * count,
+                    std::mem::align_of::<crate::ffi::pmix_device_distance_t>(),
+                ).unwrap();
+                let ptr = unsafe { std::alloc::alloc(layout) as *mut crate::ffi::pmix_device_distance_t };
+                if !ptr.is_null() {
+                    for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate() {
+                        let entry = unsafe { &mut *ptr.add(i) };
+                        entry.uuid = std::ffi::CString::new(uuid.as_str()).unwrap().into_raw();
+                        entry.osname = std::ffi::CString::new(osname.as_str()).unwrap().into_raw();
+                        entry.type_ = *dtype;
+                        entry.mindist = *mind;
+                        entry.maxdist = *maxd;
+                    }
+                    unsafe {
+                        *distances = ptr;
+                        *ndist = count;
+                    }
+                }
+            }
+        }
+        status
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Compute_distances_nb()`.
+pub fn mock_compute_distances_nb(
+    _topo: *mut crate::ffi::pmix_topology_t,
+    _cpuset: *mut crate::ffi::pmix_cpuset_t,
+    _info: *mut crate::ffi::pmix_info_t,
+    _ninfo: usize,
+    _cbfunc: Option<unsafe extern "C" fn(
+        i32,
+        *mut crate::ffi::pmix_device_distance_t,
+        usize,
+        *mut std::os::raw::c_void,
+        Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+        *mut std::os::raw::c_void,
+    )>,
+    _cbdata: *mut std::os::raw::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Compute_distances_nb")
+    } else {
+        PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Topology_destruct()`.
+pub fn mock_topology_destruct(_topo: *mut crate::ffi::pmix_topology_t) {
+    MOCK_TOPOLOGY_LOADED.with(|cell| {
+        *cell.borrow_mut() = false;
+    });
+}
+
+/// Mock implementation of `PMIx_Cpuset_construct()`.
+pub fn mock_cpuset_construct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
+    // No-op in mock
+}
+
+/// Mock implementation of `PMIx_Cpuset_destruct()`.
+pub fn mock_cpuset_destruct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
+    // No-op in mock
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests for the mock FFI framework itself
 // ─────────────────────────────────────────────────────────────────────────────
 

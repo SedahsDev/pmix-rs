@@ -62,6 +62,9 @@ use std::ptr;
 use crate::ffi;
 use crate::{Info, PmixDeviceType, PmixError, PmixStatus};
 
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixFabric — safe wrapper for pmix_fabric_t
 // ─────────────────────────────────────────────────────────────────────────────
@@ -188,7 +191,9 @@ impl PmixFabric {
     fn sync_from_raw(&mut self) {
         unsafe {
             let raw = self.raw.as_ptr();
+            self.index = (*raw).index;
             self.module = (*raw).module;
+            self.ninfo = (*raw).ninfo;
             // Note: PMIx may reallocate the info array on update.
             // We track the pointer and count but don't take ownership
             // until deregistration, at which point PMIx frees it.
@@ -256,7 +261,13 @@ pub fn fabric_register(fabric: &mut PmixFabric, directives: &[Info]) -> Result<(
     };
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) };
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe {
+            mock_ffi::mock_fabric_register(fabric_ptr, dirs_ptr, ndirs)
+        }
+    } else {
+        unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) }
+    };
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -318,14 +329,26 @@ pub fn fabric_register_nb(
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = unsafe {
-        ffi::PMIx_Fabric_register_nb(
-            fabric_ptr,
-            dirs_ptr,
-            ndirs,
-            Some(fabric_register_cb),
-            wrapper_ptr,
-        )
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe {
+            mock_ffi::mock_fabric_register_nb(
+                fabric_ptr,
+                dirs_ptr,
+                ndirs,
+                Some(fabric_register_cb),
+                wrapper_ptr,
+            )
+        }
+    } else {
+        unsafe {
+            ffi::PMIx_Fabric_register_nb(
+                fabric_ptr,
+                dirs_ptr,
+                ndirs,
+                Some(fabric_register_cb),
+                wrapper_ptr,
+            )
+        }
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -364,7 +387,11 @@ pub fn fabric_update(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = unsafe { ffi::PMIx_Fabric_update(fabric_ptr) };
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe { mock_ffi::mock_fabric_update(fabric_ptr) }
+    } else {
+        unsafe { ffi::PMIx_Fabric_update(fabric_ptr) }
+    };
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -399,8 +426,13 @@ pub fn fabric_update_nb(
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status =
-        unsafe { ffi::PMIx_Fabric_update_nb(fabric_ptr, Some(fabric_update_cb), wrapper_ptr) };
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe {
+            mock_ffi::mock_fabric_update_nb(fabric_ptr, Some(fabric_update_cb), wrapper_ptr)
+        }
+    } else {
+        unsafe { ffi::PMIx_Fabric_update_nb(fabric_ptr, Some(fabric_update_cb), wrapper_ptr) }
+    };
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -432,7 +464,11 @@ pub fn fabric_deregister(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) };
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe { mock_ffi::mock_fabric_deregister(fabric_ptr) }
+    } else {
+        unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) }
+    };
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -472,8 +508,18 @@ pub fn fabric_deregister_nb(
     }
 
     let fabric_ptr = fabric.as_mut_ptr();
-    let status = unsafe {
-        ffi::PMIx_Fabric_deregister_nb(fabric_ptr, Some(fabric_deregister_cb), wrapper_ptr)
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe {
+            mock_ffi::mock_fabric_deregister_nb(
+                fabric_ptr,
+                Some(fabric_deregister_cb),
+                wrapper_ptr,
+            )
+        }
+    } else {
+        unsafe {
+            ffi::PMIx_Fabric_deregister_nb(fabric_ptr, Some(fabric_deregister_cb), wrapper_ptr)
+        }
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -584,7 +630,11 @@ impl Drop for PmixTopology {
             let raw_ptr = self.as_mut_ptr();
             // SAFETY: PMIx_Topology_destruct is the designated destructor
             // for pmix_topology_t objects that have been loaded.
-            unsafe { ffi::PMIx_Topology_destruct(raw_ptr) };
+            if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+                unsafe { mock_ffi::mock_topology_destruct(raw_ptr) };
+            } else {
+                unsafe { ffi::PMIx_Topology_destruct(raw_ptr) };
+            }
             self.loaded = false;
         }
         // Construct the raw struct to call destruct even if not loaded
@@ -623,7 +673,11 @@ impl PmixCpuset {
         };
         let raw_ptr = this.raw.as_mut_ptr();
         // SAFETY: PMIx_Cpuset_construct initializes a pmix_cpuset_t.
-        unsafe { ffi::PMIx_Cpuset_construct(raw_ptr) };
+        if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+            unsafe { mock_ffi::mock_cpuset_construct(raw_ptr) };
+        } else {
+            unsafe { ffi::PMIx_Cpuset_construct(raw_ptr) };
+        }
         this.constructed = true;
         this
     }
@@ -658,7 +712,11 @@ impl Drop for PmixCpuset {
         if self.constructed {
             // SAFETY: PMIx_Cpuset_destruct is the designated destructor
             // for pmix_cpuset_t objects that have been constructed.
-            unsafe { ffi::PMIx_Cpuset_destruct(self.raw.as_mut_ptr()) };
+            if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+                unsafe { mock_ffi::mock_cpuset_destruct(self.raw.as_mut_ptr()) };
+            } else {
+                unsafe { ffi::PMIx_Cpuset_destruct(self.raw.as_mut_ptr()) };
+            }
             self.constructed = false;
         }
     }
@@ -899,7 +957,11 @@ struct ComputeDistancesCallbackWrapper {
 /// `pmix_status_t PMIx_Load_topology(pmix_topology_t *topo);`
 pub fn load_topology(topo: &mut PmixTopology) -> Result<(), PmixStatus> {
     let raw_ptr = topo.as_mut_ptr();
-    let status = unsafe { ffi::PMIx_Load_topology(raw_ptr) };
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe { mock_ffi::mock_load_topology(raw_ptr) }
+    } else {
+        unsafe { ffi::PMIx_Load_topology(raw_ptr) }
+    };
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -969,15 +1031,28 @@ pub fn compute_distances(
     let mut raw_distances: *mut ffi::pmix_device_distance_t = ptr::null_mut();
     let mut ndist: usize = 0;
 
-    let status = unsafe {
-        ffi::PMIx_Compute_distances(
-            topo_ptr,
-            cpuset_ptr,
-            info_ptr,
-            ninfo,
-            &mut raw_distances,
-            &mut ndist,
-        )
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe {
+            mock_ffi::mock_compute_distances(
+                topo_ptr,
+                cpuset_ptr,
+                info_ptr,
+                ninfo,
+                &mut raw_distances,
+                &mut ndist,
+            )
+        }
+    } else {
+        unsafe {
+            ffi::PMIx_Compute_distances(
+                topo_ptr,
+                cpuset_ptr,
+                info_ptr,
+                ninfo,
+                &mut raw_distances,
+                &mut ndist,
+            )
+        }
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -1090,15 +1165,28 @@ pub fn compute_distances_nb(
     let topo_ptr = topo.as_mut_ptr();
     let cpuset_ptr = cpuset.as_mut_ptr();
 
-    let status = unsafe {
-        ffi::PMIx_Compute_distances_nb(
-            topo_ptr,
-            cpuset_ptr,
-            info_ptr,
-            ninfo,
-            Some(compute_distances_cb),
-            wrapper_ptr,
-        )
+    let status = if cfg!(any(test, feature = "mock_ffi")) && mock_ffi::is_mock_enabled() {
+        unsafe {
+            mock_ffi::mock_compute_distances_nb(
+                topo_ptr,
+                cpuset_ptr,
+                info_ptr,
+                ninfo,
+                Some(compute_distances_cb),
+                wrapper_ptr,
+            )
+        }
+    } else {
+        unsafe {
+            ffi::PMIx_Compute_distances_nb(
+                topo_ptr,
+                cpuset_ptr,
+                info_ptr,
+                ninfo,
+                Some(compute_distances_cb),
+                wrapper_ptr,
+            )
+        }
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -1855,5 +1943,280 @@ mod tests {
         // returns an error and the wrapper is reclaimed.
         // We test the compile path and wrapper cleanup indirectly.
         let _cb: Box<dyn FabricCallback> = Box::new(NbCb);
+    }
+
+    // ── Mock-based fabric FFI tests ──
+
+    #[test]
+    fn test_fabric_register_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test_fabric")).unwrap();
+        assert!(!fabric.is_registered());
+        let result = fabric_register(&mut fabric, &[]);
+        assert!(result.is_ok());
+        assert!(fabric.is_registered());
+        assert_eq!(fabric.index(), 1);
+    }
+
+    #[test]
+    fn test_fabric_register_with_directives_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test_fabric")).unwrap();
+        let mut builder = crate::InfoBuilder::new();
+        builder.collect_data();
+        let info = builder.build();
+        let result = fabric_register(&mut fabric, &[info]);
+        assert!(result.is_ok());
+        assert!(fabric.is_registered());
+    }
+
+    #[test]
+    fn test_fabric_register_error_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_Fabric_register", mock_ffi::PMIX_ERR_BAD_PARAM)
+            .apply();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+        let result = fabric_register(&mut fabric, &[]);
+        assert!(result.is_err());
+        assert!(!fabric.is_registered());
+    }
+
+    #[test]
+    fn test_fabric_update_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+        // Register first
+        fabric_register(&mut fabric, &[]).unwrap();
+        // Now update
+        let result = fabric_update(&mut fabric);
+        assert!(result.is_ok());
+        assert!(fabric.is_registered());
+    }
+
+    #[test]
+    fn test_fabric_update_not_registered_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+        // Not registered — should fail
+        let result = fabric_update(&mut fabric);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fabric_deregister_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+        // Register first
+        fabric_register(&mut fabric, &[]).unwrap();
+        assert!(fabric.is_registered());
+        // Deregister
+        let result = fabric_deregister(&mut fabric);
+        assert!(result.is_ok());
+        assert!(!fabric.is_registered());
+        assert_eq!(fabric.ninfo(), 0);
+    }
+
+    #[test]
+    fn test_fabric_deregister_not_registered_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+        let result = fabric_deregister(&mut fabric);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fabric_register_nb_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+
+        struct NbCb;
+        impl FabricCallback for NbCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+
+        let result = fabric_register_nb(&mut fabric, &[], Box::new(NbCb));
+        assert!(result.is_ok());
+        assert!(fabric.is_registered());
+    }
+
+    #[test]
+    fn test_fabric_update_nb_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+        fabric_register(&mut fabric, &[]).unwrap();
+
+        struct NbCb;
+        impl FabricCallback for NbCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+
+        let result = fabric_update_nb(&mut fabric, Box::new(NbCb));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fabric_update_nb_not_registered_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+
+        struct NbCb;
+        impl FabricCallback for NbCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+
+        let result = fabric_update_nb(&mut fabric, Box::new(NbCb));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fabric_deregister_nb_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+        fabric_register(&mut fabric, &[]).unwrap();
+
+        struct NbCb;
+        impl FabricCallback for NbCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+
+        let result = fabric_deregister_nb(&mut fabric, Box::new(NbCb));
+        assert!(result.is_ok());
+        assert!(!fabric.is_registered());
+    }
+
+    #[test]
+    fn test_fabric_deregister_nb_not_registered_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::new(Some("test")).unwrap();
+
+        struct NbCb;
+        impl FabricCallback for NbCb {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+
+        let result = fabric_deregister_nb(&mut fabric, Box::new(NbCb));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_topology_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut topo = PmixTopology::new(Some("hwloc")).unwrap();
+        assert!(!topo.is_loaded());
+        let result = load_topology(&mut topo);
+        assert!(result.is_ok());
+        assert!(topo.is_loaded());
+    }
+
+    #[test]
+    fn test_compute_distances_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+
+        // Set up mock device distances
+        mock_ffi::mock_set_device_distances(vec![
+            ("gpu-001".to_string(), "nvidia0".to_string(), 0u64, 10, 50),
+            ("gpu-002".to_string(), "nvidia1".to_string(), 0u64, 20, 60),
+        ]);
+
+        let mut topo = PmixTopology::new(Some("hwloc")).unwrap();
+        let mut cpuset = PmixCpuset::new();
+        let result = compute_distances(&mut topo, &mut cpuset, &[]);
+        assert!(result.is_ok());
+        let distances = result.unwrap();
+        assert_eq!(distances.len(), 2);
+        assert_eq!(distances.distances()[0].uuid(), "gpu-001");
+        assert_eq!(distances.distances()[0].osname(), "nvidia0");
+        assert_eq!(distances.distances()[0].mindist(), 10);
+        assert_eq!(distances.distances()[0].maxdist(), 50);
+        assert_eq!(distances.distances()[1].uuid(), "gpu-002");
+    }
+
+    #[test]
+    fn test_compute_distances_empty_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        // No mock distances set — should return empty
+        mock_ffi::mock_set_device_distances(vec![]);
+
+        let mut topo = PmixTopology::new(Some("hwloc")).unwrap();
+        let mut cpuset = PmixCpuset::new();
+        let result = compute_distances(&mut topo, &mut cpuset, &[]);
+        assert!(result.is_ok());
+        let distances = result.unwrap();
+        assert_eq!(distances.len(), 0);
+    }
+
+    #[test]
+    fn test_cpuset_new_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut cpuset = PmixCpuset::new();
+        let _ptr = cpuset.as_mut_ptr();
+        // Should not panic — mock construct succeeded
+    }
+
+    #[test]
+    fn test_fabric_full_lifecycle_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        // Full lifecycle: register -> update -> deregister
+        let mut fabric = PmixFabric::new(Some("full_lifecycle")).unwrap();
+
+        // Register
+        assert!(fabric_register(&mut fabric, &[]).is_ok());
+        assert!(fabric.is_registered());
+        assert_eq!(fabric.index(), 1);
+
+        // Update
+        assert!(fabric_update(&mut fabric).is_ok());
+
+        // Deregister
+        assert!(fabric_deregister(&mut fabric).is_ok());
+        assert!(!fabric.is_registered());
+        assert_eq!(fabric.ninfo(), 0);
+    }
+
+    #[test]
+    fn test_topology_lifecycle_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut topo = PmixTopology::new(Some("hwloc")).unwrap();
+        assert!(!topo.is_loaded());
+
+        // Load topology
+        assert!(load_topology(&mut topo).is_ok());
+        assert!(topo.is_loaded());
+
+        // Drop should call mock destruct
+        drop(topo);
+    }
+
+    #[test]
+    fn test_cpuset_lifecycle_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut cpuset = PmixCpuset::new();
+        let _ptr = cpuset.as_mut_ptr();
+        // Drop should call mock destruct
+        drop(cpuset);
+    }
+
+    #[test]
+    fn test_fabric_register_error_then_retry_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+
+        // First attempt: error
+        mock_ffi::MockConfig::new()
+            .with_function_status("PMIx_Fabric_register", mock_ffi::PMIX_ERR_INIT)
+            .apply();
+
+        let mut fabric = PmixFabric::new(Some("retry")).unwrap();
+        let result = fabric_register(&mut fabric, &[]);
+        assert!(result.is_err());
+        assert!(!fabric.is_registered());
+
+        // Reset to success
+        mock_ffi::enable_mock_ffi();
+
+        // Second attempt: success
+        let result = fabric_register(&mut fabric, &[]);
+        assert!(result.is_ok());
+        assert!(fabric.is_registered());
     }
 }
