@@ -97,7 +97,16 @@ impl PmixQuery {
         let query_ptr = unsafe {
             // SAFETY: PMIx_Query_create allocates and zero-initializes a
             // pmix_query_t. It always returns a non-null pointer.
-            ffi::PMIx_Query_create(1)
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if mock_ffi::is_mock_enabled() {
+                mock_ffi::mock_query_create(1)
+            } else {
+                ffi::PMIx_Query_create(1)
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            {
+                ffi::PMIx_Query_create(1)
+            }
         };
         if query_ptr.is_null() {
             return Err(PmixError::ErrNomem.into());
@@ -109,8 +118,16 @@ impl PmixQuery {
             Ok(v) => v,
             Err(_) => {
                 unsafe {
-                    // SAFETY: query_ptr was allocated by PMIx_Query_create.
-                    ffi::PMIx_Query_free(query_ptr, 1);
+                    #[cfg(any(test, feature = "mock_ffi"))]
+                    if mock_ffi::is_mock_enabled() {
+                        mock_ffi::mock_query_free(query_ptr, 1);
+                    } else {
+                        ffi::PMIx_Query_free(query_ptr, 1);
+                    }
+                    #[cfg(not(any(test, feature = "mock_ffi")))]
+                    {
+                        ffi::PMIx_Query_free(query_ptr, 1);
+                    }
                 }
                 return Err(PmixError::ErrBadParam.into());
             }
@@ -124,7 +141,16 @@ impl PmixQuery {
 
         if keys_array.is_null() {
             unsafe {
-                ffi::PMIx_Query_free(query_ptr, 1);
+                #[cfg(any(test, feature = "mock_ffi"))]
+                if mock_ffi::is_mock_enabled() {
+                    mock_ffi::mock_query_free(query_ptr, 1);
+                } else {
+                    ffi::PMIx_Query_free(query_ptr, 1);
+                }
+                #[cfg(not(any(test, feature = "mock_ffi")))]
+                {
+                    ffi::PMIx_Query_free(query_ptr, 1);
+                }
             }
             return Err(PmixError::ErrNomem.into());
         }
@@ -321,7 +347,16 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
         //   owned by the PmixQuery borrows passed by the caller.
         // - results and nresults are output pointers that PMIx will write to.
         // - PMIx does not retain queries_ptr after this call returns.
-        ffi::PMIx_Query_info(queries_ptr, nqueries, &mut results, &mut nresults)
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            mock_ffi::mock_query_info(queries_ptr, nqueries, &mut results, &mut nresults)
+        } else {
+            ffi::PMIx_Query_info(queries_ptr, nqueries, &mut results, &mut nresults)
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            ffi::PMIx_Query_info(queries_ptr, nqueries, &mut results, &mut nresults)
+        }
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -336,8 +371,16 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
         // On error, PMIx may have still allocated a results array — free it.
         if !results.is_null() && nresults > 0 {
             unsafe {
-                // SAFETY: PMIx allocated this array; free it on the error path.
-                ffi::PMIx_Info_free(results, nresults);
+                #[cfg(any(test, feature = "mock_ffi"))]
+                if mock_ffi::is_mock_enabled() {
+                    mock_ffi::mock_info_free(results, nresults);
+                } else {
+                    ffi::PMIx_Info_free(results, nresults);
+                }
+                #[cfg(not(any(test, feature = "mock_ffi")))]
+                {
+                    ffi::PMIx_Info_free(results, nresults);
+                }
             }
         }
         Err(pmix_status)
@@ -402,7 +445,16 @@ extern "C" fn query_callback_bridge(
             // Callback already consumed — free the info array to avoid leak.
             if !info.is_null() && ninfo > 0 {
                 unsafe {
-                    ffi::PMIx_Info_free(info, ninfo);
+                    #[cfg(any(test, feature = "mock_ffi"))]
+                    if mock_ffi::is_mock_enabled() {
+                        mock_ffi::mock_info_free(info, ninfo);
+                    } else {
+                        ffi::PMIx_Info_free(info, ninfo);
+                    }
+                    #[cfg(not(any(test, feature = "mock_ffi")))]
+                    {
+                        ffi::PMIx_Info_free(info, ninfo);
+                    }
                 }
             }
             return;
@@ -468,7 +520,16 @@ pub fn query_info_nb(
         // - cbfunc is a valid extern "C" function pointer.
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
         // - PMIx does not retain queries_ptr after this call returns.
-        ffi::PMIx_Query_info_nb(queries_ptr, nqueries, Some(query_callback_bridge), cbdata)
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            mock_ffi::mock_query_info_nb(queries_ptr, nqueries, Some(query_callback_bridge), cbdata)
+        } else {
+            ffi::PMIx_Query_info_nb(queries_ptr, nqueries, Some(query_callback_bridge), cbdata)
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            ffi::PMIx_Query_info_nb(queries_ptr, nqueries, Some(query_callback_bridge), cbdata)
+        }
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -552,7 +613,16 @@ pub fn log_data(data: &[Info], directives: &[Info]) -> Result<(), PmixStatus> {
         // - PMIx does not retain these pointers after this call returns.
         // - The caller must keep data and directives alive until this
         //   function returns.
-        ffi::PMIx_Log(data_ptr, ndata, dirs_ptr, ndirs)
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            mock_ffi::mock_log(data_ptr, ndata, dirs_ptr, ndirs)
+        } else {
+            ffi::PMIx_Log(data_ptr, ndata, dirs_ptr, ndirs)
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            ffi::PMIx_Log(data_ptr, ndata, dirs_ptr, ndirs)
+        }
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -676,14 +746,37 @@ pub fn log_data_nb(
         // - PMIx does not retain data_ptr or dirs_ptr after this call returns.
         // - The caller must keep data and directives alive until the
         //   callback is invoked.
-        ffi::PMIx_Log_nb(
-            data_ptr,
-            ndata,
-            dirs_ptr,
-            ndirs,
-            Some(log_callback_bridge),
-            cbdata,
-        )
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            mock_ffi::mock_log_nb(
+                data_ptr,
+                ndata,
+                dirs_ptr,
+                ndirs,
+                Some(log_callback_bridge),
+                cbdata,
+            )
+        } else {
+            ffi::PMIx_Log_nb(
+                data_ptr,
+                ndata,
+                dirs_ptr,
+                ndirs,
+                Some(log_callback_bridge),
+                cbdata,
+            )
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            ffi::PMIx_Log_nb(
+                data_ptr,
+                ndata,
+                dirs_ptr,
+                ndirs,
+                Some(log_callback_bridge),
+                cbdata,
+            )
+        }
     };
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -1472,5 +1565,254 @@ mod tests {
         let info = crate::info_with_string_key("PMIX_LOG_STDOUT", "test message");
         assert!(!info.is_empty());
         assert_eq!(info.len(), 1);
+    }
+
+    // ── TASK-114: New tests to improve coverage ─────────────────────────────────
+
+    #[test]
+    fn test_query_info_success_with_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let query = PmixQuery::new(&["pmix.version"]).unwrap();
+        let result = query_info(&[query]);
+        // With mock returning PMIX_SUCCESS, we should get Ok(QueryResults)
+        assert!(result.is_ok());
+        let results = result.unwrap();
+        assert_eq!(results.len(), 0);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_query_info_error_path_with_mock() {
+        let _guard = mock_ffi::MockGuard::with_config(
+            mock_ffi::MockConfig::new()
+                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_INIT)
+        );
+        let query = PmixQuery::new(&["pmix.version"]).unwrap();
+        let result = query_info(&[query]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
+    }
+
+    #[test]
+    fn test_query_info_nb_success_with_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let query = PmixQuery::new(&["pmix.version"]).unwrap();
+
+        struct TestCallback {
+            called: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl QueryCallback for TestCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let cb = Box::new(TestCallback {
+            called: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+
+        let result = query_info_nb(&[query], cb);
+        // With mock returning PMIX_SUCCESS, the request is accepted
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_query_info_nb_error_cleanup_with_mock() {
+        let _guard = mock_ffi::MockGuard::with_config(
+            mock_ffi::MockConfig::new()
+                .with_function_status("PMIx_Query_info_nb", mock_ffi::PMIX_ERR_INIT)
+        );
+        let query = PmixQuery::new(&["pmix.version"]).unwrap();
+
+        struct TestCallback {
+            called: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl QueryCallback for TestCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let cb = Box::new(TestCallback {
+            called: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+
+        let result = query_info_nb(&[query], cb);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
+    }
+
+    #[test]
+    fn test_log_data_success_with_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let directives: Vec<Info> = vec![];
+        let result = log_data(&data, &directives);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_log_data_error_with_mock() {
+        let _guard = mock_ffi::MockGuard::with_config(
+            mock_ffi::MockConfig::new()
+                .with_function_status("PMIx_Log", mock_ffi::PMIX_ERR_NOT_SUPPORTED)
+        );
+        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let directives: Vec<Info> = vec![];
+        let result = log_data(&data, &directives);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrNotSupported));
+    }
+
+    #[test]
+    fn test_log_data_nb_success_with_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let directives: Vec<Info> = vec![];
+
+        struct TestLogCallback {
+            called: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl LogCallback for TestLogCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let cb = Box::new(TestLogCallback {
+            called: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+
+        let result = log_data_nb(&data, &directives, cb);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_log_data_nb_error_cleanup_with_mock() {
+        let _guard = mock_ffi::MockGuard::with_config(
+            mock_ffi::MockConfig::new()
+                .with_function_status("PMIx_Log_nb", mock_ffi::PMIX_ERR_INIT)
+        );
+        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let directives: Vec<Info> = vec![];
+
+        struct TestLogCallback {
+            called: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl LogCallback for TestLogCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let cb = Box::new(TestLogCallback {
+            called: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+
+        let result = log_data_nb(&data, &directives, cb);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
+    }
+
+    #[test]
+    fn test_query_callback_bridge_success_path() {
+        let _guard = mock_ffi::MockGuard::new();
+
+        // Register a callback
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        struct BridgeTestCallback {
+            called: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl QueryCallback for BridgeTestCallback {
+            fn on_complete(self: Box<Self>, status: PmixStatus, _results: QueryResults) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+                assert!(status.is_success());
+            }
+        }
+
+        let req_id = {
+            let mut seq = QUERY_SEQ.lock().expect("mutex poisoned");
+            *seq += 1;
+            *seq
+        };
+
+        {
+            let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned");
+            registry.insert(req_id, Box::new(BridgeTestCallback { called: called_clone }));
+        }
+
+        // Simulate the callback being invoked
+        let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+        unsafe {
+            query_callback_bridge(
+                0, // PMIX_SUCCESS
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                None,
+                cbdata,
+            );
+        }
+
+        assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_log_callback_bridge_success_path() {
+        let _guard = mock_ffi::MockGuard::new();
+
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        struct BridgeLogTestCallback {
+            called: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl LogCallback for BridgeLogTestCallback {
+            fn on_complete(self: Box<Self>, status: PmixStatus) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+                assert!(status.is_success());
+            }
+        }
+
+        let req_id = {
+            let mut seq = LOG_SEQ.lock().expect("mutex poisoned");
+            *seq += 1;
+            *seq
+        };
+
+        {
+            let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned");
+            registry.insert(req_id, Box::new(BridgeLogTestCallback { called: called_clone }));
+        }
+
+        let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+        unsafe {
+            log_callback_bridge(0, cbdata);
+        }
+
+        assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_query_info_partial_success_with_mock() {
+        let _guard = mock_ffi::MockGuard::with_config(
+            mock_ffi::MockConfig::new()
+                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_PARTIAL_SUCCESS)
+        );
+        let query = PmixQuery::new(&["pmix.version"]).unwrap();
+        let result = query_info(&[query]);
+        // Partial success should still return Ok(QueryResults)
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_log_data_with_both_data_and_directives() {
+        let _guard = mock_ffi::MockGuard::new();
+        let data = vec![crate::info_with_string_key("log.message", "Hello, world!")];
+        let directives = vec![crate::info_with_string_key("pmix.log.stdout", "true")];
+        let result = log_data(&data, &directives);
+        assert!(result.is_ok());
     }
 }
