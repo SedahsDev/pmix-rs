@@ -209,6 +209,10 @@ pub const PMIX_ERR_PACK_FAILURE: i32 = -21;
 pub const PMIX_ERR_UNPACK_FAILURE: i32 = -20;
 /// PMIX_ERROR (-1)
 pub const PMIX_ERROR: i32 = -1;
+/// PMIX_ERR_NOT_SUPPORTED (-47)
+pub const PMIX_ERR_NOT_SUPPORTED: i32 = -47;
+/// PMIX_ERR_PARTIAL_SUCCESS (-52)
+pub const PMIX_ERR_PARTIAL_SUCCESS: i32 = -52;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx data type constants
@@ -1517,6 +1521,129 @@ pub fn mock_cpuset_construct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
 /// Mock implementation of `PMIx_Cpuset_destruct()`.
 pub fn mock_cpuset_destruct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
     // No-op in mock
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mock query/log FFI implementations
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Mock implementation of `PMIx_Query_create()`.
+/// Allocates a pmix_query_t struct and returns a pointer.
+pub fn mock_query_create(n: usize) -> *mut crate::ffi::pmix_query_t {
+    let _ = n;
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Query_create");
+        if status == PMIX_SUCCESS {
+            let ptr = unsafe {
+                libc::calloc(1, std::mem::size_of::<crate::ffi::pmix_query_t>())
+                    as *mut crate::ffi::pmix_query_t
+            };
+            if !ptr.is_null() {
+                unsafe {
+                    (*ptr).keys = std::ptr::null_mut();
+                    (*ptr).qualifiers = std::ptr::null_mut();
+                    (*ptr).nqual = 0;
+                }
+            }
+            ptr
+        } else {
+            std::ptr::null_mut()
+        }
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+/// Mock implementation of `PMIx_Query_free()`.
+/// Frees a pmix_query_t struct allocated by mock_query_create.
+pub fn mock_query_free(p: *mut crate::ffi::pmix_query_t, n: usize) {
+    if is_mock_enabled() {
+        for i in 0..n {
+            let ptr = unsafe { p.add(i) };
+            unsafe {
+                libc::free(ptr as *mut std::ffi::c_void);
+            }
+        }
+    }
+}
+
+/// Mock implementation of `PMIx_Query_info()`.
+/// Simulates a query response by writing to the output parameters.
+pub fn mock_query_info(
+    _queries: *mut crate::ffi::pmix_query_t,
+    _nqueries: usize,
+    results: *mut *mut crate::ffi::pmix_info_t,
+    nresults: *mut usize,
+) -> i32 {
+    if is_mock_enabled() {
+        let status = get_mock_status("PMIx_Query_info");
+        // Return empty results regardless of status
+        unsafe {
+            *results = std::ptr::null_mut();
+            *nresults = 0;
+        }
+        status
+    } else {
+        crate::mock_ffi::PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Query_info_nb()`.
+/// Simulates an async query — returns status immediately.
+pub fn mock_query_info_nb(
+    _queries: *mut crate::ffi::pmix_query_t,
+    _nqueries: usize,
+    _cbfunc: Option<unsafe extern "C" fn(
+        crate::ffi::pmix_status_t,
+        *mut crate::ffi::pmix_info_t,
+        usize,
+        *mut std::ffi::c_void,
+        crate::ffi::pmix_release_cbfunc_t,
+        *mut std::ffi::c_void,
+    )>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Query_info_nb")
+    } else {
+        crate::mock_ffi::PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Log()`.
+pub fn mock_log(
+    _data: *const crate::ffi::pmix_info_t,
+    _ndata: usize,
+    _directives: *const crate::ffi::pmix_info_t,
+    _ndirs: usize,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Log")
+    } else {
+        crate::mock_ffi::PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Log_nb()`.
+pub fn mock_log_nb(
+    _data: *const crate::ffi::pmix_info_t,
+    _ndata: usize,
+    _directives: *const crate::ffi::pmix_info_t,
+    _ndirs: usize,
+    _cbfunc: Option<unsafe extern "C" fn(crate::ffi::pmix_status_t, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    if is_mock_enabled() {
+        get_mock_status("PMIx_Log_nb")
+    } else {
+        crate::mock_ffi::PMIX_ERR_INIT
+    }
+}
+
+/// Mock implementation of `PMIx_Info_free()`.
+/// No-op in mock mode (handles are fake).
+pub fn mock_info_free(_info: *mut crate::ffi::pmix_info_t, _ninfo: usize) {
+    // In mock mode, handles are fake — just skip
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
