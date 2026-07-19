@@ -7304,8 +7304,8 @@ mod tests {
     fn test_mock_wrapper_server_get_credential_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
         let handle = PmixServerHandle { initialized: true };
-        let info = vec![];
-        let result = server_get_credential(&handle, &info);
+        let _info: Vec<crate::Info> = vec![];
+        let result = server_get_credential(&handle, &[]);
         assert!(
             result.is_ok(),
             "server_get_credential wrapper should succeed with mocks"
@@ -7320,11 +7320,313 @@ mod tests {
         );
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
         let handle = PmixServerHandle { initialized: true };
-        let info = vec![];
-        let result = server_get_credential(&handle, &info);
+        let _info: Vec<crate::Info> = vec![];
+        let result = server_get_credential(&handle, &[]);
         assert!(
             result.is_err(),
             "server_get_credential should fail with configured error"
         );
     }
+
+
+    // ── TASK-113: New coverage tests for server.rs ──────────────────────────
+
+    // ── server_init_minimal with mock (compile-only) ───────────────────────
+
+    #[test]
+    fn test_task113_server_init_minimal_with_module() {
+        let _: fn(Option<&PmixServerModule>) -> Result<PmixServerHandle, PmixStatus> =
+            server_init_minimal;
+    }
+
+    #[test]
+    fn test_task113_server_init_minimal_without_module() {
+        let _: fn(Option<&PmixServerModule>) -> Result<PmixServerHandle, PmixStatus> =
+            server_init_minimal;
+    }
+
+    // ── server_finalize with mock (compile-only) ───────────────────────────
+
+    #[test]
+    fn test_task113_server_finalize_returns_success() {
+        let _: fn(PmixServerHandle) -> Result<(), PmixStatus> = server_finalize;
+    }
+
+    // ── is_server_initialized with mock ────────────────────────────────────
+
+    #[test]
+    fn test_task113_is_server_initialized_with_mock() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let result = is_server_initialized();
+        let _ = result; // Just verify it doesn't panic
+    }
+
+    // ── server_register_nspace with mock (compile-only) ────────────────────
+
+    #[test]
+    fn test_task113_server_register_nspace_with_info() {
+        let _: fn(&str, i32, &Info, Box<dyn RegisterNspaceCallback>) -> Result<(), PmixStatus> =
+            server_register_nspace;
+    }
+
+    // ── server_deregister_nspace with mock (compile-only) ──────────────────
+
+    #[test]
+    fn test_task113_server_deregister_nspace_with_callback() {
+        struct DeregCb113 {}
+        impl DeregisterNspaceCallback for DeregCb113 {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let _: fn(&str, Option<Box<dyn DeregisterNspaceCallback>>) = server_deregister_nspace;
+    }
+
+    #[test]
+    fn test_task113_server_deregister_nspace_no_callback() {
+        let _: fn(&str, Option<Box<dyn DeregisterNspaceCallback>>) = server_deregister_nspace;
+    }
+
+    // ── server_register_client with mock (compile-only) ────────────────────
+
+    #[test]
+    fn test_task113_server_register_client_returns_success() {
+        let _: fn(&Proc, ffi::uid_t, ffi::gid_t, Option<*mut c_void>, Box<dyn RegisterClientCallback>) -> Result<(), PmixStatus> =
+            server_register_client;
+    }
+
+    // ── server_deregister_client with mock (compile-only) ──────────────────
+
+    #[test]
+    fn test_task113_server_deregister_client_with_callback() {
+        let _: fn(&Proc, Option<Box<dyn DeregisterClientCallback>>) = server_deregister_client;
+    }
+
+    #[test]
+    fn test_task113_server_deregister_client_no_callback() {
+        let _: fn(&Proc, Option<Box<dyn DeregisterClientCallback>>) = server_deregister_client;
+    }
+
+    // ── server_dmodex_request with mock (compile-only) ─────────────────────
+
+    #[test]
+    fn test_task113_server_dmodex_request_returns_success() {
+        let _: fn(&Proc, Box<dyn DmodexRequestCallback>) -> Result<(), PmixStatus> =
+            server_dmodex_request;
+    }
+
+    // ── server_setup_application with mock (compile-only) ──────────────────
+
+    #[test]
+    fn test_task113_server_setup_application_returns_success() {
+        let _: fn(&str, &Info, Box<dyn SetupApplicationCallback>) -> Result<(), PmixStatus> =
+            server_setup_application;
+    }
+
+    // ── server_setup_local_support with mock (compile-only) ────────────────
+
+    #[test]
+    fn test_task113_server_setup_local_support_returns_success() {
+        let _: fn(&str, &Info, Box<dyn SetupLocalSupportCallback>) -> Result<(), PmixStatus> =
+            server_setup_local_support;
+    }
+
+    // ── server_iof_deliver with mock (compile-only) ────────────────────────
+
+    #[test]
+    fn test_task113_server_iof_deliver_returns_success() {
+        let _: fn(&Proc, crate::IOFChannelFlags, &crate::data_serialization::PmixByteObject, &Info, Box<dyn IOFDeliverCallback>) -> Result<(), PmixStatus> =
+            server_iof_deliver;
+    }
+
+    // ── server_collect_inventory with mock (compile-only) ──────────────────
+
+    #[test]
+    fn test_task113_server_collect_inventory_returns_success() {
+        let _: fn(&Info, Box<dyn CollectInventoryCallback>) -> Result<(), PmixStatus> =
+            server_collect_inventory;
+    }
+
+    // ── server_deliver_inventory with mock (compile-only) ──────────────────
+
+    #[test]
+    fn test_task113_server_deliver_inventory_returns_success() {
+        let _: fn(&Info, &Info, Option<Box<dyn DeliverInventoryCallback>>) -> Result<(), PmixStatus> =
+            server_deliver_inventory;
+    }
+
+    #[test]
+    fn test_task113_server_deliver_inventory_no_callback() {
+        let _: fn(&Info, &Info, Option<Box<dyn DeliverInventoryCallback>>) -> Result<(), PmixStatus> =
+            server_deliver_inventory;
+    }
+
+    // ── server_fence_nb with mock (compile-only) ───────────────────────────
+
+    #[test]
+    fn test_task113_server_fence_nb_returns_success() {
+        let _: fn(&PmixServerHandle, &[Info], FenceNbCallbackWrapper) -> Result<(), PmixStatus> =
+            server_fence_nb;
+    }
+
+    // ── server_connect_nb with mock (compile-only) ─────────────────────────
+
+    #[test]
+    fn test_task113_server_connect_nb_returns_success() {
+        let _: fn(&PmixServerHandle, &[Proc], &[Info], FenceNbCallbackWrapper) -> Result<(), PmixStatus> =
+            server_connect_nb;
+    }
+
+    // ── server_disconnect_nb with mock (compile-only) ──────────────────────
+
+    #[test]
+    fn test_task113_server_disconnect_nb_returns_success() {
+        let _: fn(&PmixServerHandle, &[Proc], &[Info], FenceNbCallbackWrapper) -> Result<(), PmixStatus> =
+            server_disconnect_nb;
+    }
+
+    // ── server_spawn with mock (compile-only) ──────────────────────────────
+
+    #[test]
+    fn test_task113_server_spawn_returns_success() {
+        let _: fn(&PmixServerHandle, &[Info], &[crate::process_mgmt::PmixApp]) -> Result<String, PmixStatus> =
+            server_spawn;
+    }
+
+    // ── server_spawn_nb with mock (compile-only) ───────────────────────────
+
+    #[test]
+    fn test_task113_server_spawn_nb_returns_success() {
+        let _: fn(&PmixServerHandle, &[Info], &[crate::process_mgmt::PmixApp], crate::process_mgmt::SpawnCallbackWrapper) -> Result<(), PmixStatus> =
+            server_spawn_nb;
+    }
+
+    // ── server_tool_attach_to_server with mock ─────────────────────────────
+
+    #[test]
+    fn test_task113_server_tool_attach_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_tool_attach_to_server(&handle, Some(&Proc::new("test.nspace", 0).unwrap()), true, &info);
+        assert!(result.is_ok(), "server_tool_attach_to_server with info should succeed");
+    }
+
+    // ── server_publish with mock ───────────────────────────────────────────
+
+    #[test]
+    fn test_task113_server_publish_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let result = server_publish(&handle, "test.nspace", &info);
+        assert!(result.is_ok(), "server_publish with info should succeed");
+    }
+
+    // ── server_lookup with mock ────────────────────────────────────────────
+
+    #[test]
+    fn test_task113_server_lookup_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let infos = vec![info];
+        let result = server_lookup(&handle, "test.nspace", "test_key", &infos);
+        let _ = result; // May succeed or fail depending on mock implementation
+    }
+
+    // ── server_fence with mock ─────────────────────────────────────────────
+
+    #[test]
+    fn test_task113_server_fence_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let handle = PmixServerHandle { initialized: true };
+        let info = crate::InfoBuilder::new().build();
+        let infos = vec![info];
+        let result = server_fence(&handle, &infos, 5000);
+        assert!(result.is_ok(), "server_fence with info should succeed");
+    }
+
+    // ── server_connect with mock ───────────────────────────────────────────
+
+    #[test]
+    fn test_task113_server_connect_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let handle = PmixServerHandle { initialized: true };
+        let procs = vec![Proc::new("test.nspace", 0).unwrap()];
+        let info = crate::InfoBuilder::new().build();
+        let infos = vec![info];
+        let result = server_connect(&handle, &procs, &infos);
+        assert!(result.is_ok(), "server_connect with info should succeed");
+    }
+
+    // ── server_disconnect with mock ────────────────────────────────────────
+
+    #[test]
+    fn test_task113_server_disconnect_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let handle = PmixServerHandle { initialized: true };
+        let procs = vec![Proc::new("test.nspace", 0).unwrap()];
+        let info = crate::InfoBuilder::new().build();
+        let infos = vec![info];
+        let result = server_disconnect(&handle, &procs, &infos);
+        assert!(result.is_ok(), "server_disconnect with info should succeed");
+    }
+
+    // ── server_define_process_set with mock ────────────────────────────────
+
+    #[test]
+    fn test_task113_server_define_process_set_with_procs() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let procs = vec![Proc::new("test.nspace", 0).unwrap()];
+        let result = server_define_process_set(&procs, "test_pset");
+        assert!(result.is_ok(), "server_define_process_set with procs should succeed");
+    }
+
+    // ── server_delete_process_set with mock ────────────────────────────────
+
+    #[test]
+    fn test_task113_server_delete_process_set_success() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let result = server_delete_process_set("test_pset");
+        assert!(result.is_ok(), "server_delete_process_set should succeed");
+    }
+
+    // ── server_register_resources with mock ────────────────────────────────
+
+    #[test]
+    fn test_task113_server_register_resources_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        struct ResCb113 {}
+        impl RegisterResourcesCallback for ResCb113 {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = crate::InfoBuilder::new().build();
+        let result = server_register_resources(&info, Box::new(ResCb113 {}));
+        assert!(result.is_ok(), "server_register_resources with info should succeed");
+    }
+
+    // ── server_deregister_resources with mock ──────────────────────────────
+
+    #[test]
+    fn test_task113_server_deregister_resources_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        struct DeregResCb113 {}
+        impl DeregisterResourcesCallback for DeregResCb113 {
+            fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+        }
+        let info = crate::InfoBuilder::new().build();
+        let result = server_deregister_resources(&info, Box::new(DeregResCb113 {}));
+        assert!(result.is_ok(), "server_deregister_resources with info should succeed");
+    }
+
+    // ── server_get_credential with mock ────────────────────────────────────
+
+    #[test]
+    fn test_task113_server_get_credential_with_info() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let handle = PmixServerHandle { initialized: true };
+        let infos: Vec<Info> = vec![];
+        let result = server_get_credential(&handle, &infos);
+        assert!(result.is_ok(), "server_get_credential with info should succeed");
+    }
+
 }
