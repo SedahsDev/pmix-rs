@@ -4026,7 +4026,7 @@ pub fn server_connect(
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Connect(procs_ptr, procs.len(), info_ptr, ninfo) } };
+        status = unsafe { ffi::PMIx_Connect(procs_ptr, procs.len(), info_ptr, ninfo) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -4164,7 +4164,7 @@ pub fn server_disconnect(
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Disconnect(procs_ptr, procs.len(), info_ptr, ninfo) } };
+        status = unsafe { ffi::PMIx_Disconnect(procs_ptr, procs.len(), info_ptr, ninfo) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);

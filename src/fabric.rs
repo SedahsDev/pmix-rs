@@ -65,7 +65,6 @@ use crate::{Info, PmixDeviceType, PmixError, PmixStatus};
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 
-#[cfg(any(test, feature = "mock_ffi"))]
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixFabric — safe wrapper for pmix_fabric_t
 // ─────────────────────────────────────────────────────────────────────────────
@@ -273,7 +272,7 @@ pub fn fabric_register(fabric: &mut PmixFabric, directives: &[Info]) -> Result<(
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) } };
+        status = unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -423,7 +422,7 @@ pub fn fabric_update(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Fabric_update(fabric_ptr) } };
+        status = unsafe { ffi::PMIx_Fabric_update(fabric_ptr) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -518,7 +517,7 @@ pub fn fabric_deregister(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) } };
+        status = unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -1061,7 +1060,7 @@ pub fn load_topology(topo: &mut PmixTopology) -> Result<(), PmixStatus> {
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Load_topology(raw_ptr) } };
+        status = unsafe { ffi::PMIx_Load_topology(raw_ptr) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
