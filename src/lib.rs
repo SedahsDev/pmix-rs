@@ -4,8 +4,8 @@
 
 use std::fmt::Debug;
 pub mod allocation;
-pub mod cpu_locality;
 pub mod cbdata;
+pub mod cpu_locality;
 pub mod data_ops;
 pub mod data_serialization;
 pub mod events;
@@ -23,7 +23,6 @@ pub mod security;
 pub mod server;
 pub mod tool;
 pub mod utility;
-
 
 /// Dispatch a PMIx FFI call to the mock implementation when the `mock_ffi`
 /// feature (or `cfg(test)`) is active **and** mocks are enabled at runtime.
@@ -2904,6 +2903,14 @@ impl PmixOwnedValue {
 
 impl Drop for PmixOwnedValue {
     fn drop(&mut self) {
+        // In mock mode the value may contain garbage/fake data. Calling
+        // free_value() on it would dereference invalid pointers → SIGSEGV.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if crate::mock_ffi::is_mock_enabled() {
+                return;
+            }
+        }
         free_value(&mut self.inner);
     }
 }
@@ -2957,15 +2964,27 @@ impl Info {
 
 impl Drop for Info {
     fn drop(&mut self) {
-        if !self.handle.is_null() {
-            // SAFETY: handle came from PMIx_Info_create(len) in InfoBuilder /
-            // info_with_string_key. PMIx_Info_free destructs and frees the array.
-            unsafe {
-                PMIx_Info_free(self.handle, self.len);
-            }
-            self.handle = std::ptr::null_mut();
-            self.len = 0;
+        if self.handle.is_null() {
+            return;
         }
+        // In mock mode the handle may be a fake/dangling pointer (e.g., test
+        // fixtures that construct Info with 0x2 as a sentinel). Calling the
+        // real FFI here would SIGSEGV — skip it when mocks are active.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if crate::mock_ffi::is_mock_enabled() {
+                self.handle = std::ptr::null_mut();
+                self.len = 0;
+                return;
+            }
+        }
+        // SAFETY: handle came from PMIx_Info_create(len) in InfoBuilder /
+        // info_with_string_key. PMIx_Info_free destructs and frees the array.
+        unsafe {
+            PMIx_Info_free(self.handle, self.len);
+        }
+        self.handle = std::ptr::null_mut();
+        self.len = 0;
     }
 }
 
@@ -3104,6 +3123,14 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
+        // In mock mode, PMIx was never initialized — calling finalize() would
+        // crash. Skip it when mocks are active.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if crate::mock_ffi::is_mock_enabled() {
+                return;
+            }
+        }
         // Always log finalize failures (including release builds). This runs at
         // end-of-scope / process teardown where diagnostics matter more than
         // avoiding a single eprintln. Never panic in Drop (double-panic → abort).
@@ -4162,10 +4189,22 @@ mod tests {
     #[test]
     fn test_pmix_persistence_display() {
         assert_eq!(format!("{}", PmixPersistence::Indefinite), "INDEFINITE");
-        assert_eq!(format!("{}", PmixPersistence::FirstRead), "DELETE ON FIRST ACCESS");
-        assert_eq!(format!("{}", PmixPersistence::Process), "RETAIN UNTIL PUBLISHING PROCESS TERMINATES");
-        assert_eq!(format!("{}", PmixPersistence::Application), "RETAIN UNTIL APPLICATION OF PUBLISHING PROCESS TERMINATES");
-        assert_eq!(format!("{}", PmixPersistence::Session), "RETAIN UNTIL ALLOCATION OF PUBLISHING PROCESS TERMINATES");
+        assert_eq!(
+            format!("{}", PmixPersistence::FirstRead),
+            "DELETE ON FIRST ACCESS"
+        );
+        assert_eq!(
+            format!("{}", PmixPersistence::Process),
+            "RETAIN UNTIL PUBLISHING PROCESS TERMINATES"
+        );
+        assert_eq!(
+            format!("{}", PmixPersistence::Application),
+            "RETAIN UNTIL APPLICATION OF PUBLISHING PROCESS TERMINATES"
+        );
+        assert_eq!(
+            format!("{}", PmixPersistence::Session),
+            "RETAIN UNTIL ALLOCATION OF PUBLISHING PROCESS TERMINATES"
+        );
         assert_eq!(format!("{}", PmixPersistence::Invalid), "INVALID");
         let s = format!("{}", PmixPersistence::Unknown(42));
         assert!(s.contains("UNKNOWN"));
@@ -4183,13 +4222,22 @@ mod tests {
         assert_eq!(PmixError::from_raw(-4), Some(PmixError::ErrProcRestart));
         assert_eq!(PmixError::from_raw(-5), Some(PmixError::ErrProcCheckpoint));
         assert_eq!(PmixError::from_raw(-6), Some(PmixError::ErrProcMigrate));
-        assert_eq!(PmixError::from_raw(-8), Some(PmixError::ErrProcRequestedAbort));
+        assert_eq!(
+            PmixError::from_raw(-8),
+            Some(PmixError::ErrProcRequestedAbort)
+        );
         assert_eq!(PmixError::from_raw(-11), Some(PmixError::ErrExists));
         assert_eq!(PmixError::from_raw(-12), Some(PmixError::ErrInvalidCred));
         assert_eq!(PmixError::from_raw(-15), Some(PmixError::ErrWouldBlock));
-        assert_eq!(PmixError::from_raw(-16), Some(PmixError::ErrUnknownDataType));
+        assert_eq!(
+            PmixError::from_raw(-16),
+            Some(PmixError::ErrUnknownDataType)
+        );
         assert_eq!(PmixError::from_raw(-18), Some(PmixError::ErrTypeMismatch));
-        assert_eq!(PmixError::from_raw(-19), Some(PmixError::ErrUnpackInadequateSpace));
+        assert_eq!(
+            PmixError::from_raw(-19),
+            Some(PmixError::ErrUnpackInadequateSpace)
+        );
         assert_eq!(PmixError::from_raw(-20), Some(PmixError::ErrUnpackFailure));
         assert_eq!(PmixError::from_raw(-21), Some(PmixError::ErrPackFailure));
         assert_eq!(PmixError::from_raw(-23), Some(PmixError::ErrNoPermissions));
@@ -4197,80 +4245,197 @@ mod tests {
         assert_eq!(PmixError::from_raw(-29), Some(PmixError::ErrOutOfResource));
         // Data/lookup
         assert_eq!(PmixError::from_raw(-49), Some(PmixError::ErrCommFailure));
-        assert_eq!(PmixError::from_raw(-50), Some(PmixError::ErrUnpackReadPastEndOfBuffer));
-        assert_eq!(PmixError::from_raw(-51), Some(PmixError::ErrConflictingCleanupDirectives));
+        assert_eq!(
+            PmixError::from_raw(-50),
+            Some(PmixError::ErrUnpackReadPastEndOfBuffer)
+        );
+        assert_eq!(
+            PmixError::from_raw(-51),
+            Some(PmixError::ErrConflictingCleanupDirectives)
+        );
         assert_eq!(PmixError::from_raw(-52), Some(PmixError::ErrPartialSuccess));
         assert_eq!(PmixError::from_raw(-53), Some(PmixError::ErrDuplicateKey));
         assert_eq!(PmixError::from_raw(-58), Some(PmixError::ReadyForDebug));
-        assert_eq!(PmixError::from_raw(-59), Some(PmixError::ErrParamValueNotSupported));
+        assert_eq!(
+            PmixError::from_raw(-59),
+            Some(PmixError::ErrParamValueNotSupported)
+        );
         assert_eq!(PmixError::from_raw(-60), Some(PmixError::ErrEmpty));
         assert_eq!(PmixError::from_raw(-61), Some(PmixError::ErrLostConnection));
-        assert_eq!(PmixError::from_raw(-62), Some(PmixError::ErrExistsOutsideScope));
+        assert_eq!(
+            PmixError::from_raw(-62),
+            Some(PmixError::ErrExistsOutsideScope)
+        );
         // Job control
         assert_eq!(PmixError::from_raw(-106), Some(PmixError::JctrlCheckpoint));
-        assert_eq!(PmixError::from_raw(-107), Some(PmixError::JctrlCheckpointComplete));
-        assert_eq!(PmixError::from_raw(-108), Some(PmixError::JctrlPreemptAlert));
+        assert_eq!(
+            PmixError::from_raw(-107),
+            Some(PmixError::JctrlCheckpointComplete)
+        );
+        assert_eq!(
+            PmixError::from_raw(-108),
+            Some(PmixError::JctrlPreemptAlert)
+        );
         // Monitoring
-        assert_eq!(PmixError::from_raw(-109), Some(PmixError::MonitorHeartbeatAlert));
+        assert_eq!(
+            PmixError::from_raw(-109),
+            Some(PmixError::MonitorHeartbeatAlert)
+        );
         assert_eq!(PmixError::from_raw(-110), Some(PmixError::MonitorFileAlert));
         // Fabric
-        assert_eq!(PmixError::from_raw(-113), Some(PmixError::FabricUpdateEndpoints));
+        assert_eq!(
+            PmixError::from_raw(-113),
+            Some(PmixError::FabricUpdateEndpoints)
+        );
         // Internal
-        assert_eq!(PmixError::from_raw(-144), Some(PmixError::ErrEventRegistration));
+        assert_eq!(
+            PmixError::from_raw(-144),
+            Some(PmixError::ErrEventRegistration)
+        );
         assert_eq!(PmixError::from_raw(-145), Some(PmixError::EventJobEnd));
         // Operational
-        assert_eq!(PmixError::from_raw(-156), Some(PmixError::OperationInProgress));
-        assert_eq!(PmixError::from_raw(-157), Some(PmixError::OperationSucceeded));
-        assert_eq!(PmixError::from_raw(-158), Some(PmixError::ErrInvalidOperation));
+        assert_eq!(
+            PmixError::from_raw(-156),
+            Some(PmixError::OperationInProgress)
+        );
+        assert_eq!(
+            PmixError::from_raw(-157),
+            Some(PmixError::OperationSucceeded)
+        );
+        assert_eq!(
+            PmixError::from_raw(-158),
+            Some(PmixError::ErrInvalidOperation)
+        );
         // Attribute
-        assert_eq!(PmixError::from_raw(-171), Some(PmixError::ErrRepeatAttrRegistration));
+        assert_eq!(
+            PmixError::from_raw(-171),
+            Some(PmixError::ErrRepeatAttrRegistration)
+        );
         // I/O forwarding
         assert_eq!(PmixError::from_raw(-172), Some(PmixError::ErrIofFailure));
         assert_eq!(PmixError::from_raw(-173), Some(PmixError::ErrIofComplete));
         // Fabric status
         assert_eq!(PmixError::from_raw(-175), Some(PmixError::FabricUpdated));
-        assert_eq!(PmixError::from_raw(-176), Some(PmixError::FabricUpdatePending));
+        assert_eq!(
+            PmixError::from_raw(-176),
+            Some(PmixError::FabricUpdatePending)
+        );
         // Job errors
-        assert_eq!(PmixError::from_raw(-177), Some(PmixError::ErrJobAppNotExecutable));
-        assert_eq!(PmixError::from_raw(-178), Some(PmixError::ErrJobNoExeSpecified));
-        assert_eq!(PmixError::from_raw(-179), Some(PmixError::ErrJobFailedToMap));
-        assert_eq!(PmixError::from_raw(-181), Some(PmixError::ErrJobFailedToLaunch));
+        assert_eq!(
+            PmixError::from_raw(-177),
+            Some(PmixError::ErrJobAppNotExecutable)
+        );
+        assert_eq!(
+            PmixError::from_raw(-178),
+            Some(PmixError::ErrJobNoExeSpecified)
+        );
+        assert_eq!(
+            PmixError::from_raw(-179),
+            Some(PmixError::ErrJobFailedToMap)
+        );
+        assert_eq!(
+            PmixError::from_raw(-181),
+            Some(PmixError::ErrJobFailedToLaunch)
+        );
         assert_eq!(PmixError::from_raw(-182), Some(PmixError::ErrJobAborted));
-        assert_eq!(PmixError::from_raw(-183), Some(PmixError::ErrJobKilledByCmd));
-        assert_eq!(PmixError::from_raw(-184), Some(PmixError::ErrJobAbortedBySig));
+        assert_eq!(
+            PmixError::from_raw(-183),
+            Some(PmixError::ErrJobKilledByCmd)
+        );
+        assert_eq!(
+            PmixError::from_raw(-184),
+            Some(PmixError::ErrJobAbortedBySig)
+        );
         assert_eq!(PmixError::from_raw(-185), Some(PmixError::ErrJobTermWoSync));
-        assert_eq!(PmixError::from_raw(-186), Some(PmixError::ErrJobSensorBoundExceeded));
-        assert_eq!(PmixError::from_raw(-187), Some(PmixError::ErrJobNonZeroTerm));
-        assert_eq!(PmixError::from_raw(-188), Some(PmixError::ErrJobAllocFailed));
-        assert_eq!(PmixError::from_raw(-189), Some(PmixError::ErrJobAbortedBySysEvent));
-        assert_eq!(PmixError::from_raw(-190), Some(PmixError::ErrJobExeNotFound));
+        assert_eq!(
+            PmixError::from_raw(-186),
+            Some(PmixError::ErrJobSensorBoundExceeded)
+        );
+        assert_eq!(
+            PmixError::from_raw(-187),
+            Some(PmixError::ErrJobNonZeroTerm)
+        );
+        assert_eq!(
+            PmixError::from_raw(-188),
+            Some(PmixError::ErrJobAllocFailed)
+        );
+        assert_eq!(
+            PmixError::from_raw(-189),
+            Some(PmixError::ErrJobAbortedBySysEvent)
+        );
+        assert_eq!(
+            PmixError::from_raw(-190),
+            Some(PmixError::ErrJobExeNotFound)
+        );
         // Job lifecycle events
         assert_eq!(PmixError::from_raw(-191), Some(PmixError::EventJobStart));
-        assert_eq!(PmixError::from_raw(-192), Some(PmixError::EventSessionStart));
+        assert_eq!(
+            PmixError::from_raw(-192),
+            Some(PmixError::EventSessionStart)
+        );
         assert_eq!(PmixError::from_raw(-193), Some(PmixError::EventSessionEnd));
         // Process errors
-        assert_eq!(PmixError::from_raw(-200), Some(PmixError::ErrProcTermWoSync));
-        assert_eq!(PmixError::from_raw(-201), Some(PmixError::EventProcTerminated));
+        assert_eq!(
+            PmixError::from_raw(-200),
+            Some(PmixError::ErrProcTermWoSync)
+        );
+        assert_eq!(
+            PmixError::from_raw(-201),
+            Some(PmixError::EventProcTerminated)
+        );
         // System events
         assert_eq!(PmixError::from_raw(-230), Some(PmixError::EventSysBase));
         assert_eq!(PmixError::from_raw(-231), Some(PmixError::EventNodeDown));
         assert_eq!(PmixError::from_raw(-232), Some(PmixError::EventNodeOffline));
         // Additional job errors
-        assert_eq!(PmixError::from_raw(-233), Some(PmixError::ErrJobWdirNotFound));
-        assert_eq!(PmixError::from_raw(-234), Some(PmixError::ErrJobInsufficientResources));
-        assert_eq!(PmixError::from_raw(-235), Some(PmixError::ErrJobSysOpFailed));
+        assert_eq!(
+            PmixError::from_raw(-233),
+            Some(PmixError::ErrJobWdirNotFound)
+        );
+        assert_eq!(
+            PmixError::from_raw(-234),
+            Some(PmixError::ErrJobInsufficientResources)
+        );
+        assert_eq!(
+            PmixError::from_raw(-235),
+            Some(PmixError::ErrJobSysOpFailed)
+        );
         // System event other
         assert_eq!(PmixError::from_raw(-330), Some(PmixError::EventSysOther));
         // Event handler return codes
-        assert_eq!(PmixError::from_raw(-331), Some(PmixError::EventNoActionTaken));
-        assert_eq!(PmixError::from_raw(-332), Some(PmixError::EventPartialActionTaken));
-        assert_eq!(PmixError::from_raw(-333), Some(PmixError::EventActionDeferred));
-        assert_eq!(PmixError::from_raw(-334), Some(PmixError::EventActionComplete));
+        assert_eq!(
+            PmixError::from_raw(-331),
+            Some(PmixError::EventNoActionTaken)
+        );
+        assert_eq!(
+            PmixError::from_raw(-332),
+            Some(PmixError::EventPartialActionTaken)
+        );
+        assert_eq!(
+            PmixError::from_raw(-333),
+            Some(PmixError::EventActionDeferred)
+        );
+        assert_eq!(
+            PmixError::from_raw(-334),
+            Some(PmixError::EventActionComplete)
+        );
         // Per-process errors
-        assert_eq!(PmixError::from_raw(-400), Some(PmixError::ErrProcKilledByCmd));
-        assert_eq!(PmixError::from_raw(-402), Some(PmixError::ErrProcAbortedBySig));
-        assert_eq!(PmixError::from_raw(-403), Some(PmixError::ErrProcSensorBoundExceeded));
-        assert_eq!(PmixError::from_raw(-404), Some(PmixError::ErrExitNonzeroTerm));
+        assert_eq!(
+            PmixError::from_raw(-400),
+            Some(PmixError::ErrProcKilledByCmd)
+        );
+        assert_eq!(
+            PmixError::from_raw(-402),
+            Some(PmixError::ErrProcAbortedBySig)
+        );
+        assert_eq!(
+            PmixError::from_raw(-403),
+            Some(PmixError::ErrProcSensorBoundExceeded)
+        );
+        assert_eq!(
+            PmixError::from_raw(-404),
+            Some(PmixError::ErrExitNonzeroTerm)
+        );
     }
 
     #[test]
@@ -4332,13 +4497,19 @@ mod tests {
 
     #[test]
     fn test_pmix_value_builder_build_i64() {
-        let owned = PmixValueBuilder::new().int64(-9223372036854775808i64).build().unwrap();
+        let owned = PmixValueBuilder::new()
+            .int64(-9223372036854775808i64)
+            .build()
+            .unwrap();
         drop(owned);
     }
 
     #[test]
     fn test_pmix_value_builder_build_u64() {
-        let owned = PmixValueBuilder::new().uint64(18446744073709551615u64).build().unwrap();
+        let owned = PmixValueBuilder::new()
+            .uint64(18446744073709551615u64)
+            .build()
+            .unwrap();
         drop(owned);
     }
 
@@ -4414,7 +4585,10 @@ mod tests {
 
     #[test]
     fn test_builder_error_display_key_too_long() {
-        let e = BuilderError::KeyTooLong { len: 600, maximum: 511 };
+        let e = BuilderError::KeyTooLong {
+            len: 600,
+            maximum: 511,
+        };
         let s = format!("{}", e);
         assert!(s.contains("600"));
         assert!(s.contains("511"));

@@ -2,6 +2,8 @@
 
 use crate::ffi::*;
 use cstring_array::CStringArray;
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
 use crate::{Info, Proc};
 use std::ffi::{CStr, CString, NulError};
 use std::os::raw::{c_char, c_void};
@@ -702,6 +704,14 @@ impl PmixOwnedValue {
 
 impl Drop for PmixOwnedValue {
     fn drop(&mut self) {
+        // In mock mode, the inner value may contain fake/garbage pointers.
+        // Calling free_value would dereference them → SIGSEGV.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                return;
+            }
+        }
         free_value(&mut self.inner);
     }
 }

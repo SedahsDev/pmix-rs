@@ -4549,13 +4549,8 @@ mod tests {
             .with_function_status("PMIx_IOF_deregister", mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = mock_ffi::MockGuard::with_config(config);
 
-        let status = mock_ffi::mock_iof_deregister(
-            999,
-            std::ptr::null(),
-            0,
-            None,
-            std::ptr::null_mut(),
-        );
+        let status =
+            mock_ffi::mock_iof_deregister(999, std::ptr::null(), 0, None, std::ptr::null_mut());
         assert_eq!(status, mock_ffi::PMIX_ERR_NOT_FOUND);
     }
 
@@ -4771,12 +4766,7 @@ mod tests {
     fn test_iof_pull_blocking_without_daemon() {
         let procs: &[ffi::pmix_proc_t] = &[];
         let directives: &[ffi::pmix_info_t] = &[];
-        let result = iof_pull_blocking(
-            procs,
-            directives,
-            IOFChannelFlags::STDOUT,
-            |_, _, _, _| {},
-        );
+        let result = iof_pull_blocking(procs, directives, IOFChannelFlags::STDOUT, |_, _, _, _| {});
         assert!(result.is_err());
     }
 

@@ -48,8 +48,10 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
-use crate::ffi;
 use crate::cbdata::{decode_req_id_u64, encode_req_id_u64};
+use crate::ffi;
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
 use crate::{Info, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +93,15 @@ impl MonitorResults {
 
 impl Drop for MonitorResults {
     fn drop(&mut self) {
+        // In mock mode, the handle may be fake/garbage. Skip FFI calls.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                self.handle = ptr::null_mut();
+                self.len = 0;
+                return;
+            }
+        }
         if !self.handle.is_null() && self.len > 0 {
             unsafe {
                 // SAFETY: handle was returned by PMIx_Process_monitor as an

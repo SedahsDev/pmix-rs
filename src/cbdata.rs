@@ -18,7 +18,10 @@ use std::os::raw::c_void;
 /// Debug builds panic if `req_id == 0` (would become a null pointer).
 #[inline]
 pub fn encode_req_id(req_id: usize) -> *mut c_void {
-    debug_assert!(req_id != 0, "request id must be non-zero to avoid null cbdata");
+    debug_assert!(
+        req_id != 0,
+        "request id must be non-zero to avoid null cbdata"
+    );
     std::ptr::with_exposed_provenance_mut::<c_void>(req_id)
 }
 
@@ -31,7 +34,10 @@ pub fn decode_req_id(cbdata: *mut c_void) -> usize {
 /// Encode a `u64` request ID (used by some monitoring paths).
 #[inline]
 pub fn encode_req_id_u64(req_id: u64) -> *mut c_void {
-    debug_assert!(req_id != 0, "request id must be non-zero to avoid null cbdata");
+    debug_assert!(
+        req_id != 0,
+        "request id must be non-zero to avoid null cbdata"
+    );
     std::ptr::with_exposed_provenance_mut::<c_void>(req_id as usize)
 }
 

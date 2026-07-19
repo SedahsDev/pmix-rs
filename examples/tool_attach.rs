@@ -10,7 +10,7 @@
 
 use pmix::info::empty;
 use pmix::tool::{
-    tool_attach_to_server, tool_finalize, tool_init, tool_is_connected, PmixToolHandle,
+    PmixToolHandle, tool_attach_to_server, tool_finalize, tool_init, tool_is_connected,
 };
 
 fn main() {
@@ -25,17 +25,17 @@ fn main() {
         }
     };
 
-    println!(
-        "tool_init ok; connected={}",
-        tool_is_connected()
-    );
+    println!("tool_init ok; connected={}", tool_is_connected());
 
     // Attempt attach when a server identity is desired. Without a DVM this
     // typically returns an error — still useful as an API walkthrough.
     let attach_info = empty();
     match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
         Ok((_tool, server)) => {
-            println!("tool_attach_to_server ok; server={:?}", server.as_ref().map(|s| s.proc().get_rank()));
+            println!(
+                "tool_attach_to_server ok; server={:?}",
+                server.as_ref().map(|s| s.proc().get_rank())
+            );
         }
         Err(e) => {
             println!("tool_attach_to_server: {e:?} (expected without daemon)");

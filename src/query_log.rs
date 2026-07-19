@@ -41,6 +41,8 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
 use crate::{Info, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,6 +178,15 @@ impl PmixQuery {
 
 impl Drop for PmixQuery {
     fn drop(&mut self) {
+        // In mock mode, the handle may be fake/garbage. Skip FFI calls.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                self.handle = ptr::null_mut();
+                self.keys_array = ptr::null_mut();
+                return;
+            }
+        }
         if !self.handle.is_null() {
             unsafe {
                 // IMPORTANT: We must NOT use PMIx_Query_release because it frees
@@ -245,6 +256,15 @@ impl QueryResults {
 
 impl Drop for QueryResults {
     fn drop(&mut self) {
+        // In mock mode, the handle may be fake/garbage. Skip FFI calls.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                self.handle = ptr::null_mut();
+                self.len = 0;
+                return;
+            }
+        }
         if !self.handle.is_null() && self.len > 0 {
             unsafe {
                 // SAFETY: handle was returned by PMIx_Query_info as an
@@ -371,7 +391,9 @@ extern "C" fn query_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = QUERY_REGISTRY
+            .lock()
+            .expect("mutex poisoned (query_log.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -426,7 +448,9 @@ pub fn query_info_nb(
         *seq
     };
     {
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = QUERY_REGISTRY
+            .lock()
+            .expect("mutex poisoned (query_log.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -452,7 +476,9 @@ pub fn query_info_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = QUERY_REGISTRY
+            .lock()
+            .expect("mutex poisoned (query_log.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }

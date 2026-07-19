@@ -396,7 +396,9 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
                 libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| {
+                    CString::new("").expect("CString::new interior NUL (process_mgmt.rs)")
+                });
                 unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
             }
             // ptrs[n] is already NULL from calloc.
@@ -413,7 +415,9 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
                 libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| {
+                    CString::new("").expect("CString::new interior NUL (process_mgmt.rs)")
+                });
                 unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
             }
             ptrs
@@ -594,7 +598,9 @@ pub fn spawn_nb(
                 libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| {
+                    CString::new("").expect("CString::new interior NUL (process_mgmt.rs)")
+                });
                 unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
             }
             ptrs
@@ -610,7 +616,9 @@ pub fn spawn_nb(
                 libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| {
+                    CString::new("").expect("CString::new interior NUL (process_mgmt.rs)")
+                });
                 unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
             }
             ptrs

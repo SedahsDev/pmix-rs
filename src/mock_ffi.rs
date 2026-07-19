@@ -1164,7 +1164,9 @@ pub fn mock_iof_pull(
             }
             // If a registration callback is provided, invoke it with the handle
             if let Some(cb) = regcbfunc {
-                unsafe { cb(status, handle, regcbdata); }
+                unsafe {
+                    cb(status, handle, regcbdata);
+                }
             }
             // In blocking mode (no regcbfunc), return the handle as status
             // (matching real PMIx behavior where blocking returns the handle)
@@ -1197,7 +1199,9 @@ pub fn mock_iof_deregister(
         });
         // Invoke the callback if provided (async mode)
         if let Some(cb) = cbfunc {
-            unsafe { cb(status, cbdata); }
+            unsafe {
+                cb(status, cbdata);
+            }
         }
         status
     } else {
@@ -1222,7 +1226,9 @@ pub fn mock_iof_push(
         let status = get_mock_status("PMIx_IOF_push");
         // Invoke the callback if provided (async mode)
         if let Some(cb) = cbfunc {
-            unsafe { cb(status, cbdata); }
+            unsafe {
+                cb(status, cbdata);
+            }
         }
         status
     } else {
@@ -1455,10 +1461,13 @@ pub fn mock_compute_distances(
                 let layout = std::alloc::Layout::from_size_align(
                     std::mem::size_of::<crate::ffi::pmix_device_distance_t>() * count,
                     std::mem::align_of::<crate::ffi::pmix_device_distance_t>(),
-                ).unwrap();
-                let ptr = unsafe { std::alloc::alloc(layout) as *mut crate::ffi::pmix_device_distance_t };
+                )
+                .unwrap();
+                let ptr =
+                    unsafe { std::alloc::alloc(layout) as *mut crate::ffi::pmix_device_distance_t };
                 if !ptr.is_null() {
-                    for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate() {
+                    for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate()
+                    {
                         let entry = unsafe { &mut *ptr.add(i) };
                         entry.uuid = std::ffi::CString::new(uuid.as_str()).unwrap().into_raw();
                         entry.osname = std::ffi::CString::new(osname.as_str()).unwrap().into_raw();
@@ -1485,14 +1494,16 @@ pub fn mock_compute_distances_nb(
     _cpuset: *mut crate::ffi::pmix_cpuset_t,
     _info: *mut crate::ffi::pmix_info_t,
     _ninfo: usize,
-    _cbfunc: Option<unsafe extern "C" fn(
-        i32,
-        *mut crate::ffi::pmix_device_distance_t,
-        usize,
-        *mut std::os::raw::c_void,
-        Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
-        *mut std::os::raw::c_void,
-    )>,
+    _cbfunc: Option<
+        unsafe extern "C" fn(
+            i32,
+            *mut crate::ffi::pmix_device_distance_t,
+            usize,
+            *mut std::os::raw::c_void,
+            Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+            *mut std::os::raw::c_void,
+        ),
+    >,
     _cbdata: *mut std::os::raw::c_void,
 ) -> i32 {
     if is_mock_enabled() {

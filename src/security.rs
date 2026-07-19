@@ -35,6 +35,8 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
 use crate::{Info, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,7 +91,8 @@ impl PmixCredential {
         } else {
             // Allocate a copy of the bytes using libc malloc so we can
             // free it later with libc free.
-            let layout = std::alloc::Layout::array::<u8>(self.bytes.len()).expect("invariant: unwrap in security.rs");
+            let layout = std::alloc::Layout::array::<u8>(self.bytes.len())
+                .expect("invariant: unwrap in security.rs");
             let buf = unsafe { std::alloc::alloc(layout) as *mut std::os::raw::c_char };
             unsafe {
                 std::ptr::copy_nonoverlapping(
@@ -119,7 +122,8 @@ impl PmixCredential {
             let bo = unsafe { Box::from_raw(ptr) };
             // Free the internal bytes buffer if non-null.
             if !bo.bytes.is_null() {
-                let layout = std::alloc::Layout::array::<u8>(bo.size).expect("invariant: unwrap in security.rs");
+                let layout = std::alloc::Layout::array::<u8>(bo.size)
+                    .expect("invariant: unwrap in security.rs");
                 unsafe {
                     std::alloc::dealloc(bo.bytes as *mut u8, layout);
                 }
@@ -391,7 +395,9 @@ extern "C" fn credential_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = CREDENTIAL_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = CREDENTIAL_REGISTRY
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -485,7 +491,9 @@ pub fn get_credential_nb(
         *seq
     };
     {
-        let mut registry = CREDENTIAL_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = CREDENTIAL_REGISTRY
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -518,7 +526,9 @@ pub fn get_credential_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = CREDENTIAL_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = CREDENTIAL_REGISTRY
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -563,6 +573,15 @@ impl ValidationResults {
 
 impl Drop for ValidationResults {
     fn drop(&mut self) {
+        // In mock mode, the handle may be fake/garbage. Skip FFI calls.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                self.handle = ptr::null_mut();
+                self.len = 0;
+                return;
+            }
+        }
         if !self.handle.is_null() && self.len > 0 {
             unsafe {
                 // SAFETY: handle was returned by PMIx_Validate_credential
@@ -716,7 +735,9 @@ extern "C" fn validation_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = VALIDATION_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = VALIDATION_REGISTRY
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -729,7 +750,9 @@ extern "C" fn validation_callback_bridge(
                 }
             }
             // Also free the C credential if it was stored.
-            let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
+            let mut cred_map = VALIDATION_CRED_MAP
+                .lock()
+                .expect("mutex poisoned (security.rs)");
             if let Some(cred_ptr) = cred_map.remove(&req_id) {
                 unsafe {
                     PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
@@ -741,7 +764,9 @@ extern "C" fn validation_callback_bridge(
 
     // Free the C credential struct that was passed to PMIx.
     {
-        let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
+        let mut cred_map = VALIDATION_CRED_MAP
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         if let Some(cred_ptr) = cred_map.remove(&req_id) {
             unsafe {
                 PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
@@ -800,11 +825,15 @@ pub fn validate_credential_nb(
     // in a separate registry keyed by req_id.
     let cred_c = credential.as_c_mut_ptr();
     {
-        let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
+        let mut cred_map = VALIDATION_CRED_MAP
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         cred_map.insert(req_id, cred_c as usize);
     }
     {
-        let mut registry = VALIDATION_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = VALIDATION_REGISTRY
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         registry.insert(req_id, callback);
     }
 
@@ -837,9 +866,13 @@ pub fn validate_credential_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback and free the C credential.
-        let mut registry = VALIDATION_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = VALIDATION_REGISTRY
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         registry.remove(&req_id);
-        let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
+        let mut cred_map = VALIDATION_CRED_MAP
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         if let Some(cred_ptr) = cred_map.remove(&req_id) {
             unsafe {
                 PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);

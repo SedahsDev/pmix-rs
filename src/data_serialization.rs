@@ -50,6 +50,8 @@
 //! - `pmix_data_buffer_t *PMIx_Data_buffer_create(void)`
 //! - `void PMIx_Data_buffer_release(pmix_data_buffer_t *buffer)`
 
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
 use crate::{PmixDataType, PmixStatus, ffi};
 use std::ptr;
 
@@ -169,6 +171,14 @@ impl From<Vec<u8>> for PmixByteObject {
 
 impl Drop for PmixByteObject {
     fn drop(&mut self) {
+        // In mock mode the byte object may contain fake/garbage pointers.
+        // Calling PMIx_Byte_object_destruct would dereference them → SIGSEGV.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                return;
+            }
+        }
         // Destroy the underlying byte object to free internal memory.
         // SAFETY: PMIx_Byte_object_destruct frees the bytes pointer if non-null
         // and zeroes the struct. Safe to call even on a zeroed/empty object.
@@ -256,12 +266,22 @@ impl PmixDataBuffer {
 
 impl Drop for PmixDataBuffer {
     fn drop(&mut self) {
-        if !self.ptr.is_null() {
-            // SAFETY: The pointer is valid and was created by PMIx_Data_buffer_create.
-            // PMIx_Data_buffer_release frees the internal memory and the buffer itself.
-            unsafe { ffi::PMIx_Data_buffer_release(self.ptr) };
-            self.ptr = ptr::null_mut();
+        if self.ptr.is_null() {
+            return;
         }
+        // In mock mode the buffer pointer may be fake. Calling the real FFI
+        // would dereference invalid memory → SIGSEGV.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                self.ptr = ptr::null_mut();
+                return;
+            }
+        }
+        // SAFETY: The pointer is valid and was created by PMIx_Data_buffer_create.
+        // PMIx_Data_buffer_release frees the internal memory and the buffer itself.
+        unsafe { ffi::PMIx_Data_buffer_release(self.ptr) };
+        self.ptr = ptr::null_mut();
     }
 }
 
@@ -766,7 +786,8 @@ pub fn data_print<T>(
         Some(s) if !s.is_empty() => {
             let c_str = std::ffi::CString::new(s).unwrap_or_else(|_| {
                 // If the prefix contains null bytes, fall back to empty.
-                std::ffi::CString::new("").expect("CString::new interior NUL (data_serialization.rs)")
+                std::ffi::CString::new("")
+                    .expect("CString::new interior NUL (data_serialization.rs)")
             });
             c_str.into_raw()
         }
