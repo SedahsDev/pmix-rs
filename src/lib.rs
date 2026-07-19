@@ -2988,9 +2988,17 @@ struct InfoEntry {
     data_type: pmix_data_type_t,
 }
 
+struct InfoEntryString {
+    key: CString,
+    value: CString,
+    data_type: pmix_data_type_t,
+}
+
 #[derive(Default)]
 pub struct InfoBuilder {
     infos: Vec<InfoEntry>,
+    /// String-key entries for keys that exceed the 13-byte limit.
+    string_infos: Vec<InfoEntryString>,
 }
 
 impl InfoBuilder {
@@ -3011,6 +3019,81 @@ impl InfoBuilder {
             data_type,
         })
     }
+
+    /// Add an info entry with a string key that exceeds the 13-byte limit.
+    ///
+    /// Use this for keys like `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`, 15 bytes)
+    /// which don't fit in [`InfoBuilder::add`].
+    pub fn add_string_key(
+        &mut self,
+        key: &str,
+        value: &str,
+        data_type: pmix_data_type_t,
+    ) {
+        let key_cstr = CString::new(key).expect("key must not contain null bytes");
+        let value_cstr = CString::new(value).expect("value must not contain null bytes");
+        self.string_infos.push(InfoEntryString {
+            key: key_cstr,
+            value: value_cstr,
+            data_type,
+        });
+    }
+
+    /// Set `PMIX_EXTERNAL_PROGRESS` attribute.
+    ///
+    /// When `true`, tells PMIx that the host provides its own event
+    /// progress engine. **WARNING:** if you set this to `true` without
+    /// calling [`progress()`] from your own event loop, the PMIx library
+    /// will deadlock on blocking operations, as no internal progress
+    /// thread is spawned.
+    ///
+    /// # C API
+    /// `PMIX_EXTERNAL_PROGRESS` (`pmix.evext`) — `PMIX_BOOL`
+    pub fn external_progress(&mut self, external: bool) -> &mut Self {
+        self.add_string_key(
+            "pmix.evext",
+            if external { "1" } else { "0" },
+            PMIX_BOOL as pmix_data_type_t,
+        );
+        self
+    }
+
+    /// Set `PMIX_BIND_PROGRESS_THREAD` attribute.
+    ///
+    /// Specifies CPU ranges on which to bind the internal PMIx progress
+    /// thread. The value is a CPU set string (e.g., `"0-3"`, `"4,5,6,7"`).
+    ///
+    /// **Note:** this only pins the PMIx **progress thread**, not the
+    /// thread that calls `PMIx_Get` or other APIs — work is threadshifted
+    /// onto the progress/`evbase` internally.
+    ///
+    /// # C API
+    /// `PMIX_BIND_PROGRESS_THREAD` (`pmix.bind.pt`) — `PMIX_STRING`
+    pub fn bind_progress_thread(&mut self, cpus: &str) -> &mut Self {
+        let cpus_cstr = CString::new(cpus).expect("cpu set must not contain null bytes");
+        self.string_infos.push(InfoEntryString {
+            key: CString::new("pmix.bind.pt").unwrap(),
+            value: cpus_cstr,
+            data_type: PMIX_STRING as pmix_data_type_t,
+        });
+        self
+    }
+
+    /// Set `PMIX_BIND_REQUIRED` attribute.
+    ///
+    /// When `true`, the PMIx progress thread binding is mandatory —
+    /// initialization fails if the requested CPUs are unavailable.
+    ///
+    /// # C API
+    /// `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`) — `PMIX_BOOL`
+    pub fn bind_required(&mut self, required: bool) -> &mut Self {
+        self.add_string_key(
+            "pmix.bind.reqd",
+            if required { "1" } else { "0" },
+            PMIX_BOOL as pmix_data_type_t,
+        );
+        self
+    }
     pub fn collect_data(&mut self) -> &mut InfoBuilder {
         let collect = true;
         self.add(
@@ -3021,12 +3104,14 @@ impl InfoBuilder {
         self
     }
     pub fn build(self) -> Info {
-        let n = self.infos.len();
+        let n = self.infos.len() + self.string_infos.len();
         let info_ptr = unsafe { PMIx_Info_create(n) };
         if info_ptr.is_null() && n > 0 {
             panic!("PMIx_Info_create({n}) returned null");
         }
         let mut idx: usize = 0;
+
+        // Process fixed-key entries (13-byte keys)
         for info in &self.infos {
             let status = unsafe {
                 PMIx_Info_load(
@@ -3044,11 +3129,140 @@ impl InfoBuilder {
             }
             idx += 1;
         }
+
+        // Process string-key entries (keys exceeding 13-byte limit)
+        for info in &self.string_infos {
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr(),
+                    info.value.as_ptr() as *const c_void,
+                    info.data_type,
+                )
+            };
+            if status != PMIX_SUCCESS as i32 {
+                unsafe {
+                    PMIx_Info_free(info_ptr, n);
+                }
+                panic!("Error loading string-key info: {}", status);
+            }
+            idx += 1;
+        }
+
         Info {
             handle: info_ptr,
             len: idx,
         _not_thread_safe: std::marker::PhantomData,
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InitOptions — builder for PMIx_Init options
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Configuration options for [`init`].
+///
+/// Use this to configure PMIx initialization parameters in a type-safe way.
+/// Call [`build`][InitOptions::build] to produce an [`Info`] array suitable
+/// for passing to [`init`].
+///
+/// # Example
+///
+/// ```ignore
+/// use pmix::InitOptions;
+///
+/// let mut options = InitOptions::new();
+/// options.external_progress(true);
+/// options.bind_progress_thread("0-3");
+///
+/// let info = options.build();
+/// let handle = pmix::init(None, None, info)?;
+/// ```
+///
+/// # External progress warning
+///
+/// When `external_progress(true)` is set, PMIx does **not** spawn an
+/// internal progress thread. You **must** call [`progress`] periodically
+/// from your own event loop, or PMIx will deadlock on any blocking
+/// operation (e.g., `PMIx_Get`, `PMIx_Fence`). If in doubt, leave
+/// external progress disabled (the default).
+#[derive(Default, Debug)]
+pub struct InitOptions {
+    external_progress: Option<bool>,
+    bind_progress_thread: Option<String>,
+    bind_required: Option<bool>,
+}
+
+impl InitOptions {
+    /// Create a new, empty `InitOptions` builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set `PMIX_EXTERNAL_PROGRESS`.
+    ///
+    /// When `true`, tells PMIx that the host provides its own event
+    /// progress engine. **WARNING:** if you set this to `true` without
+    /// calling [`progress`] from your own event loop, the PMIx library
+    /// will deadlock on blocking operations, as no internal progress
+    /// thread is spawned.
+    ///
+    /// # C API
+    /// `PMIX_EXTERNAL_PROGRESS` (`pmix.evext`) — `PMIX_BOOL`
+    pub fn external_progress(&mut self, external: bool) -> &mut Self {
+        self.external_progress = Some(external);
+        self
+    }
+
+    /// Set `PMIX_BIND_PROGRESS_THREAD`.
+    ///
+    /// Specifies CPU ranges on which to bind the internal PMIx progress
+    /// thread. The value is a CPU set string (e.g., `"0-3"`, `"4,5,6,7"`).
+    ///
+    /// **Note:** this only pins the PMIx **progress thread**, not the
+    /// thread that calls `PMIx_Get` or other APIs — work is threadshifted
+    /// onto the progress/`evbase` internally.
+    ///
+    /// # C API
+    /// `PMIX_BIND_PROGRESS_THREAD` (`pmix.bind.pt`) — `PMIX_STRING`
+    pub fn bind_progress_thread(&mut self, cpus: &str) -> &mut Self {
+        self.bind_progress_thread = Some(cpus.to_string());
+        self
+    }
+
+    /// Set `PMIX_BIND_REQUIRED`.
+    ///
+    /// When `true`, the PMIx progress thread binding is mandatory —
+    /// initialization fails if the requested CPUs are unavailable.
+    ///
+    /// # C API
+    /// `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`) — `PMIX_BOOL`
+    pub fn bind_required(&mut self, required: bool) -> &mut Self {
+        self.bind_required = Some(required);
+        self
+    }
+
+    /// Build an [`Info`] array from the configured options.
+    ///
+    /// Returns an [`Info`] suitable for passing to [`init`].
+    /// Unset options are simply omitted from the resulting array.
+    pub fn build(&self) -> Info {
+        let mut builder = InfoBuilder::new();
+
+        if let Some(external) = self.external_progress {
+            builder.external_progress(external);
+        }
+
+        if let Some(ref cpus) = self.bind_progress_thread {
+            builder.bind_progress_thread(cpus);
+        }
+
+        if let Some(required) = self.bind_required {
+            builder.bind_required(required);
+        }
+
+        builder.build()
     }
 }
 
@@ -4615,5 +4829,110 @@ mod tests {
     fn test_pmix_status_is_std_error() {
         let status = PmixStatus::Known(PmixError::ErrInit);
         let _: &dyn std::error::Error = &status;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // InfoBuilder — string key convenience methods
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_infobuilder_external_progress() {
+        let mut builder = InfoBuilder::new();
+        builder.external_progress(true);
+        let info = builder.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_infobuilder_bind_progress_thread() {
+        let mut builder = InfoBuilder::new();
+        builder.bind_progress_thread("0-3");
+        let info = builder.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_infobuilder_bind_required() {
+        let mut builder = InfoBuilder::new();
+        builder.bind_required(true);
+        let info = builder.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_infobuilder_combined_string_keys() {
+        let mut builder = InfoBuilder::new();
+        builder.external_progress(true);
+        builder.bind_progress_thread("4,5,6,7");
+        builder.bind_required(false);
+        let info = builder.build();
+        assert_eq!(info.len(), 3);
+    }
+
+    #[test]
+    fn test_infobuilder_string_key_with_regular_key() {
+        // Mix a regular 13-byte key with string keys
+        let mut builder = InfoBuilder::new();
+        builder.add(
+            PMIX_COLLECT_DATA,
+            &true as *const bool as *const c_void,
+            PMIX_BOOL as pmix_data_type_t,
+        );
+        builder.external_progress(true);
+        let info = builder.build();
+        assert_eq!(info.len(), 2);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // InitOptions
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_initoptions_empty() {
+        let info = InitOptions::new().build();
+        assert_eq!(info.len(), 0);
+    }
+
+    #[test]
+    fn test_initoptions_external_progress() {
+        let mut opts = InitOptions::new();
+        opts.external_progress(true);
+        let info = opts.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_initoptions_bind_progress_thread() {
+        let mut opts = InitOptions::new();
+        opts.bind_progress_thread("0-7");
+        let info = opts.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_initoptions_bind_required() {
+        let mut opts = InitOptions::new();
+        opts.bind_required(true);
+        let info = opts.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_initoptions_all_options() {
+        let mut opts = InitOptions::new();
+        opts.external_progress(true);
+        opts.bind_progress_thread("0-3");
+        opts.bind_required(true);
+        let info = opts.build();
+        assert_eq!(info.len(), 3);
+    }
+
+    #[test]
+    fn test_initoptions_partial_options() {
+        // Only set bind_required, others should be omitted
+        let mut opts = InitOptions::new();
+        opts.bind_required(false);
+        let info = opts.build();
+        assert_eq!(info.len(), 1);
     }
 }
