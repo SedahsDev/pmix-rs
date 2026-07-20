@@ -3094,6 +3094,37 @@ impl InfoBuilder {
         );
         self
     }
+
+    /// Set `PMIX_PROGRESS_THREAD_FLUSH` attribute.
+    ///
+    /// Controls whether the progress thread flushes pending events before
+    /// stopping. Pass `true` to force a flush of the event base before
+    /// shutdown.
+    ///
+    /// # C API
+    /// `PMIX_PROGRESS_THREAD_FLUSH` (`pmix.evflush`) — `PMIX_BOOL`
+    pub fn progress_thread_flush(&mut self, flush: bool) -> &mut Self {
+        self.add_string_key(
+            "pmix.evflush",
+            if flush { "1" } else { "0" },
+            PMIX_BOOL as pmix_data_type_t,
+        );
+        self
+    }
+
+    /// Set `PMIX_PROGRESS_THREAD_NAME` attribute.
+    ///
+    /// Gives the internal PMIx progress thread a custom name for debugging
+    /// and profiling. The name is visible in thread listings (e.g.,
+    /// `pthread_getname_np`, debuggers, `ps`).
+    ///
+    /// # C API
+    /// `PMIX_PROGRESS_THREAD_NAME` (`pmix.evname`) — `PMIX_STRING`
+    pub fn progress_thread_name(&mut self, name: &str) -> &mut Self {
+        self.add_string_key("pmix.evname", name, PMIX_STRING as pmix_data_type_t);
+        self
+    }
+
     pub fn collect_data(&mut self) -> &mut InfoBuilder {
         let collect = true;
         self.add(
@@ -3192,6 +3223,8 @@ pub struct InitOptions {
     external_progress: Option<bool>,
     bind_progress_thread: Option<String>,
     bind_required: Option<bool>,
+    progress_thread_flush: Option<bool>,
+    progress_thread_name: Option<String>,
 }
 
 impl InitOptions {
@@ -3243,6 +3276,31 @@ impl InitOptions {
         self
     }
 
+    /// Set `PMIX_PROGRESS_THREAD_FLUSH`.
+    ///
+    /// When `true`, the progress thread flushes pending events before
+    /// stopping. Useful for ensuring in-flight operations complete during
+    /// shutdown.
+    ///
+    /// # C API
+    /// `PMIX_PROGRESS_THREAD_FLUSH` (`pmix.evflush`) — `PMIX_BOOL`
+    pub fn progress_thread_flush(&mut self, flush: bool) -> &mut Self {
+        self.progress_thread_flush = Some(flush);
+        self
+    }
+
+    /// Set `PMIX_PROGRESS_THREAD_NAME`.
+    ///
+    /// Gives the internal PMIx progress thread a custom name for debugging
+    /// and profiling. Visible in thread listings and debuggers.
+    ///
+    /// # C API
+    /// `PMIX_PROGRESS_THREAD_NAME` (`pmix.evname`) — `PMIX_STRING`
+    pub fn progress_thread_name(&mut self, name: &str) -> &mut Self {
+        self.progress_thread_name = Some(name.to_string());
+        self
+    }
+
     /// Build an [`Info`] array from the configured options.
     ///
     /// Returns an [`Info`] suitable for passing to [`init`].
@@ -3260,6 +3318,14 @@ impl InitOptions {
 
         if let Some(required) = self.bind_required {
             builder.bind_required(required);
+        }
+
+        if let Some(flush) = self.progress_thread_flush {
+            builder.progress_thread_flush(flush);
+        }
+
+        if let Some(ref name) = self.progress_thread_name {
+            builder.progress_thread_name(name);
         }
 
         builder.build()
@@ -3470,9 +3536,52 @@ pub fn get_version() -> &'static str {
     }
     version.to_str().unwrap()
 }
+/// Manually drive the PMIx event progress loop.
+///
+/// Call this periodically from your own event loop when running in
+/// **external progress mode** (`InitOptions::external_progress(true)`).
+/// In internal progress mode (the default), PMIx manages its own thread
+/// and you should **not** call this.
+///
+/// # Interaction with [`progress_thread_stop`]
+///
+/// Do **not** call `progress()` after [`progress_thread_stop`] — the
+/// event base has been torn down and further calls have undefined behavior.
 pub fn progress() {
     unsafe {
         PMIx_Progress();
+    }
+}
+
+/// Stop the internal PMIx progress thread.
+///
+/// Use this when you initialized with `external_progress(false)` (the
+/// default) and want to cleanly shut down the internal progress thread
+/// before calling [`finalize`] or exiting.
+///
+/// # When to call
+///
+/// - **External progress mode (`external_progress(true)`):** Do **not**
+///   call this — there is no internal progress thread to stop.
+/// - **Internal progress mode (default):** Call this before [`finalize`]
+///   for a clean shutdown. The progress thread will drain pending events
+///   and exit gracefully.
+/// - **Tests:** If your test calls [`init`] and then exits without
+///   calling [`finalize`], call this first to avoid the progress thread
+///   running after the test process terminates.
+///
+/// # Interaction with [`progress()`]
+///
+/// After calling `progress_thread_stop()`, do **not** call [`progress()`]
+/// anymore — the event base has been torn down and further calls have
+/// undefined behavior.
+///
+/// # C API
+/// `PMIx_Progress_thread_stop(info, ninfo)` — takes an optional Info
+/// array for future extension (pass null/0 for now).
+pub fn progress_thread_stop() {
+    unsafe {
+        PMIx_Progress_thread_stop(std::ptr::null(), 0);
     }
 }
 
@@ -4934,5 +5043,50 @@ mod tests {
         opts.bind_required(false);
         let info = opts.build();
         assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_infobuilder_progress_thread_flush() {
+        let mut builder = InfoBuilder::new();
+        builder.progress_thread_flush(true);
+        let info = builder.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_infobuilder_progress_thread_name() {
+        let mut builder = InfoBuilder::new();
+        builder.progress_thread_name("my-progress-thread");
+        let info = builder.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_initoptions_progress_thread_flush() {
+        let mut opts = InitOptions::new();
+        opts.progress_thread_flush(true);
+        let info = opts.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_initoptions_progress_thread_name() {
+        let mut opts = InitOptions::new();
+        opts.progress_thread_name("test-progress");
+        let info = opts.build();
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_initoptions_all_options_including_progress() {
+        let mut opts = InitOptions::new();
+        opts.external_progress(false);
+        opts.bind_progress_thread("0-3");
+        opts.bind_required(true);
+        opts.progress_thread_flush(true);
+        opts.progress_thread_name("full-test");
+        let info = opts.build();
+        // 5 options set
+        assert_eq!(info.len(), 5);
     }
 }
