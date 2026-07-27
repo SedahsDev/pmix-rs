@@ -93,7 +93,7 @@ extern "C" fn publish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -147,7 +147,7 @@ pub fn publish_nb(info: &Info, callback: Box<dyn PublishCallback>) -> Result<(),
     // Encode the request ID as a non-null pointer for cbdata.
     // We shift left by 2 to ensure the pointer is not null and
     // remains alignable (though PMIx treats it as opaque c_void).
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare info parameters.
     let (info_ptr, ninfo) = if info.len > 0 {
@@ -220,7 +220,7 @@ extern "C" fn get_value_callback_bridge(
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -296,7 +296,7 @@ pub fn get_nb(
     // Encode the request ID as a non-null pointer for cbdata.
     // We shift left by 2 to ensure the pointer is not null and
     // remains alignable (though PMIx treats it as opaque c_void).
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare key and info parameters.
     let key_c = match CString::new(key) {
@@ -642,7 +642,7 @@ extern "C" fn lookup_callback_bridge(
     }
 
     // Recover the request ID from the cbdata pointer.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -765,7 +765,7 @@ pub fn lookup_nb(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Convert keys to NULL-terminated C string array.
     let mut key_ptrs: Vec<*mut std::os::raw::c_char> = Vec::with_capacity(keys.len() + 1);
@@ -858,7 +858,7 @@ extern "C" fn unpublish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -1008,7 +1008,7 @@ pub fn unpublish_nb(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Handle the None case — unpublish all data for this process.
     let keys_ptr = match keys {
@@ -1181,7 +1181,7 @@ extern "C" fn fence_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_v
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -1260,7 +1260,7 @@ pub fn fence_nb(
     // Encode the request ID as a non-null pointer for cbdata.
     // We shift left by 2 to ensure the pointer is not null and
     // remains alignable (though PMIx treats it as opaque c_void).
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare proc parameters.
     let (proc_ptr, nprocs) = if procs.is_empty() {

@@ -387,7 +387,7 @@ extern "C" fn credential_callback_bridge(
     }
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -491,7 +491,7 @@ pub fn get_credential_nb(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     let ninfo = info.len();
 
@@ -713,7 +713,7 @@ extern "C" fn validation_callback_bridge(
     }
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -810,7 +810,7 @@ pub fn validate_credential_nb(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     let ninfo = info.len();
 
@@ -1621,7 +1621,7 @@ mod tests {
     fn test_credential_callback_bridge_missing_callback() {
         // Use a request ID that's not in the registry
         let req_id = 99999999usize;
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
 
         // Allocate a fake credential
         let bytes = b"fake";
@@ -1680,7 +1680,7 @@ mod tests {
         });
         let cred_ptr = Box::into_raw(bo);
 
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
 
         // Invoke the bridge
         credential_callback_bridge(0i32, cred_ptr, std::ptr::null_mut(), 0, cbdata);
@@ -1700,7 +1700,7 @@ mod tests {
     #[test]
     fn test_validation_callback_bridge_missing_callback() {
         let req_id = 88888888usize;
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
 
         // Call bridge — should find no callback and return
         validation_callback_bridge(0i32, std::ptr::null_mut(), 0, cbdata);
@@ -1728,7 +1728,7 @@ mod tests {
             registry.insert(req_id, Box::new(TestValCb));
         }
 
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
 
         // Invoke the bridge with no info (exercises the empty results path)
         validation_callback_bridge(0i32, std::ptr::null_mut(), 0, cbdata);

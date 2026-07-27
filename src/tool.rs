@@ -1029,6 +1029,7 @@ mod tests {
     // ─── tool_finalize: structural tests ────────────────────────────────────
 
     #[test]
+    #[ignore = "PMIx_tool_finalize can SIGSEGV when the tool library was never inited (no DVM/mock)"]
     fn test_tool_finalize_with_dummy_handle() {
         let proc = Proc::new("test_tool", 0).unwrap();
         let handle = PmixToolHandle { proc };
@@ -1260,6 +1261,7 @@ mod tests {
     // ─── Tool lifecycle structural test ─────────────────────────────────────
 
     #[test]
+    #[ignore = "can SIGSEGV without DVM/mock when calling tool finalize/init"]
     fn test_tool_init_then_finalize_pattern() {
         // Structural test: verify init -> finalize pattern compiles and doesn't panic
         let result = tool_init_minimal();

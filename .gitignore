@@ -3,3 +3,9 @@ Cargo.lock
 \#*
 .idea
 target
+
+# Coverage / tarpaulin artifacts (do not commit)
+cobertura.xml
+tarpaulin-report.html
+tarpaulin-report.json
+lcov.info
