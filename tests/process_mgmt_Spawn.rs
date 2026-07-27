@@ -365,7 +365,7 @@ fn spawn_integration() {
     // This would require PMIx_Init which needs a daemon.
     // In a real integration test environment:
     //
-    // 1. Call pmix::lifecycle::init(None).expect("init");
+    // 1. Call pmix::lifecycle::PmixClient::connect_new(None).expect("init");
     // 2. Build PmixApp with cmd = "./simpclient", maxprocs = 2
     // 3. Call spawn(&[], &[app])
     // 4. Verify returned namespace is non-empty

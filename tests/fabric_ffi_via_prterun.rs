@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 
 /// Shared PMIx context initialized once when first DVM test runs.
 /// Avoids multiple init/finalize cycles that corrupt PMIx library state.
-static PMIX_CONTEXT: OnceLock<Option<pmix::Context>> = OnceLock::new();
+static PMIX_CONTEXT: OnceLock<Option<pmix::PmixClient>> = OnceLock::new();
 
 /// Initialize the shared PMIx context if we're running under prterun.
 /// Returns true if PMIx is available.

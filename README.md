@@ -47,7 +47,8 @@ See also: [`../BUILDING.md`](../BUILDING.md).
 use std::ffi::CString;
 
 fn main() {
-    let ctx = pmix::init(None).expect("init");
+    let client = pmix::PmixClient::connect_new(None).expect("connect");
+    let proc = client.require_proc();
 
     let key = CString::new("my_key").unwrap();
     let mut value = pmix::PmixValueBuilder::new()
@@ -59,13 +60,14 @@ fn main() {
     pmix::put_value(pmix::PmixScope::Global.to_raw(), &key, &mut value)
         .expect("put");
     pmix::commit().expect("commit");
-    pmix::fence(ctx.get_proc(), None).expect("fence");
+    pmix::fence(&proc, None).expect("fence");
 
-    match pmix::get_value(ctx.get_proc(), b"my_key\0", None) {
+    match pmix::get_value(&proc, b"my_key\0", None) {
         Ok(_) => println!("got value"),
         Err(e) => println!("get: {e:?}"),
     }
-    // Context drop → finalize
+
+    client.disconnect(None).expect("disconnect");
 }
 ```
 

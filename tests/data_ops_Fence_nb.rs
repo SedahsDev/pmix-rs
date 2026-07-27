@@ -330,7 +330,7 @@ fn fence_nb_after_init() {
     }
 
     let _ctx = daemon_helper::ensure_pmix_init();
-    let proc = _ctx.get_proc().clone();
+    let proc = _ctx.require_proc();
     let procs = vec![proc];
 
     let result = fence_nb(&procs, None, Box::new(NbCallback));
@@ -365,7 +365,7 @@ fn fence_nb_with_collect_data() {
     builder.collect_data();
     let info = builder.build();
     let _ctx = daemon_helper::ensure_pmix_init();
-    let proc = _ctx.get_proc().clone();
+    let proc = _ctx.require_proc();
     let procs = vec![proc];
 
     let result = fence_nb(&procs, Some(&info), Box::new(CollectCallback));
@@ -419,7 +419,7 @@ fn fence_nb_chained_fences() {
     }
 
     let _ctx = daemon_helper::ensure_pmix_init();
-    let proc = _ctx.get_proc().clone();
+    let proc = _ctx.require_proc();
     let procs = vec![proc];
 
     // Issue first fence.
@@ -452,7 +452,7 @@ fn fence_nb_callback_status_on_success() {
     }
 
     let _ctx = daemon_helper::ensure_pmix_init();
-    let proc = _ctx.get_proc().clone();
+    let proc = _ctx.require_proc();
     let procs = vec![proc];
 
     let result = fence_nb(&procs, None, Box::new(StatusVerifyCallback));
@@ -475,7 +475,7 @@ fn fence_nb_full_params() {
     builder.collect_data();
     let info = builder.build();
     let _ctx = daemon_helper::ensure_pmix_init();
-    let proc = _ctx.get_proc().clone();
+    let proc = _ctx.require_proc();
     let procs = vec![proc];
 
     let result = fence_nb(&procs, Some(&info), Box::new(FullCallback));
@@ -501,7 +501,7 @@ fn fence_nb_put_commit_fence_pattern() {
     // The C test pattern: put data, commit, then fence.
     // The fence ensures data visibility across the group.
     let _ctx = daemon_helper::ensure_pmix_init();
-    let proc = _ctx.get_proc().clone();
+    let proc = _ctx.require_proc();
     let procs = vec![proc];
 
     let mut builder = InfoBuilder::new();

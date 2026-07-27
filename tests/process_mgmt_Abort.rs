@@ -213,7 +213,7 @@ fn abort_integration() {
     // The safe approach is to skip this in unit test mode.
     // In a real integration test environment, we would:
     //
-    // 1. Call pmix::lifecycle::init(None).expect("init");
+    // 1. Call pmix::lifecycle::PmixClient::connect_new(None).expect("init");
     // 2. Register an event handler for abort notifications.
     // 3. If rank 0, call abort(PmixStatus::Known(PmixError::ErrOutOfResource),
     //    Some("Eat rocks"), Some(&[my_proc])).

@@ -151,7 +151,7 @@ fn test_generate_regex_error_display() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_sequential_nodes() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     let nodes = "odin001,odin002,odin003,odin010,odin011,odin075";
@@ -179,7 +179,7 @@ fn test_generate_regex_sequential_nodes() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_three_nodes() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     let nodes = "test000,test001,test002";
@@ -199,7 +199,7 @@ fn test_generate_regex_three_nodes() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_short_nodes() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     let nodes = "c712f6n01,c712f6n02,c712f6n03";
@@ -216,7 +216,7 @@ fn test_generate_regex_short_nodes() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_deterministic() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     let nodes = "odin001,odin002,odin003,odin010,odin011,odin075";
@@ -233,7 +233,7 @@ fn test_generate_regex_deterministic() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_many_nodes() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     let nodes: String = (0..100)
@@ -259,7 +259,7 @@ fn test_generate_regex_many_nodes() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_single_host() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     let result = generate_regex("localhost");
@@ -281,7 +281,7 @@ fn test_generate_regex_single_host() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_output_format() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     let test_cases = vec![
@@ -306,7 +306,7 @@ fn test_generate_regex_output_format() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_no_leak_smoke() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     for i in 0..50 {
@@ -325,7 +325,7 @@ fn test_generate_regex_no_leak_smoke() {
 #[test]
 #[ignore = "requires PMIx_server_init"]
 fn test_generate_regex_mixed_names() {
-    if !require_server_init() {
+    if !skip_without_server() {
         return;
     }
     let nodes = "compute-0,compute-1,gpu-node-0,gpu-node-1";

@@ -289,8 +289,8 @@ fn publish_fence_pattern() {
     assert!(result.is_ok(), "publish should succeed");
 
     // Fence to ensure data is visible.
-    let proc = ctx.get_proc();
-    let fence_result = pmix::fence(proc, None);
+    let proc = ctx.require_proc();
+    let fence_result = pmix::fence(&proc, None);
     assert!(fence_result.is_ok(), "fence should succeed after publish");
 }
 
