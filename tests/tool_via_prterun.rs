@@ -17,7 +17,7 @@
 mod daemon_helper;
 
 use std::sync::OnceLock;
-static PMIX_CONTEXT: OnceLock<Option<pmix::Context>> = OnceLock::new();
+static PMIX_CONTEXT: OnceLock<Option<pmix::PmixClient>> = OnceLock::new();
 
 fn ensure_pmix_init() -> bool {
     if !is_dvm_launched() {
@@ -78,12 +78,12 @@ fn test_dvm_launch_detected() {
     assert!(is_dvm_launched());
 }
 
-/// Context provides valid proc info via DVM.
+/// PmixClient provides valid proc info via DVM.
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_via_dvm() {
     let context = daemon_helper::ensure_pmix_init();
-    let proc = context.get_proc();
+    let proc = context.require_proc();
     assert_eq!(proc.get_rank(), 0);
 }
 

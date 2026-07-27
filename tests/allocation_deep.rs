@@ -1208,7 +1208,7 @@ fn allocation_request_error_is_known() {
 fn allocation_request_full_lifecycle() {
     // With PMIx_Init, allocation_request should be accepted.
     // The actual result depends on the resource manager.
-    // let _ = pmix::init(None);
+    // let _ = pmix::PmixClient::connect_new(None);
     // let result = allocation_request(PmixAllocDirective::AllocNew, &[]);
     // assert!(result.is_ok() || result.is_err()); // RM may reject
     // pmix::finalize(None).unwrap();
@@ -1222,7 +1222,7 @@ fn allocation_request_nb_full_lifecycle() {
     impl AllocationCallback for Cb {
         fn on_complete(&self, _status: PmixStatus, _results: AllocationResults) {}
     }
-    // let _ = pmix::init(None);
+    // let _ = pmix::PmixClient::connect_new(None);
     // let result = allocation_request_nb(PmixAllocDirective::AllocNew, &[], Box::new(Cb));
     // assert!(result.is_ok()); // Should be accepted (callback fires later)
     // pmix::finalize(None).unwrap();
@@ -1232,7 +1232,7 @@ fn allocation_request_nb_full_lifecycle() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn job_control_full_lifecycle() {
-    // let _ = pmix::init(None);
+    // let _ = pmix::PmixClient::connect_new(None);
     // let result = job_control(&[], &[]);
     // assert!(result.is_ok() || result.is_err());
     // pmix::finalize(None).unwrap();
@@ -1246,7 +1246,7 @@ fn job_control_nb_full_lifecycle() {
     impl JobControlCallback for Cb {
         fn on_complete(&self, _status: PmixStatus, _results: JobControlResults) {}
     }
-    // let _ = pmix::init(None);
+    // let _ = pmix::PmixClient::connect_new(None);
     // let result = job_control_nb(&[], &[], Box::new(Cb));
     // assert!(result.is_ok());
     // pmix::finalize(None).unwrap();
@@ -1256,7 +1256,7 @@ fn job_control_nb_full_lifecycle() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn allocation_request_with_info() {
-    // let _ = pmix::init(None);
+    // let _ = pmix::PmixClient::connect_new(None);
     // let info = InfoBuilder::new().build();
     // // Note: allocation_request takes &[Info], and InfoBuilder produces a single Info.
     // // The caller would need to wrap it in a Vec to pass as slice.
@@ -1267,7 +1267,7 @@ fn allocation_request_with_info() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn job_control_with_info() {
-    // let _ = pmix::init(None);
+    // let _ = pmix::PmixClient::connect_new(None);
     // let directives = InfoBuilder::new().build();
     // pmix::finalize(None).unwrap();
 }

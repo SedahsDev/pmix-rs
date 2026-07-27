@@ -9,19 +9,21 @@
 //! engine, so concurrent **calls** into C are intended to be OK while progress
 //! runs. Rust still owns session lifetime and C-handle discipline:
 //!
-//! - Prefer one process-wide [`PmixClient`] session: `Clone` is cheap (`Arc`),
-//!   and the type is **`Send + Sync`** so clones can move to worker threads.
-//! - Do **not** lock every put/get in Rust by default — OpenPMIx serializes entry.
-//!   Lock only Rust-owned shared state (the session does this for cached `Proc`).
+//! - **Only** client session API: process-wide [`PmixClient`] (`Clone + Send + Sync`).
+//!   Use [`PmixClient::connect_new`] / [`connect`](PmixClient::connect) /
+//!   [`disconnect`](PmixClient::disconnect). There is no legacy `Context` / `init`.
+//! - Do **not** lock every put/get in Rust by default — OpenPMIx ≥ 6.1 serializes entry.
+//!   Lock only Rust-owned shared state (the session caches `Proc` under a mutex).
 //! - Data ops stay as free functions ([`put_value`], [`get_value`], [`commit`],
-//!   [`fence`], …). Pass proc handles from the client; build [`Info`] per call.
-//! - [`Info`] and other raw-handle wrappers are **`!Send` + `!Sync`**
+//!   [`fence`], …). Pass [`Proc`] from the client; build [`Info`] per call.
+//! - [`Info`] and other C-owned handles are **`!Send` + `!Sync`**
 //!   (`PhantomData<*mut u8>`). Share only behind your own `Mutex` if you must.
-//! - One logical init/finalize cycle per process. [`PmixClient::disconnect`] is
-//!   explicit — **Drop does not finalize** (avoids double-finalize with clones).
-//! - Legacy [`init`] / [`Context`] share the same session state machine; `Context`
-//!   still finalizes on Drop for backward compatibility.
+//! - One logical connect/disconnect per process. **Drop does not finalize**
+//!   (clones must not each run `PMIx_Finalize`). Call [`disconnect`](PmixClient::disconnect)
+//!   or [`finalize`].
 //! - Server upcalls may run on PMIx internal threads; keep callbacks short.
+//!
+//! See [THREADING.md](../THREADING.md) in the repo for the full model.
 //!
 use std::fmt::Debug;
 pub mod allocation;
@@ -3476,9 +3478,8 @@ fn client_session() -> Arc<PmixClientInner> {
 /// # Drop / finalize rules
 ///
 /// - **Drop does not finalize.** Clones must not each run `PMIx_Finalize`.
-/// - Call [`disconnect`](Self::disconnect) once (or legacy [`finalize`]).
+/// - Call [`disconnect`](Self::disconnect) once (or free-function [`finalize`]).
 /// - Further disconnect/finalize calls are no-ops once not `Live`.
-/// - Legacy [`Context`] still finalizes on Drop and shares this state machine.
 ///
 /// # Example
 ///
@@ -3486,8 +3487,7 @@ fn client_session() -> Arc<PmixClientInner> {
 /// use pmix::{PmixClient, put_value, commit, fence, PmixScope};
 /// use std::ffi::CString;
 ///
-/// let client = PmixClient::new();
-/// client.connect(None)?;
+/// let client = PmixClient::connect_new(None)?;
 ///
 /// let worker = client.clone();
 /// std::thread::spawn(move || {
@@ -3638,12 +3638,15 @@ impl PmixClient {
             .clone()
     }
 
-    /// Borrow-style access via clone of the cached `Proc` when live.
-    ///
-    /// Named for parity with [`Context::get_proc`]; returns owned `Proc`
-    /// because the cache lives behind a mutex.
+    /// Alias for [`proc`](Self::proc).
     pub fn get_proc(&self) -> Option<Proc> {
         self.proc()
+    }
+
+    /// Process handle, or panic if not live (tests / infallible paths).
+    pub fn require_proc(&self) -> Proc {
+        self.proc()
+            .expect("pmix: PmixClient must be connected (Live) to use require_proc")
     }
 
     /// Rank from the cached process handle when live.
@@ -3656,9 +3659,15 @@ impl PmixClient {
             .map(|p| p.get_rank())
     }
 
-    /// Alias for [`rank`](Self::rank) matching [`Context::get_rank`] naming.
+    /// Alias for [`rank`](Self::rank).
     pub fn get_rank(&self) -> Option<u32> {
         self.rank()
+    }
+
+    /// Rank, or panic if not live.
+    pub fn require_rank(&self) -> u32 {
+        self.rank()
+            .expect("pmix: PmixClient must be connected (Live) to use require_rank")
     }
 
     /// `Proc` for `rank` in this client's namespace.
@@ -3682,66 +3691,6 @@ impl PmixClient {
             Err(PmixError::ErrInit)
         }
     }
-}
-
-/// Legacy RAII client context — prefer [`PmixClient`] for multi-threaded code.
-///
-/// `Context` is retained for backward compatibility. It performs finalize in
-/// [`Drop`] via [`finalize`], which is coordinated with the process-wide
-/// [`PmixClient`] state machine (double-finalize becomes a no-op).
-///
-/// `Context` itself is not the shareable session type: clone/move a
-/// [`PmixClient`] across threads instead.
-
-pub struct Context {
-    pub(crate) proc: Proc,
-}
-
-impl Context {
-    pub fn proc_with_nspace(&self, rank: u32) -> Result<Proc, NulError> {
-        let mut handle: pmix_proc_t;
-        unsafe {
-            handle = mem::zeroed();
-            PMIx_Proc_construct(&mut handle);
-        }
-        handle.rank = rank;
-        unsafe {
-            PMIx_Load_nspace(handle.nspace.as_mut_ptr(), self.proc.handle.nspace.as_ptr());
-        }
-        Ok(Proc { handle, len: 1 })
-    }
-
-    pub fn get_rank(&self) -> u32 {
-        self.proc.handle.rank
-    }
-    pub fn get_proc(&self) -> &Proc {
-        &self.proc
-    }
-}
-
-impl Drop for Context {
-    fn drop(&mut self) {
-        // Always log finalize failures (including release builds). This runs at
-        // end-of-scope / process teardown where diagnostics matter more than
-        // avoiding a single eprintln. Never panic in Drop (double-panic → abort).
-        if let Err(status) = finalize(None) {
-            eprintln!("pmix: finalize in Context::Drop failed: status={status}");
-        }
-    }
-}
-
-/// Initialize the process-wide PMIx client session and return a legacy [`Context`].
-///
-/// Prefer [`PmixClient::connect_new`] / [`PmixClient::connect`] for multi-threaded
-/// code. This function uses the same process session state machine as
-/// [`PmixClient`]; a second init while live returns [`PmixError::ErrExists`].
-pub fn init(info: Option<Info>) -> Result<Context, PmixError> {
-    let client = PmixClient::new();
-    client.connect(info)?;
-    let proc = client
-        .proc()
-        .expect("pmix: proc must be set after successful connect");
-    Ok(Context { proc })
 }
 
 pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwnedValue, PmixError> {
@@ -3918,8 +3867,9 @@ pub fn progress_thread_stop() {
 
 /// Finalize the process-wide PMIx client session (`PMIx_Finalize`).
 ///
-/// Delegates to [`PmixClient::disconnect`]. No-op if the session is not live.
-/// Prefer explicit [`PmixClient::disconnect`] when using [`PmixClient`].
+/// Equivalent to [`PmixClient::disconnect`] on the process session.
+/// No-op if the session is not live. Prefer calling
+/// [`disconnect`](PmixClient::disconnect) on your client handle when you have one.
 pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
     PmixClient::new().disconnect(info)
 }
@@ -5472,6 +5422,7 @@ mod tests {
         assert!(client.proc().is_none());
         assert!(client.get_proc().is_none());
         assert!(client.rank().is_none());
+        assert!(client.get_rank().is_none());
         assert!(client.check_live().is_err());
         assert!(client.proc_with_nspace(0).is_err());
     }
@@ -5482,9 +5433,9 @@ mod tests {
         if client.is_live() {
             return;
         }
-        let before = client.state();
+        // Process-wide session may already be Dead from another test; disconnect is still Ok.
         assert!(client.disconnect(None).is_ok());
-        assert_eq!(client.state(), before);
+        assert!(!client.is_live());
     }
 
     #[test]
@@ -5493,8 +5444,7 @@ mod tests {
         if client.is_live() {
             return;
         }
-        let before = client.state();
         assert!(finalize(None).is_ok());
-        assert_eq!(PmixClient::new().state(), before);
+        assert!(!PmixClient::new().is_live());
     }
 }

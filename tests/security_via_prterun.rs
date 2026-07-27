@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared PMIx context for all DVM tests
 // ─────────────────────────────────────────────────────────────────────────────
-static PMIX_CONTEXT: OnceLock<Option<pmix::Context>> = OnceLock::new();
+static PMIX_CONTEXT: OnceLock<Option<pmix::PmixClient>> = OnceLock::new();
 
 fn ensure_pmix_init() -> bool {
     if !is_dvm_launched() {

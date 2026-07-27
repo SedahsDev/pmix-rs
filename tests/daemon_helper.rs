@@ -317,14 +317,15 @@ pub fn assert_error(status: pmix::PmixStatus) {
     );
 }
 
-/// Ensures PMIx is initialized exactly once per test binary (DVM/prterun tests).
-/// Returns a reference to the Context.
-/// Call this instead of direct pmix::init(None) to avoid multiple init/finalize.
+/// Ensures the process-wide [`pmix::PmixClient`] is connected once per test binary (DVM/prterun).
+///
+/// Prefer this over calling `PmixClient::connect_new` in every test — PMIx allows one logical
+/// client init per process. Drop does **not** finalize; process exit tears down the DVM job.
 /// Multiple cycles are not supported.
-pub fn ensure_pmix_init() -> &'static pmix::Context {
+pub fn ensure_pmix_init() -> &'static pmix::PmixClient {
     use std::sync::OnceLock;
-    static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
-    PMIX_CTX.get_or_init(|| pmix::init(None).expect("PMIx_Init failed — run under prterun"))
+    static PMIX_CTX: OnceLock<pmix::PmixClient> = OnceLock::new();
+    PMIX_CTX.get_or_init(|| pmix::PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun"))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

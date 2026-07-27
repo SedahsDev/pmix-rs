@@ -1,4 +1,4 @@
-//! Tests for pmix::init() (PMIx_Init) - the DVM-launched client path.
+//! Tests for PmixClient::connect_new() (PMIx_Init) - the DVM-launched client path.
 //!
 //! PMIx_Init only works when the process is launched by the DVM (prterun/prun).
 //! It does NOT accept PMIX_SERVER_URI from the environment - that is for
@@ -7,11 +7,11 @@
 //! These tests are designed to be run in two modes:
 //!
 //! 1. Standalone (cargo test --test init_via_prterun):
-//!    - Tests that pmix::init() FAILS gracefully with PMIX_ERR_UNREACH
+//!    - Tests that PmixClient::connect_new() FAILS gracefully with PMIX_ERR_UNREACH
 //!    - Tests that pmix::initialized() returns false before init
 //!
 //! 2. Via prterun (prterun -np 1 cargo test --test init_via_prterun -- --ignored):
-//!    - Tests that pmix::init() SUCCEEDS when DVM-launched
+//!    - Tests that PmixClient::connect_new() SUCCEEDS when DVM-launched
 //!    - Tests context, proc, namespace, rank from DVM connection
 mod daemon_helper;
 
@@ -29,16 +29,16 @@ fn is_dvm_launched() -> bool {
 // Standalone tests - run normally, verify PMIx_Init fails gracefully
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// pmix::init() fails when not DVM-launched.
+/// PmixClient::connect_new() fails when not DVM-launched.
 #[test]
 fn test_init_fails_without_dvm() {
     if is_dvm_launched() {
         return;
     }
-    let result = pmix::init(None);
+    let result = pmix::PmixClient::connect_new(None);
     assert!(
         result.is_err(),
-        "pmix::init() should fail when not launched by DVM"
+        "PmixClient::connect_new() should fail when not launched by DVM"
     );
 }
 
@@ -46,29 +46,29 @@ fn test_init_fails_without_dvm() {
 // DVM-launched tests - only run when prterun launches us
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// pmix::init() succeeds when launched by prterun.
+/// PmixClient::connect_new() succeeds when launched by prterun.
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_succeeds_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let result = pmix::init(None);
+    let result = pmix::PmixClient::connect_new(None);
     assert!(
         result.is_ok(),
-        "pmix::init() should succeed when launched by prterun"
+        "PmixClient::connect_new() should succeed when launched by prterun"
     );
 }
 
-/// pmix::init() returns a valid context with rank 0.
+/// PmixClient::connect_new() returns a valid context with rank 0.
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_returns_valid_context() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let context = daemon_helper::ensure_pmix_init();
-    let rank = context.get_rank();
+    let rank = context.require_rank();
     assert_eq!(rank, 0, "rank should be 0 for single-process job");
 }
 
-/// pmix::utility::initialized() returns true after pmix::init().
+/// pmix::utility::initialized() returns true after PmixClient::connect_new().
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_initialized_after_init() {
@@ -76,30 +76,30 @@ fn test_initialized_after_init() {
     let _context = daemon_helper::ensure_pmix_init();
     assert!(
         pmix::utility::initialized(),
-        "pmix::initialized() should return true after pmix::init()"
+        "pmix::initialized() should return true after PmixClient::connect_new()"
     );
 }
 
-/// pmix::init() with Info succeeds via prterun.
+/// PmixClient::connect_new() with Info succeeds via prterun.
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_with_info_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let info = InfoBuilder::new().build();
-    let result = pmix::init(Some(info));
+    let result = pmix::PmixClient::connect_new(Some(info));
     assert!(
         result.is_ok(),
-        "pmix::init() with info should succeed via prterun"
+        "PmixClient::connect_new() with info should succeed via prterun"
     );
 }
 
-/// pmix::init() context provides valid proc namespace.
+/// PmixClient::connect_new() context provides valid proc namespace.
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_proc_info() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let context = daemon_helper::ensure_pmix_init();
-    let proc = context.get_proc();
+    let proc = context.require_proc();
     // Access nspace through proc_with_nspace which returns a new Proc
     let _new_proc = context
         .proc_with_nspace(0)
@@ -107,11 +107,11 @@ fn test_context_proc_info() {
     assert_eq!(proc.get_rank(), 0, "rank should be 0");
 }
 
-/// pmix::init() -> finalize cycle works via prterun.
+/// PmixClient::connect_new() -> finalize cycle works via prterun.
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_finalize_cycle() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
     let _context = daemon_helper::ensure_pmix_init();
-    // Context Drop calls finalize automatically
+    // Call disconnect/finalize explicitly — Drop does not finalize
 }

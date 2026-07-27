@@ -10,7 +10,7 @@
 
 mod daemon_helper;
 
-use pmix::{PmixDataType, data_serialization::*, init};
+use pmix::{PmixDataType, data_serialization::*, PmixClient};
 use proptest::prelude::*;
 use std::sync::OnceLock;
 
@@ -19,10 +19,10 @@ use std::sync::OnceLock;
 // Proptest may call the test closure many times (shrinking), so we need
 // a shared Context that lives for the whole test run.
 // ─────────────────────────────────────────────────────────────────────────────
-static PMIX_CTX: OnceLock<pmix::Context> = OnceLock::new();
+static PMIX_CTX: OnceLock<pmix::PmixClient> = OnceLock::new();
 
-fn ensure_init() -> &'static pmix::Context {
-    PMIX_CTX.get_or_init(|| init(None).expect("PMIx_Init failed — run under prterun"))
+fn ensure_init() -> &'static pmix::PmixClient {
+    PMIX_CTX.get_or_init(|| PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun"))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

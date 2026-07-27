@@ -155,7 +155,7 @@ fn test_tool_init_minimal() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_with_daemon() {
-    let result = pmix::init(None);
+    let result = pmix::PmixClient::connect_new(None);
     assert!(result.is_ok(), "init should succeed with daemon");
 }
 
@@ -163,7 +163,7 @@ fn test_init_with_daemon() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_returns_valid_context() {
     let context = daemon_helper::ensure_pmix_init();
-    let rank = context.get_rank();
+    let rank = context.require_rank();
     assert_eq!(rank, 0, "rank should be 0 for standalone client");
 }
 
@@ -171,7 +171,7 @@ fn test_init_returns_valid_context() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_context_get_proc() {
     let context = daemon_helper::ensure_pmix_init();
-    let _proc = context.get_proc();
+    let _proc = context.require_proc();
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn test_context_proc_with_nspace() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_with_info() {
     let info = InfoBuilder::new().build();
-    let result = pmix::init(Some(info));
+    let result = pmix::PmixClient::connect_new(Some(info));
     assert!(result.is_ok(), "init with info should succeed");
 }
 
@@ -213,7 +213,7 @@ fn test_init_finalize_cycle() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_after_init() {
     let context = daemon_helper::ensure_pmix_init();
-    let result = pmix::fence(context.get_proc(), None);
+    let result = pmix::fence(&context.require_proc(), None);
     assert!(result.is_ok(), "fence should succeed after init");
 }
 
@@ -222,7 +222,7 @@ fn test_fence_after_init() {
 fn test_fence_with_info() {
     let context = daemon_helper::ensure_pmix_init();
     let info = InfoBuilder::new().build();
-    let result = pmix::fence(context.get_proc(), Some(info));
+    let result = pmix::fence(&context.require_proc(), Some(info));
     assert!(result.is_ok(), "fence with info should succeed");
 }
 
@@ -247,7 +247,7 @@ fn test_put_get_commit_roundtrip() {
     if put_result.is_ok() {
         let commit_result = pmix::commit();
         if commit_result.is_ok() {
-            let get_result = pmix::get_value(context.get_proc(), b"test_roundtrip_key\0", None);
+            let get_result = pmix::get_value(&context.require_proc(), b"test_roundtrip_key\0", None);
             drop(get_result);
         }
     }
@@ -257,7 +257,7 @@ fn test_put_get_commit_roundtrip() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_get_value_nonexistent() {
     let context = daemon_helper::ensure_pmix_init();
-    let result = pmix::get_value(context.get_proc(), b"nonexistent_key_xyz\0", None);
+    let result = pmix::get_value(&context.require_proc(), b"nonexistent_key_xyz\0", None);
     assert!(result.is_err(), "get_value for nonexistent key should fail");
 }
 

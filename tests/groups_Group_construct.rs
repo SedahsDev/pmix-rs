@@ -568,7 +568,7 @@ fn group_construct_integration() {
     daemon_helper::ensure_pmix_init();
     // In a real integration test environment:
     //
-    // 1. Call pmix::lifecycle::init(None).expect("init");
+    // 1. Call pmix::lifecycle::PmixClient::connect_new(None).expect("init");
     // 2. Create Procs for the group members.
     // 3. Call group_construct("my_group", &procs, &[]) and verify Ok(_).
     // 4. Call group_leave("my_group", &[]) and verify Ok(()).
@@ -594,7 +594,7 @@ fn group_invite_join_integration() {
     daemon_helper::ensure_pmix_init();
     // In a real integration test:
     //
-    // 1. Leader calls pmix::lifecycle::init(None).expect("init");
+    // 1. Leader calls pmix::lifecycle::PmixClient::connect_new(None).expect("init");
     // 2. Leader calls group_invite("async_group", &invitees, &[])
     //    and verifies Ok(_).
     // 3. Invitees call group_join("async_group", &leader,
