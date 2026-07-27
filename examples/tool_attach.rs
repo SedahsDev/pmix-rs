@@ -1,4 +1,4 @@
-//! Minimal PMIx tool example: tool_init → optional attach → query path → finalize.
+//! Minimal PMIx tool example: connect → optional attach → disconnect.
 //!
 //! ```text
 //! cargo run --example tool_attach
@@ -9,43 +9,41 @@
 //! server is available.
 
 use pmix::info::empty;
-use pmix::tool::{
-    tool_attach_to_server, tool_finalize, tool_init, tool_is_connected, PmixToolHandle,
-};
+use pmix::tool::{tool_attach_to_server, tool_is_connected, PmixTool};
 
 fn main() {
     println!("pmix-rs tool_attach");
 
     let info = empty();
-    let handle: PmixToolHandle = match tool_init(None, &info) {
-        Ok(h) => h,
+    let tool = match PmixTool::connect_new(None, &info) {
+        Ok(t) => t,
         Err(e) => {
-            eprintln!("tool_init failed (no server/URI?): {e:?}");
+            eprintln!("PmixTool::connect_new failed (no server?): {e:?}");
             return;
         }
     };
 
     println!(
-        "tool_init ok; connected={}",
+        "tool live={} connected={}",
+        tool.is_live(),
         tool_is_connected()
     );
+    if let Some(proc) = tool.proc() {
+        println!("tool nspace={:?} rank={}", proc.nspace(), proc.rank());
+    }
 
-    // Attempt attach when a server identity is desired. Without a DVM this
-    // typically returns an error — still useful as an API walkthrough.
     let attach_info = empty();
-    match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
-        Ok((_tool, server)) => {
-            println!("tool_attach_to_server ok; server={:?}", server.as_ref().map(|s| s.proc().get_rank()));
+    match tool_attach_to_server(None, true, &attach_info) {
+        Ok((maybe_tool, maybe_server)) => {
+            println!(
+                "attach ok tool_id={} server_id={}",
+                maybe_tool.is_some(),
+                maybe_server.is_some()
+            );
         }
-        Err(e) => {
-            println!("tool_attach_to_server: {e:?} (expected without daemon)");
-        }
+        Err(e) => println!("attach: {e:?} (ok without a server)"),
     }
 
-    match tool_finalize(handle) {
-        Ok(()) => println!("tool_finalize ok"),
-        Err(e) => eprintln!("tool_finalize: {e:?}"),
-    }
-
+    let _ = tool.disconnect();
     println!("tool_attach done");
 }

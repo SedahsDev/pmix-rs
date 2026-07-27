@@ -50,7 +50,14 @@ client.disconnect(None)?;
 
 ### Server / tool
 
-Still handle-based; same process-wide session pattern is [#49](https://github.com/SedahsDev/pmix-rs/issues/49).
+| Type | Notes |
+|------|--------|
+| [`PmixServer`](src/server/session.rs) | Process-wide Arc session, `Clone + Send + Sync`, Drop does **not** finalize |
+| [`PmixTool`](src/tool.rs) | Same pattern for tool library lifecycle |
+| `PmixToolHandle` | Identity token (nspace+rank) from attach/connect-to-server — **not** the session |
+| `tool::PmixServerHandle` | Server identity from attach — **not** `server::PmixServer` |
+
+`server_init` / `tool_init` free functions delegate to the session types.
 
 ---
 
@@ -105,7 +112,7 @@ Full matrix: [#66](https://github.com/SedahsDev/pmix-rs/issues/66). Completing m
 | InitOptions / progress stop | #46, #47 | Done |
 | PmixClient session | #48 | Done |
 | Remove Context/init | this PR | Done |
-| Server/tool sessions | #49 | Open |
+| Server/tool sessions | #49 | Done (this PR) |
 | C-owned !Send | #50 | Open (`Info` done) |
 | Callback hop / audit | #51, #67 | Open |
 | Server upcall example | #52 | Open |

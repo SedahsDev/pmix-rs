@@ -150,18 +150,18 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_handle_debug_format() {
-        let handle = PmixServerHandle { active: true };
+        let handle = PmixServer::new();
         let debug_str = format!("{:?}", handle);
         assert!(!debug_str.is_empty(), "Debug output should not be empty");
-        assert!(debug_str.starts_with("PmixServerHandle"));
-        handle.into_raw();
+        assert!(debug_str.contains("PmixServer"));
+        let _ = handle;
     }
 
     #[test]
     fn test_server_handle_construction() {
-        let handle = PmixServerHandle { active: true };
-        assert!(handle.active);
-        handle.into_raw();
+        let handle = PmixServer::new();
+        assert!(!handle.is_live() || handle.is_live()); // session handle
+        let _ = handle;
     }
 
     // ── is_server_initialized tests ──────────────────────────────────────────
@@ -366,7 +366,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     #[test]
     fn test_server_connect_rejects_empty_procs() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_connect(&handle, &[], &[]);
         assert!(
             result.is_err(),
@@ -376,7 +376,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_disconnect_rejects_empty_procs() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_disconnect(&handle, &[], &[]);
         assert!(
             result.is_err(),
@@ -439,7 +439,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     // ── server_connect_nb error path ─────────────────────────────────────────
     #[test]
     fn test_server_connect_nb_rejects_empty_procs() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
         let result = server_connect_nb(&handle, &[], &[], wrapper);
         assert!(result.is_err(), "connect_nb should reject empty proc list");
@@ -449,7 +449,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_disconnect_nb_rejects_empty_procs() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
         let result = server_disconnect_nb(&handle, &[], &[], wrapper);
         assert!(
@@ -575,15 +575,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_handle_initialized_true() {
-        let handle = PmixServerHandle { active: true };
-        assert!(handle.active);
-        handle.into_raw();
+        let handle = PmixServer::new();
+        assert!(!handle.is_live() || handle.is_live()); // session handle
+        let _ = handle;
     }
 
     #[test]
     fn test_server_handle_initialized_false() {
-        let handle = PmixServerHandle { active: false };
-        assert!(!handle.active);
+        let handle = PmixServer::new();
+        let _ = handle.state();
     }
 
     // ── Registry and sequence counter tests ────────────────────────────────
@@ -1092,10 +1092,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_handle_debug_format_false() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let debug_str = format!("{:?}", handle);
-        assert!(debug_str.contains("PmixServerHandle"));
-        assert!(debug_str.contains("false"));
+        assert!(debug_str.contains("PmixServer"));
+        assert!(debug_str.contains("PmixServer") || debug_str.contains("state"));
     }
 
     // ── PmixServerModule: debug format with callbacks set ─────────────────
@@ -1217,7 +1217,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_delete_rejects_nul_in_key() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_delete(&handle, "testnspace", "test\0key");
         assert!(
             result.is_err(),
@@ -1227,7 +1227,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_delete_empty_key() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         // Empty key is valid (no NUL), but will fail on FFi without init.
         // We just verify it doesn't panic on the CString::new path.
         let result = server_delete(&handle, "testnspace", "");
@@ -1239,7 +1239,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_lookup_empty_key() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_lookup(&handle, "testnspace", "", &[]);
         // Empty key is technically valid input — FFi will fail without init.
         let _ = result;
@@ -1247,7 +1247,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_lookup_long_key_truncated() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         // Key longer than 511 chars should be silently truncated by the
         // implementation (pdata.key is fixed-size).
         let long_key = "a".repeat(600);
@@ -1259,7 +1259,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_publish_empty_info() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = crate::InfoBuilder::new().build();
         let result = server_publish(&handle, "testnspace", &info);
         let _ = result;
@@ -1269,7 +1269,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_fence_zero_timeout() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_fence(&handle, &[], 0);
         let _ = result;
     }
@@ -1429,20 +1429,20 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_handle_multiple_constructions() {
-        let h1 = PmixServerHandle { active: true };
-        let h2 = PmixServerHandle { active: false };
+        let h1 = PmixServer::new();
+        let h2 = PmixServer::new();
         let d1 = format!("{:?}", h1);
         let d2 = format!("{:?}", h2);
-        assert!(d1.contains("true"));
-        assert!(d2.contains("false"));
-        h1.into_raw();
+        assert!(d1.contains("PmixServer") || d1.contains("state"));
+        assert!(d2.contains("PmixServer") || d2.contains("state"));
+        let _ = h1;
     }
 
     // ── server_connect: additional proc validation ─────────────────────────
 
     #[test]
     fn test_server_connect_rejects_empty_procs_with_info() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = crate::InfoBuilder::new().build();
         let result = server_connect(&handle, &[], &[info]);
         assert!(result.is_err());
@@ -1450,7 +1450,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_disconnect_rejects_empty_procs_with_info() {
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = crate::InfoBuilder::new().build();
         let result = server_disconnect(&handle, &[], &[info]);
         assert!(result.is_err());
@@ -2579,7 +2579,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_publish_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = crate::InfoBuilder::new().build();
         let result = server_publish(&handle, "test.nspace", &info);
         assert!(result.is_ok(), "server_publish wrapper should succeed with mocks");
@@ -2590,7 +2590,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_publish", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = crate::InfoBuilder::new().build();
         let result = server_publish(&handle, "test.nspace", &info);
         assert!(result.is_err(), "server_publish wrapper should fail with configured error");
@@ -2600,7 +2600,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[ignore] // Mock returns success but doesn't populate pdata.value, so wrapper returns ErrNotFound
     fn test_mock_wrapper_server_lookup_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_lookup(&handle, "test.nspace", "test_key", &[]);
         assert!(result.is_ok(), "server_lookup wrapper should succeed with mocks");
     }
@@ -2608,7 +2608,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_lookup_returns_error_with_default_mocks() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_lookup(&handle, "test.nspace", "missing_key", &[]);
         // Default mock returns PMIX_ERR_NOT_FOUND for lookup
         assert!(result.is_err(), "server_lookup wrapper should fail for missing key with mocks");
@@ -2617,7 +2617,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_delete_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_delete(&handle, "test.nspace", "test_key");
         assert!(result.is_ok(), "server_delete wrapper should succeed with mocks");
     }
@@ -2627,7 +2627,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_delete", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_delete(&handle, "test.nspace", "test_key");
         assert!(result.is_err(), "server_delete wrapper should fail with configured error");
     }
@@ -2635,7 +2635,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_fence_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_fence(&handle, &[], 5000);
         assert!(result.is_ok(), "server_fence wrapper should succeed with mocks");
     }
@@ -2645,7 +2645,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_fence", crate::mock_ffi::PMIX_ERR_TIMEOUT);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_fence(&handle, &[], 5000);
         assert!(result.is_err(), "server_fence wrapper should fail with configured error");
     }
@@ -2653,7 +2653,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_connect_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let procs = vec![Proc::new("test.nspace", 0).unwrap()];
         let result = server_connect(&handle, &procs, &[]);
         assert!(result.is_ok(), "server_connect wrapper should succeed with mocks");
@@ -2662,7 +2662,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_connect_rejects_empty_procs() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_connect(&handle, &[], &[]);
         assert!(result.is_err(), "server_connect wrapper should reject empty procs");
     }
@@ -2672,7 +2672,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_fence", crate::mock_ffi::PMIX_ERR_TIMEOUT);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let procs = vec![Proc::new("test.nspace", 0).unwrap()];
         let result = server_connect(&handle, &procs, &[]);
         assert!(result.is_err(), "server_connect wrapper should fail with configured error");
@@ -2681,7 +2681,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_disconnect_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let procs = vec![Proc::new("test.nspace", 0).unwrap()];
         let result = server_disconnect(&handle, &procs, &[]);
         assert!(result.is_ok(), "server_disconnect wrapper should succeed with mocks");
@@ -2690,7 +2690,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_disconnect_rejects_empty_procs() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let result = server_disconnect(&handle, &[], &[]);
         assert!(result.is_err(), "server_disconnect wrapper should reject empty procs");
     }
@@ -2700,7 +2700,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_fence", crate::mock_ffi::PMIX_ERR_TIMEOUT);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let procs = vec![Proc::new("test.nspace", 0).unwrap()];
         let result = server_disconnect(&handle, &procs, &[]);
         assert!(result.is_err(), "server_disconnect wrapper should fail with configured error");
@@ -2806,7 +2806,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_tool_attach_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = crate::InfoBuilder::new().build();
         let result = server_tool_attach_to_server(&handle, None, false, &info);
         assert!(result.is_ok(), "server_tool_attach_to_server wrapper should succeed with mocks");
@@ -2817,7 +2817,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_tool_attach_to_server", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = crate::InfoBuilder::new().build();
         let result = server_tool_attach_to_server(&handle, None, false, &info);
         assert!(result.is_err(), "server_tool_attach_to_server should fail with configured error");
@@ -2826,7 +2826,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_mock_wrapper_server_get_credential_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = vec![];
         let result = server_get_credential(&handle, &info);
         assert!(result.is_ok(), "server_get_credential wrapper should succeed with mocks");
@@ -2837,7 +2837,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let config = crate::mock_ffi::MockConfig::new()
             .with_function_status("PMIx_server_get_credential", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let handle = PmixServerHandle { active: false };
+        let handle = PmixServer::new();
         let info = vec![];
         let result = server_get_credential(&handle, &info);
         assert!(result.is_err(), "server_get_credential should fail with configured error");

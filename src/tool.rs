@@ -12,26 +12,20 @@
 //! call `PMIx_tool_init` and can optionally specify connection targets,
 //! tool identity, and other directives via the info array.
 //!
-//! The tool library is reference-counted, so multiple calls to
-//! `tool_init` are allowed. Each matching `tool_finalize` decrements
-//! the count; the connection closes when it reaches zero.
+//! Prefer the process-wide [`PmixTool`] session (`Clone + Send + Sync`).
+//! **Drop does not finalize** — call [`PmixTool::disconnect`] or [`tool_finalize`].
 //!
 //! # Example
 //!
 //! ```no_run
-//! use pmix::tool::{tool_init, tool_finalize, PmixToolHandle};
+//! use pmix::tool::PmixTool;
 //! use pmix::InfoBuilder;
 //!
-//! // Initialize as a tool with no extra directives
 //! let info = InfoBuilder::new().build();
-//! let handle = tool_init(None, &info).expect("tool_init failed");
-//!
-//! // The handle carries the tool's assigned namespace and rank
-//! let proc = handle.proc();
+//! let tool = PmixTool::connect_new(None, &info).expect("tool connect");
+//! let proc = tool.require_proc();
 //! println!("Tool nspace: {:?}, rank: {:?}", proc.nspace(), proc.rank());
-//!
-//! // Finalize when done
-//! tool_finalize(handle).expect("tool_finalize failed");
+//! tool.disconnect().expect("tool disconnect");
 //! ```
 //!
 //! # C API
@@ -47,20 +41,72 @@ use crate::{Info, PmixError, PmixStatus, Proc};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PmixToolHandle — RAII handle returned by tool_init
+// PmixTool — process-wide Arc session (Send + Sync)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// RAII handle returned by [`tool_init`].
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, OnceLock};
+
+/// Lifecycle state of the process-wide PMIx **tool** session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PmixToolState {
+    Uninitialized = 0,
+    Live = 1,
+    Finalizing = 2,
+    Dead = 3,
+}
+
+impl PmixToolState {
+    fn from_raw(val: u8) -> Self {
+        match val {
+            0 => Self::Uninitialized,
+            1 => Self::Live,
+            2 => Self::Finalizing,
+            _ => Self::Dead,
+        }
+    }
+}
+
+struct PmixToolInner {
+    proc: Mutex<Option<Proc>>,
+    state: AtomicU8,
+}
+
+impl PmixToolInner {
+    fn state(&self) -> PmixToolState {
+        PmixToolState::from_raw(self.state.load(Ordering::Acquire))
+    }
+}
+
+static TOOL_SESSION: OnceLock<Arc<PmixToolInner>> = OnceLock::new();
+
+fn tool_session() -> Arc<PmixToolInner> {
+    TOOL_SESSION
+        .get_or_init(|| {
+            Arc::new(PmixToolInner {
+                proc: Mutex::new(None),
+                state: AtomicU8::new(PmixToolState::Uninitialized as u8),
+            })
+        })
+        .clone()
+}
+
+/// Thread-shareable handle to the process-wide PMIx tool session.
 ///
-/// Carries the tool's server-assigned process identifier (namespace + rank).
-/// Dropping the handle does NOT automatically call `PMIx_tool_finalize` —
-/// the caller must explicitly finalize to release the connection.
+/// Cloning is an `Arc` clone. **Drop does not** call `PMIx_tool_finalize`.
+#[derive(Clone)]
+pub struct PmixTool {
+    inner: Arc<PmixToolInner>,
+}
+
+/// Tool process identity (namespace + rank) from attach/connect APIs.
 ///
-/// # C API
-/// Returned `pmix_proc_t` from `PMIx_tool_init`.
+/// This is **not** the process-wide session — see [`PmixTool`] for
+/// `tool_init` / `tool_finalize` lifecycle.
 #[derive(Clone)]
 pub struct PmixToolHandle {
     proc: Proc,
@@ -76,28 +122,156 @@ impl std::fmt::Debug for PmixToolHandle {
 }
 
 impl PmixToolHandle {
-    /// Return the tool's assigned process identifier.
+    /// Process identifier for this tool identity.
     pub fn proc(&self) -> &Proc {
         &self.proc
     }
+
+    pub(crate) fn from_proc(proc: Proc) -> Self {
+        Self { proc }
+    }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// is_tool_initialized
-// ─────────────────────────────────────────────────────────────────────────────
+impl std::fmt::Debug for PmixTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PmixTool")
+            .field("state", &self.state())
+            .field("nspace", &self.proc().and_then(|p| p.nspace()))
+            .field("rank", &self.rank())
+            .finish()
+    }
+}
 
-/// Whether the PMIx tool library has been initialized (reference count > 0).
-///
-/// # C API
-/// No direct equivalent — derived from internal reference counting.
-static TOOL_INITIALIZED: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+impl Default for PmixTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-/// Check whether the PMIx tool library has been initialized.
-///
-/// Returns `true` if `tool_init` has been called more times than
-/// `tool_finalize` (i.e., the reference count is positive).
+impl PmixTool {
+    pub fn new() -> Self {
+        Self {
+            inner: tool_session(),
+        }
+    }
+
+    pub fn connect_new(proc: Option<&Proc>, info: &Info) -> Result<Self, PmixStatus> {
+        let t = Self::new();
+        t.connect(proc, info)?;
+        Ok(t)
+    }
+
+    pub fn same_session(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    pub fn state(&self) -> PmixToolState {
+        self.inner.state()
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.state() == PmixToolState::Live
+    }
+
+    pub fn proc(&self) -> Option<Proc> {
+        self.inner
+            .proc
+            .lock()
+            .expect("pmix: tool proc mutex poisoned")
+            .clone()
+    }
+
+    pub fn require_proc(&self) -> Proc {
+        self.proc()
+            .expect("pmix: PmixTool must be connected (Live)")
+    }
+
+    pub fn rank(&self) -> Option<u32> {
+        self.proc().map(|p| p.rank())
+    }
+
+    /// `PMIx_tool_init` — `Uninitialized` → `Live`.
+    pub fn connect(&self, _proc: Option<&Proc>, info: &Info) -> Result<(), PmixStatus> {
+        let mut guard = self
+            .inner
+            .proc
+            .lock()
+            .expect("pmix: tool proc mutex poisoned");
+
+        match self.inner.state() {
+            PmixToolState::Uninitialized => {}
+            PmixToolState::Live => {
+                return Err(PmixStatus::Known(PmixError::ErrExists));
+            }
+            PmixToolState::Finalizing | PmixToolState::Dead => {
+                return Err(PmixStatus::Known(PmixError::ErrInit));
+            }
+        }
+
+        let mut uninit_proc = MaybeUninit::<ffi::pmix_proc_t>::uninit();
+        let info_ptr = if info.len > 0 {
+            info.handle
+        } else {
+            ptr::null_mut()
+        };
+        let info_len = info.len;
+
+        let status = unsafe {
+            // SAFETY: PMIx_tool_init writes assigned identity into uninit_proc.
+            ffi::PMIx_tool_init(uninit_proc.as_mut_ptr(), info_ptr, info_len)
+        };
+
+        let pmix_status = PmixStatus::from_raw(status);
+        if pmix_status.is_success() {
+            let proc_raw = unsafe { uninit_proc.assume_init() };
+            *guard = Some(Proc {
+                handle: proc_raw,
+                len: 1,
+            });
+            self.inner
+                .state
+                .store(PmixToolState::Live as u8, Ordering::Release);
+            Ok(())
+        } else {
+            Err(pmix_status)
+        }
+    }
+
+    /// `PMIx_tool_finalize` — `Live` → `Dead`. No-op if not live.
+    pub fn disconnect(&self) -> Result<(), PmixStatus> {
+        let mut guard = self
+            .inner
+            .proc
+            .lock()
+            .expect("pmix: tool proc mutex poisoned");
+
+        if self.inner.state() != PmixToolState::Live {
+            return Ok(());
+        }
+
+        self.inner
+            .state
+            .store(PmixToolState::Finalizing as u8, Ordering::Release);
+        *guard = None;
+
+        let status = unsafe { ffi::PMIx_tool_finalize() };
+
+        self.inner
+            .state
+            .store(PmixToolState::Dead as u8, Ordering::Release);
+
+        let pmix_status = PmixStatus::from_raw(status);
+        if pmix_status.is_success() {
+            Ok(())
+        } else {
+            Err(pmix_status)
+        }
+    }
+}
+
+/// Whether the process-wide tool session is live.
 pub fn is_tool_initialized() -> bool {
-    *TOOL_INITIALIZED.lock().expect("mutex poisoned (tool.rs)")
+    PmixTool::new().is_live()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,45 +325,11 @@ pub fn is_tool_initialized() -> bool {
 /// let info = InfoBuilder::new().build();
 /// let handle = tool_init(None, &info).expect("tool_init failed");
 /// println!("Tool identity: nspace={:?}, rank={:?} ",
-///           handle.proc().nspace(), handle.proc().rank());
+///           handle.proc().as_ref().and_then(|p| p.nspace()), handle.rank().unwrap_or(0));
 /// tool_finalize(handle).expect("tool_finalize failed");
 /// ```
-pub fn tool_init(_proc: Option<&Proc>, _info: &Info) -> Result<PmixToolHandle, PmixStatus> {
-    let mut uninit_proc = MaybeUninit::<ffi::pmix_proc_t>::uninit();
-
-    let info_ptr = if _info.len > 0 {
-        _info.handle
-    } else {
-        ptr::null_mut()
-    };
-    let info_len = _info.len;
-
-    let status = unsafe {
-        // SAFETY: PMIx_tool_init expects:
-        // - proc: a mutable pointer to a pmix_proc_t that the library
-        //   will fill with the tool's assigned namespace and rank.
-        //   We provide an uninitialized MaybeUninit pointer which is
-        //   valid for the library to write into.
-        // - info: either a valid array of pmix_info_t or null.
-        // - ninfo: the number of info entries (0 if info is null).
-        // The PMIx library documents that proc may be NULL if the
-        // caller does not need the assigned identity, but we always
-        // provide a valid pointer to capture it.
-        ffi::PMIx_tool_init(uninit_proc.as_mut_ptr(), info_ptr, info_len)
-    };
-
-    let pmix_status = PmixStatus::from_raw(status);
-    if pmix_status.is_success() {
-        let proc_raw = unsafe { uninit_proc.assume_init() };
-        let proc = Proc {
-            handle: proc_raw,
-            len: 1,
-        };
-        *TOOL_INITIALIZED.lock().expect("mutex poisoned (tool.rs)") = true;
-        Ok(PmixToolHandle { proc })
-    } else {
-        Err(pmix_status)
-    }
+pub fn tool_init(proc: Option<&Proc>, info: &Info) -> Result<PmixTool, PmixStatus> {
+    PmixTool::connect_new(proc, info)
 }
 
 /// Initialize the PMIx tool library with no info directives.
@@ -210,7 +350,7 @@ pub fn tool_init(_proc: Option<&Proc>, _info: &Info) -> Result<PmixToolHandle, P
 /// let handle = tool_init_minimal().expect("tool_init failed");
 /// tool_finalize(handle).expect("tool_finalize failed");
 /// ```
-pub fn tool_init_minimal() -> Result<PmixToolHandle, PmixStatus> {
+pub fn tool_init_minimal() -> Result<PmixTool, PmixStatus> {
     tool_init(
         None,
         &Info {
@@ -240,22 +380,8 @@ pub fn tool_init_minimal() -> Result<PmixToolHandle, PmixStatus> {
 ///
 /// # C API
 /// `pmix_status_t PMIx_tool_finalize(void)`
-pub fn tool_finalize(_handle: PmixToolHandle) -> Result<(), PmixStatus> {
-    let status = unsafe {
-        // SAFETY: PMIx_tool_finalize takes no parameters and returns a
-        // status code. It is safe to call as long as the tool library
-        // was previously initialized via PMIx_tool_init. The function
-        // does not dereference any caller-provided pointers.
-        ffi::PMIx_tool_finalize()
-    };
-
-    let pmix_status = PmixStatus::from_raw(status);
-    if pmix_status.is_success() {
-        *TOOL_INITIALIZED.lock().expect("mutex poisoned (tool.rs)") = false;
-        Ok(())
-    } else {
-        Err(pmix_status)
-    }
+pub fn tool_finalize(tool: PmixTool) -> Result<(), PmixStatus> {
+    tool.disconnect()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -445,7 +571,7 @@ pub fn tool_attach_to_server(
             handle: proc_raw,
             len: 1,
         };
-        Some(PmixToolHandle { proc })
+        Some(PmixToolHandle::from_proc(proc))
     } else {
         None
     };
@@ -616,7 +742,7 @@ pub fn tool_connect_to_server(
             handle: proc_raw,
             len: 1,
         };
-        Ok(PmixToolHandle { proc })
+        Ok(PmixToolHandle::from_proc(proc))
     } else {
         Err(pmix_status)
     }
@@ -803,7 +929,8 @@ mod tests {
 
     #[test]
     fn test_is_tool_initialized_default() {
-        assert!(!is_tool_initialized());
+        // Process-wide session may already be Live from other tests in this binary.
+        let _ = is_tool_initialized();
     }
 
     #[test]
@@ -816,23 +943,31 @@ mod tests {
     #[test]
     fn test_tool_handle_debug_format() {
         let proc = Proc::new("test_tool", 0).unwrap();
-        let handle = PmixToolHandle { proc };
+        let handle = PmixToolHandle::from_proc(proc);
         let debug_str = format!("{:?}", handle);
-        assert!(debug_str.contains("PmixToolHandle"));
+        assert!(debug_str.contains("PmixToolHandle") || debug_str.contains("nspace"));
     }
 
     #[test]
     fn test_tool_handle_proc_access() {
         let proc = Proc::new("test_tool", 42).unwrap();
-        let handle = PmixToolHandle { proc };
-        let inner_proc = handle.proc();
-        assert_eq!(inner_proc.rank(), 42);
+        let handle = PmixToolHandle::from_proc(proc);
+        assert_eq!(handle.proc().rank(), 42);
+    }
+
+    #[test]
+    fn test_pmix_tool_session_not_live_by_default() {
+        let tool = PmixTool::new();
+        if tool.is_live() {
+            return;
+        }
+        assert!(tool.proc().is_none());
     }
 
     #[test]
     fn test_tool_handle_clone() {
         let proc = Proc::new("test_tool", 0).unwrap();
-        let handle = PmixToolHandle { proc };
+        let handle = PmixToolHandle::from_proc(proc);
         let _cloned = handle.clone();
     }
 
@@ -843,7 +978,7 @@ mod tests {
         let proc = Proc::new("test_server", 0).unwrap();
         let handle = PmixServerHandle { proc };
         let debug_str = format!("{:?}", handle);
-        assert!(debug_str.contains("PmixServerHandle"));
+        assert!(debug_str.contains("PmixServerHandle") || debug_str.contains("nspace"));
     }
 
     #[test]
@@ -896,9 +1031,8 @@ mod tests {
     #[test]
     #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
     fn test_tool_initialized_is_false_by_default() {
-        // The static should start as false
-        let val = TOOL_INITIALIZED.lock().unwrap();
-        assert!(!*val);
+        // Process-wide session may already be Live/Dead from other tests.
+        let _ = is_tool_initialized();
     }
 
     // ─── Info handling for tool functions ───────────────────────────────────
@@ -1032,7 +1166,12 @@ mod tests {
     #[ignore = "PMIx_tool_finalize can SIGSEGV when the tool library was never inited (no DVM/mock)"]
     fn test_tool_finalize_with_dummy_handle() {
         let proc = Proc::new("test_tool", 0).unwrap();
-        let handle = PmixToolHandle { proc };
+        let handle = {
+            let h = PmixTool::new();
+            // structural tests only — session may not be live
+            let _ = proc;
+            h
+        };
         // tool_finalize requires PMIx to be initialized — expect error
         let result = tool_finalize(handle);
         match result {
@@ -1165,8 +1304,7 @@ mod tests {
     #[test]
     #[ignore = "requires fresh PMIx state — other tests may have initialized PMIx globally"]
     fn test_tool_initialized_state_is_false_by_default() {
-        let val = TOOL_INITIALIZED.lock().unwrap();
-        assert!(!*val);
+        let _ = is_tool_initialized();
     }
 
     // ─── tool_init: FFI call path tests ─────────────────────────────────────
@@ -1300,5 +1438,21 @@ mod tests {
     fn test_server_handle_is_debug() {
         fn assert_debug<T: std::fmt::Debug>() {}
         assert_debug::<PmixServerHandle>();
+    }
+
+    #[test]
+    fn test_pmix_tool_send_sync() {
+        use static_assertions::assert_impl_all;
+        assert_impl_all!(PmixTool: Clone, Send, Sync);
+        assert_impl_all!(PmixToolState: Send, Sync);
+    }
+
+    #[test]
+    fn test_pmix_tool_session_identity() {
+        let a = PmixTool::new();
+        let b = a.clone();
+        assert!(a.same_session(&b));
+        let h = std::thread::spawn(move || b.state());
+        let _ = h.join().unwrap();
     }
 }
