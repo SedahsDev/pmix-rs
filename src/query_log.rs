@@ -413,7 +413,7 @@ extern "C" fn query_callback_bridge(
     }
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -486,7 +486,7 @@ pub fn query_info_nb(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     let nqueries = queries.len();
     let handles: Vec<*mut ffi::pmix_query_t> = queries.iter().map(|q| q.handle).collect();
@@ -642,7 +642,7 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
     }
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -696,7 +696,7 @@ pub fn log_data_nb(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Collect raw handles from the Info objects.
     let data_handles: Vec<*mut ffi::pmix_info_t> = data.iter().map(|i| i.handle).collect();
@@ -997,7 +997,7 @@ mod tests {
     #[test]
     fn test_query_callback_bridge_missing_callback() {
         let req_id: usize = 99999;
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         query_callback_bridge(
             0, // PMIX_SUCCESS
             std::ptr::null_mut(),
@@ -1011,7 +1011,7 @@ mod tests {
     #[test]
     fn test_query_callback_bridge_info_cleanup_on_missing_callback() {
         let req_id: usize = 88888;
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         query_callback_bridge(
             -46, // PMIX_ERR_NOT_FOUND
             std::ptr::null_mut(),
@@ -1082,8 +1082,8 @@ mod tests {
     #[test]
     fn test_query_info_nb_request_id_encoding() {
         let req_id: usize = 42;
-        let cbdata = (req_id << 2) as *mut c_void;
-        let decoded = (cbdata as usize) >> 2;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
+        let decoded = crate::cbdata::decode_req_id(cbdata);
         assert_eq!(decoded, req_id);
         assert!(!cbdata.is_null());
     }
@@ -1091,7 +1091,7 @@ mod tests {
     #[test]
     fn test_query_info_nb_request_id_zero_not_null() {
         let req_id: usize = 1;
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         assert!(!cbdata.is_null());
     }
 
@@ -1164,14 +1164,14 @@ mod tests {
     #[test]
     fn test_log_callback_bridge_missing_callback() {
         let req_id: usize = 77777;
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         log_callback_bridge(0, cbdata); // PMIX_SUCCESS
     }
 
     #[test]
     fn test_log_callback_bridge_error_status() {
         let req_id: usize = 66666;
-        let cbdata = (req_id << 2) as *mut c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         log_callback_bridge(-30, cbdata); // PMIX_ERR_NOT_SUPPORTED
     }
 
@@ -1239,8 +1239,8 @@ mod tests {
     #[test]
     fn test_log_data_nb_request_id_encoding() {
         let req_id: usize = 99;
-        let cbdata = (req_id << 2) as *mut c_void;
-        let decoded = (cbdata as usize) >> 2;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
+        let decoded = crate::cbdata::decode_req_id(cbdata);
         assert_eq!(decoded, req_id);
         assert!(!cbdata.is_null());
     }
@@ -1721,7 +1721,7 @@ mod tests {
         }
 
         // Simulate the callback being invoked
-        let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             query_callback_bridge(
                 0, // PMIX_SUCCESS
@@ -1764,7 +1764,7 @@ mod tests {
             registry.insert(req_id, Box::new(BridgeLogTestCallback { called: called_clone }));
         }
 
-        let cbdata = (req_id << 2) as *mut std::ffi::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             log_callback_bridge(0, cbdata);
         }

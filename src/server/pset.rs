@@ -270,7 +270,7 @@ pub(crate) extern "C" fn register_resources_callback_bridge(status: ffi::pmix_st
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -357,7 +357,7 @@ pub fn server_register_resources(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the info array for FFI.
     let info_ptr = if info.len > 0 {
@@ -471,7 +471,7 @@ pub(crate) extern "C" fn deregister_resources_callback_bridge(
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
-    let req_id = (cbdata as usize) >> 2;
+    let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -558,7 +558,7 @@ pub fn server_deregister_resources(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = (req_id << 2) as *mut c_void;
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the info array for FFI.
     let info_ptr = if info.len > 0 {

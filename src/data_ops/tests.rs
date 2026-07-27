@@ -360,8 +360,8 @@ use super::*;
     #[test]
     fn test_req_id_encode_decode() {
         for id in [1, 2, 100, 1000, 65535, 100000] {
-            let cbdata = (id << 2) as *mut std::os::raw::c_void;
-            let decoded = (cbdata as usize) >> 2;
+            let cbdata = crate::cbdata::encode_req_id(id);
+            let decoded = crate::cbdata::decode_req_id(cbdata);
             assert_eq!(decoded, id, "Failed for id={}", id);
         }
     }
@@ -369,7 +369,7 @@ use super::*;
     #[test]
     fn test_req_id_non_null() {
         for id in [1, 2, 100, 1000] {
-            let cbdata = (id << 2) as *mut std::os::raw::c_void;
+            let cbdata = crate::cbdata::encode_req_id(id);
             assert!(!cbdata.is_null(), "cbdata is null for id={}", id);
         }
     }
@@ -1168,7 +1168,7 @@ use super::*;
     fn test_lookup_callback_bridge_missing_callback() {
         // Create a req_id that's not in the registry
         let req_id = 99999usize;
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         // Call the bridge with a non-existent req_id
         lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata);
         // Should not panic — just returns without invoking callback
@@ -1179,7 +1179,7 @@ use super::*;
     #[test]
     fn test_publish_callback_bridge_missing_callback() {
         let req_id = 99998usize;
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         publish_callback_bridge(0, cbdata);
         // Should not panic — callback not found, returns early
     }
@@ -1189,7 +1189,7 @@ use super::*;
     #[test]
     fn test_get_value_callback_bridge_missing_callback() {
         let req_id = 99997usize;
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         get_value_callback_bridge(0, std::ptr::null_mut(), cbdata);
         // Should not panic
     }
@@ -1199,7 +1199,7 @@ use super::*;
     #[test]
     fn test_unpublish_callback_bridge_missing_callback() {
         let req_id = 99996usize;
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unpublish_callback_bridge(0, cbdata);
         // Should not panic
     }
@@ -1209,7 +1209,7 @@ use super::*;
     #[test]
     fn test_fence_callback_bridge_missing_callback() {
         let req_id = 99995usize;
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         fence_callback_bridge(0, cbdata);
         // Should not panic
     }
@@ -1237,7 +1237,7 @@ use super::*;
             let mut registry = PUBLISH_REGISTRY.lock().unwrap();
             registry.insert(req_id, cb);
         }
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         publish_callback_bridge(0, cbdata); // PMIX_SUCCESS
         let received = status.lock().unwrap();
         assert!(received.is_some());
@@ -1267,7 +1267,7 @@ use super::*;
             let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
             registry.insert(req_id, cb);
         }
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unpublish_callback_bridge(-6, cbdata); // PMIX_ERR_TIMEOUT
         let received = status.lock().unwrap();
         assert!(received.is_some());
@@ -1297,7 +1297,7 @@ use super::*;
             let mut registry = FENCE_REGISTRY.lock().unwrap();
             registry.insert(req_id, cb);
         }
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         fence_callback_bridge(0, cbdata); // PMIX_SUCCESS
         let received = status.lock().unwrap();
         assert!(received.is_some());
@@ -1331,7 +1331,7 @@ use super::*;
             let mut registry = GET_REGISTRY.lock().unwrap();
             registry.insert(req_id, cb);
         }
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         get_value_callback_bridge(-7, std::ptr::null_mut(), cbdata); // PMIX_ERR_NOT_FOUND, no value
         let received = status.lock().unwrap();
         let hv = has_value.lock().unwrap();
@@ -1363,7 +1363,7 @@ use super::*;
             let mut registry = LOOKUP_REGISTRY.lock().unwrap();
             registry.insert(req_id, cb);
         }
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         lookup_callback_bridge(0, std::ptr::null_mut(), 0, cbdata); // success, empty data
         let c = count.lock().unwrap();
         assert!(c.is_some());
@@ -2008,7 +2008,7 @@ use super::*;
         }
 
         // Simulate callback invocation with success
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         publish_callback_bridge(PMIX_SUCCESS, cbdata);
 
         assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
@@ -2037,7 +2037,7 @@ use super::*;
             registry.insert(req_id, Box::new(TestPublishCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         publish_callback_bridge(PMIX_ERR_DUPLICATE_KEY, cbdata);
 
         assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_ERR_DUPLICATE_KEY);
@@ -2081,7 +2081,7 @@ use super::*;
         let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
         mock_value.type_ = PMIX_STRING_U16;
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             get_value_callback_bridge(
                 PMIX_SUCCESS,
@@ -2119,7 +2119,7 @@ use super::*;
             registry.insert(req_id, Box::new(TestGetCb2));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         get_value_callback_bridge(PMIX_ERR_NOT_FOUND, std::ptr::null_mut(), cbdata);
 
         assert_eq!(CB_STATUS2.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
@@ -2159,7 +2159,7 @@ use super::*;
             registry.insert(req_id, Box::new(TestLookupCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 0, cbdata);
 
         assert_eq!(CB_STATUS3.load(Ordering::SeqCst), PMIX_SUCCESS);
@@ -2190,7 +2190,7 @@ use super::*;
             registry.insert(req_id, Box::new(TestLookupCb2));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         lookup_callback_bridge(PMIX_ERR_NOT_FOUND, std::ptr::null_mut(), 0, cbdata);
 
         assert_eq!(CB_STATUS4.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
@@ -2221,7 +2221,7 @@ use super::*;
             registry.insert(req_id, Box::new(TestFenceCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         fence_callback_bridge(PMIX_SUCCESS, cbdata);
 
         assert_eq!(CB_STATUS5.load(Ordering::SeqCst), PMIX_SUCCESS);
@@ -2250,7 +2250,7 @@ use super::*;
             registry.insert(req_id, Box::new(TestFenceCb2));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         fence_callback_bridge(PMIX_ERR_TIMEOUT, cbdata);
 
         assert_eq!(CB_STATUS6.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
@@ -2281,7 +2281,7 @@ use super::*;
             registry.insert(req_id, Box::new(TestUnpublishCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unpublish_callback_bridge(PMIX_SUCCESS, cbdata);
 
         assert_eq!(CB_STATUS7.load(Ordering::SeqCst), PMIX_SUCCESS);
@@ -2499,7 +2499,7 @@ use super::*;
             assert_eq!(registry.len(), 1);
         }
         // Callback consumed by bridge
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             publish_callback_bridge(PMIX_SUCCESS, cbdata);
         }
@@ -2526,7 +2526,7 @@ use super::*;
             registry.insert(req_id, Box::new(DummyGetCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), cbdata);
         }
@@ -2553,7 +2553,7 @@ use super::*;
             registry.insert(req_id, Box::new(DummyLookupCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 0, cbdata);
         }
@@ -2580,7 +2580,7 @@ use super::*;
             registry.insert(req_id, Box::new(DummyFenceCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             fence_callback_bridge(PMIX_SUCCESS, cbdata);
         }
@@ -2607,7 +2607,7 @@ use super::*;
             registry.insert(req_id, Box::new(DummyUnpublishCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             unpublish_callback_bridge(PMIX_SUCCESS, cbdata);
         }
@@ -2774,7 +2774,7 @@ use super::*;
         }
 
         // Simulate success callback
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             publish_callback_bridge(PMIX_SUCCESS, cbdata);
         }
@@ -2812,7 +2812,7 @@ use super::*;
         let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
         mock_value.type_ = PMIX_STRING_U16;
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
             get_value_callback_bridge(
                 PMIX_SUCCESS,
@@ -2870,6 +2870,7 @@ use super::*;
         };
         assert!(!info_ptr.is_null());
         assert_eq!(ninfo, 5);
+        let _ = info.into_raw(); // fake handle — do not PMIx_Info_free
     }
 
     /// Test publish status conversion with PMIX_SUCCESS raw value.
@@ -2943,7 +2944,7 @@ use super::*;
             registry.insert(req_id, Box::new(TimeoutPublishCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         publish_callback_bridge(PMIX_ERR_TIMEOUT, cbdata);
         assert_eq!(PUB_CB_TIMEOUT.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
     }
@@ -2971,7 +2972,7 @@ use super::*;
             registry.insert(req_id, Box::new(NotFoundPublishCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         publish_callback_bridge(PMIX_ERR_NOT_FOUND, cbdata);
         assert_eq!(PUB_CB_NOTFOUND.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
     }
@@ -3003,7 +3004,7 @@ use super::*;
             registry.insert(req_id, Box::new(ErrorGetCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         get_value_callback_bridge(PMIX_ERR_INIT, std::ptr::null_mut(), cbdata);
         assert_eq!(GET_CB_ERR.load(Ordering::SeqCst), PMIX_ERR_INIT);
         assert!(!GET_CB_HAS_VAL.load(Ordering::SeqCst));
@@ -3032,7 +3033,7 @@ use super::*;
             registry.insert(req_id, Box::new(TimeoutGetCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         get_value_callback_bridge(PMIX_ERR_TIMEOUT, std::ptr::null_mut(), cbdata);
         assert_eq!(GET_CB_TIMEOUT.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
     }
@@ -3108,7 +3109,7 @@ use super::*;
             registry.insert(req_id, Box::new(InitErrorGetCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         get_value_callback_bridge(PMIX_ERR_INIT, std::ptr::null_mut(), cbdata);
         assert_eq!(GET_CB_INIT.load(Ordering::SeqCst), PMIX_ERR_INIT);
     }
@@ -3140,7 +3141,7 @@ use super::*;
             registry.insert(req_id, Box::new(DataLookupCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 3, cbdata);
         assert_eq!(LOOKUP_CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
     }
@@ -3168,7 +3169,7 @@ use super::*;
             registry.insert(req_id, Box::new(TimeoutLookupCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         lookup_callback_bridge(PMIX_ERR_TIMEOUT, std::ptr::null_mut(), 0, cbdata);
         assert_eq!(LOOKUP_CB_TIMEOUT.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
     }
@@ -3228,7 +3229,7 @@ use super::*;
             registry.insert(req_id, Box::new(InitErrorLookupCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         lookup_callback_bridge(PMIX_ERR_INIT, std::ptr::null_mut(), 0, cbdata);
         assert_eq!(LOOKUP_CB_INIT.load(Ordering::SeqCst), PMIX_ERR_INIT);
     }
@@ -3270,7 +3271,7 @@ use super::*;
             registry.insert(req_id, Box::new(UnpubNotFoundCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unpublish_callback_bridge(PMIX_ERR_NOT_FOUND, cbdata);
         assert_eq!(UNPUB_CB_NOTFOUND.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
     }
@@ -3298,7 +3299,7 @@ use super::*;
             registry.insert(req_id, Box::new(UnpubTimeoutCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unpublish_callback_bridge(PMIX_ERR_TIMEOUT, cbdata);
         assert_eq!(UNPUB_CB_TIMEOUT.load(Ordering::SeqCst), PMIX_ERR_TIMEOUT);
     }
@@ -3357,7 +3358,7 @@ use super::*;
             registry.insert(req_id, Box::new(FenceNotFoundCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         fence_callback_bridge(PMIX_ERR_NOT_FOUND, cbdata);
         assert_eq!(FENCE_CB_NOTFOUND.load(Ordering::SeqCst), PMIX_ERR_NOT_FOUND);
     }
@@ -3537,6 +3538,7 @@ use super::*;
         };
         assert_eq!(info.len(), 3);
         assert!(!info.is_empty());
+        let _ = info.into_raw(); // fake handle — do not PMIx_Info_free
     }
 
     /// Test Info with mock — info with single element.
@@ -3551,6 +3553,7 @@ use super::*;
         };
         assert_eq!(info.len(), 1);
         assert!(!info.is_empty());
+        let _ = info.into_raw(); // fake handle — do not PMIx_Info_free
     }
 
     /// Test Info with mock — large info array.
@@ -3565,6 +3568,7 @@ use super::*;
         };
         assert_eq!(info.len(), 1000);
         assert!(!info.is_empty());
+        let _ = info.into_raw(); // fake handle — do not PMIx_Info_free
     }
 
     // ─── Mock PmixPdata tests ───────────────────────────────────────────────
@@ -3809,7 +3813,7 @@ use super::*;
             registry.insert(req_id, Box::new(UnpubInitCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         unpublish_callback_bridge(PMIX_ERR_INIT, cbdata);
         assert_eq!(UNPUB_CB_INIT.load(Ordering::SeqCst), PMIX_ERR_INIT);
     }
@@ -3837,7 +3841,7 @@ use super::*;
             registry.insert(req_id, Box::new(FenceDupCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         fence_callback_bridge(PMIX_ERR_DUPLICATE_KEY, cbdata);
         assert_eq!(FENCE_CB_DUP.load(Ordering::SeqCst), PMIX_ERR_DUPLICATE_KEY);
     }
@@ -3865,7 +3869,7 @@ use super::*;
             registry.insert(req_id, Box::new(GetDupCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         get_value_callback_bridge(PMIX_ERR_DUPLICATE_KEY, std::ptr::null_mut(), cbdata);
         assert_eq!(GET_CB_DUP.load(Ordering::SeqCst), PMIX_ERR_DUPLICATE_KEY);
     }
@@ -3893,7 +3897,7 @@ use super::*;
             registry.insert(req_id, Box::new(LookupInitCb2));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         lookup_callback_bridge(PMIX_ERR_INIT, std::ptr::null_mut(), 0, cbdata);
         assert_eq!(LOOKUP_CB_INIT2.load(Ordering::SeqCst), PMIX_ERR_INIT);
     }
@@ -3971,7 +3975,7 @@ use super::*;
                     let mut registry = PUBLISH_REGISTRY.lock().unwrap();
                     registry.insert(req_id, Box::new(ConcPubCb));
                 }
-                let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+                let cbdata = crate::cbdata::encode_req_id(req_id);
                 publish_callback_bridge(PMIX_SUCCESS, cbdata);
             }),
             // Thread 2: get callback
@@ -3985,7 +3989,7 @@ use super::*;
                     let mut registry = GET_REGISTRY.lock().unwrap();
                     registry.insert(req_id, Box::new(ConcGetCb));
                 }
-                let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+                let cbdata = crate::cbdata::encode_req_id(req_id);
                 get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), cbdata);
             }),
         ];
@@ -4044,6 +4048,7 @@ use super::*;
         };
         assert!(!p1.is_null());
         assert_eq!(n1, 1);
+        let _ = info1.into_raw(); // fake handle — do not PMIx_Info_free
 
         // Size 100 — non-null pointer
         let info100 = Info {
@@ -4058,6 +4063,7 @@ use super::*;
         };
         assert!(!p100.is_null());
         assert_eq!(n100, 100);
+        let _ = info100.into_raw(); // fake handle — do not PMIx_Info_free
     }
 
     /// Test mock — Proc handle field access.
@@ -4135,7 +4141,7 @@ use super::*;
             registry.insert(req_id, Box::new(FencePartialCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         fence_callback_bridge(-52, cbdata); // PMIX_ERR_PARTIAL_SUCCESS
         assert_eq!(FENCE_CB_PARTIAL.load(Ordering::SeqCst), -52);
     }
@@ -4163,7 +4169,7 @@ use super::*;
             registry.insert(req_id, Box::new(LookupPartialCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         lookup_callback_bridge(-52, std::ptr::null_mut(), 0, cbdata);
         assert_eq!(LOOKUP_CB_PARTIAL.load(Ordering::SeqCst), -52);
     }
@@ -4191,7 +4197,7 @@ use super::*;
             registry.insert(req_id, Box::new(GetPartialCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         get_value_callback_bridge(-52, std::ptr::null_mut(), cbdata);
         assert_eq!(GET_CB_PARTIAL.load(Ordering::SeqCst), -52);
     }
@@ -4219,7 +4225,7 @@ use super::*;
             registry.insert(req_id, Box::new(PubPartialCb));
         }
 
-        let cbdata = (req_id << 2) as *mut std::os::raw::c_void;
+        let cbdata = crate::cbdata::encode_req_id(req_id);
         publish_callback_bridge(-52, cbdata);
         assert_eq!(PUB_CB_PARTIAL.load(Ordering::SeqCst), -52);
     }
