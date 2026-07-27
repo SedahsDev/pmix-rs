@@ -59,7 +59,6 @@ use std::sync::{LazyLock, Mutex};
 use crate::mock_ffi;
 
 
-#[cfg(any(test, feature = "mock_ffi"))]
 mod pset;
 mod data;
 mod cred;

@@ -43,6 +43,9 @@ use std::sync::{LazyLock, Mutex};
 use crate::ffi;
 use crate::{Info, PmixError, PmixStatus};
 
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixQuery — safe Rust wrapper around `pmix_query_t`
 // ─────────────────────────────────────────────────────────────────────────────
