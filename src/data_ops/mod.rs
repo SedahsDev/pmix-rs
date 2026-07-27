@@ -15,6 +15,9 @@ use std::sync::{LazyLock, Mutex};
 use crate::ffi;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, free_value};
 
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
+
 /// Publish data for later access via [`lookup`][crate::data_ops::lookup].
 ///
 /// The blocking form of this call will block until it has obtained confirmation
@@ -49,13 +52,16 @@ pub fn publish(info: &Info) -> Result<(), PmixStatus> {
         (ptr::null(), 0)
     };
 
-    let status = unsafe {
-        // SAFETY: PMIx_Publish is a synchronous PMIx API call. The info
-        // pointer is valid for the duration of the call (borrowed from
-        // the Info parameter). PMIx does not retain the pointer after
-        // this call returns.
-        ffi::PMIx_Publish(info_ptr, ninfo)
-    };
+    // SAFETY: PMIx_Publish is a synchronous PMIx API call. The info
+    // pointer is valid for the duration of the call (borrowed from
+    // the Info parameter). PMIx does not retain the pointer after
+    // this call returns.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_publish(info_ptr as *const std::ffi::c_void, ninfo)
+        },
+        real = unsafe { ffi::PMIx_Publish(info_ptr, ninfo) },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -157,13 +163,23 @@ pub fn publish_nb(info: &Info, callback: Box<dyn PublishCallback>) -> Result<(),
     };
 
     // Call the FFI function.
-    let status = unsafe {
-        // SAFETY: PMIx_Publish_nb is a non-blocking PMIx API call. The info
-        // pointer is valid for the duration of the initial call. The callback
-        // bridge function has C linkage and properly handles the raw pointer
-        // cbdata parameter.
-        ffi::PMIx_Publish_nb(info_ptr, ninfo, Some(publish_callback_bridge), cbdata)
-    };
+    // SAFETY: PMIx_Publish_nb is a non-blocking PMIx API call. The info
+    // pointer is valid for the duration of the initial call. The callback
+    // bridge function has C linkage and properly handles the raw pointer
+    // cbdata parameter.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_publish_nb(
+                info_ptr as *const std::ffi::c_void,
+                ninfo,
+                Some(publish_callback_bridge),
+                cbdata,
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Publish_nb(info_ptr, ninfo, Some(publish_callback_bridge), cbdata)
+        },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
 
@@ -321,16 +337,28 @@ pub fn get_nb(
     };
 
     // Call the FFI function.
-    let status = unsafe {
-        ffi::PMIx_Get_nb(
-            &proc.handle as *const ffi::pmix_proc_t,
-            key_c.as_ptr(),
-            info_ptr,
-            ninfo,
-            Some(get_value_callback_bridge),
-            cbdata,
-        )
-    };
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_get_nb(
+                &proc.handle as *const _ as *const std::ffi::c_void,
+                key_c.as_ptr(),
+                info_ptr as *const std::ffi::c_void,
+                ninfo,
+                Some(get_value_callback_bridge),
+                cbdata,
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Get_nb(
+                &proc.handle as *const ffi::pmix_proc_t,
+                key_c.as_ptr(),
+                info_ptr,
+                ninfo,
+                Some(get_value_callback_bridge),
+                cbdata,
+            )
+        },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
 
@@ -398,21 +426,32 @@ pub fn get(proc: &Proc, key: &str, info: Option<&Info>) -> Result<PmixOwnedValue
 
     // Call the FFI function.
     let mut value: *mut ffi::pmix_value_t = ptr::null_mut();
-    let status = unsafe {
-        // SAFETY: PMIx_Get is a synchronous PMIx API call. The proc pointer
-        // is valid for the duration of the call (borrowed from the Proc
-        // parameter). The key C string lives until end of scope. The info
-        // pointer (if non-null) is borrowed from the Info parameter and
-        // lives long enough. PMIx writes a valid pmix_value_t pointer into
-        // `value` on success, which we take ownership of.
-        ffi::PMIx_Get(
-            &proc.handle as *const ffi::pmix_proc_t,
-            key_c.as_ptr(),
-            info_ptr,
-            ninfo,
-            &mut value,
-        )
-    };
+    // SAFETY: PMIx_Get is a synchronous PMIx API call. The proc pointer
+    // is valid for the duration of the call (borrowed from the Proc
+    // parameter). The key C string lives until end of scope. The info
+    // pointer (if non-null) is borrowed from the Info parameter and
+    // lives long enough. PMIx writes a valid pmix_value_t pointer into
+    // `value` on success, which we take ownership of.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_get(
+                &proc.handle as *const _ as *const std::ffi::c_void,
+                key_c.as_ptr(),
+                info_ptr as *const std::ffi::c_void,
+                ninfo,
+                &mut value,
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Get(
+                &proc.handle as *const ffi::pmix_proc_t,
+                key_c.as_ptr(),
+                info_ptr,
+                ninfo,
+                &mut value,
+            )
+        },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
 
@@ -548,15 +587,22 @@ pub fn lookup(
         _ => (ptr::null(), 0),
     };
 
-    // Call the FFI function.
-    let status = unsafe {
-        // SAFETY: PMIx_Lookup is a synchronous PMIx API call. The raw_pdata
-        // slice is valid for the duration of the call. PMIx writes the
-        // proc and value fields of each pmix_pdata_t element. The info
-        // pointer (if non-null) is borrowed from the Info parameter and
-        // lives long enough. PMIx does not retain any pointers after return.
-        ffi::PMIx_Lookup(raw_pdata.as_mut_ptr(), ndata, info_ptr, ninfo)
-    };
+    // SAFETY: PMIx_Lookup is a synchronous PMIx API call. The raw_pdata
+    // slice is valid for the duration of the call. PMIx writes the
+    // proc and value fields of each pmix_pdata_t element. The info
+    // pointer (if non-null) is borrowed from the Info parameter and
+    // lives long enough. PMIx does not retain any pointers after return.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_lookup(
+                raw_pdata.as_mut_ptr() as *mut std::ffi::c_void,
+                ndata,
+                info_ptr as *const std::ffi::c_void,
+                ninfo,
+            )
+        },
+        real = unsafe { ffi::PMIx_Lookup(raw_pdata.as_mut_ptr(), ndata, info_ptr, ninfo) },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
 
@@ -796,21 +842,31 @@ pub fn lookup_nb(
         _ => (ptr::null(), 0),
     };
 
-    // Call the FFI function.
-    let status = unsafe {
-        // SAFETY: PMIx_Lookup_nb is a non-blocking PMIx API call. The key_ptrs
-        // slice is valid for the duration of the initial call (NULL-terminated).
-        // The cstrings live long enough (dropped after this call). The callback
-        // bridge function has C linkage and properly handles the raw pointer
-        // cbdata parameter. PMIx does not retain key_ptrs after this returns.
-        ffi::PMIx_Lookup_nb(
-            key_ptrs.as_mut_ptr(),
-            info_ptr,
-            ninfo,
-            Some(lookup_callback_bridge),
-            cbdata,
-        )
-    };
+    // SAFETY: PMIx_Lookup_nb is a non-blocking PMIx API call. The key_ptrs
+    // slice is valid for the duration of the initial call (NULL-terminated).
+    // The cstrings live long enough (dropped after this call). The callback
+    // bridge function has C linkage and properly handles the raw pointer
+    // cbdata parameter. PMIx does not retain key_ptrs after this returns.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_lookup_nb(
+                key_ptrs.as_mut_ptr(),
+                info_ptr as *const std::ffi::c_void,
+                ninfo,
+                Some(lookup_callback_bridge),
+                cbdata,
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Lookup_nb(
+                key_ptrs.as_mut_ptr(),
+                info_ptr,
+                ninfo,
+                Some(lookup_callback_bridge),
+                cbdata,
+            )
+        },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
 
@@ -942,15 +998,17 @@ pub fn unpublish(keys: Option<&[&str]>, info: Option<&Info>) -> Result<(), PmixS
         _ => (ptr::null(), 0),
     };
 
-    // Call the FFI function.
-    let status = unsafe {
-        // SAFETY: PMIx_Unpublish is a synchronous PMIx API call. The keys_ptr
-        // (if non-null) is a valid NULL-terminated array of C strings borrowed
-        // from the cstrings vector above, which lives long enough. The info
-        // pointer (if non-null) is borrowed from the Info parameter. PMIx does
-        // not retain any pointers after this call returns.
-        ffi::PMIx_Unpublish(keys_ptr, info_ptr, ninfo)
-    };
+    // SAFETY: PMIx_Unpublish is a synchronous PMIx API call. The keys_ptr
+    // (if non-null) is a valid NULL-terminated array of C strings borrowed
+    // from the cstrings vector above, which lives long enough. The info
+    // pointer (if non-null) is borrowed from the Info parameter. PMIx does
+    // not retain any pointers after this call returns.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_unpublish(keys_ptr, info_ptr as *const std::ffi::c_void, ninfo)
+        },
+        real = unsafe { ffi::PMIx_Unpublish(keys_ptr, info_ptr, ninfo) },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -1050,23 +1108,33 @@ pub fn unpublish_nb(
         _ => (ptr::null(), 0),
     };
 
-    // Call the FFI function.
-    let status = unsafe {
-        // SAFETY: PMIx_Unpublish_nb is a non-blocking PMIx API call. The
-        // keys_ptr (if non-null) is a valid NULL-terminated array of C strings
-        // borrowed from the cstrings vector above, which lives long enough.
-        // The info pointer (if non-null) is borrowed from the Info parameter.
-        // The callback bridge function has C linkage and properly handles the
-        // raw pointer cbdata parameter. PMIx does not retain keys_ptr or info
-        // after this call returns.
-        ffi::PMIx_Unpublish_nb(
-            keys_ptr,
-            info_ptr,
-            ninfo,
-            Some(unpublish_callback_bridge),
-            cbdata,
-        )
-    };
+    // SAFETY: PMIx_Unpublish_nb is a non-blocking PMIx API call. The
+    // keys_ptr (if non-null) is a valid NULL-terminated array of C strings
+    // borrowed from the cstrings vector above, which lives long enough.
+    // The info pointer (if non-null) is borrowed from the Info parameter.
+    // The callback bridge function has C linkage and properly handles the
+    // raw pointer cbdata parameter. PMIx does not retain keys_ptr or info
+    // after this call returns.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_unpublish_nb(
+                keys_ptr,
+                info_ptr as *const std::ffi::c_void,
+                ninfo,
+                Some(unpublish_callback_bridge),
+                cbdata,
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Unpublish_nb(
+                keys_ptr,
+                info_ptr,
+                ninfo,
+                Some(unpublish_callback_bridge),
+                cbdata,
+            )
+        },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
 
@@ -1124,22 +1192,30 @@ pub fn store_internal(proc: &Proc, key: &str, value: &PmixOwnedValue) -> Result<
         }
     };
 
-    // Call the FFI function.
-    let status = unsafe {
-        // SAFETY: PMIx_Store_internal is a synchronous PMIx API call.
-        // - proc.handle is a valid pmix_proc_t owned by the Proc parameter.
-        // - key_c is a valid null-terminated C string that lives long enough.
-        // - value.as_raw() gives a valid pmix_value_t owned by PmixOwnedValue
-        //   that lives long enough. The FFI signature declares `*mut pmix_value_t`
-        //   but the C implementation only reads from the value (copies it via
-        //   PMIX_BFROPS_VALUE_XFER) and does not retain the pointer after return.
-        //   Casting *const to *mut is safe here because no mutation occurs.
-        ffi::PMIx_Store_internal(
-            &proc.handle as *const ffi::pmix_proc_t,
-            key_c.as_ptr(),
-            value.as_raw() as *mut ffi::pmix_value_t,
-        )
-    };
+    // SAFETY: PMIx_Store_internal is a synchronous PMIx API call.
+    // - proc.handle is a valid pmix_proc_t owned by the Proc parameter.
+    // - key_c is a valid null-terminated C string that lives long enough.
+    // - value.as_raw() gives a valid pmix_value_t owned by PmixOwnedValue
+    //   that lives long enough. The FFI signature declares `*mut pmix_value_t`
+    //   but the C implementation only reads from the value (copies it via
+    //   PMIX_BFROPS_VALUE_XFER) and does not retain the pointer after return.
+    //   Casting *const to *mut is safe here because no mutation occurs.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_store_internal(
+                &proc.handle as *const _ as *const std::ffi::c_void,
+                key_c.as_ptr(),
+                value.as_raw() as *mut ffi::pmix_value_t,
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Store_internal(
+                &proc.handle as *const ffi::pmix_proc_t,
+                key_c.as_ptr(),
+                value.as_raw() as *mut ffi::pmix_value_t,
+            )
+        },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -1262,20 +1338,16 @@ pub fn fence_nb(
     // remains alignable (though PMIx treats it as opaque c_void).
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    // Prepare proc parameters.
-    let (proc_ptr, nprocs) = if procs.is_empty() {
-        (ptr::null(), 0)
+    // Keep raw_procs alive for the full FFI call (do not drop at end of branch).
+    // SAFETY: pmix_proc_t is POD (fixed char array + rank); ptr::read is a copy.
+    let raw_procs: Vec<ffi::pmix_proc_t> = if procs.is_empty() {
+        Vec::new()
     } else {
-        // Build a contiguous array of raw pmix_proc_t from the Proc
-        // references. Each Proc wraps exactly one pmix_proc_t.
-        // We copy each pmix_proc_t into a temporary Vec to ensure
-        // contiguity for the FFI call.
-        //
-        // SAFETY: pmix_proc_t contains a fixed-size char array (nspace)
-        // and a u32 (rank). It does not contain pointers, so cloning
-        // via std::ptr::read is safe and produces a valid copy.
-        let raw_procs: Vec<ffi::pmix_proc_t> =
-            unsafe { procs.iter().map(|p| std::ptr::read(&p.handle)).collect() };
+        unsafe { procs.iter().map(|p| std::ptr::read(&p.handle)).collect() }
+    };
+    let (proc_ptr, nprocs) = if raw_procs.is_empty() {
+        (ptr::null(), 0usize)
+    } else {
         (raw_procs.as_ptr(), raw_procs.len())
     };
 
@@ -1285,26 +1357,29 @@ pub fn fence_nb(
         _ => (ptr::null(), 0),
     };
 
-    // Call the FFI function.
-    let status = unsafe {
-        // SAFETY: PMIx_Fence_nb is a non-blocking PMIx API call.
-        // - proc_ptr (if non-null) points to a Vec<pmix_proc_t> that lives
-        //   long enough for the initial call. PMIx does not retain the pointer.
-        // - info_ptr (if non-null) is borrowed from the Info parameter and
-        //   lives long enough. PMIx does not retain it after this returns.
-        // - The callback bridge function has C linkage and properly handles
-        //   the raw pointer cbdata parameter.
-        // - PMIx_Fence_nb returns immediately and does not access proc_ptr
-        //   or info_ptr after returning.
-        ffi::PMIx_Fence_nb(
-            proc_ptr,
-            nprocs,
-            info_ptr,
-            ninfo,
-            Some(fence_callback_bridge),
-            cbdata,
-        )
-    };
+    // SAFETY: PMIx_Fence_nb is non-blocking; raw_procs/info live for this call.
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_fence_nb(
+                proc_ptr as *const std::ffi::c_void,
+                nprocs,
+                info_ptr as *const std::ffi::c_void,
+                ninfo,
+                Some(fence_callback_bridge),
+                cbdata,
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Fence_nb(
+                proc_ptr,
+                nprocs,
+                info_ptr,
+                ninfo,
+                Some(fence_callback_bridge),
+                cbdata,
+            )
+        },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
 
