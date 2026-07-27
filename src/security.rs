@@ -537,6 +537,8 @@ pub fn get_credential_nb(
 pub struct ValidationResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl ValidationResults {
@@ -548,6 +550,8 @@ impl ValidationResults {
         Self {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 
@@ -646,6 +650,8 @@ pub fn validate_credential(
         Ok(ValidationResults {
             handle: results,
             len: nresults,
+        
+            _not_thread_safe: std::marker::PhantomData,
         })
     } else {
         // On error, free any results that may have been allocated.
@@ -757,11 +763,15 @@ extern "C" fn validation_callback_bridge(
         ValidationResults {
             handle: info,
             len: ninfo,
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     } else {
         ValidationResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     };
 

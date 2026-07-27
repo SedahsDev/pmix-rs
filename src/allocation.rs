@@ -158,6 +158,8 @@ impl std::fmt::Display for PmixAllocDirective {
 pub struct AllocationResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl AllocationResults {
@@ -265,7 +267,9 @@ pub fn allocation_request(
     Ok(AllocationResults {
         handle: results,
         len: nresults,
-    })
+    
+            _not_thread_safe: std::marker::PhantomData,
+        })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -337,7 +341,9 @@ extern "C" fn allocation_callback_bridge(
     let results = AllocationResults {
         handle: info,
         len: ninfo,
-    };
+    
+            _not_thread_safe: std::marker::PhantomData,
+        };
     cb.on_complete(pmix_status, results);
     // release_fn is unused — we manage our own memory via AllocationResults Drop.
     let _ = release_fn;
@@ -510,6 +516,8 @@ impl std::fmt::Display for PmixJobCtrlAction {
 pub struct JobControlResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl JobControlResults {
@@ -530,6 +538,8 @@ impl JobControlResults {
         Self {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 }
@@ -631,7 +641,9 @@ pub fn job_control(targets: &[Proc], directives: &[Info]) -> Result<JobControlRe
     Ok(JobControlResults {
         handle: results,
         len: nresults,
-    })
+    
+            _not_thread_safe: std::marker::PhantomData,
+        })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -703,7 +715,9 @@ extern "C" fn job_control_callback_bridge(
     let results = JobControlResults {
         handle: info,
         len: ninfo,
-    };
+    
+            _not_thread_safe: std::marker::PhantomData,
+        };
     cb.on_complete(pmix_status, results);
     // release_fn is unused — we manage our own memory via JobControlResults Drop.
     let _ = release_fn;
@@ -819,6 +833,8 @@ pub fn job_control_nb(
 pub struct SessionControlResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl SessionControlResults {
@@ -891,7 +907,9 @@ extern "C" fn session_control_callback_bridge(
     let results = SessionControlResults {
         handle: info,
         len: ninfo,
-    };
+    
+            _not_thread_safe: std::marker::PhantomData,
+        };
     cb.on_complete(pmix_status, results);
     let _ = release_fn;
 }
@@ -982,7 +1000,9 @@ pub fn session_control(
                 Ok(Some(SessionControlResults {
                     handle: results,
                     len: nresults,
-                }))
+                
+            _not_thread_safe: std::marker::PhantomData,
+        }))
             } else {
                 Err(pmix_status)
             }
@@ -1120,6 +1140,8 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -1130,6 +1152,8 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         let s = format!("{:?}", results);
         assert!(s.contains("AllocationResults"));
@@ -1335,6 +1359,8 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -1345,6 +1371,8 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         let s = format!("{:?}", results);
         assert!(s.contains("SessionControlResults"));
@@ -1453,6 +1481,8 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         drop(results); // Should not panic or segfault
     }
@@ -1470,6 +1500,8 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         drop(results); // Should not panic or segfault
     }

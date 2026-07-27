@@ -94,6 +94,8 @@ pub struct PmixFabric {
     registered: bool,
     /// Raw C struct for FFI calls.
     raw: MaybeUninit<ffi::pmix_fabric_t>,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl std::fmt::Debug for PmixFabric {
@@ -130,6 +132,8 @@ impl PmixFabric {
             module: ptr::null_mut(),
             registered: false,
             raw: MaybeUninit::uninit(),
+        
+            _not_thread_safe: std::marker::PhantomData,
         })
     }
 
@@ -142,6 +146,8 @@ impl PmixFabric {
             module: ptr::null_mut(),
             registered: false,
             raw: MaybeUninit::uninit(),
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 
@@ -624,6 +630,8 @@ pub struct PmixTopology {
     loaded: bool,
     /// Raw C struct for FFI calls.
     raw: std::mem::MaybeUninit<ffi::pmix_topology_t>,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl PmixTopology {
@@ -641,6 +649,8 @@ impl PmixTopology {
             topology: ptr::null_mut(),
             loaded: false,
             raw: std::mem::MaybeUninit::uninit(),
+        
+            _not_thread_safe: std::marker::PhantomData,
         })
     }
 
@@ -651,6 +661,8 @@ impl PmixTopology {
             topology: ptr::null_mut(),
             loaded: false,
             raw: std::mem::MaybeUninit::uninit(),
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 
@@ -737,6 +749,8 @@ pub struct PmixCpuset {
     raw: std::mem::MaybeUninit<ffi::pmix_cpuset_t>,
     /// Whether this cpuset has been constructed.
     constructed: bool,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl PmixCpuset {
@@ -747,6 +761,8 @@ impl PmixCpuset {
         let mut this = Self {
             raw: std::mem::MaybeUninit::uninit(),
             constructed: false,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         let raw_ptr = this.raw.as_mut_ptr();
         // SAFETY: PMIx_Cpuset_construct initializes a pmix_cpuset_t.
@@ -775,6 +791,8 @@ impl PmixCpuset {
         Self {
             raw: std::mem::MaybeUninit::uninit(),
             constructed: true,
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 
@@ -925,6 +943,8 @@ pub struct DeviceDistances {
     raw_ptr: *mut ffi::pmix_device_distance_t,
     /// Number of elements in the raw array.
     len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl DeviceDistances {
@@ -952,6 +972,8 @@ impl DeviceDistances {
             distances,
             raw_ptr: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 }
@@ -1197,7 +1219,9 @@ pub fn compute_distances(
         distances,
         raw_ptr: raw_distances,
         len: ndist,
-    })
+    
+            _not_thread_safe: std::marker::PhantomData,
+        })
 }
 
 /// Non-blocking variant of [`compute_distances`].
@@ -1265,13 +1289,17 @@ pub fn compute_distances_nb(
                 distances: rust_distances,
                 raw_ptr: dist,
                 len: ndist,
-            }
+            
+            _not_thread_safe: std::marker::PhantomData,
+        }
         } else {
             DeviceDistances {
                 distances: Vec::new(),
                 raw_ptr: ptr::null_mut(),
                 len: 0,
-            }
+            
+            _not_thread_safe: std::marker::PhantomData,
+        }
         };
 
         // Call the release function if provided.

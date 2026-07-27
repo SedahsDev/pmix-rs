@@ -46,6 +46,8 @@ pub mod security;
 pub mod server;
 pub mod tool;
 pub mod utility;
+#[cfg(test)]
+mod threading_assert;
 
 
 /// Dispatch a PMIx FFI call to the mock implementation when the `mock_ffi`
@@ -2660,6 +2662,8 @@ impl PmixValueBuilder {
     pub fn build(self) -> Result<PmixOwnedValue, ValueError> {
         Ok(PmixOwnedValue {
             inner: self.build_raw()?,
+        
+            _not_thread_safe: std::marker::PhantomData,
         })
     }
 
@@ -2870,6 +2874,8 @@ pub fn free_value(v: &mut pmix_value_t) {
 /// ownership to a C API that calls `PMIX_VALUE_RELEASE` itself.
 pub struct PmixOwnedValue {
     inner: pmix_value_t,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl PmixOwnedValue {
@@ -3011,6 +3017,8 @@ pub struct InfoBuilder {
     infos: Vec<InfoEntry>,
     /// String-key entries for keys that exceed the 13-byte limit.
     string_infos: Vec<InfoEntryString>,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl InfoBuilder {
@@ -3739,6 +3747,8 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
     if status.is_success() {
         Ok(PmixOwnedValue {
             inner: unsafe { *value },
+        
+            _not_thread_safe: std::marker::PhantomData,
         })
     } else {
         if let Some(known) = status.known() {

@@ -69,6 +69,8 @@ pub struct PmixQuery {
     /// Freed manually in Drop since PMIx_Query_release would double-free the
     /// individual CString-allocated strings.
     keys_array: *mut *mut c_char,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl std::fmt::Debug for PmixQuery {
@@ -164,6 +166,8 @@ impl PmixQuery {
             handle: query_ptr,
             _keys: c_keys,
             keys_array,
+        
+            _not_thread_safe: std::marker::PhantomData,
         })
     }
 
@@ -250,6 +254,8 @@ impl Drop for PmixQuery {
 pub struct QueryResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl std::fmt::Debug for QueryResults {
@@ -349,6 +355,8 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
         Ok(QueryResults {
             handle: results,
             len: nresults,
+        
+            _not_thread_safe: std::marker::PhantomData,
         })
     } else {
         // On error, PMIx may have still allocated a results array — free it.
@@ -446,7 +454,9 @@ extern "C" fn query_callback_bridge(
     let results = QueryResults {
         handle: info,
         len: ninfo,
-    };
+    
+            _not_thread_safe: std::marker::PhantomData,
+        };
     cb.on_complete(pmix_status, results);
     // release_fn is unused — we manage our own memory via QueryResults Drop.
     let _ = release_fn;
@@ -915,6 +925,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -925,6 +937,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 3,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(!results.is_empty());
         assert_eq!(results.len(), 3);
@@ -935,6 +949,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 5,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         let debug_str = format!("{:?}", results);
         assert!(debug_str.contains("QueryResults"));
@@ -946,6 +962,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         drop(results);
     }
@@ -955,6 +973,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 5,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         drop(results);
     }
@@ -1368,6 +1388,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         cb.on_complete(PmixStatus::Known(PmixError::Success), results);
         assert_eq!(count.load(Ordering::SeqCst), 1);
@@ -1520,6 +1542,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: usize::MAX,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(!results.is_empty());
         assert_eq!(results.len(), usize::MAX);

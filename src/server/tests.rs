@@ -405,6 +405,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: std::ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -989,6 +991,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -1115,6 +1119,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert_eq!(results.len(), 0);
         assert!(results.is_empty());
@@ -1125,6 +1131,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         let debug_str = format!("{:?}", results);
         assert!(debug_str.contains("CollectInventoryResults"));
@@ -1137,6 +1145,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: 0x1 as *mut ffi::pmix_info_t, // dummy non-null
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -1148,6 +1158,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         drop(results); // should be a no-op
     }
@@ -1616,6 +1628,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
+        
+            _not_thread_safe: std::marker::PhantomData,
         };
         boxed.on_complete(PmixStatus::from_raw(0), results);
         assert!(called.load(Ordering::SeqCst));

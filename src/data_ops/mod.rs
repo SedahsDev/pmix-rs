@@ -260,7 +260,9 @@ extern "C" fn get_value_callback_bridge(
         let val = unsafe { ptr::read(kv) };
         // Clear the pointer so PMIx doesn't double-free.
         unsafe { ptr::write(kv, std::mem::zeroed()) };
-        Some(PmixOwnedValue { inner: val })
+        Some(PmixOwnedValue { inner: val, 
+            _not_thread_safe: std::marker::PhantomData,
+        })
     } else {
         None
     };
@@ -464,7 +466,9 @@ pub fn get(proc: &Proc, key: &str, info: Option<&Info>) -> Result<PmixOwnedValue
             // which will free it on drop.
             ptr::read(value)
         };
-        Ok(PmixOwnedValue { inner: owned })
+        Ok(PmixOwnedValue { inner: owned, 
+            _not_thread_safe: std::marker::PhantomData,
+        })
     } else {
         Err(pmix_status)
     }
@@ -625,7 +629,9 @@ pub fn lookup(
         let value = if pdata.value.type_ != pmix_undef {
             // Take ownership of the value.
             let val = unsafe { ptr::read(&pdata.value) };
-            Some(PmixOwnedValue { inner: val })
+            Some(PmixOwnedValue { inner: val, 
+            _not_thread_safe: std::marker::PhantomData,
+        })
         } else {
             None
         };
@@ -738,7 +744,9 @@ extern "C" fn lookup_callback_bridge(
                 let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
                 let value = if pdata_ref.value.type_ != pmix_undef {
                     let val = ptr::read(&pdata_ref.value);
-                    Some(PmixOwnedValue { inner: val })
+                    Some(PmixOwnedValue { inner: val, 
+            _not_thread_safe: std::marker::PhantomData,
+        })
                 } else {
                     None
                 };

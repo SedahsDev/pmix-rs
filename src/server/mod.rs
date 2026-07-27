@@ -2236,6 +2236,8 @@ pub trait CollectInventoryCallback: Send + 'static {
 pub struct CollectInventoryResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl CollectInventoryResults {
@@ -2318,7 +2320,9 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     let inventory = CollectInventoryResults {
         handle: info,
         len: ninfo,
-    };
+    
+            _not_thread_safe: std::marker::PhantomData,
+        };
     cb.on_complete(pmix_status, inventory);
     // release_fn is unused — we manage our own memory via CollectInventoryResults Drop.
     let _ = release_fn;
