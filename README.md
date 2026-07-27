@@ -14,6 +14,18 @@ Safe-ish wrappers over the PMIx 5.x C API via `bindgen`, plus modular helpers fo
 - `PmixValueBuilder` / `info` helpers
 - Large test suite (unit + proptest + many `#[ignore]` daemon tests)
 
+
+## Threading
+
+OpenPMIx **≥ 6.1** threadshifts C API entry. Rust side:
+
+- Prefer process-wide [`PmixClient`](src/lib.rs) (`Clone + Send + Sync`) — not bare `Context` for multi-thread use
+- Build `Info` and other C-owned handles per call (they are `!Send`)
+- Data ops remain free functions (`put_value` / `get_value` / `fence` / …)
+- Callbacks run on the PMIx **progress** thread — do not block in-handler
+
+Full model, type inventory, progress/pinning, and roadmap: **[THREADING.md](./THREADING.md)**.
+
 ## Build
 
 Requires a PMIx install (headers + `libpmix`) and optionally `libclang` for bindgen.

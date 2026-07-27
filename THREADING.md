@@ -1,12 +1,29 @@
 # Threading Model & Send/Sync Inventory
 
-**Date:** 2026-07-18
-**Related:** [THREADPLAN.md](./THREADPLAN.md) — parent plan
-**Issue:** [#45](https://github.com/SedahsDev/pmix-rs/issues/45)
+**Date:** 2026-07-27  
+**Issues:** [#64](https://github.com/SedahsDev/pmix-rs/issues/64) (this refresh), [#45](https://github.com/SedahsDev/pmix-rs/issues/45) (original inventory)  
+**Related open work:** [#49](https://github.com/SedahsDev/pmix-rs/issues/49)–[#52](https://github.com/SedahsDev/pmix-rs/issues/52), [#54](https://github.com/SedahsDev/pmix-rs/issues/54), [#65](https://github.com/SedahsDev/pmix-rs/issues/65)–[#67](https://github.com/SedahsDev/pmix-rs/issues/67)
+
+Crate-root docs in `src/lib.rs` (`//! # Concurrency model`) match this document. Prefer this file for the full inventory.
 
 ---
 
-## 1. OpenPMIx Version Assumption
+## 1. Strategy (one-liner)
+
+| Layer | Policy |
+|--------|--------|
+| **Session** | Process-wide `OnceLock<Arc<Inner>>`. Handle is **`Clone + Send + Sync`**. **No** `PhantomData<*mut u8>` on the session Inner (that would make `Arc` `!Send` and defeat multi-thread clones). |
+| **C API entry** | Trust OpenPMIx **≥ 6.1** threadshift. Do **not** global-lock every put/get by default. |
+| **C-owned handles** | `Info`, buffers, fabric, … → **`!Send + !Sync`** (or stay thread-local). Prefer build-per-call. Optional app-side `Arc<Mutex<T>>` / future `into_shared` (#50). |
+| **Data ops** | Free functions (`put_value`, `get_value`, `commit`, `fence`, `data_ops::*`, …) taking `&self`-style inputs; session supplies `Proc`. |
+| **Callbacks / upcalls** | Run on **PMIx progress thread**. Keep short; hop to an app thread before blocking PMIx (#51, #52, #67). |
+| **Global FFI mutex** | **Not** the default. Optional paranoia only (closed [#53](https://github.com/SedahsDev/pmix-rs/issues/53)). |
+
+**Anti-pattern (do not repeat):** putting `PhantomData<*mut u8>` on `PmixClientInner` while documenting “clone across threads” — that was the first #60 draft bug.
+
+---
+
+## 2. OpenPMIx version assumption
 
 **This crate assumes OpenPMIx ≥ 6.1.**
 
@@ -14,261 +31,221 @@ From the [OpenPMIx 6.1.0 NEWS](https://github.com/openpmix/openpmix/blob/v6.1.0/
 
 > *all APIs are now threadshifted prior to execution for thread safety. Hosts that are providing their own progress engine (in lieu of using the PMIx internal progress thread) must ensure that progress is being provided sufficient to avoid threadlock when calling PMIx APIs.*
 
-**What this means for pmix-rs callers:**
-
 | Layer | Who serializes? | Implication |
 |-------|-----------------|-------------|
-| C library entry | OpenPMIx `PMIX_THREADSHIFT` onto internal `evbase` / progress thread | Multiple Rust threads **may** call most `PMIx_*` APIs concurrently, provided the progress engine is running |
-| Progress engine | One (or more) internal progress thread(s), or the host via `PMIx_Progress` | Without progress, non-blocking ops and many blocking ops can deadlock |
-| Rust wrappers | **Not** currently designed for multi-thread sharing of owned handles | Even if C is MT-safe, Rust types with raw pointers / process-global state still need `Arc<Mutex<T>>` wrappers for shared access |
-| Callbacks / server module | Delivered on **PMIx progress thread** (not the caller's thread) | Handlers must not block; blocking APIs need an app-side thread shift |
+| C library entry | OpenPMIx `PMIX_THREADSHIFT` onto internal `evbase` / progress thread | Multiple Rust threads **may** call most `PMIx_*` APIs concurrently **if** progress is running |
+| Progress engine | Internal progress thread(s), or host via `PMIx_Progress` / `pmix::progress()` | Without progress, `_nb` and many blocking paths can deadlock |
+| Rust session | Process-wide `PmixClient` (`Send + Sync`) | Clone the client; do not multi-init |
+| Rust C-owned values | Type system (`!Send`) + ownership | Do not share `Info`/buffers across threads without a mutex you own |
+| Callbacks / server module | Delivered on **PMIx progress thread** | No blocking PMIx in-handler |
 
-**If you link against OpenPMIx < 6.1**, most APIs are **not** internally serialized. In that case, all `PMIx_*` calls must be externally synchronized (single-threaded or mutex-guarded).
-
----
-
-## 2. Public Type Inventory
-
-Every public Rust type with its intended `Send` / `Sync` status.
-
-### 2.1 Definitely `!Send` / `!Sync` (raw handle wrappers)
-
-These types wrap raw pointers to PMIx-allocated memory or process-global state. They must **not** be shared across threads without a `Mutex`.
-
-| Type | Location | Rationale |
-|------|----------|-----------|
-| `Info` | `src/lib.rs:2932` | Wraps `*mut pmix_info_t` — PMIx-allocated array |
-| `InfoBuilder` | `src/lib.rs:2998` | Owns `Vec<InfoEntry>` with `CString` keys — pre-build state, not MT-safe to share mid-build |
-| `Context` | `src/lib.rs:3098` | Wraps `*mut pmix_proc_t` — process-global init state |
-| `PmixOwnedValue` | `src/lib.rs:2847` | Wraps `*mut pmix_value_t` — PMIx-allocated value |
-| `Proc` | `src/lib.rs:2927` | Wraps `*mut pmix_proc_t` — PMIx-allocated proc identifier |
-| `PmixServerHandle` | `src/server/mod.rs:295` | Tracks server init state — process-global singleton |
-| `PmixToolHandle` | `src/tool.rs:65` | Wraps tool connection state — process-global |
-| `PmixCredential` | `src/security.rs:56` | Wraps `*mut pmix_credential_t` — PMIx-allocated credential |
-| `PmixByteObject` | `src/data_serialization.rs:97` | Wraps `pmix_byte_object_t` with PMIx-allocated buffer |
-| `PmixDataBuffer` | `src/data_serialization.rs:211` | Wraps `*mut pmix_data_buffer_t` — PMIx-allocated buffer |
-| `PmixProcRef` | `src/data_serialization.rs:63` | Borrowed `&'a Proc` — inherits Proc's thread constraints |
-| `AllocationResults` | `src/allocation.rs:160` | Wraps PMIx-allocated job/id strings |
-| `JobControlResults` | `src/allocation.rs:529` | Wraps PMIx-allocated result strings |
-| `SessionControlResults` | `src/allocation.rs:853` | Wraps PMIx-allocated result data |
-| `MonitorResults` | `src/monitoring.rs:66` | Wraps PMIx-allocated monitoring data |
-| `QueryResults` | `src/query_log.rs:232` | Wraps `*mut pmix_info_t` array |
-| `CredentialResults` | `src/security.rs:320` | Wraps PMIx-allocated credential |
-| `ValidationResults` | `src/security.rs:546` | Wraps PMIx-allocated validation data |
-| `PmixFabric` | `src/fabric.rs:85` | Wraps `*mut pmix_fabric_t` — PMIx-allocated |
-| `PmixTopology` | `src/fabric.rs:611` | Wraps `*mut pmix_topology_t` — PMIx-allocated |
-| `PmixCpuset` | `src/fabric.rs:728` | Wraps `*mut pmix_cpuset_t` — PMIx-allocated |
-| `DeviceDistances` | `src/fabric.rs:914` | Wraps `*mut pmix_device_distances_t` — PMIx-allocated |
-| `SpawnCallbackWrapper` | `src/process_mgmt.rs:486` | Boxed callback + cbdata — not MT-safe to share |
-| `ConnectCallbackWrapper` | `src/process_mgmt.rs:774` | Boxed callback + cbdata |
-| `DisconnectCallbackWrapper` | `src/process_mgmt.rs:996` | Boxed callback + cbdata |
-| `GroupConstructCallbackWrapper` | `src/groups.rs:120` | Boxed callback + cbdata |
-| `GroupInviteCallbackWrapper` | `src/groups.rs:329` | Boxed callback + cbdata |
-| `GroupJoinCallbackWrapper` | `src/groups.rs:535` | Boxed callback + cbdata |
-| `GroupLeaveCallbackWrapper` | `src/groups.rs:689` | Boxed callback + cbdata |
-| `GroupDestructCallbackWrapper` | `src/groups.rs:811` | Boxed callback + cbdata |
-
-### 2.2 Pure Rust / Copy types — `Send + Sync`
-
-These types contain no raw pointers to PMIx-allocated memory. They are safe to share across threads.
-
-| Type | Location | Rationale |
-|------|----------|-----------|
-| `PmixError` | `src/lib.rs:81` | Pure Rust enum with owned strings |
-| `PmixStatus` | `src/lib.rs:406` | Newtype around `i32`, derives Copy |
-| `PmixProcState` | `src/lib.rs:729` | Pure Rust enum |
-| `PmixScope` | `src/lib.rs:958` | Pure Rust enum |
-| `PmixJobState` | `src/lib.rs:1045` | Pure Rust enum |
-| `PmixLinkState` | `src/lib.rs:1160` | Pure Rust enum |
-| `PmixDeviceType` | `src/lib.rs:1237` | Pure Rust enum |
-| `PmixPersistence` | `src/lib.rs:1325` | Pure Rust enum |
-| `PmixDataRange` | `src/lib.rs:1412` | Pure Rust enum |
-| `PmixDataType` | `src/lib.rs:1515` | Pure Rust enum |
-| `PmixAllocDirective` | `src/lib.rs:1966` | Pure Rust enum |
-| `IOFChannelFlags` | `src/lib.rs:2018` | Newtype around `u16` |
-| `BuilderError` | `src/lib.rs:2090` | Pure Rust enum |
-| `ValueError` | `src/lib.rs:2136` | Pure Rust enum |
-| `PmixTimeval` | `src/lib.rs:2177` | Pure Rust struct with two `i64` fields |
-| `PmixEnvar` | `src/lib.rs:2200` | Pure Rust struct with `String` fields |
-| `InfoFlags` | `src/lib.rs:2264` | Newtype around `u32` |
-| `PmixPayload` | `src/lib.rs:2311` | Pure Rust enum with owned data |
-| `PmixValueBuilder` | `src/lib.rs:2420` | Pure Rust builder (no raw pointers) |
-| `PmixApp` | `src/process_mgmt.rs:162` | Pure Rust struct with `String`/`Vec<String>` fields |
-| `PmixAppBuilder` | `src/process_mgmt.rs:219` | Pure Rust builder |
-| `PmixQuery` | `src/query_log.rs:63` | Pure Rust struct |
-| `PmixDeviceDistance` | `src/fabric.rs:822` | Pure Rust struct with `u16` fields |
-| `PmixBindEnvelope` | `src/cpu_locality.rs:38` | Pure Rust enum |
-| `PmixLocality` | `src/cpu_locality.rs:199` | Bitflags struct, `Send + Sync` |
-| `PmixPrintOutput` | `src/data_serialization.rs:837` | Pure Rust struct with owned strings |
-| `PmixJobCtrlAction` | `src/allocation.rs:476` | Pure Rust enum |
-
-### 2.3 Type aliases — inherit constraints
-
-| Alias | Location | Underlying type | Constraint |
-|-------|----------|-----------------|------------|
-| `EventHandlerRef` | `src/events.rs:62` | `usize` | `Send + Sync` (just an integer) |
-| `NotificationFn` | `src/events.rs:93` | `Option<unsafe extern "C" fn(...)>` | `Send + Sync` (function pointers are) |
-| `HandlerRegCbFn` | `src/events.rs:122` | `unsafe extern "C" fn(...)` | `Send + Sync` (function pointer) |
-| `OpCbFn` | `src/events.rs:131` | `Option<unsafe extern "C" fn(...)>` | `Send + Sync` (function pointer) |
-| `SpawnCallback` | `src/process_mgmt.rs:322` | `unsafe extern "C" fn(...)` | `Send + Sync` (function pointer) |
-
-### 2.4 Summary
-
-| Category | Count | Send/Sync |
-|----------|-------|-----------|
-| Raw handle wrappers | 26 | `!Send`, `!Sync` |
-| Pure Rust types | 25 | `Send + Sync` |
-| Type aliases | 4 | `Send + Sync` (function pointers / integers) |
-
-**Recommendation:** Add `PhantomData<*mut u8>` fields to all 26 raw-handle types to enforce `!Send`/`!Sync` at compile time. See PR #42 for the pattern already applied to `Info`.
+**If you link OpenPMIx < 6.1**, C entry is **not** fully serialized — external sync required (single-threaded or app mutex). That is outside the default support story.
 
 ---
 
-## 3. FFI Bridge Inventory
+## 3. Sessions: `PmixClient` (done) and friends
 
-Every `extern "C"` bridge function in pmix-rs, categorized by thread context.
+### 3.1 `PmixClient` — preferred client API
 
-### 3.1 Client-side API calls (runs on caller thread → threadshifted by OpenPMIx ≥ 6.1)
+| Property | Behavior |
+|----------|----------|
+| Storage | `OnceLock<Arc<PmixClientInner>>` — **one** process-wide session |
+| Auto-traits | **`Clone + Send + Sync`** (asserted in tests) |
+| State machine | `Uninitialized → Live → Finalizing → Dead` |
+| `connect` / `disconnect` | Serialized on session mutex; double-init → error; double-finalize → no-op |
+| Drop | **Does not** call `PMIx_Finalize` (clones must not each finalize) |
+| Identity | `proc()` / `rank()` / `proc_with_nspace()` |
+| Data path | Free functions + `Proc` from the client |
 
-These are Rust functions that call `ffi::PMIx_*`. On OpenPMIx ≥ 6.1, the C side threadshifts to the progress thread internally.
+```rust
+// Multi-thread sketch (needs a live PMIx/DVM to run)
+let client = pmix::PmixClient::connect_new(None)?;
+let w = client.clone();
+std::thread::spawn(move || {
+    let _ = w.rank();
+    // put_value / get_value / fence with w.proc() …
+});
+client.disconnect(None)?;
+```
 
-| Function | File | FFI Call |
-|----------|------|----------|
-| `init()` | `src/lib.rs:3135` | `PMIx_Init` |
-| `finalize()` | `src/lib.rs:3267` | `PMIx_Finalize` |
-| `fence()` | `src/lib.rs:3244` | `PMIx_Fence` |
-| `is_initialized()` | `src/utility/mod.rs:46` | `PMIx_Initialized` |
-| `publish()` | `src/data_ops/mod.rs` | `PMIx_Publish` |
-| `get_value()` | `src/data_ops/mod.rs` | `PMIx_Get` |
-| `lookup()` | `src/data_ops/mod.rs` | `PMIx_Lookup_nspace` |
-| `unpublish()` | `src/data_ops/mod.rs` | `PMIx_Unpublish` |
-| `fence_nb()` | `src/data_ops/mod.rs` | `PMIx_Fence_nb` |
-| `spawn()` | `src/process_mgmt.rs:452` | `PMIx_Spawn` |
-| `connect()` | `src/server/data.rs:470` | `PMIx_Connect` |
-| `disconnect()` | `src/server/data.rs` | `PMIx_Disconnect` |
-| `resolve_peers()` | `src/process_mgmt.rs:1173` | `PMIx_Resolve_peers` |
-| `resolve_nodes()` | `src/process_mgmt.rs:1250` | `PMIx_Resolve_nodes` |
-| `fabric_register()` | `src/fabric.rs:275` | `PMIx_Fabric_register` |
-| `fabric_update()` | `src/fabric.rs:427` | `PMIx_Fabric_update` |
-| `fabric_update_nb()` | `src/fabric.rs:470` | `PMIx_Fabric_update_nb` |
-| `fabric_deregister()` | `src/fabric.rs:516` | `PMIx_Fabric_deregister` |
-| `load_topology()` | `src/fabric.rs:1059` | `PMIx_Load_topology` |
-| `register_event_handler()` | `src/events.rs` | `PMIx_Register_event_handler` |
-| `deregister_event_handler()` | `src/events.rs:382` | `PMIx_Deregister_event_handler` |
-| `notify_event()` | `src/events.rs` | `PMIx_Notify_event` |
-| `server_init()` | `src/server/mod.rs` | `PMIx_server_init` |
-| `server_finalize()` | `src/server/mod.rs:322` | `PMIx_server_finalize` |
-| `tool_init()` | `src/tool.rs` | `PMIx_tool_init` |
-| `tool_finalize()` | `src/tool.rs` | `PMIx_tool_finalize` |
-| `tool_is_connected()` | `src/tool.rs:794` | `PMIx_tool_is_connected` |
-| `group_construct()` | `src/groups.rs` | `PMIx_Group_construct` |
-| `group_invite()` | `src/groups.rs` | `PMIx_Group_invite` |
-| `group_join()` | `src/groups.rs` | `PMIx_Group_join` |
-| `group_leave()` | `src/groups.rs:674` | `PMIx_Group_leave` |
-| `group_destruct()` | `src/groups.rs:796` | `PMIx_Group_destruct` |
-| `register_nspace()` | `src/server/mod.rs` | `PMIx_server_register_nspace` |
-| `deregister_nspace()` | `src/server/mod.rs` | `PMIx_server_deregister_nspace` |
-| `register_client()` | `src/server/mod.rs` | `PMIx_server_register_client` |
-| `deregister_client()` | `src/server/mod.rs` | `PMIx_server_deregister_client` |
-| `job_control()` | `src/allocation.rs` | `PMIx_server_job_control` |
-| `allocate()` | `src/allocation.rs` | `PMIx_server_allocate` |
-| `session_control()` | `src/allocation.rs` | `PMIx_server_session_control` |
-| `monitor()` | `src/monitoring.rs` | `PMIx_server_monitor` |
-| `query()` | `src/query_log.rs` | `PMIx_Query` |
-| `log()` | `src/query_log.rs` | `PMIx_Log` |
-| `get_credential()` | `src/security.rs` | `PMIx_server_get_credential` |
-| `validate_credential()` | `src/security.rs` | `PMIx_server_validate_credential` |
-| `iof_channel_register()` | `src/utility/mod.rs` | `PMIx_IOF_channel_register` |
-| `iof_channel_deregister()` | `src/utility/mod.rs` | `PMIx_IOF_channel_deregister` |
-| `iof_push()` | `src/utility/mod.rs` | `PMIx_IOF_push` |
-| `iof_pull()` | `src/utility/mod.rs` | `PMIx_IOF_pull` |
-| `pdata_construct()` | `src/server/data.rs:127` | `PMIx_Pdata_construct` |
-| `pdata_destruct()` | `src/server/data.rs:175` | `PMIx_Pdata_destruct` |
-| `data_buffer_create()` | `src/data_serialization.rs:309` | `PMIx_Data_buffer_create` |
-| `data_buffer_release()` | `src/data_serialization.rs:262` | `PMIx_Data_buffer_release` |
-| `byte_object_destruct()` | `src/data_serialization.rs:175` | `PMIx_Byte_object_destruct` |
-| `data_unload()` | `src/data_serialization.rs:584` | `PMIx_Data_unload` |
-| `data_copy_payload()` | `src/data_serialization.rs:716` | `PMIx_Data_copy_payload` |
-| `app_create()` | `src/process_mgmt.rs:360` | `PMIx_App_create` |
-| `app_free()` | `src/process_mgmt.rs:374` | `PMIx_App_free` |
-| `topology_destruct()` | `src/fabric.rs:701` | `PMIx_Topology_destruct` |
-| `cpuset_construct()` | `src/fabric.rs:751` | `PMIx_Cpuset_construct` |
-| `cpuset_destruct()` | `src/fabric.rs:797` | `PMIx_Cpuset_destruct` |
+### 3.2 Legacy `Context` / `init` / `finalize`
 
-### 3.2 Callback bridges (runs on PMIx progress thread)
+- Still supported for compatibility.
+- Share the **same** process session state machine as `PmixClient`.
+- `Context::Drop` still calls `finalize` (explicit disconnect on client path preferred for MT).
+- **Not** the type to clone across threads — use `PmixClient`.
 
-These `extern "C"` functions are invoked by the PMIx library as callbacks. They run on the **PMIx internal progress thread**, NOT the caller's thread.
+### 3.3 Server / tool sessions
 
-| Bridge | File | Invoked by |
-|--------|------|------------|
-| `notification_bridge` | `src/events.rs:143` | PMIx notification delivery |
-| `publish_callback_bridge` | `src/data_ops/mod.rs:89` | `PMIx_server_publish` upcall |
-| `get_value_callback_bridge` | `src/data_ops/mod.rs:212` | `PMIx_Get` completion |
-| `lookup_callback_bridge` | `src/data_ops/mod.rs:634` | `PMIx_Lookup_nspace` completion |
-| `unpublish_callback_bridge` | `src/data_ops/mod.rs:854` | `PMIx_Unpublish` completion |
-| `fence_callback_bridge` | `src/data_ops/mod.rs:1177` | `PMIx_Fence_nb` completion |
-| `spawn_callback_bridge` | `src/process_mgmt.rs:539` | `PMIx_Spawn` completion |
-| `connect_callback_bridge` | `src/process_mgmt.rs:826` | `PMIx_Connect` completion |
-| `disconnect_callback_bridge` | `src/process_mgmt.rs:1048` | `PMIx_Disconnect` completion |
-| `fabric_register_cb` | `src/fabric.rs:334` | `PMIx_Fabric_register` completion |
-| `fabric_update_cb` | `src/fabric.rs:462` | `PMIx_Fabric_update_nb` completion |
-| `fabric_deregister_cb` | `src/fabric.rs:561` | `PMIx_Fabric_deregister` completion |
-| `compute_distances_cb` | `src/fabric.rs:1247` | Distance computation completion |
-| `group_construct_callback_bridge` | `src/groups.rs:145` | `PMIx_Group_construct` upcall |
-| `group_invite_callback_bridge` | `src/groups.rs:352` | `PMIx_Group_invite` upcall |
-| `group_join_callback_bridge` | `src/groups.rs:560` | `PMIx_Group_join` upcall |
-| `group_leave_callback_bridge` | `src/groups.rs:715` | `PMIx_Group_leave` completion |
-| `group_destruct_callback_bridge` | `src/groups.rs:837` | `PMIx_Group_destruct` completion |
-| `allocation_callback_bridge` | `src/allocation.rs:303` | `PMIx_server_allocate` completion |
-| `job_control_callback_bridge` | `src/allocation.rs:669` | `PMIx_server_job_control` completion |
-| `session_control_callback_bridge` | `src/allocation.rs:860` | `PMIx_server_session_control` completion |
-| `monitor_callback_bridge` | `src/monitoring.rs:136` | `PMIx_server_monitor` upcall |
-| `query_callback_bridge` | `src/query_log.rs:357` | `PMIx_Query` completion |
-| `log_callback_bridge` | `src/query_log.rs:566` | `PMIx_Log` completion |
-| `credential_callback_bridge` | `src/security.rs:366` | Credential request completion |
-| `validation_callback_bridge` | `src/security.rs:700` | Validation completion |
-| `reg_callback_bridge` | `src/utility/mod.rs:1048` | IOF register completion |
-| `dereg_callback_bridge` | `src/utility/mod.rs:1259` | IOF deregister completion |
-| `push_callback_bridge` | `src/utility/mod.rs:1550` | IOF push completion |
-| `io_callback_bridge` | `src/utility/mod.rs:999` | IOF delivery |
-| `register_nspace_callback_bridge` | `src/server/mod.rs:538` | `PMIx_server_register_nspace` completion |
-| `deregister_nspace_callback_bridge` | `src/server/mod.rs:753` | `PMIx_server_deregister_nspace` completion |
-| `register_client_callback_bridge` | `src/server/mod.rs:914` | `PMIx_server_register_client` completion |
-| `deregister_client_callback_bridge` | `src/server/mod.rs:1086` | `PMIx_server_deregister_client` completion |
-| `dmodex_request_callback_bridge` | `src/server/mod.rs:1458` | `PMIx_server_dmodex_req` upcall |
-| `setup_application_callback_bridge` | `src/server/mod.rs:1661` | `PMIx_server_setup_app` upcall |
-| `setup_local_support_callback_bridge` | `src/server/mod.rs:1930` | `PMIx_server_setup_local` completion |
-| `iof_deliver_callback_bridge` | `src/server/mod.rs:2135` | IOF deliver completion |
-| `collect_inventory_callback_bridge` | `src/server/mod.rs:2391` | Inventory collection upcall |
-| `deliver_inventory_callback_bridge` | `src/server/mod.rs:2610` | Inventory delivery completion |
-| `fence_nb_callback_bridge` | `src/server/data.rs:375` | Server fence_nb upcall |
-| `connect_nb_callback_bridge` | `src/server/data.rs:508` | Server connect_nb upcall |
-| `disconnect_nb_callback_bridge` | `src/server/data.rs:646` | Server disconnect_nb upcall |
-| `register_resources_callback_bridge` | `src/server/pset.rs:266` | Register resources completion |
-| `deregister_resources_callback_bridge` | `src/server/pset.rs:464` | Deregister resources completion |
-
-### 3.3 Callback bridge summary
-
-| Category | Count | Thread |
-|----------|-------|--------|
-| Client API calls (caller → PMIx) | 62 | Caller thread (threadshifted internally by PMIx ≥ 6.1) |
-| Callback bridges (PMIx → caller) | 40 | PMIx progress thread |
+Still handle-based (`PmixServerHandle`, `PmixToolHandle` + flags). Target shape is the same process-wide `Send + Sync` session pattern — see [#49](https://github.com/SedahsDev/pmix-rs/issues/49).
 
 ---
 
-## 4. Key Rules for Callers
+## 4. Progress mode & pinning
 
-1. **Never share `!Send` types across threads** — use `Arc<Mutex<T>>` if you need shared access to `Context`, `Info`, `PmixOwnedValue`, etc.
-2. **Callbacks run on the PMIx progress thread** — keep them short. Do not call blocking PMIx APIs from within a callback (deadlock risk). If you must, dispatch to your own thread pool.
-3. **Single init/finalize cycle** — prefer one `init()` / `finalize()` pair per process. Multiple cycles are not guaranteed to work.
-4. **Progress engine must run** — if you provide your own progress engine instead of using the PMIx internal one, ensure it runs during API calls to avoid threadlock.
-5. **Server upcalls** — `PmixServerModule` callbacks are invoked by PMIx on its internal threads. The callback bridges handle cbdata routing, but user-provided callback logic should be non-blocking.
+| Goal | Supported? | How |
+|------|------------|-----|
+| Pin **progress thread** CPUs | Yes | `InitOptions::bind_progress_thread("0-3")` → `PMIX_BIND_PROGRESS_THREAD` |
+| Require bind success | Yes | `InitOptions::bind_required(true)` |
+| Host-driven progress | Yes | `InitOptions::external_progress(true)` + call `pmix::progress()` from your loop |
+| Stop internal progress thread | Yes | `pmix::progress_thread_stop()` (see also flush/name on `InitOptions` / `InfoBuilder`) |
+| Pin which CPU runs a given `PMIx_Get` body | **No** | Work is threadshifted onto the progress/`evbase` path |
+| Pin server-module upcall thread | **No** | Hop to an app pool (#52) |
+
+### Deadlock notes
+
+1. **`external_progress(true)` without a host `progress()` loop** — `_nb` and many blocking paths hang.  
+2. **Holding a Rust mutex across `progress()`** while a callback tries to take the same mutex — deadlock.  
+3. **Blocking PMIx inside a progress-thread callback** — deadlock / threadlock.  
+4. **Do not call `progress()` after `progress_thread_stop()`** — event base torn down.
+
+API anchors: `InitOptions` / `InfoBuilder` helpers in `src/lib.rs`; `progress()` / `progress_thread_stop()` in `src/lib.rs`.
 
 ---
 
-## 5. Future Work
+## 5. Public type inventory
 
-- [ ] Add `PhantomData<*mut u8>` to all 26 raw-handle types (enforce `!Send`/`!Sync` at compile time) — see PR #42 for the pattern
-- [ ] Add `static_assertions` compile-time tests for all public types
-- [ ] Consider `Arc<Mutex<T>>` wrapper types for common multi-threaded use patterns
-- [ ] Document thread-safety guarantees per-function in doc comments
+Statuses:
+
+| Status | Meaning |
+|--------|---------|
+| **Enforced** | Type system + (where noted) `static_assertions` |
+| **Intended** | Design target; may still auto-implement `Send` until #50 |
+| **POD / pure** | No PMIx heap ownership; safe `Send + Sync` |
+
+Line numbers move; paths are canonical.
+
+### 5.1 Sessions & process identity
+
+| Type | Path | Send/Sync | Status | Notes |
+|------|------|-----------|--------|-------|
+| `PmixClient` | `src/lib.rs` | **`Send + Sync`** | **Enforced** (`assert_impl_all`) | Process-wide Arc session |
+| `PmixClientState` | `src/lib.rs` | `Send + Sync` | **Enforced** | Copy enum |
+| `Context` | `src/lib.rs` | not for MT share | Legacy | Drop-finalizes; prefer `PmixClient` |
+| `Proc` | `src/lib.rs` (also `src/proc.rs` tree) | **`Send + Sync`** | **Intended / POD** | `Clone`; holds `pmix_proc_t` by value, not a PMIx heap handle |
+| `PmixServerHandle` | `src/server/mod.rs` | TBD session | **Intended** → #49 | `active` flag; Drop may finalize |
+| `PmixToolHandle` | `src/tool.rs` | TBD session | **Intended** → #49 | Wraps `Proc`; no auto tool_finalize on Drop |
+
+### 5.2 C-owned / must not silently share (`!Send + !Sync` target)
+
+Prefer **ephemeral construction per call**. Share only behind **your** `Mutex` (or future `into_shared`).
+
+| Type | Path | Enforced today? | Notes |
+|------|------|-----------------|-------|
+| `Info` | `src/lib.rs` | **Yes** (`PhantomData<*mut u8>` + asserts) | Pattern for #50 |
+| `InfoBuilder` | `src/lib.rs` | Intended thread-local | Don’t share mid-build |
+| `PmixOwnedValue` | `src/lib.rs` / `src/value.rs` | Audit (#50) | Owns value payload; may be `Send` after extract |
+| `PmixDataBuffer` | `src/data_serialization.rs` | **Todo** | `*mut pmix_data_buffer_t` |
+| `PmixByteObject` | `src/data_serialization.rs` | **Todo** | May hold C buffer |
+| `PmixFabric` | `src/fabric.rs` | **Todo** | Registration + module ptr |
+| `PmixTopology` | `src/fabric.rs` | **Todo** | |
+| `PmixCpuset` | `src/fabric.rs` | **Todo** | |
+| `DeviceDistances` | `src/fabric.rs` | **Todo** | |
+| `QueryResults` | `src/query_log.rs` | **Todo** | `*mut pmix_info_t` |
+| `AllocationResults` | `src/allocation.rs` | **Todo** | |
+| `JobControlResults` | `src/allocation.rs` | **Todo** | |
+| `SessionControlResults` | `src/allocation.rs` | **Todo** | |
+| `MonitorResults` | `src/monitoring.rs` | **Todo** | |
+| `PmixCredential` | `src/security.rs` | **Todo** | |
+| `CredentialResults` / `ValidationResults` | `src/security.rs` | **Todo** | |
+| `CollectInventoryResults` | `src/server/mod.rs` | **Todo** | |
+| Callback wrappers (spawn/connect/group/…) | `process_mgmt`, `groups`, … | Internal | Don’t share across threads |
+
+Full `static_assertions` matrix: [#66](https://github.com/SedahsDev/pmix-rs/issues/66). Completing `!Send` marks: [#50](https://github.com/SedahsDev/pmix-rs/issues/50).
+
+### 5.3 Pure Rust / Copy — `Send + Sync`
+
+Enums and plain data (non-exhaustive list):  
+`PmixError`, `PmixStatus`, `PmixProcState`, `PmixScope`, `PmixJobState`, `PmixLinkState`, `PmixDeviceType`, `PmixPersistence`, `PmixDataRange`, `PmixDataType`, `PmixAllocDirective`, `PmixJobCtrlAction`, `IOFChannelFlags`, `InfoFlags`, `BuilderError`, `ValueError`, `PmixTimeval`, `PmixEnvar`, `PmixPayload`, `PmixValueBuilder`, `PmixApp` / `PmixAppBuilder`, `PmixQuery` (pure fields), `PmixDeviceDistance`, `PmixBindEnvelope`, `PmixLocality`, `PmixPrintOutput`, `InitOptions`, `PmixPdata` (owned Rust fields + `Proc`).
+
+Many live in `src/lib.rs`; error/status also in `src/error.rs` depending on split state — grep `pub enum PmixError`.
+
+### 5.4 Function-pointer aliases
+
+`EventHandlerRef`, `NotificationFn`, `HandlerRegCbFn`, `OpCbFn`, `SpawnCallback`, etc. in `src/events.rs` / `process_mgmt` — `Send + Sync` as function pointers / integers.
+
+---
+
+## 6. Caller rules
+
+1. **Prefer `PmixClient`** for anything multi-threaded. Clone it; call `disconnect` once.  
+2. **Build `Info` (and similar) on the calling thread**; drop before/without moving to another thread unless behind a mutex you control.  
+3. **Callbacks = progress thread** — no blocking `fence`/`get`/`publish` in-handler; hop first (#51).  
+4. **One logical init/finalize** per process (client session state machine enforces this for the client path).  
+5. **Progress must run** — default internal thread, or `external_progress` + `progress()`.  
+6. **Server module upcalls** — same non-blocking rule (#52).  
+7. **cbdata** for registries: `crate::cbdata::encode_req_id` / `decode_req_id` (not `id << 2`).
+
+---
+
+## 7. FFI surface (by thread context)
+
+### 7.1 Caller → PMIx (threadshifted ≥ 6.1)
+
+Representative entry points (not every wrapper):
+
+| Area | Module | Examples |
+|------|--------|----------|
+| Lifecycle | `src/lib.rs` | `PmixClient::connect`/`disconnect`, `init`, `finalize`, `progress`, `progress_thread_stop` |
+| Core data | `src/lib.rs`, `src/data_ops/` | `put_value`, `get_value`, `commit`, `fence`, `publish`, `lookup`, `unpublish`, `*_nb` |
+| Events | `src/events.rs` | register/deregister/notify |
+| Process | `src/process_mgmt.rs` | spawn, connect, disconnect, resolve_* |
+| Server | `src/server/` | `server_init`/`finalize`, register_*, fence/connect nb |
+| Tool | `src/tool.rs` | `tool_init`/`finalize`, attach, get_servers |
+| Groups | `src/groups.rs` | construct/invite/join/leave/destruct |
+| Fabric | `src/fabric.rs` | register/update/topology/distances |
+| Other | allocation, monitoring, query_log, security, utility, data_serialization | job control, query/log, IOF, pack/unpack, … |
+
+### 7.2 PMIx → Rust (progress thread)
+
+All `extern "C"` bridges used as completion/upcall targets — including but not limited to:
+
+| Module | Bridges (names) |
+|--------|-----------------|
+| `data_ops` | `publish_callback_bridge`, `get_value_callback_bridge`, `lookup_callback_bridge`, `unpublish_callback_bridge`, `fence_callback_bridge` |
+| `events` | `notification_bridge`, reg/dereg/notify completions |
+| `process_mgmt` | spawn/connect/disconnect bridges |
+| `groups` | group_*_callback_bridge |
+| `fabric` | fabric_*_cb, compute_distances_cb |
+| `allocation` / `monitoring` / `query_log` / `security` | *_callback_bridge |
+| `server` | register_* , dmodex, setup_*, inventory, IOF deliver, pset/data nb bridges |
+| `utility` | IOF reg/dereg/push/io bridges |
+
+**Bridge policy:** lock registry → remove entry → **unlock** → run user code. Audit: [#67](https://github.com/SedahsDev/pmix-rs/issues/67). Helpers: [#51](https://github.com/SedahsDev/pmix-rs/issues/51).
+
+---
+
+## 8. Examples
+
+Today several examples still use legacy `pmix::init` / `Context` (`examples/client_minimal.rs`, `simple_put_get.rs`, `simple_fence.rs`). Migration to `PmixClient`: [#65](https://github.com/SedahsDev/pmix-rs/issues/65).
+
+Until then, the crate-root `PmixClient` rustdoc example is the canonical multi-thread sketch.
+
+---
+
+## 9. Roadmap (issue board)
+
+| Phase | Issue | Status |
+|-------|------:|--------|
+| 0 Inventory + ≥ 6.1 docs | #45 | Done (this file’s ancestor) |
+| 1a InitOptions bind/external progress | #46 | Done |
+| 1b progress_thread_stop | #47 | Done |
+| 2a PmixClient session | #48 | Done (PR #60 rewrite) |
+| 2b Server/tool sessions | #49 | Open |
+| 3 C-owned !Send + helpers | #50 | Open (`Info` done) |
+| 4a Callback hop helpers | #51 | Open |
+| 4b Server upcall example | #52 | Open |
+| 5 Global FFI mutex feature | #53 | **Deferred** (not default) |
+| 6 MT + external-progress tests | #54 | Open |
+| Docs refresh | #64 | This document |
+| Examples → PmixClient | #65 | Open |
+| static_assertions matrix | #66 | Open |
+| Registry lock audit | #67 | Open |
+
+**Suggested order:** #50/#66 → #65 → #49 → #51/#67 → #52 → #54.
+
+---
+
+## 10. Historical note
+
+An earlier `THREADPLAN.md` (local planning doc) drove #45–#54. Executable truth is: **this file**, crate-root concurrency docs, and the open issues above. Do not reintroduce session-level `!Send` “for safety.”
