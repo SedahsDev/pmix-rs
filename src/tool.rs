@@ -41,7 +41,7 @@ use crate::{Info, PmixError, PmixStatus, Proc};
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixTool — process-wide Arc session (Send + Sync)
