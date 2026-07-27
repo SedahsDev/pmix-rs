@@ -1,13 +1,13 @@
-//! Minimal PMIx server example: server_init → (idle) → server_finalize.
+//! Minimal PMIx server example: connect → idle → disconnect.
 //!
 //! ```text
 //! cargo run --example server_minimal
 //! ```
 //!
 //! Uses a default [`PmixServerModule`] (all callbacks `None`). Real RMs set
-//! the callbacks they implement before calling `server_init`.
+//! the callbacks they implement before calling `PmixServer::connect_new`.
 
-use pmix::server::{server_finalize, server_init_minimal, PmixServerModule};
+use pmix::server::{PmixServer, PmixServerModule};
 use pmix::InfoBuilder;
 
 fn main() {
@@ -16,28 +16,21 @@ fn main() {
     let module = PmixServerModule::default();
     let info = InfoBuilder::new().build();
 
-    let handle = match server_init_minimal(Some(&module)) {
-        Ok(h) => h,
+    let server = match PmixServer::connect_new(Some(&module), &info) {
+        Ok(s) => s,
         Err(e) => {
-            // Fall back to full server_init with empty info for environments
-            // where the minimal path differs.
-            match pmix::server::server_init(Some(&module), &info) {
-                Ok(h) => h,
-                Err(e2) => {
-                    eprintln!("server_init failed: {e:?} / {e2:?}");
-                    return;
-                }
-            }
+            eprintln!("PmixServer::connect_new failed: {e:?}");
+            return;
         }
     };
 
-    println!("server initialized (no clients attached in this smoke example)");
-    // Real servers block here serving clients.
+    println!("server live={}", server.is_live());
+    // Clone is cheap (Arc); Drop does not finalize.
+    let _worker = server.clone();
 
-    match server_finalize(handle) {
-        Ok(()) => println!("server_finalize ok"),
-        Err(e) => eprintln!("server_finalize: {e:?}"),
+    if let Err(e) = server.disconnect() {
+        eprintln!("disconnect failed: {e:?}");
+        return;
     }
-
     println!("server_minimal done");
 }

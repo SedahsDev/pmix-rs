@@ -15,19 +15,16 @@
 //! # Example
 //!
 //! ```no_run
-//! use pmix::server::{server_init, server_finalize, PmixServerModule, PmixServerHandle};
-//! use pmix::InfoBuilder;;
+//! use pmix::server::{PmixServer, PmixServerModule};
+//! use pmix::InfoBuilder;
 //!
-//! // Create a minimal server module with no callbacks
 //! let module = PmixServerModule::default();
-//!
-//! // Initialize the server library
-//! let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
-//!
+//! let server = PmixServer::connect_new(Some(&module), &InfoBuilder::new().build())
+//!     .expect("server connect");
+//! // Clone is cheap (Arc); Drop does **not** finalize.
+//! let worker = server.clone();
 //! // ... serve clients ...
-//!
-//! // Finalize
-//! server_finalize(handle).expect("server_finalize failed");
+//! server.disconnect().expect("server disconnect");
 //! ```
 //!
 //! # Callbacks
@@ -62,8 +59,11 @@ use crate::mock_ffi;
 mod pset;
 mod data;
 mod cred;
+mod session;
 #[cfg(test)]
 mod tests;
+
+pub use session::{PmixServer, PmixServerState};
 
 // Re-export submodule items at server:: for stable paths.
 pub use cred::*;
@@ -278,68 +278,13 @@ impl PmixServerModule {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PmixServerHandle — RAII handle for the initialized server library
+// PmixServerHandle — alias for process-wide [`PmixServer`] session
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// RAII handle returned by [`server_init`].
+/// Process-wide server session handle ([`PmixServer`]).
 ///
-/// Dropping this handle **does** automatically call
-/// `PMIx_server_finalize` to ensure proper cleanup. If you need
-/// manual control, use [`server_finalize`] (which disarms Drop) or
-/// [`PmixServerHandle::into_raw`] to leak the handle.
-///
-/// Failures during Drop are logged via `eprintln!` — they are never
-/// panicked (double-panic in Drop causes abort).
-#[must_use = "dropping PmixServerHandle finalizes the PMIx server; bind it or call server_finalize"]
-#[derive(Debug)]
-pub struct PmixServerHandle {
-    active: bool,
-}
-
-impl PmixServerHandle {
-    pub(crate) fn new_active() -> Self {
-        Self { active: true }
-    }
-
-    pub(crate) fn inactive() -> Self {
-        Self { active: false }
-    }
-
-    /// Leak this handle — Drop will not call `PMIx_server_finalize`.
-    /// The caller must ensure the server is finalized elsewhere.
-    pub fn into_raw(self) {
-        std::mem::forget(self);
-    }
-}
-
-impl Drop for PmixServerHandle {
-    fn drop(&mut self) {
-        if !self.active {
-            return;
-        }
-        self.active = false;
-        let status = {
-            #[cfg(any(test, feature = "mock_ffi"))]
-            {
-                if crate::mock_ffi::is_mock_enabled() {
-                    crate::mock_ffi::mock_server_finalize()
-                } else {
-                    unsafe { ffi::PMIx_server_finalize() }
-                }
-            }
-            #[cfg(not(any(test, feature = "mock_ffi")))]
-            {
-                unsafe { ffi::PMIx_server_finalize() }
-            }
-        };
-        let pmix_status = PmixStatus::from_raw(status);
-        if !pmix_status.is_success() {
-            eprintln!(
-                "pmix: server_finalize in PmixServerHandle::Drop failed: status={pmix_status}"
-            );
-        }
-    }
-}
+/// **Drop does not finalize.** Use [`server_finalize`] or [`PmixServer::disconnect`].
+pub use session::PmixServerHandle;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // server_init
@@ -388,38 +333,9 @@ impl Drop for PmixServerHandle {
 /// ```
 pub fn server_init(
     module: Option<&PmixServerModule>,
-    _info: &Info,
+    info: &Info,
 ) -> Result<PmixServerHandle, PmixStatus> {
-    let module_ptr = match module {
-        Some(m) => m.as_c_ptr() as *mut ffi::pmix_server_module_t,
-        None => ptr::null_mut(),
-    };
-
-    let info_ptr = if _info.len > 0 {
-        _info.handle
-    } else {
-        ptr::null_mut()
-    };
-    let info_len = _info.len;
-
-    let status = unsafe {
-        // SAFETY: PMIx_server_init expects:
-        // - module_ptr: either a valid pointer to a pmix_server_module_t
-        //   (which we provide from &PmixServerModule cast via as_c_ptr),
-        //   or null for a minimal server. The PMIx library copies the
-        //   struct internally, so the pointer only needs to be valid
-        //   for the duration of this call.
-        // - info_ptr: either a valid array of pmix_info_t or null.
-        // - info_len: the number of info entries (0 if info_ptr is null).
-        ffi::PMIx_server_init(module_ptr, info_ptr, info_len)
-    };
-
-    let pmix_status = PmixStatus::from_raw(status);
-    if pmix_status.is_success() {
-        Ok(PmixServerHandle::new_active())
-    } else {
-        Err(pmix_status)
-    }
+    PmixServer::connect_new(module, info)
 }
 
 /// Initialize the PMIx server library with no info keys.
@@ -447,25 +363,7 @@ pub fn server_init(
 pub fn server_init_minimal(
     module: Option<&PmixServerModule>,
 ) -> Result<PmixServerHandle, PmixStatus> {
-    let module_ptr = match module {
-        Some(m) => m.as_c_ptr() as *mut ffi::pmix_server_module_t,
-        None => ptr::null_mut(),
-    };
-
-    let status = unsafe {
-        // SAFETY: PMIx_server_init with null module and null info is the
-        // minimal initialization path. The PMIx library will create an
-        // internal default module with no callbacks. No pointers are
-        // dereferenced beyond the null checks the library performs.
-        ffi::PMIx_server_init(module_ptr, ptr::null_mut(), 0)
-    };
-
-    let pmix_status = PmixStatus::from_raw(status);
-    if pmix_status.is_success() {
-        Ok(PmixServerHandle::new_active())
-    } else {
-        Err(pmix_status)
-    }
+    PmixServer::connect_new_minimal(module)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -502,26 +400,8 @@ pub fn server_init_minimal(
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
 pub fn server_finalize(handle: PmixServerHandle) -> Result<(), PmixStatus> {
-    // Disarm Drop — we are finalizing here, so PmixServerHandle::Drop
-    // must not call PMIx_server_finalize again.
-    let mut handle = handle;
-    handle.active = false;
-    std::mem::forget(handle);
-
-    let status = unsafe {
-        // SAFETY: PMIx_server_finalize takes no parameters and returns
-        // a status code. It is a cleanup function that releases internal
-        // resources. It must only be called after a successful
-        // PMIx_server_init and must not be called twice.
-        ffi::PMIx_server_finalize()
-    };
-
-    let pmix_status = PmixStatus::from_raw(status);
-    if pmix_status.is_success() {
-        Ok(())
-    } else {
-        Err(pmix_status)
-    }
+    // Explicit finalize on the process session (Drop no longer finalizes).
+    handle.disconnect()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -735,9 +615,7 @@ pub fn server_register_nspace(
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
 pub fn is_server_initialized() -> bool {
-    // SAFETY: PMIx_Initialized is a simple state check that reads an
-    // internal atomic flag. No pointers are dereferenced.
-    unsafe { ffi::PMIx_Initialized() != 0 }
+    PmixServer::new().is_live()
 }
 
 // PMIx_server_deregister_nspace — deregister a job nspace and purge its data
