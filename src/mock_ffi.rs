@@ -215,6 +215,183 @@ pub const PMIX_ERR_NOT_SUPPORTED: i32 = -47;
 pub const PMIX_ERR_PARTIAL_SUCCESS: i32 = -52;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Client data-ops mocks (PMIx_Publish / Get / Lookup / Unpublish / Fence / …)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Mock `PMIx_Publish`.
+pub fn mock_publish(_info: *const std::ffi::c_void, _ninfo: usize) -> i32 {
+    get_mock_status("PMIx_Publish")
+}
+
+/// Mock `PMIx_Publish_nb` — returns acceptance status only (no async callback).
+pub fn mock_publish_nb(
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    get_mock_status("PMIx_Publish_nb")
+}
+
+/// Mock `PMIx_Get`. On success, allocates a simple int value (or store hit).
+pub fn mock_get(
+    _proc: *const std::ffi::c_void,
+    key: *const std::os::raw::c_char,
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+    val: *mut *mut crate::ffi::pmix_value_t,
+) -> i32 {
+    let status = get_mock_status("PMIx_Get");
+    if status != PMIX_SUCCESS {
+        return status;
+    }
+    if val.is_null() {
+        return status;
+    }
+    // Build a heap value. Prefer mock store if key present.
+    let key_str = if key.is_null() {
+        String::new()
+    } else {
+        unsafe { std::ffi::CStr::from_ptr(key) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let mut boxed = Box::new(unsafe { std::mem::MaybeUninit::<crate::ffi::pmix_value_t>::zeroed().assume_init() });
+    if let Some((bytes, dtype)) = KEY_VALUE_STORE.with(|cell| cell.borrow().get(&key_str).cloned()) {
+        boxed.type_ = dtype as u16;
+        // PMIX_INT = 1, PMIX_STRING = 2 (numeric to avoid order deps)
+        boxed.type_ = 1u16; // PMIX_INT
+        let n = if dtype == 2 { bytes.len() as i32 } else { 1 };
+        unsafe {
+            *(&mut boxed.data as *mut _ as *mut i32) = n;
+        }
+    } else {
+        boxed.type_ = 1u16; // PMIX_INT
+        unsafe {
+            *(&mut boxed.data as *mut _ as *mut i32) = 42;
+        }
+    }
+    unsafe {
+        *val = Box::into_raw(boxed);
+    }
+    status
+}
+
+/// Mock `PMIx_Get_nb`.
+pub fn mock_get_nb(
+    _proc: *const std::ffi::c_void,
+    _key: *const std::os::raw::c_char,
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+    _cbfunc: Option<
+        unsafe extern "C" fn(i32, *mut crate::ffi::pmix_value_t, *mut std::ffi::c_void),
+    >,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    get_mock_status("PMIx_Get_nb")
+}
+
+/// Mock `PMIx_Lookup`.
+pub fn mock_lookup(
+    _data: *mut std::ffi::c_void,
+    _ndata: usize,
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+) -> i32 {
+    get_mock_status("PMIx_Lookup")
+}
+
+/// Mock `PMIx_Lookup_nb`.
+pub fn mock_lookup_nb(
+    _keys: *mut *mut std::os::raw::c_char,
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+    _cbfunc: Option<
+        unsafe extern "C" fn(
+            i32,
+            *mut crate::ffi::pmix_pdata_t,
+            usize,
+            *mut std::ffi::c_void,
+        ),
+    >,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    get_mock_status("PMIx_Lookup_nb")
+}
+
+/// Mock `PMIx_Unpublish`.
+pub fn mock_unpublish(
+    _keys: *mut *mut std::os::raw::c_char,
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+) -> i32 {
+    get_mock_status("PMIx_Unpublish")
+}
+
+/// Mock `PMIx_Unpublish_nb`.
+pub fn mock_unpublish_nb(
+    _keys: *mut *mut std::os::raw::c_char,
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    get_mock_status("PMIx_Unpublish_nb")
+}
+
+/// Mock `PMIx_Fence`.
+pub fn mock_fence(
+    _procs: *const std::ffi::c_void,
+    _nprocs: usize,
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+) -> i32 {
+    get_mock_status("PMIx_Fence")
+}
+
+/// Mock `PMIx_Fence_nb`.
+pub fn mock_fence_nb(
+    _procs: *const std::ffi::c_void,
+    _nprocs: usize,
+    _info: *const std::ffi::c_void,
+    _ninfo: usize,
+    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::ffi::c_void)>,
+    _cbdata: *mut std::ffi::c_void,
+) -> i32 {
+    get_mock_status("PMIx_Fence_nb")
+}
+
+/// Mock `PMIx_Put`.
+pub fn mock_put(
+    _scope: u8,
+    _key: *const std::os::raw::c_char,
+    _val: *mut crate::ffi::pmix_value_t,
+) -> i32 {
+    get_mock_status("PMIx_Put")
+}
+
+/// Mock `PMIx_Commit`.
+pub fn mock_commit() -> i32 {
+    get_mock_status("PMIx_Commit")
+}
+
+/// Mock `PMIx_Store_internal`.
+pub fn mock_store_internal(
+    _proc: *const std::ffi::c_void,
+    key: *const std::os::raw::c_char,
+    _val: *mut crate::ffi::pmix_value_t,
+) -> i32 {
+    let status = get_mock_status("PMIx_Store_internal");
+    if status == PMIX_SUCCESS && !key.is_null() {
+        let key_str = unsafe { std::ffi::CStr::from_ptr(key) }
+            .to_string_lossy()
+            .into_owned();
+        mock_store_value(&key_str, b"1", 1); // PMIX_INT
+    }
+    status
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PMIx data type constants
 // ─────────────────────────────────────────────────────────────────────────────
 

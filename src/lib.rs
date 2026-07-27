@@ -3765,15 +3765,27 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
         }
     }
 
-    unsafe {
-        status = PmixStatus::from_raw(PMIx_Get(
-            &proc.handle,
-            CStr::from_bytes_with_nul(key).unwrap().as_ptr(),
-            info_handle,
-            ninfos,
-            &mut value,
-        ));
-    }
+    let key_ptr = CStr::from_bytes_with_nul(key).unwrap().as_ptr();
+    status = PmixStatus::from_raw(crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            crate::mock_ffi::mock_get(
+                &proc.handle as *const _ as *const std::ffi::c_void,
+                key_ptr,
+                info_handle as *const std::ffi::c_void,
+                ninfos,
+                &mut value,
+            )
+        },
+        real = unsafe {
+            PMIx_Get(
+                &proc.handle,
+                key_ptr,
+                info_handle,
+                ninfos,
+                &mut value,
+            )
+        },
+    ));
 
     if status.is_success() {
         Ok(PmixOwnedValue {
@@ -3793,10 +3805,12 @@ pub fn put_value(
     key: &CStr,
     value: &mut PmixOwnedValue,
 ) -> Result<(), pmix_status_t> {
-    let status: pmix_status_t;
-    unsafe {
-        status = PMIx_Put(scope, key.as_ptr(), &mut value.inner);
-    }
+    let status: pmix_status_t = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            crate::mock_ffi::mock_put(scope as u8, key.as_ptr(), &mut value.inner)
+        },
+        real = unsafe { PMIx_Put(scope, key.as_ptr(), &mut value.inner) },
+    );
     if status as u32 == PMIX_SUCCESS {
         Ok(())
     } else {
@@ -3805,10 +3819,10 @@ pub fn put_value(
 }
 
 pub fn commit() -> Result<(), pmix_status_t> {
-    let status: pmix_status_t;
-    unsafe {
-        status = PMIx_Commit();
-    }
+    let status: pmix_status_t = crate::pmix_ffi_or_mock!(
+        mock = crate::mock_ffi::mock_commit(),
+        real = unsafe { PMIx_Commit() },
+    );
     if status as u32 == PMIX_SUCCESS {
         Ok(())
     } else {
@@ -3828,7 +3842,17 @@ pub fn fence(proc: &Proc, info: Option<Info>) -> Result<(), pmix_status_t> {
         None => (ptr::null_mut(), 0),
     };
 
-    let status = unsafe { PMIx_Fence(proc_handle, nprocs, info_handle, ninfos) };
+    let status = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            crate::mock_ffi::mock_fence(
+                proc_handle as *const std::ffi::c_void,
+                nprocs,
+                info_handle as *const std::ffi::c_void,
+                ninfos,
+            )
+        },
+        real = unsafe { PMIx_Fence(proc_handle, nprocs, info_handle, ninfos) },
+    );
     if status as u32 == PMIX_SUCCESS {
         Ok(())
     } else {

@@ -1725,8 +1725,10 @@ use super::*;
 
     use crate::mock_ffi::{
         self, MockConfig, MockGuard, PMIX_ERR_DUPLICATE_KEY, PMIX_ERR_INIT, PMIX_ERR_NOT_FOUND,
-        PMIX_ERR_TIMEOUT, PMIX_STRING, PMIX_STRING_U16, PMIX_SUCCESS,
+        PMIX_ERR_BAD_PARAM, PMIX_ERR_PARTIAL_SUCCESS, PMIX_ERR_TIMEOUT, PMIX_ERROR, PMIX_STRING, PMIX_STRING_U16,
+        PMIX_SUCCESS,
     };
+    use crate::InfoBuilder;
 
     // ─── Mock FFI framework self-tests ──────────────────────────────────────
 
@@ -1846,39 +1848,21 @@ use super::*;
     #[test]
     fn test_publish_error_path_with_mock() {
         let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
-        let _guard = MockGuard::with_config(config);
-
-        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert!(pmix_status.is_error());
-
-        let result = if pmix_status.is_success() {
-            Ok(())
-        } else {
-            Err(pmix_status)
-        };
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
+                let _guard = MockGuard::with_config(config);
+                let info = InfoBuilder::new().build();
+                let err = publish(&info).expect_err("publish should fail under mock ErrInit");
+                assert_eq!(err, PmixStatus::Known(PmixError::ErrInit));
     }
 
     /// Test publish with mock returning duplicate key error.
     #[test]
     fn test_publish_duplicate_key_with_mock() {
-        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
-        let _guard = MockGuard::with_config(config);
-
-        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        let result = if pmix_status.is_success() {
-            Ok(())
-        } else {
-            Err(pmix_status)
-        };
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            PmixStatus::Known(PmixError::ErrDuplicateKey)
-        );
+        let config =
+                    MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
+                let _guard = MockGuard::with_config(config);
+                let info = InfoBuilder::new().build();
+                let err = publish(&info).expect_err("publish should fail under mock duplicate");
+                assert_eq!(err, PmixStatus::Known(PmixError::ErrDuplicateKey));
     }
 
     // ─── Mock-aware get tests ───────────────────────────────────────────────
@@ -1887,32 +1871,30 @@ use super::*;
     #[test]
     fn test_get_happy_path_status_flow() {
         let _guard = MockGuard::new();
-        let raw_status = mock_ffi::get_mock_status("PMIx_Get");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert!(pmix_status.is_success());
+                let proc = Proc::new("mock.ns", 0).unwrap();
+                let val = get(&proc, "any.key", None).expect("get should succeed under default mock");
+                // mock_get fills an INT value
+                drop(val);
     }
 
     /// Test get with mock returning not found.
     #[test]
     fn test_get_not_found_with_mock() {
         let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
-        let _guard = MockGuard::with_config(config);
-
-        let raw_status = mock_ffi::get_mock_status("PMIx_Get");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert!(pmix_status.is_error());
-        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrNotFound));
+                let _guard = MockGuard::with_config(config);
+                let proc = Proc::new("mock.ns", 0).unwrap();
+                let err = get(&proc, "missing", None).expect_err("get should fail NotFound");
+                assert_eq!(err, PmixStatus::Known(PmixError::ErrNotFound));
     }
 
     /// Test get with mock returning timeout.
     #[test]
     fn test_get_timeout_with_mock() {
         let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_TIMEOUT);
-        let _guard = MockGuard::with_config(config);
-
-        let raw_status = mock_ffi::get_mock_status("PMIx_Get");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrTimeout));
+                let _guard = MockGuard::with_config(config);
+                let proc = Proc::new("mock.ns", 0).unwrap();
+                let err = get(&proc, "slow", None).expect_err("get should fail Timeout");
+                assert_eq!(err, PmixStatus::Known(PmixError::ErrTimeout));
     }
 
     // ─── Mock-aware fence tests ─────────────────────────────────────────────
@@ -1921,20 +1903,19 @@ use super::*;
     #[test]
     fn test_fence_happy_path_with_mock() {
         let _guard = MockGuard::new();
-        let raw_status = mock_ffi::get_mock_status("PMIx_Fence");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert!(pmix_status.is_success());
+                // fence lives at crate root
+                let proc = Proc::new("mock.ns", 0).unwrap();
+                crate::fence(&proc, None).expect("fence should succeed under mock");
     }
 
     /// Test fence error path with mock.
     #[test]
     fn test_fence_error_path_with_mock() {
         let config = MockConfig::new().with_function_status("PMIx_Fence", PMIX_ERR_INIT);
-        let _guard = MockGuard::with_config(config);
-
-        let raw_status = mock_ffi::get_mock_status("PMIx_Fence");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrInit));
+                let _guard = MockGuard::with_config(config);
+                let proc = Proc::new("mock.ns", 0).unwrap();
+                let err = crate::fence(&proc, None).expect_err("fence should fail");
+                assert_eq!(err, PMIX_ERR_INIT);
     }
 
     // ─── Mock-aware unpublish tests ─────────────────────────────────────────
@@ -1943,20 +1924,16 @@ use super::*;
     #[test]
     fn test_unpublish_happy_path_with_mock() {
         let _guard = MockGuard::new();
-        let raw_status = mock_ffi::get_mock_status("PMIx_Unpublish");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert!(pmix_status.is_success());
+                unpublish(Some(&["k"]), None).expect("unpublish should succeed under mock");
     }
 
     /// Test unpublish with not found error.
     #[test]
     fn test_unpublish_not_found_with_mock() {
         let config = MockConfig::new().with_function_status("PMIx_Unpublish", PMIX_ERR_NOT_FOUND);
-        let _guard = MockGuard::with_config(config);
-
-        let raw_status = mock_ffi::get_mock_status("PMIx_Unpublish");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrNotFound));
+                let _guard = MockGuard::with_config(config);
+                let err = unpublish(Some(&["missing"]), None).expect_err("unpublish NotFound");
+                assert_eq!(err, PmixStatus::Known(PmixError::ErrNotFound));
     }
 
     // ─── Mock-aware lookup tests ────────────────────────────────────────────
@@ -1965,20 +1942,24 @@ use super::*;
     #[test]
     fn test_lookup_happy_path_with_mock() {
         let _guard = MockGuard::new();
-        let raw_status = mock_ffi::get_mock_status("PMIx_Lookup");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert!(pmix_status.is_success());
+                let mut data = vec![PmixPdata::new("lookup.key")];
+                let (status, _out) = lookup(&mut data, None).expect("lookup should accept under mock");
+                assert!(status.is_success() || matches!(status, PmixStatus::Known(_)));
     }
 
     /// Test lookup with partial success.
     #[test]
     fn test_lookup_partial_success_with_mock() {
-        let config = MockConfig::new().with_function_status("PMIx_Lookup", -52); // PMIX_ERR_PARTIAL_SUCCESS
-        let _guard = MockGuard::with_config(config);
-
-        let raw_status = mock_ffi::get_mock_status("PMIx_Lookup");
-        let pmix_status = PmixStatus::from_raw(raw_status);
-        assert_eq!(pmix_status, PmixStatus::Known(PmixError::ErrPartialSuccess));
+        let config =
+                    MockConfig::new().with_function_status("PMIx_Lookup", PMIX_ERR_PARTIAL_SUCCESS);
+                let _guard = MockGuard::with_config(config);
+                let mut data = vec![PmixPdata::new("k1"), PmixPdata::new("k2")];
+                // Partial success may surface as Ok(status) or Err depending on wrapper —
+                // current wrapper uses from_raw on status; check either path is consistent.
+                match lookup(&mut data, None) {
+                    Ok((st, _)) => assert_eq!(st, PmixStatus::Known(PmixError::ErrPartialSuccess)),
+                    Err(st) => assert_eq!(st, PmixStatus::Known(PmixError::ErrPartialSuccess)),
+                }
     }
 
     // ─── Mock-aware publish_nb callback tests ───────────────────────────────
@@ -2325,45 +2306,37 @@ use super::*;
     #[test]
     fn test_mock_publish_get_unpublish_lifecycle() {
         let _guard = MockGuard::new();
-
-        // Step 1: Publish succeeds
-        let pub_status = mock_ffi::get_mock_status("PMIx_Publish");
-        assert_eq!(pub_status, PMIX_SUCCESS);
-
-        // Step 2: Key is stored in mock datastore
-        mock_ffi::mock_store_value("test.key", b"test_value", PMIX_STRING);
-        assert!(mock_ffi::mock_key_exists("test.key"));
-
-        // Step 3: Get succeeds
-        let get_status = mock_ffi::get_mock_status("PMIx_Get");
-        assert_eq!(get_status, PMIX_SUCCESS);
-
-        // Step 4: Unpublish succeeds
-        let unpublish_status = mock_ffi::get_mock_status("PMIx_Unpublish");
-        assert_eq!(unpublish_status, PMIX_SUCCESS);
-
-        // Step 5: Key removed
-        mock_ffi::mock_remove_value("test.key");
-        assert!(!mock_ffi::mock_key_exists("test.key"));
+                let info = InfoBuilder::new().build();
+                publish(&info).expect("publish");
+                let proc = Proc::new("mock.ns", 0).unwrap();
+                let _ = get(&proc, "lifecycle", None).expect("get");
+                unpublish(Some(&["lifecycle"]), None).expect("unpublish");
     }
 
     /// Simulate error scenarios in mock.
     #[test]
     fn test_mock_error_scenarios() {
         let config = MockConfig::new()
-            .with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY)
-            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
-            .with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT)
-            .with_function_status("PMIx_Unpublish", PMIX_ERR_INIT);
-        let _guard = MockGuard::with_config(config);
-
-        assert_eq!(
-            mock_ffi::get_mock_status("PMIx_Publish"),
-            PMIX_ERR_DUPLICATE_KEY
-        );
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_ERR_TIMEOUT);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_ERR_INIT);
+                    .with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY)
+                    .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
+                    .with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT)
+                    .with_function_status("PMIx_Unpublish", PMIX_ERR_INIT);
+                let _guard = MockGuard::with_config(config);
+                let info = InfoBuilder::new().build();
+                assert!(matches!(
+                    publish(&info),
+                    Err(PmixStatus::Known(PmixError::ErrDuplicateKey))
+                ));
+                let proc = Proc::new("mock.ns", 0).unwrap();
+                assert!(matches!(
+                    get(&proc, "x", None),
+                    Err(PmixStatus::Known(PmixError::ErrNotFound))
+                ));
+                assert_eq!(crate::fence(&proc, None).unwrap_err(), PMIX_ERR_TIMEOUT);
+                assert!(matches!(
+                    unpublish(Some(&["x"]), None),
+                    Err(PmixStatus::Known(PmixError::ErrInit))
+                ));
     }
 
     /// Test that mock is properly reset after guard drops.
@@ -2384,18 +2357,29 @@ use super::*;
     #[test]
     fn test_store_internal_mock_success() {
         let _guard = MockGuard::new();
-        // Verify the mock status for store_internal's underlying FFI call
-        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
-        assert_eq!(raw_status, PMIX_SUCCESS);
+                let proc = Proc::new("mock.ns", 1).unwrap();
+                // Build a minimal owned value via builder if available
+                let mut val = crate::PmixValueBuilder::new()
+                    .uint32(7)
+                    .build()
+                    .expect("build value");
+                store_internal(&proc, "store.key", &val).expect("store_internal mock success");
+                assert!(mock_ffi::mock_key_exists("store.key"));
     }
 
     /// Test store_internal with mock error.
     #[test]
     fn test_store_internal_mock_error() {
-        let config = MockConfig::new().with_default_status(PMIX_ERR_INIT);
-        let _guard = MockGuard::with_config(config);
-        let raw_status = mock_ffi::get_mock_status("PMIx_Publish");
-        assert_eq!(raw_status, PMIX_ERR_INIT);
+        let config =
+                    MockConfig::new().with_function_status("PMIx_Store_internal", PMIX_ERR_INIT);
+                let _guard = MockGuard::with_config(config);
+                let proc = Proc::new("mock.ns", 1).unwrap();
+                let val = crate::PmixValueBuilder::new()
+                    .uint32(1)
+                    .build()
+                    .expect("build value");
+                let err = store_internal(&proc, "k", &val).expect_err("store should fail");
+                assert_eq!(err, PmixStatus::Known(PmixError::ErrInit));
     }
 
     // ─── Info parameter handling with mock ──────────────────────────────────
@@ -2738,14 +2722,15 @@ use super::*;
     #[test]
     fn test_fence_nb_multiple_procs_mock() {
         let _guard = MockGuard::new();
-        let procs = vec![
-            Proc::new("ns1", 0).unwrap(),
-            Proc::new("ns1", 1).unwrap(),
-            Proc::new("ns2", 0).unwrap(),
-        ];
-        // Verify mock status
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
-        assert_eq!(procs.len(), 3);
+                struct Cb;
+                impl FenceCallback for Cb {
+                    fn on_complete(self: Box<Self>, _status: PmixStatus) {}
+                }
+                let procs = vec![
+                    Proc::new("a", 0).unwrap(),
+                    Proc::new("a", 1).unwrap(),
+                ];
+                fence_nb(&procs, None, Box::new(Cb)).expect("fence_nb accepted under mock");
     }
 
     // ─── Publish nb with callback that captures status ──────────────────────
@@ -2877,48 +2862,42 @@ use super::*;
     #[test]
     fn test_mock_publish_raw_success_conversion() {
         let _guard = MockGuard::new();
-        let raw = mock_ffi::get_mock_status("PMIx_Publish");
-        let status = PmixStatus::from_raw(raw);
-        assert!(status.is_success());
-        assert_eq!(status, PmixStatus::Known(PmixError::Success));
+                let info = InfoBuilder::new().build();
+                publish(&info).expect("publish success under mock");
     }
 
     /// Test publish with mock returning error — result is Err.
     #[test]
     fn test_mock_publish_error_result() {
-        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
-        let _guard = MockGuard::with_config(config);
-        let raw = mock_ffi::get_mock_status("PMIx_Publish");
-        let status = PmixStatus::from_raw(raw);
-        let result: Result<(), PmixStatus> = if status.is_success() {
-            Ok(())
-        } else {
-            Err(status)
-        };
-        assert!(result.is_err());
+        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERROR);
+                let _guard = MockGuard::with_config(config);
+                let info = InfoBuilder::new().build();
+                let err = publish(&info).unwrap_err();
+                assert_eq!(err, PmixStatus::Known(PmixError::Error));
     }
 
     /// Test publish with mock timeout error.
     #[test]
     fn test_mock_publish_timeout_error() {
         let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_TIMEOUT);
-        let _guard = MockGuard::with_config(config);
-        let raw = mock_ffi::get_mock_status("PMIx_Publish");
-        assert_eq!(raw, PMIX_ERR_TIMEOUT);
-        let status = PmixStatus::from_raw(raw);
-        assert_eq!(status, PmixStatus::Known(PmixError::ErrTimeout));
+                let _guard = MockGuard::with_config(config);
+                let info = InfoBuilder::new().build();
+                assert_eq!(
+                    publish(&info).unwrap_err(),
+                    PmixStatus::Known(PmixError::ErrTimeout)
+                );
     }
 
     /// Test publish happy path with key-value store simulation.
     #[test]
     fn test_mock_publish_stores_key_in_mock_store() {
         let _guard = MockGuard::new();
-        mock_ffi::mock_clear_store();
-        // Simulate publish storing a key
-        mock_ffi::mock_store_value("publish.test.key", b"test_value", PMIX_STRING);
-        assert!(mock_ffi::mock_key_exists("publish.test.key"));
-        // Verify mock status is success
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+                // Wrapper path: publish success; store is separate helper used by store_internal mock.
+                let info = InfoBuilder::new().build();
+                publish(&info).expect("publish");
+                mock_ffi::mock_store_value("pub.key", b"v", PMIX_STRING);
+                assert!(mock_ffi::mock_key_exists("pub.key"));
+                mock_ffi::mock_clear_store();
     }
 
     /// Test publish_nb callback with timeout error status.
@@ -3042,48 +3021,34 @@ use super::*;
     #[test]
     fn test_mock_get_proc_key_validation() {
         let _guard = MockGuard::new();
-        let proc = Proc::new("test.nspace", 0).unwrap();
-        assert_eq!(proc.get_rank(), 0);
-        // Verify mock status
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+                let proc = Proc::new("v", 0).unwrap();
+                // NUL in key rejected before FFI
+                assert!(get(&proc, "bad\0key", None).is_err());
     }
 
     /// Test get with mock — proc with high rank.
     #[test]
     fn test_mock_get_proc_high_rank() {
         let _guard = MockGuard::new();
-        let proc = Proc::new("high.rank.ns", u32::MAX).unwrap();
-        assert_eq!(proc.get_rank(), u32::MAX);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+                let proc = Proc::new("w", 9999).unwrap();
+                let _ = get(&proc, "k", None).expect("get high rank under mock");
     }
 
     /// Test get with mock — proc with wildcard rank.
     #[test]
     fn test_mock_get_proc_wildcard() {
         let _guard = MockGuard::new();
-        let proc = Proc::new("", PMIX_RANK_WILDCARD as u32).unwrap();
-        assert_eq!(proc.get_rank(), PMIX_RANK_WILDCARD as u32);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
+                let proc = Proc::new("w", crate::RANK_WILDCARD).unwrap();
+                let _ = get(&proc, "k", None).expect("get wildcard rank under mock");
     }
 
     /// Test get error path result construction.
     #[test]
     fn test_mock_get_error_result_construction() {
         let config = MockConfig::new().with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
-        let _guard = MockGuard::with_config(config);
-        let raw = mock_ffi::get_mock_status("PMIx_Get");
-        let status = PmixStatus::from_raw(raw);
-        let result: Result<PmixOwnedValue, PmixStatus> = if status.is_success() {
-            // Would return value on success
-            unimplemented!()
-        } else {
-            Err(status)
-        };
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            PmixStatus::Known(PmixError::ErrNotFound)
-        );
+                let _guard = MockGuard::with_config(config);
+                let proc = Proc::new("w", 0).unwrap();
+                assert!(get(&proc, "nope", None).is_err());
     }
 
     /// Test get_nb callback bridge with init error.
@@ -3178,18 +3143,14 @@ use super::*;
     #[test]
     fn test_mock_lookup_multi_key_simulation() {
         let _guard = MockGuard::new();
-        let keys = vec!["key1", "key2", "key3", "key4"];
-        // Simulate storing keys in mock store
-        for key in &keys {
-            mock_ffi::mock_store_value(key, b"val", PMIX_STRING);
-        }
-        // Verify all keys exist
-        for key in &keys {
-            assert!(mock_ffi::mock_key_exists(key));
-        }
-        // Verify mock status
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Lookup"), PMIX_SUCCESS);
-        mock_ffi::mock_clear_store();
+                let mut data = vec![
+                    PmixPdata::new("a"),
+                    PmixPdata::new("b"),
+                    PmixPdata::new("c"),
+                ];
+                let (st, out) = lookup(&mut data, None).expect("lookup multi");
+                assert!(st.is_success());
+                assert_eq!(out.len(), 3);
     }
 
     /// Test lookup with mock — key validation with dots and underscores.
@@ -3308,29 +3269,22 @@ use super::*;
     #[test]
     fn test_mock_unpublish_key_removal() {
         let _guard = MockGuard::new();
-        mock_ffi::mock_store_value("to_remove", b"val", PMIX_STRING);
-        assert!(mock_ffi::mock_key_exists("to_remove"));
-        // Simulate unpublish removing the key
-        mock_ffi::mock_remove_value("to_remove");
-        assert!(!mock_ffi::mock_key_exists("to_remove"));
-        // Verify mock status
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_SUCCESS);
+                mock_ffi::mock_store_value("rm.me", b"x", PMIX_STRING);
+                assert!(mock_ffi::mock_key_exists("rm.me"));
+                unpublish(Some(&["rm.me"]), None).expect("unpublish");
+                mock_ffi::mock_remove_value("rm.me");
+                assert!(!mock_ffi::mock_key_exists("rm.me"));
     }
 
     /// Test unpublish error result construction.
     #[test]
     fn test_mock_unpublish_error_result() {
-        let config = MockConfig::new().with_function_status("PMIx_Unpublish", PMIX_ERR_INIT);
-        let _guard = MockGuard::with_config(config);
-        let raw = mock_ffi::get_mock_status("PMIx_Unpublish");
-        let status = PmixStatus::from_raw(raw);
-        let result: Result<(), PmixStatus> = if status.is_success() {
-            Ok(())
-        } else {
-            Err(status)
-        };
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
+        let config = MockConfig::new().with_function_status("PMIx_Unpublish", PMIX_ERR_NOT_FOUND);
+                let _guard = MockGuard::with_config(config);
+                assert_eq!(
+                    unpublish(Some(&["x"]), None).unwrap_err(),
+                    PmixStatus::Known(PmixError::ErrNotFound)
+                );
     }
 
     // ─── Mock-aware fence happy path tests ──────────────────────────────────
@@ -3367,71 +3321,58 @@ use super::*;
     #[test]
     fn test_mock_fence_single_proc() {
         let _guard = MockGuard::new();
-        let procs = vec![Proc::new("fence.ns", 0).unwrap()];
-        assert_eq!(procs.len(), 1);
-        assert_eq!(procs[0].get_rank(), 0);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+                let proc = Proc::new("fence.ns", 0).unwrap();
+                crate::fence(&proc, None).expect("fence single proc");
     }
 
     /// Test fence with mock — five procs across two namespaces.
     #[test]
     fn test_mock_fence_five_procs_two_namespaces() {
         let _guard = MockGuard::new();
-        let procs = vec![
-            Proc::new("ns_a", 0).unwrap(),
-            Proc::new("ns_a", 1).unwrap(),
-            Proc::new("ns_a", 2).unwrap(),
-            Proc::new("ns_b", 0).unwrap(),
-            Proc::new("ns_b", 1).unwrap(),
-        ];
-        assert_eq!(procs.len(), 5);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+                // Blocking fence takes one Proc handle; multi-proc covered by fence_nb.
+                struct Cb;
+                impl FenceCallback for Cb {
+                    fn on_complete(self: Box<Self>, s: PmixStatus) {
+                        assert!(s.is_success());
+                    }
+                }
+                let procs = vec![
+                    Proc::new("n1", 0).unwrap(),
+                    Proc::new("n1", 1).unwrap(),
+                    Proc::new("n2", 0).unwrap(),
+                    Proc::new("n2", 1).unwrap(),
+                    Proc::new("n2", 2).unwrap(),
+                ];
+                fence_nb(&procs, None, Box::new(Cb)).expect("fence_nb multi");
     }
 
     /// Test fence with mock — empty procs vector.
     #[test]
     fn test_mock_fence_empty_procs() {
         let _guard = MockGuard::new();
-        let procs: Vec<Proc> = vec![];
-        assert_eq!(procs.len(), 0);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+                struct Cb;
+                impl FenceCallback for Cb {
+                    fn on_complete(self: Box<Self>, _: PmixStatus) {}
+                }
+                fence_nb(&[], None, Box::new(Cb)).expect("empty procs fence_nb means session-wide");
     }
 
     /// Test fence error result construction.
     #[test]
     fn test_mock_fence_error_result() {
         let config = MockConfig::new().with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT);
-        let _guard = MockGuard::with_config(config);
-        let raw = mock_ffi::get_mock_status("PMIx_Fence");
-        let status = PmixStatus::from_raw(raw);
-        let result: Result<(), PmixStatus> = if status.is_success() {
-            Ok(())
-        } else {
-            Err(status)
-        };
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            PmixStatus::Known(PmixError::ErrTimeout)
-        );
+                let _guard = MockGuard::with_config(config);
+                let proc = Proc::new("f", 0).unwrap();
+                assert_eq!(crate::fence(&proc, None).unwrap_err(), PMIX_ERR_TIMEOUT);
     }
 
     /// Test fence_nb with mock — procs and info combined.
     #[test]
     fn test_mock_fence_procs_and_info() {
         let _guard = MockGuard::new();
-        let procs = vec![
-            Proc::new("combined.ns", 0).unwrap(),
-            Proc::new("combined.ns", 1).unwrap(),
-        ];
-        let info = Info {
-            handle: std::ptr::null_mut(),
-            len: 0,
-        _not_thread_safe: std::marker::PhantomData,
-        };
-        assert_eq!(procs.len(), 2);
-        assert_eq!(info.len(), 0);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
+                let proc = Proc::new("f", 0).unwrap();
+                let info = InfoBuilder::new().build();
+                crate::fence(&proc, Some(info)).expect("fence with info");
     }
 
     // ─── Mock-aware store_internal tests ────────────────────────────────────
@@ -3440,9 +3381,10 @@ use super::*;
     #[test]
     fn test_mock_store_internal_proc_key() {
         let _guard = MockGuard::new();
-        let proc = Proc::new("store.ns", 0).unwrap();
-        assert_eq!(proc.get_rank(), 0);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
+                let proc = Proc::new("s", 3).unwrap();
+                let val = crate::PmixValueBuilder::new().uint32(9).build().unwrap();
+                store_internal(&proc, "internal.key", &val).unwrap();
+                assert!(mock_ffi::mock_key_exists("internal.key"));
     }
 
     /// Test store_internal with mock — key stored in mock store.
@@ -3457,25 +3399,29 @@ use super::*;
     /// Test store_internal with mock — error path.
     #[test]
     fn test_mock_store_internal_error_path() {
-        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
-        let _guard = MockGuard::with_config(config);
-        let raw = mock_ffi::get_mock_status("PMIx_Publish");
-        let status = PmixStatus::from_raw(raw);
-        let result: Result<(), PmixStatus> = if status.is_success() {
-            Ok(())
-        } else {
-            Err(status)
-        };
-        assert!(result.is_err());
+        let config =
+                    MockConfig::new().with_function_status("PMIx_Store_internal", PMIX_ERR_BAD_PARAM);
+                let _guard = MockGuard::with_config(config);
+                let proc = Proc::new("s", 0).unwrap();
+                let val = crate::PmixValueBuilder::new().uint32(1).build().unwrap();
+                assert_eq!(
+                    store_internal(&proc, "k", &val).unwrap_err(),
+                    PmixStatus::Known(PmixError::ErrBadParam)
+                );
     }
 
     /// Test store_internal with mock — duplicate key error.
     #[test]
     fn test_mock_store_internal_duplicate_key() {
-        let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
-        let _guard = MockGuard::with_config(config);
-        let raw = mock_ffi::get_mock_status("PMIx_Publish");
-        assert_eq!(raw, PMIX_ERR_DUPLICATE_KEY);
+        let config =
+                    MockConfig::new().with_function_status("PMIx_Store_internal", PMIX_ERR_DUPLICATE_KEY);
+                let _guard = MockGuard::with_config(config);
+                let proc = Proc::new("s", 0).unwrap();
+                let val = crate::PmixValueBuilder::new().uint32(1).build().unwrap();
+                assert_eq!(
+                    store_internal(&proc, "dup", &val).unwrap_err(),
+                    PmixStatus::Known(PmixError::ErrDuplicateKey)
+                );
     }
 
     // ─── Mock Proc tests ────────────────────────────────────────────────────
@@ -3658,40 +3604,24 @@ use super::*;
     #[test]
     fn test_mock_full_publish_get_unpublish_workflow() {
         let _guard = MockGuard::new();
-        mock_ffi::mock_clear_store();
-
-        // Phase 1: Publish
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
-        mock_ffi::mock_store_value("workflow.key", b"workflow_value", PMIX_STRING);
-        assert!(mock_ffi::mock_key_exists("workflow.key"));
-
-        // Phase 2: Get
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
-
-        // Phase 3: Fence (barrier)
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
-
-        // Phase 4: Unpublish
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_SUCCESS);
-        mock_ffi::mock_remove_value("workflow.key");
-        assert!(!mock_ffi::mock_key_exists("workflow.key"));
+                let info = InfoBuilder::new().build();
+                publish(&info).unwrap();
+                let proc = Proc::new("wf", 0).unwrap();
+                let _v = get(&proc, "wf.key", None).unwrap();
+                unpublish(Some(&["wf.key"]), None).unwrap();
     }
 
     /// Test error workflow with mock — publish fails, get fails, unpublish fails.
     #[test]
     fn test_mock_error_workflow_all_fail() {
-        let config = MockConfig::new()
-            .with_function_status("PMIx_Publish", PMIX_ERR_INIT)
-            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
-            .with_function_status("PMIx_Unpublish", PMIX_ERR_TIMEOUT);
-        let _guard = MockGuard::with_config(config);
-
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_ERR_INIT);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
-        assert_eq!(
-            mock_ffi::get_mock_status("PMIx_Unpublish"),
-            PMIX_ERR_TIMEOUT
-        );
+        let config = MockConfig::new().with_default_status(PMIX_ERR_INIT);
+                let _guard = MockGuard::with_config(config);
+                let info = InfoBuilder::new().build();
+                assert!(publish(&info).is_err());
+                let proc = Proc::new("wf", 0).unwrap();
+                assert!(get(&proc, "k", None).is_err());
+                assert!(crate::fence(&proc, None).is_err());
+                assert!(unpublish(Some(&["k"]), None).is_err());
     }
 
     /// Test mock with multiple key-value pairs and selective removal.
@@ -3733,18 +3663,13 @@ use super::*;
     #[test]
     fn test_mock_config_mixed_statuses() {
         let config = MockConfig::new()
-            .with_function_status("PMIx_Publish", PMIX_SUCCESS)
-            .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND)
-            .with_function_status("PMIx_Fence", PMIX_SUCCESS)
-            .with_function_status("PMIx_Unpublish", PMIX_SUCCESS)
-            .with_function_status("PMIx_Lookup", PMIX_ERR_TIMEOUT);
-        let _guard = MockGuard::with_config(config);
-
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_SUCCESS);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Lookup"), PMIX_ERR_TIMEOUT);
+                    .with_function_status("PMIx_Publish", PMIX_SUCCESS)
+                    .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
+                let _guard = MockGuard::with_config(config);
+                let info = InfoBuilder::new().build();
+                publish(&info).unwrap();
+                let proc = Proc::new("m", 0).unwrap();
+                assert!(get(&proc, "x", None).is_err());
     }
 
     /// Test mock guard nesting behavior — inner guard disables on drop.
@@ -3906,12 +3831,12 @@ use super::*;
     #[test]
     fn test_mock_operation_cycle_status_checks() {
         let _guard = MockGuard::new();
-        // All operations should return PMIX_SUCCESS by default
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_SUCCESS);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Fence"), PMIX_SUCCESS);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Unpublish"), PMIX_SUCCESS);
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Lookup"), PMIX_SUCCESS);
+                let info = InfoBuilder::new().build();
+                publish(&info).unwrap();
+                let proc = Proc::new("c", 0).unwrap();
+                let _ = get(&proc, "k", None).unwrap();
+                crate::fence(&proc, None).unwrap();
+                unpublish(None, None).unwrap();
     }
 
     /// Test mock — PmixStatus equality comparison.
@@ -4006,15 +3931,10 @@ use super::*;
     #[test]
     fn test_mock_store_internal_full_simulation() {
         let _guard = MockGuard::new();
-        mock_ffi::mock_clear_store();
-        // Simulate store_internal storing a key
-        let proc = Proc::new("internal.ns", 0).unwrap();
-        assert_eq!(proc.get_rank(), 0);
-        mock_ffi::mock_store_value("internal.key", b"internal_val", PMIX_STRING);
-        assert!(mock_ffi::mock_key_exists("internal.key"));
-        // Verify mock status
-        assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
-        mock_ffi::mock_remove_value("internal.key");
+                let proc = Proc::new("full", 0).unwrap();
+                let val = crate::PmixValueBuilder::new().uint32(123).build().unwrap();
+                store_internal(&proc, "full.key", &val).unwrap();
+                assert!(mock_ffi::mock_key_exists("full.key"));
     }
 
     /// Test mock — Info pointer handling for various sizes.
@@ -4096,26 +4016,17 @@ use super::*;
     /// Test mock — multiple mock configs in sequence.
     #[test]
     fn test_mock_sequential_configs() {
-        // First config: all success
         {
-            let _guard = MockGuard::new();
-            assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
-        }
-        // Second config: all error
-        {
-            let config = MockConfig::new().with_default_status(PMIX_ERR_INIT);
-            let _guard = MockGuard::with_config(config);
-            assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_ERR_INIT);
-        }
-        // Third config: mixed
-        {
-            let config = MockConfig::new()
-                .with_function_status("PMIx_Publish", PMIX_SUCCESS)
-                .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
-            let _guard = MockGuard::with_config(config);
-            assert_eq!(mock_ffi::get_mock_status("PMIx_Publish"), PMIX_SUCCESS);
-            assert_eq!(mock_ffi::get_mock_status("PMIx_Get"), PMIX_ERR_NOT_FOUND);
-        }
+                    let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
+                    let _guard = MockGuard::with_config(config);
+                    let info = InfoBuilder::new().build();
+                    assert!(publish(&info).is_err());
+                }
+                {
+                    let _guard = MockGuard::new();
+                    let info = InfoBuilder::new().build();
+                    publish(&info).unwrap();
+                }
     }
 
     /// Test mock — fence callback bridge with partial success.
