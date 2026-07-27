@@ -5,12 +5,22 @@
 //!
 //! # Concurrency model
 //!
-//! PMIx client/server state is **process-global** and not free-threaded for most
-//! operations:
+//! OpenPMIx **≥ 6.1** threadshifts most `PMIx_*` entry points onto the progress
+//! engine, so concurrent **calls** into C are intended to be OK while progress
+//! runs. Rust still owns session lifetime and C-handle discipline:
 //!
-//! - Prefer a single [`init`] / finalize cycle per process.
-//! - [`Info`] (and other raw-handle wrappers marked below) are **`!Send` + `!Sync`**
-//!   via `PhantomData<*mut u8>` — do not share them across threads without a mutex.
+//! - Prefer one process-wide [`PmixClient`] session: `Clone` is cheap (`Arc`),
+//!   and the type is **`Send + Sync`** so clones can move to worker threads.
+//! - Do **not** lock every put/get in Rust by default — OpenPMIx serializes entry.
+//!   Lock only Rust-owned shared state (the session does this for cached `Proc`).
+//! - Data ops stay as free functions ([`put_value`], [`get_value`], [`commit`],
+//!   [`fence`], …). Pass proc handles from the client; build [`Info`] per call.
+//! - [`Info`] and other raw-handle wrappers are **`!Send` + `!Sync`**
+//!   (`PhantomData<*mut u8>`). Share only behind your own `Mutex` if you must.
+//! - One logical init/finalize cycle per process. [`PmixClient::disconnect`] is
+//!   explicit — **Drop does not finalize** (avoids double-finalize with clones).
+//! - Legacy [`init`] / [`Context`] share the same session state machine; `Context`
+//!   still finalizes on Drop for backward compatibility.
 //! - Server upcalls may run on PMIx internal threads; keep callbacks short.
 //!
 use std::fmt::Debug;
@@ -3371,6 +3381,318 @@ pub fn info_with_string_key(key: &str, value: &str) -> Info {
     }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixClient — process-wide Arc session (Send + Sync)
+// ─────────────────────────────────────────────────────────────────────────────
+
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// Lifecycle state of the process-wide PMIx client session.
+///
+/// Transitions: `Uninitialized` → `Live` → `Finalizing` → `Dead`.
+///
+/// Re-init after `Dead` is not supported (matches typical OpenPMIx process
+/// lifetime). Use one logical connect/disconnect cycle per process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PmixClientState {
+    /// No successful `PMIx_Init` for this process session yet.
+    Uninitialized = 0,
+    /// Session is active; ops may call into OpenPMIx.
+    Live = 1,
+    /// `disconnect` / finalize is in progress.
+    Finalizing = 2,
+    /// Session torn down; further `connect` fails.
+    Dead = 3,
+}
+
+impl PmixClientState {
+    fn from_raw(val: u8) -> Self {
+        match val {
+            0 => Self::Uninitialized,
+            1 => Self::Live,
+            2 => Self::Finalizing,
+            _ => Self::Dead,
+        }
+    }
+}
+
+/// Process-wide inner session. Fields are `Send + Sync` so `Arc<Self>` (and
+/// thus [`PmixClient`]) can move across threads. Do **not** add
+/// `PhantomData<*mut u8>` here — that would make the session `!Send` and defeat
+/// multi-threaded cloning.
+struct PmixClientInner {
+    /// Cached proc from `PMIx_Init`; only meaningful while state is `Live`.
+    proc: Mutex<Option<Proc>>,
+    state: AtomicU8,
+}
+
+impl std::fmt::Debug for PmixClientInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PmixClientInner")
+            .field("state", &self.state())
+            .field("proc", &"Mutex<Option<Proc>>")
+            .finish()
+    }
+}
+
+impl PmixClientInner {
+    fn state(&self) -> PmixClientState {
+        PmixClientState::from_raw(self.state.load(Ordering::Acquire))
+    }
+}
+
+/// Process-wide client session storage. Created on first [`PmixClient::new`].
+static CLIENT_SESSION: OnceLock<Arc<PmixClientInner>> = OnceLock::new();
+
+fn client_session() -> Arc<PmixClientInner> {
+    CLIENT_SESSION
+        .get_or_init(|| {
+            Arc::new(PmixClientInner {
+                proc: Mutex::new(None),
+                state: AtomicU8::new(PmixClientState::Uninitialized as u8),
+            })
+        })
+        .clone()
+}
+
+/// Thread-shareable handle to the process-wide PMIx client session.
+///
+/// Cloning is an `Arc` clone: every handle refers to the **same** process
+/// session and state machine. OpenPMIx ≥ 6.1 threadshifts C API entry; this type
+/// is `Send + Sync` so applications can move clones onto worker threads.
+///
+/// # Lifecycle
+///
+/// 1. [`PmixClient::new`] / [`Default`] — attach to the process session (`Uninitialized`
+///    until connect).
+/// 2. [`connect`](Self::connect) — `PMIx_Init`, `Uninitialized` → `Live`.
+/// 3. Clone across threads; use free functions ([`put_value`], [`get_value`],
+///    [`commit`], [`fence`], …) with [`proc`](Self::proc) / [`get_proc`](Self::get_proc).
+/// 4. [`disconnect`](Self::disconnect) — `PMIx_Finalize`, `Live` → `Dead`.
+///
+/// # Drop / finalize rules
+///
+/// - **Drop does not finalize.** Clones must not each run `PMIx_Finalize`.
+/// - Call [`disconnect`](Self::disconnect) once (or legacy [`finalize`]).
+/// - Further disconnect/finalize calls are no-ops once not `Live`.
+/// - Legacy [`Context`] still finalizes on Drop and shares this state machine.
+///
+/// # Example
+///
+/// ```no_run
+/// use pmix::{PmixClient, put_value, commit, fence, PmixScope};
+/// use std::ffi::CString;
+///
+/// let client = PmixClient::new();
+/// client.connect(None)?;
+///
+/// let worker = client.clone();
+/// std::thread::spawn(move || {
+///     let _ = worker.rank();
+///     // put_value / get_value / … with worker.proc()
+/// });
+///
+/// client.disconnect(None)?;
+/// # Ok::<(), pmix::PmixError>(())
+/// ```
+#[derive(Debug, Clone)]
+pub struct PmixClient {
+    inner: Arc<PmixClientInner>,
+}
+
+impl Default for PmixClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PmixClient {
+    /// Attach to the process-wide client session (creates it on first call).
+    ///
+    /// Does not call `PMIx_Init`. Use [`connect`](Self::connect) or
+    /// [`connect_new`](Self::connect_new).
+    pub fn new() -> Self {
+        Self {
+            inner: client_session(),
+        }
+    }
+
+    /// `new()` + [`connect`](Self::connect).
+    pub fn connect_new(info: Option<Info>) -> Result<Self, PmixError> {
+        let client = Self::new();
+        client.connect(info)?;
+        Ok(client)
+    }
+
+    /// Whether `self` and `other` refer to the same process session (`Arc` identity).
+    ///
+    /// All `PmixClient` values in a process share one session today, so this is
+    /// true for any pair created via [`new`](Self::new).
+    pub fn same_session(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    /// Current lifecycle state.
+    pub fn state(&self) -> PmixClientState {
+        self.inner.state()
+    }
+
+    /// `true` when state is [`PmixClientState::Live`].
+    pub fn is_live(&self) -> bool {
+        self.state() == PmixClientState::Live
+    }
+
+    /// Initialize PMIx for this process (`PMIx_Init`).
+    ///
+    /// Transitions `Uninitialized` → `Live`. Fails if already `Live`
+    /// ([`PmixError::ErrExists`]) or after finalize ([`PmixError::ErrInit`]).
+    ///
+    /// Serialized on the session mutex so concurrent `connect` calls cannot
+    /// double-init.
+    pub fn connect(&self, info: Option<Info>) -> Result<(), PmixError> {
+        let mut proc_guard = self
+            .inner
+            .proc
+            .lock()
+            .expect("pmix: client proc mutex poisoned");
+
+        match self.inner.state() {
+            PmixClientState::Uninitialized => {}
+            PmixClientState::Live => return Err(PmixError::ErrExists),
+            PmixClientState::Finalizing | PmixClientState::Dead => {
+                return Err(PmixError::ErrInit);
+            }
+        }
+
+        let mut uninit_proc = mem::MaybeUninit::<pmix_proc_t>::uninit();
+        let status = match info {
+            Some(ref info) => unsafe {
+                PMIx_Init(uninit_proc.as_mut_ptr(), info.handle, info.len)
+            },
+            None => unsafe { PMIx_Init(uninit_proc.as_mut_ptr(), ptr::null_mut(), 0) },
+        };
+
+        let pmix_status = PmixStatus::from_raw(status);
+        if pmix_status.is_success() {
+            let proc = unsafe { uninit_proc.assume_init() };
+            *proc_guard = Some(Proc {
+                handle: proc,
+                len: 1,
+            });
+            self.inner
+                .state
+                .store(PmixClientState::Live as u8, Ordering::Release);
+            Ok(())
+        } else if let Some(known) = pmix_status.known() {
+            Err(known)
+        } else {
+            Err(PmixError::Error)
+        }
+    }
+
+    /// Finalize PMIx for this process (`PMIx_Finalize`).
+    ///
+    /// Transitions `Live` → `Finalizing` → `Dead`. No-op if not `Live`
+    /// (already finalized or never connected).
+    pub fn disconnect(&self, info: Option<Info>) -> Result<(), pmix_status_t> {
+        let mut proc_guard = self
+            .inner
+            .proc
+            .lock()
+            .expect("pmix: client proc mutex poisoned");
+
+        if self.inner.state() != PmixClientState::Live {
+            return Ok(());
+        }
+
+        self.inner
+            .state
+            .store(PmixClientState::Finalizing as u8, Ordering::Release);
+        *proc_guard = None;
+
+        let status = match info {
+            Some(ref x) => unsafe { PMIx_Finalize(x.handle, x.len) },
+            None => unsafe { PMIx_Finalize(ptr::null_mut(), 0) },
+        };
+
+        self.inner
+            .state
+            .store(PmixClientState::Dead as u8, Ordering::Release);
+
+        if status as u32 == PMIX_SUCCESS {
+            Ok(())
+        } else {
+            Err(status)
+        }
+    }
+
+    /// Copy of the process handle when live.
+    pub fn proc(&self) -> Option<Proc> {
+        self.inner
+            .proc
+            .lock()
+            .expect("pmix: client proc mutex poisoned")
+            .clone()
+    }
+
+    /// Borrow-style access via clone of the cached `Proc` when live.
+    ///
+    /// Named for parity with [`Context::get_proc`]; returns owned `Proc`
+    /// because the cache lives behind a mutex.
+    pub fn get_proc(&self) -> Option<Proc> {
+        self.proc()
+    }
+
+    /// Rank from the cached process handle when live.
+    pub fn rank(&self) -> Option<u32> {
+        self.inner
+            .proc
+            .lock()
+            .expect("pmix: client proc mutex poisoned")
+            .as_ref()
+            .map(|p| p.get_rank())
+    }
+
+    /// Alias for [`rank`](Self::rank) matching [`Context::get_rank`] naming.
+    pub fn get_rank(&self) -> Option<u32> {
+        self.rank()
+    }
+
+    /// `Proc` for `rank` in this client's namespace.
+    ///
+    /// Returns [`PmixError::ErrInit`] if not connected.
+    pub fn proc_with_nspace(&self, rank: u32) -> Result<Proc, PmixError> {
+        let guard = self
+            .inner
+            .proc
+            .lock()
+            .expect("pmix: client proc mutex poisoned");
+        let my = guard.as_ref().ok_or(PmixError::ErrInit)?;
+        my.new_with_nspace(rank).map_err(|_| PmixError::ErrBadParam)
+    }
+
+    /// Error if the session is not [`PmixClientState::Live`].
+    pub fn check_live(&self) -> Result<(), PmixError> {
+        if self.is_live() {
+            Ok(())
+        } else {
+            Err(PmixError::ErrInit)
+        }
+    }
+}
+
+/// Legacy RAII client context — prefer [`PmixClient`] for multi-threaded code.
+///
+/// `Context` is retained for backward compatibility. It performs finalize in
+/// [`Drop`] via [`finalize`], which is coordinated with the process-wide
+/// [`PmixClient`] state machine (double-finalize becomes a no-op).
+///
+/// `Context` itself is not the shareable session type: clone/move a
+/// [`PmixClient`] across threads instead.
+
 pub struct Context {
     pub(crate) proc: Proc,
 }
@@ -3408,33 +3730,18 @@ impl Drop for Context {
     }
 }
 
+/// Initialize the process-wide PMIx client session and return a legacy [`Context`].
+///
+/// Prefer [`PmixClient::connect_new`] / [`PmixClient::connect`] for multi-threaded
+/// code. This function uses the same process session state machine as
+/// [`PmixClient`]; a second init while live returns [`PmixError::ErrExists`].
 pub fn init(info: Option<Info>) -> Result<Context, PmixError> {
-    let proc: pmix_proc_t;
-    let mut uninit_proc = mem::MaybeUninit::<pmix_proc_t>::uninit();
-    let status = match info {
-        Some(info) => unsafe { PMIx_Init(uninit_proc.as_mut_ptr(), info.handle, info.len) },
-        None => unsafe { PMIx_Init(uninit_proc.as_mut_ptr(), ptr::null_mut(), 0) },
-    };
-
-    let pmix_status = PmixStatus::from_raw(status);
-
-    if pmix_status.is_success() {
-        unsafe {
-            proc = uninit_proc.assume_init();
-        }
-        Ok(Context {
-            proc: Proc {
-                handle: proc,
-                len: 1,
-            },
-        })
-    } else {
-        if let Some(known) = pmix_status.known() {
-            Err(known)
-        } else {
-            Err(PmixError::Error)
-        }
-    }
+    let client = PmixClient::new();
+    client.connect(info)?;
+    let proc = client
+        .proc()
+        .expect("pmix: proc must be set after successful connect");
+    Ok(Context { proc })
 }
 
 pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwnedValue, PmixError> {
@@ -3585,16 +3892,12 @@ pub fn progress_thread_stop() {
     }
 }
 
+/// Finalize the process-wide PMIx client session (`PMIx_Finalize`).
+///
+/// Delegates to [`PmixClient::disconnect`]. No-op if the session is not live.
+/// Prefer explicit [`PmixClient::disconnect`] when using [`PmixClient`].
 pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
-    let status = match info {
-        Some(x) => unsafe { PMIx_Finalize(x.handle, x.len) },
-        None => unsafe { PMIx_Finalize(ptr::null_mut(), 0) },
-    };
-    if status as u32 == PMIX_SUCCESS {
-        Result::Ok(())
-    } else {
-        Result::Err(status)
-    }
+    PmixClient::new().disconnect(info)
 }
 
 #[cfg(test)]
@@ -5088,5 +5391,86 @@ mod tests {
         let info = opts.build();
         // 5 options set
         assert_eq!(info.len(), 5);
+    }
+
+    // ── PmixClient (process-wide Arc session) ─────────────────────────────
+
+    #[test]
+    fn test_pmixclient_send_sync_clone() {
+        use static_assertions::assert_impl_all;
+        assert_impl_all!(PmixClient: Clone, Send, Sync);
+        assert_impl_all!(PmixClientState: Send, Sync);
+    }
+
+    #[test]
+    fn test_pmixclient_new_is_uninitialized_or_consistent() {
+        let client = PmixClient::new();
+        // Fresh process in unit tests: Uninitialized. If another test already
+        // connected (unlikely without daemon), state is still well-formed.
+        let state = client.state();
+        assert!(
+            matches!(
+                state,
+                PmixClientState::Uninitialized
+                    | PmixClientState::Live
+                    | PmixClientState::Finalizing
+                    | PmixClientState::Dead
+            )
+        );
+        assert_eq!(client.is_live(), state == PmixClientState::Live);
+    }
+
+    #[test]
+    fn test_pmixclient_process_wide_same_session() {
+        let a = PmixClient::new();
+        let b = PmixClient::new();
+        let c = a.clone();
+        assert!(a.same_session(&b));
+        assert!(a.same_session(&c));
+        assert_eq!(a.state(), b.state());
+    }
+
+    #[test]
+    fn test_pmixclient_clone_moves_to_thread() {
+        let client = PmixClient::new();
+        let state = client.state();
+        let worker = client.clone();
+        let handle = std::thread::spawn(move || worker.state());
+        assert_eq!(handle.join().expect("thread join"), state);
+    }
+
+    #[test]
+    fn test_pmixclient_accessors_none_when_not_live() {
+        let client = PmixClient::new();
+        if client.is_live() {
+            return;
+        }
+        assert!(client.proc().is_none());
+        assert!(client.get_proc().is_none());
+        assert!(client.rank().is_none());
+        assert!(client.check_live().is_err());
+        assert!(client.proc_with_nspace(0).is_err());
+    }
+
+    #[test]
+    fn test_pmixclient_disconnect_noop_when_not_live() {
+        let client = PmixClient::new();
+        if client.is_live() {
+            return;
+        }
+        let before = client.state();
+        assert!(client.disconnect(None).is_ok());
+        assert_eq!(client.state(), before);
+    }
+
+    #[test]
+    fn test_finalize_delegates_to_session_noop_when_not_live() {
+        let client = PmixClient::new();
+        if client.is_live() {
+            return;
+        }
+        let before = client.state();
+        assert!(finalize(None).is_ok());
+        assert_eq!(PmixClient::new().state(), before);
     }
 }

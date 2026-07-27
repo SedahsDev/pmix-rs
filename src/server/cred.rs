@@ -3,6 +3,7 @@
 use super::*;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
+use crate::security::PmixCredential;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Get_credential — get credential (server context)
