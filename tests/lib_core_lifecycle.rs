@@ -1,8 +1,8 @@
-//! Integration tests for PMIx core lifecycle: `pmix::init`, `pmix::finalize`,
+//! Integration tests for PMIx core lifecycle: `PmixClient::connect_new`, `pmix::finalize`,
 //! `pmix::utility::initialized`, and `pmix::get_version`.
 //!
 //! All tests in this file run standalone without a PMIx daemon (prterun/DVM).
-//! This means `pmix::init()` will always return an error (typically `ErrUnreach`
+//! This means `PmixClient::connect_new()` will always return an error (typically `ErrUnreach`
 //! since no server is available), and `pmix::finalize()` may succeed even without
 //! prior init (PMIx_Finalize is idempotent).
 //!
@@ -10,7 +10,7 @@
 //! `PMIx_Get_attribute_name` — they crash with SIGSEGV without `PMIx_Init`.
 
 use pmix::utility::initialized;
-use pmix::{InfoBuilder, PmixError, PmixStatus, finalize, get_version, init};
+use pmix::{InfoBuilder, PmixClient, PmixError, PmixStatus, finalize, get_version};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // get_version — safe, no init needed
@@ -209,32 +209,32 @@ fn initialized_returns_consistent_value() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// init() error paths — no DVM available
+// PmixClient::connect_new() error paths — no DVM available
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// `init(None)` without DVM returns `Err`.
+/// `PmixClient::connect_new(None)` without DVM returns `Err`.
 #[test]
 fn init_without_dvm_returns_err() {
     assert!(
-        init(None).is_err(),
-        "init(None) without DVM should return Err"
+        PmixClient::connect_new(None).is_err(),
+        "PmixClient::connect_new(None) without DVM should return Err"
     );
 }
 
-/// `init(Some(info))` without DVM returns `Err`.
+/// `PmixClient::connect_new(Some(info))` without DVM returns `Err`.
 #[test]
 fn init_with_info_without_dvm_returns_err() {
     let info = InfoBuilder::new().build();
     assert!(
-        init(Some(info)).is_err(),
-        "init(Some(info)) without DVM should return Err"
+        PmixClient::connect_new(Some(info)).is_err(),
+        "PmixClient::connect_new(Some(info)) without DVM should return Err"
     );
 }
 
-/// `init(None)` error is a known PMIx error (not a random code).
+/// `PmixClient::connect_new(None)` error is a known PMIx error (not a random code).
 #[test]
 fn init_without_dvm_error_is_known() {
-    match init(None) {
+    match PmixClient::connect_new(None) {
         Err(e) => {
             let status = PmixStatus::from_raw(e.to_raw());
             assert!(
@@ -243,17 +243,17 @@ fn init_without_dvm_error_is_known() {
                 status
             );
         }
-        Ok(_) => panic!("init(None) should fail without DVM"),
+        Ok(_) => panic!("PmixClient::connect_new(None) should fail without DVM"),
     }
 }
 
 /// `init` does not panic on error — it returns a proper `Err`.
 #[test]
 fn init_does_not_panic_on_error() {
-    let result = std::panic::catch_unwind(|| init(None));
+    let result = std::panic::catch_unwind(|| PmixClient::connect_new(None));
     assert!(
         result.is_ok(),
-        "init(None) should not panic, it should return Err"
+        "PmixClient::connect_new(None) should not panic, it should return Err"
     );
 }
 
@@ -262,7 +262,7 @@ fn init_does_not_panic_on_error() {
 fn init_with_empty_info_returns_err() {
     let info = InfoBuilder::new().build();
     assert!(
-        init(Some(info)).is_err(),
+        PmixClient::connect_new(Some(info)).is_err(),
         "init with empty InfoBuilder should fail without DVM"
     );
 }
@@ -274,7 +274,7 @@ fn init_with_collect_data_info_returns_err() {
     builder.collect_data();
     let info = builder.build();
     assert!(
-        init(Some(info)).is_err(),
+        PmixClient::connect_new(Some(info)).is_err(),
         "init with collect_data info should fail without DVM"
     );
 }
@@ -283,8 +283,8 @@ fn init_with_collect_data_info_returns_err() {
 #[test]
 #[ignore = "flaky — second init may succeed after first partially initializes PMIx"]
 fn double_init_returns_same_error_type() {
-    let result1 = init(None);
-    let result2 = init(None);
+    let result1 = PmixClient::connect_new(None);
+    let result2 = PmixClient::connect_new(None);
 
     assert!(result1.is_err(), "first init should fail");
     assert!(result2.is_err(), "second init should fail");
@@ -301,16 +301,16 @@ fn double_init_returns_same_error_type() {
     }
 }
 
-/// `init` returns `Result<Context, PmixError>` (compile-time type check).
+/// `init` returns `Result<PmixClient, PmixError>` (compile-time type check).
 #[test]
 fn init_return_type_is_result_context_pmixerror() {
-    let _result: Result<pmix::Context, PmixError> = init(None);
+    let _result: Result<pmix::PmixClient, PmixError> = PmixClient::connect_new(None);
 }
 
 /// `init` error value is negative (error codes are negative in PMIx).
 #[test]
 fn init_error_value_is_negative() {
-    match init(None) {
+    match PmixClient::connect_new(None) {
         Err(e) => {
             let raw = e.to_raw();
             assert!(
@@ -326,7 +326,7 @@ fn init_error_value_is_negative() {
 /// Error from init is a known PmixError variant (not unknown/user-defined).
 #[test]
 fn init_error_is_known_pmixerror() {
-    match init(None) {
+    match PmixClient::connect_new(None) {
         Err(e) => {
             let status = PmixStatus::from_raw(e.to_raw());
             assert!(
@@ -342,7 +342,7 @@ fn init_error_is_known_pmixerror() {
 /// `init` error is an error (not success) — raw value is negative.
 #[test]
 fn init_error_is_error_not_success() {
-    match init(None) {
+    match PmixClient::connect_new(None) {
         Err(e) => {
             assert!(
                 e.is_error(),
@@ -425,14 +425,14 @@ fn finalize_result_is_valid() {
 #[test]
 fn init_finalize_init_cycle() {
     // First init — should fail
-    let init1 = init(None);
+    let init1 = PmixClient::connect_new(None);
     assert!(init1.is_err(), "first init should fail without DVM");
 
     // Finalize — may succeed or fail, but should not crash
     let _fin1 = finalize(None);
 
     // Second init — should still fail
-    let init2 = init(None);
+    let init2 = PmixClient::connect_new(None);
     assert!(init2.is_err(), "second init should also fail without DVM");
 }
 
@@ -440,8 +440,8 @@ fn init_finalize_init_cycle() {
 #[test]
 #[ignore = "flaky — second init may succeed after first partially initializes PMIx"]
 fn double_init_then_finalize() {
-    let init1 = init(None);
-    let init2 = init(None);
+    let init1 = PmixClient::connect_new(None);
+    let init2 = PmixClient::connect_new(None);
     let _fin = finalize(None);
 
     assert!(init1.is_err(), "first init should fail");
@@ -452,7 +452,7 @@ fn double_init_then_finalize() {
 #[test]
 fn finalize_init_finalize() {
     let _fin1 = finalize(None);
-    let init1 = init(None);
+    let init1 = PmixClient::connect_new(None);
     let _fin2 = finalize(None);
 
     assert!(init1.is_err(), "init should fail without DVM");
@@ -462,7 +462,7 @@ fn finalize_init_finalize() {
 #[test]
 fn initialized_consistent_after_failed_lifecycle() {
     let before = initialized();
-    let _ = init(None);
+    let _ = PmixClient::connect_new(None);
     let _ = finalize(None);
     let after = initialized();
     // initialized() should be stable (consistent) across these operations
@@ -477,7 +477,7 @@ fn init_with_info_then_finalize_with_info() {
     let info1 = InfoBuilder::new().build();
     let info2 = InfoBuilder::new().build();
 
-    let init_result = init(Some(info1));
+    let init_result = PmixClient::connect_new(Some(info1));
     assert!(
         init_result.is_err(),
         "init with info should fail without DVM"
@@ -537,7 +537,7 @@ fn errunreach_is_error() {
 ///
 /// NOTE: We do NOT assert that all threads return the same value. `initialized()`
 /// reads PMIx's internal global state, which can change during parallel test execution
-/// when other tests call `init()` or `finalize()`. The key safety property is that
+/// when other tests call `PmixClient::connect_new()` or `finalize()`. The key safety property is that
 /// concurrent reads don't crash or panic — not that they return identical values.
 #[test]
 fn concurrent_initialized_safe() {
@@ -650,7 +650,7 @@ fn safe_functions_work_before_any_lifecycle() {
 /// `get_version` works after failed init.
 #[test]
 fn get_version_works_after_failed_init() {
-    let _ = init(None);
+    let _ = PmixClient::connect_new(None);
     assert!(
         !get_version().is_empty(),
         "get_version should work after failed init"
@@ -660,7 +660,7 @@ fn get_version_works_after_failed_init() {
 /// `initialized()` works after failed init and failed finalize.
 #[test]
 fn initialized_works_after_failed_lifecycle() {
-    let _ = init(None);
+    let _ = PmixClient::connect_new(None);
     let _ = finalize(None);
     // Just calling it — should not crash
     let _ = initialized();

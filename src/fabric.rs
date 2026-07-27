@@ -1547,7 +1547,7 @@ mod tests {
             || std::env::var("PMIX_RANK").is_ok()
             || std::env::var("PRTE_LAUNCHED").is_ok();
         if !_is_dvm {
-            match crate::init(None) {
+            match crate::PmixClient::connect_new(None) {
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("test_fabric_register_nb_compiles: init failed, skipping");
@@ -1572,7 +1572,7 @@ mod tests {
             || std::env::var("PMIX_RANK").is_ok()
             || std::env::var("PRTE_LAUNCHED").is_ok();
         if !_is_dvm {
-            match crate::init(None) {
+            match crate::PmixClient::connect_new(None) {
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("test_fabric_update_nb_compiles: init failed, skipping");
@@ -1594,7 +1594,7 @@ mod tests {
             || std::env::var("PMIX_RANK").is_ok()
             || std::env::var("PRTE_LAUNCHED").is_ok();
         if !_is_dvm {
-            match crate::init(None) {
+            match crate::PmixClient::connect_new(None) {
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("test_fabric_deregister_nb_compiles: init failed, skipping");

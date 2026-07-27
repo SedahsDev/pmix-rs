@@ -274,7 +274,7 @@ fn connect_integration() {
     // This would require PMIx_Init which needs a daemon.
     // In a real integration test environment, we would:
     //
-    // 1. Call pmix::lifecycle::init(None).expect("init");
+    // 1. Call pmix::lifecycle::PmixClient::connect_new(None).expect("init");
     // 2. Create a Proc with our own namespace and WILDCARD rank.
     // 3. Call connect(&[proc], &[]) and verify Ok(()).
     // 4. Call disconnect(&[proc], &[]) and verify Ok(()).
@@ -298,7 +298,7 @@ fn connect_nb_integration() {
     daemon_helper::ensure_pmix_init();
     // In a real integration test:
     //
-    // 1. Call pmix::lifecycle::init(None).expect("init");
+    // 1. Call pmix::lifecycle::PmixClient::connect_new(None).expect("init");
     // 2. Create a Proc with our own namespace and WILDCARD rank.
     // 3. Use a Arc<Mutex<...>> or AtomicBool shared with the callback
     //    to detect when connect_nb completes.

@@ -397,8 +397,8 @@ fn publish_unpublish_cycle() {
     assert!(publish_result.is_ok(), "publish should succeed");
 
     // Fence to ensure data is visible.
-    let proc = ctx.get_proc();
-    let fence_result = pmix::fence(proc, None);
+    let proc = ctx.require_proc();
+    let fence_result = pmix::fence(&proc, None);
     assert!(fence_result.is_ok(), "fence after publish should succeed");
 
     // Unpublish the keys.
@@ -409,7 +409,7 @@ fn publish_unpublish_cycle() {
     );
 
     // Final fence to ensure cleanup is complete.
-    let final_fence = pmix::fence(proc, None);
+    let final_fence = pmix::fence(&proc, None);
     assert!(final_fence.is_ok(), "final fence should succeed");
 }
 
