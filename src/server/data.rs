@@ -173,7 +173,9 @@ pub fn server_lookup(
             let val = unsafe { ptr::read(&pdata.value) };
             // Destruct the pdata.
             unsafe { ffi::PMIx_Pdata_destruct(&mut pdata) };
-            Ok(PmixOwnedValue { inner: val })
+            Ok(PmixOwnedValue { inner: val, 
+            _not_thread_safe: std::marker::PhantomData,
+        })
         } else {
             unsafe { ffi::PMIx_Pdata_destruct(&mut pdata) };
             Err(PmixStatus::Known(PmixError::ErrNotFound))

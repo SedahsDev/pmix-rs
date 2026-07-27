@@ -64,6 +64,8 @@ use crate::{Info, PmixError, PmixStatus};
 pub struct MonitorResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl MonitorResults {
@@ -85,6 +87,8 @@ impl MonitorResults {
         Self {
             handle: std::ptr::null_mut(),
             len,
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 }
@@ -156,7 +160,9 @@ unsafe extern "C" fn monitor_callback_bridge(
                 Some(MonitorResults {
                     handle: info,
                     len: ninfo,
-                })
+                
+            _not_thread_safe: std::marker::PhantomData,
+        })
             } else {
                 None
             };
@@ -265,6 +271,8 @@ pub fn process_monitor(
         Ok(MonitorResults {
             handle: results,
             len: nresults,
+        
+            _not_thread_safe: std::marker::PhantomData,
         })
     } else {
         Err(pmix_status)

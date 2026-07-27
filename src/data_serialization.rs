@@ -94,6 +94,8 @@ impl<'a> PmixProcRef<'a> {
 #[derive(Debug)]
 pub struct PmixByteObject {
     inner: ffi::pmix_byte_object_t,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 // Not Send/Sync by default — the underlying buffer is managed by the PMIx C library
@@ -106,6 +108,8 @@ impl PmixByteObject {
                 bytes: ptr::null_mut(),
                 size: 0,
             },
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 
@@ -163,6 +167,8 @@ impl From<Vec<u8>> for PmixByteObject {
                 bytes: c_ptr as *mut std::os::raw::c_char,
                 size,
             },
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 }
@@ -200,6 +206,8 @@ impl Drop for PmixByteObject {
 /// ```
 pub struct PmixDataBuffer {
     ptr: *mut ffi::pmix_data_buffer_t,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 // The PMIx data buffer is not safe to share across threads.
@@ -239,6 +247,8 @@ impl PmixDataBuffer {
     pub fn null() -> Self {
         Self {
             ptr: ptr::null_mut(),
+        
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 
@@ -250,7 +260,9 @@ impl PmixDataBuffer {
     /// or null. The resulting `PmixDataBuffer` takes ownership and will call
     /// `PMIx_Data_buffer_release` on drop.
     pub unsafe fn from_raw(ptr: *mut ffi::pmix_data_buffer_t) -> Self {
-        Self { ptr }
+        Self { ptr, 
+            _not_thread_safe: std::marker::PhantomData,
+        }
     }
 }
 
@@ -310,7 +322,9 @@ pub fn data_buffer_create() -> Result<PmixDataBuffer, PmixStatus> {
     if ptr.is_null() {
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
-    Ok(PmixDataBuffer { ptr })
+    Ok(PmixDataBuffer { ptr, 
+            _not_thread_safe: std::marker::PhantomData,
+        })
 }
 
 /// Release a PMIx data buffer.
