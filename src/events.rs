@@ -22,6 +22,17 @@
 //! call is blocking and returns the handler reference ID directly in the
 //! return status (positive = success, negative = error).
 //!
+//! # Threading
+//!
+//! Event handlers are delivered on the PMIx **progress thread**, like all
+//! `_nb` completions. The notification bridge follows the policy in
+//! [`crate::threading`]: the user's `NotificationFn` is stored in a registry
+//! keyed by the handler reference ID (never a raw pointer in `cbdata`), and
+//! the registry lock is **not** held while the user callback runs. Handlers
+//! must not call blocking PMIx APIs; hop off with
+//! [`spawn_from_callback`](crate::threading::spawn_from_callback) or a
+//! [`CallbackChannel`](crate::threading::CallbackChannel) first.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -42,9 +53,11 @@
 //! deregister_event_handler(handler_ref, None).expect("deregister failed");
 //! ```
 
-use crate::{Info, PmixDataRange, PmixError, PmixStatus, Proc, ffi};
+use crate::{ffi, Info, PmixDataRange, PmixError, PmixStatus, Proc};
+use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::ptr;
+use std::sync::{LazyLock, Mutex};
 
 /// PMIx event notification completion callback type (re-exported for external use).
 ///
@@ -131,8 +144,22 @@ pub type HandlerRegCbFn =
 pub type OpCbFn = Option<unsafe extern "C" fn(status: i32, cbdata: *mut c_void)>;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Internal bridge: convert our public NotificationFn to the FFI type
+// Internal bridge: ref-keyed handler registry
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Global registry mapping handler reference IDs to boxed user notification
+/// functions.
+///
+/// PMIx retains an event handler — and its `cbdata` — for the lifetime of the
+/// registration, so the user's [`NotificationFn`] must outlive it. We store
+/// the function here, keyed by the reference ID that PMIx passes to the
+/// notification bridge as its first argument, and free it at deregistration.
+/// This follows the bridge policy in [`crate::threading`]: the registry lock
+/// is held only to copy the function pointer out, never across the user call,
+/// and no callback data rides in a raw `cbdata` pointer.
+type HandlerRegistry = HashMap<EventHandlerRef, Box<NotificationFn>>;
+static HANDLER_REGISTRY: LazyLock<Mutex<HandlerRegistry>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Convert a user-provided `NotificationFn` into the FFI `pmix_notification_fn_t`.
 ///
@@ -140,6 +167,11 @@ pub type OpCbFn = Option<unsafe extern "C" fn(status: i32, cbdata: *mut c_void)>
 /// `source`, `info`, and `results` parameters so that callers outside the crate
 /// don't need access to the private `ffi` module. This bridge casts those back
 /// to the real FFI types before calling the user's function.
+///
+/// Runs on the PMIx **progress thread**. The user function is resolved from
+/// [`HANDLER_REGISTRY`] under a scoped lock that is released before the user
+/// callback executes; the callback must not call blocking PMIx APIs (see
+/// [`crate::threading`]).
 unsafe extern "C" fn notification_bridge(
     evhdlr_registration_id: EventHandlerRef,
     status: i32,
@@ -149,13 +181,23 @@ unsafe extern "C" fn notification_bridge(
     results: *mut ffi::pmix_info_t,
     nresults: usize,
     cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
-    cbdata: *mut c_void,
+    _cbdata: *mut c_void,
 ) {
+    // Copy the user fn pointer out of the registry WITHOUT holding the lock
+    // across the user call (bridge policy). Function pointers are `Copy`, so
+    // a short scoped critical section is all we need.
+    let user_fn = {
+        let registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+        registry
+            .get(&evhdlr_registration_id)
+            .and_then(|b| *b.as_ref())
+    };
+
     // SAFETY: We cast the FFI pointers back to c_void and call the user's
     // callback. The user callback receives opaque pointers and is not expected
     // to dereference them without casting back.
-    unsafe {
-        if let Some(user_fn) = *(cbdata as *mut NotificationFn) {
+    if let Some(user_fn) = user_fn {
+        unsafe {
             user_fn(
                 evhdlr_registration_id,
                 status,
@@ -171,18 +213,43 @@ unsafe extern "C" fn notification_bridge(
     }
 }
 
-/// Wrap a user `NotificationFn` into the FFI type, storing the user function
-/// in a heap-allocated box that we pass as `cbdata` to the bridge.
-fn wrap_notification_fn(user_fn: NotificationFn) -> (ffi::pmix_notification_fn_t, *mut c_void) {
-    if user_fn.is_some() {
-        // Allocate the user function on the heap so the bridge can access it.
-        let boxed = Box::new(user_fn);
-        (
-            Some(notification_bridge),
-            Box::into_raw(boxed) as *mut c_void,
-        )
-    } else {
-        (None, std::ptr::null_mut())
+/// State carried by [`register_event_handler_nb`]'s completion bridge: the
+/// boxed user notification fn plus the user's own completion callback and
+/// opaque data, forwarded verbatim once the reference ID is known.
+struct HandlerRegState {
+    user_fn: Box<NotificationFn>,
+    user_cbfunc: HandlerRegCbFn,
+    user_cbdata: *mut c_void,
+}
+
+/// C bridge for the registration-completion callback of
+/// [`register_event_handler_nb`].
+///
+/// For non-blocking registration the reference ID is only known here, so the
+/// boxed user notification fn is parked in [`HANDLER_REGISTRY`] at this point
+/// (freed on error instead, so it never leaks). The user's own `cbfunc` is
+/// then forwarded verbatim with the original `cbdata`.
+extern "C" fn handler_reg_cb_bridge(status: i32, refid: EventHandlerRef, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+
+    // SAFETY: cbdata is the `Box<HandlerRegState>` we passed to
+    // PMIx_Register_event_handler. PMIx invokes the registration completion
+    // callback exactly once per registration request.
+    let state = unsafe { Box::from_raw(cbdata as *mut HandlerRegState) };
+
+    if PmixStatus::from_raw(status).is_success() {
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .insert(refid, state.user_fn);
+    }
+
+    if let Some(user_cbfunc) = state.user_cbfunc {
+        // SAFETY: user-supplied completion callback with user-supplied opaque
+        // cbdata; both are forwarded verbatim from the registration call.
+        unsafe { user_cbfunc(status, refid, state.user_cbdata) };
     }
 }
 
@@ -201,7 +268,9 @@ fn wrap_notification_fn(user_fn: NotificationFn) -> (ffi::pmix_notification_fn_t
 /// * `codes` — array of event codes to handle (empty = all events).
 /// * `info` — optional info directives (e.g., range, scope).
 /// * `evhdlr` — the notification callback function.
-/// * `cbfunc` — `None` for blocking mode; `Some(...)` for non-blocking.
+/// * `cbfunc` — `None` for blocking mode; `Some(...)` for non-blocking
+///   (in which case the reference ID is delivered to `cbfunc` and the return
+///   value is not meaningful — prefer [`register_event_handler_nb`]).
 ///
 /// # Returns
 /// * `Ok(handler_ref)` — the handler reference ID (positive integer).
@@ -242,42 +311,36 @@ pub fn register_event_handler(
         (ptr::null(), 0)
     };
 
-    let (ffi_evhdlr, evhdlr_cbdata) = wrap_notification_fn(evhdlr);
-
     // SAFETY: FFI call into PMIx library. The codes slice and info handle
-    // remain valid for the duration of this call. PMIx does not retain these
-    // pointers after the call returns (blocking mode) or after cbfunc fires
-    // (non-blocking mode).
+    // remain valid for the duration of this call. The user's notification fn
+    // is kept alive by HANDLER_REGISTRY (keyed by the reference ID PMIx
+    // returns) and freed at deregistration — no callback data rides in cbdata,
+    // so NULL is passed and nothing is freed after this call returns.
     let raw_status = unsafe {
         ffi::PMIx_Register_event_handler(
             codes_ptr,
             ncodes,
             info_ptr as *mut ffi::pmix_info_t,
             ninfo,
-            ffi_evhdlr,
+            Some(notification_bridge),
             cbfunc,
-            evhdlr_cbdata,
+            ptr::null_mut(),
         )
     };
 
-    // Clean up the boxed notification fn if we allocated one.
-    // In blocking mode, the registration is complete, so we can free it.
-    // In non-blocking mode, the bridge holds a reference — but for blocking
-    // mode (cbfunc is None), PMIx doesn't retain our bridge pointer, so
-    // we need to clean up after the call returns.
-    if !evhdlr_cbdata.is_null() {
-        unsafe {
-            // Recover the boxed NotificationFn and drop it.
-            // Note: in non-blocking mode this is a use-after-free bug because
-            // the bridge still needs it. For now, only blocking mode is safe.
-            // Users should prefer blocking mode or manage lifetime manually.
-            let _ = Box::from_raw(evhdlr_cbdata as *mut NotificationFn);
-        }
-    }
-
     let status = PmixStatus::from_raw(raw_status);
     if status.is_success() {
-        Ok(raw_status as EventHandlerRef)
+        let handler_ref = raw_status as EventHandlerRef;
+        if evhdlr.is_some() {
+            // Park the user fn for the lifetime of the registration. PMIx may
+            // deliver an event to the bridge the moment registration returns,
+            // so insert before returning to the caller.
+            HANDLER_REGISTRY
+                .lock()
+                .expect("mutex poisoned (events.rs)")
+                .insert(handler_ref, Box::new(evhdlr));
+        }
+        Ok(handler_ref)
     } else {
         Err(status)
     }
@@ -321,21 +384,32 @@ pub fn register_event_handler_nb(
         (ptr::null(), 0)
     };
 
-    let (ffi_evhdlr, _evhdlr_cbdata) = wrap_notification_fn(evhdlr);
+    // In non-blocking mode the reference ID is only delivered via cbfunc, so
+    // the user fn is boxed into a registration state; the completion bridge
+    // parks it in HANDLER_REGISTRY (freed on error) and then forwards to the
+    // user's cbfunc. The notification bridge resolves the fn by ref ID, so no
+    // callback data is needed in the registration cbdata — except the state
+    // box itself, which PMIx passes back to our completion bridge.
+    let state = Box::new(HandlerRegState {
+        user_fn: Box::new(evhdlr),
+        user_cbfunc: cbfunc,
+        user_cbdata: cbdata,
+    });
 
     // SAFETY: FFI call into PMIx library. The codes slice lives for the
-    // duration of this call. In non-blocking mode, PMIx retains the
-    // evhdlr callback; it must be a static function or otherwise live
-    // for the lifetime of the handler.
+    // duration of this call. The boxed HandlerRegState is reclaimed by
+    // handler_reg_cb_bridge exactly once; on synchronous failure it is
+    // intentionally leaked (PMIx may still invoke the completion callback
+    // with an error status, so freeing it here could double-free).
     let raw_status = unsafe {
         ffi::PMIx_Register_event_handler(
             codes_ptr,
             ncodes,
             info_ptr as *mut ffi::pmix_info_t,
             ninfo,
-            ffi_evhdlr,
-            cbfunc,
-            cbdata,
+            Some(notification_bridge),
+            Some(handler_reg_cb_bridge),
+            Box::into_raw(state) as *mut c_void,
         )
     };
 
@@ -376,6 +450,15 @@ pub fn deregister_event_handler(
     evhdlr_ref: EventHandlerRef,
     cbfunc: OpCbFn,
 ) -> Result<(), PmixStatus> {
+    // Free the boxed user fn BEFORE the C call so the notification bridge can
+    // no longer fire into freed memory, even if an event is already in flight
+    // on the progress thread. If the C deregistration then fails, the handler
+    // stays registered but its events are silently dropped (no UAF).
+    HANDLER_REGISTRY
+        .lock()
+        .expect("mutex poisoned (events.rs)")
+        .remove(&evhdlr_ref);
+
     // SAFETY: FFI call into PMIx library. evhdlr_ref is an opaque usize
     // returned by the library itself, so it is valid to pass back.
     let raw_status =
@@ -534,6 +617,7 @@ pub fn notify_event_nb(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
 
     // ─── Type alias tests ───────────────────────────────────────────────────
 
@@ -573,18 +657,118 @@ mod tests {
         assert!(fn_.is_none());
     }
 
-    // ─── wrap_notification_fn tests ─────────────────────────────────────────
+    // ─── Handler registry + notification bridge tests ──────────────────────
 
-    #[test]
-    fn test_wrap_notification_fn_none() {
-        let (ffi_fn, cbdata) = wrap_notification_fn(None);
-        assert!(ffi_fn.is_none());
-        assert!(cbdata.is_null());
+    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
+
+    /// A no-op user notification handler for bridge tests.
+    unsafe extern "C" fn test_handler(
+        _id: EventHandlerRef,
+        _status: i32,
+        _source: *const std::os::raw::c_void,
+        _info: *mut std::os::raw::c_void,
+        _ninfo: usize,
+        _results: *mut std::os::raw::c_void,
+        _nresults: usize,
+        _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+        _cbdata: *mut std::os::raw::c_void,
+    ) {
     }
 
     #[test]
-    fn test_wrap_notification_fn_some() {
-        extern "C" fn dummy_handler(
+    fn test_handler_registry_insert_lookup_remove() {
+        let ref_id: EventHandlerRef = 424242;
+        {
+            let mut registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+            registry.insert(ref_id, Box::new(Some(test_handler)));
+            let found = registry.get(&ref_id).and_then(|b| *b.as_ref());
+            assert!(found.is_some(), "user fn should be findable by ref id");
+            registry.remove(&ref_id);
+            assert!(registry.get(&ref_id).is_none());
+        }
+    }
+
+    #[test]
+    fn test_notification_bridge_invokes_user_fn() {
+        static CALLED: AtomicBool = AtomicBool::new(false);
+
+        unsafe extern "C" fn recording_handler(
+            _id: EventHandlerRef,
+            status: i32,
+            _source: *const std::os::raw::c_void,
+            _info: *mut std::os::raw::c_void,
+            _ninfo: usize,
+            _results: *mut std::os::raw::c_void,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbdata: *mut std::os::raw::c_void,
+        ) {
+            assert_eq!(status, 7, "handler should receive the event status");
+            CALLED.store(true, Ordering::SeqCst);
+        }
+
+        let ref_id: EventHandlerRef = 424243;
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .insert(ref_id, Box::new(Some(recording_handler)));
+
+        unsafe {
+            notification_bridge(
+                ref_id,
+                7,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+
+        assert!(
+            CALLED.load(Ordering::SeqCst),
+            "bridge must invoke the user fn"
+        );
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .remove(&ref_id);
+    }
+
+    #[test]
+    fn test_notification_bridge_unknown_ref_is_noop() {
+        // No registry entry — the bridge must skip silently (this also covers
+        // the window before a registration completes).
+        unsafe {
+            notification_bridge(
+                999_999_999,
+                0,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    /// Deadlock regression (issue #51): the notification bridge must NOT hold
+    /// the registry lock while the user callback runs.
+    ///
+    /// A user handler that blocks is invoked from a stand-in progress thread;
+    /// while it is blocked, this test must still be able to acquire the
+    /// registry lock. If the lock were held across the user call, the
+    /// `try_lock` below would fail and the test would fail.
+    #[test]
+    fn test_notification_bridge_no_lock_across_user_code() {
+        static ENTER_TX: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
+        static RELEASE_RX: Mutex<Option<mpsc::Receiver<()>>> = Mutex::new(None);
+
+        unsafe extern "C" fn blocking_handler(
             _id: EventHandlerRef,
             _status: i32,
             _source: *const std::os::raw::c_void,
@@ -595,14 +779,167 @@ mod tests {
             _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
             _cbdata: *mut std::os::raw::c_void,
         ) {
+            if let Some(tx) = ENTER_TX
+                .lock()
+                .expect("mutex poisoned (events.rs)")
+                .as_ref()
+            {
+                let _ = tx.send(());
+            }
+            if let Some(rx) = RELEASE_RX
+                .lock()
+                .expect("mutex poisoned (events.rs)")
+                .as_ref()
+            {
+                let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+            }
         }
-        let (ffi_fn, cbdata) = wrap_notification_fn(Some(dummy_handler));
-        assert!(ffi_fn.is_some());
-        assert!(!cbdata.is_null());
-        // Clean up the allocated box
-        unsafe {
-            let _ = Box::from_raw(cbdata as *mut NotificationFn);
+
+        let (enter_tx, enter_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        *ENTER_TX.lock().expect("mutex poisoned (events.rs)") = Some(enter_tx);
+        *RELEASE_RX.lock().expect("mutex poisoned (events.rs)") = Some(release_rx);
+
+        let ref_id: EventHandlerRef = 424244;
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .insert(ref_id, Box::new(Some(blocking_handler)));
+
+        // Stand-in "progress thread": delivers the event, blocking inside the
+        // user handler until released.
+        let progress_thread = std::thread::spawn(move || unsafe {
+            notification_bridge(
+                ref_id,
+                0,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            );
+        });
+
+        // Wait until the user handler is executing…
+        enter_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("handler should have entered");
+        // …and prove the registry lock is free: try_lock must succeed.
+        // (If the bridge held the lock across the user call, this would be
+        // `Err(TryLockError::WouldBlock)`.)
+        let guard = HANDLER_REGISTRY
+            .try_lock()
+            .expect("registry lock must not be held across user callback code");
+        drop(guard);
+
+        // Release the handler and let the progress thread finish.
+        let _ = release_tx.send(());
+        progress_thread
+            .join()
+            .expect("progress thread should finish");
+
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .remove(&ref_id);
+    }
+
+    #[test]
+    fn test_handler_reg_cb_bridge_parks_fn_on_success() {
+        static REG_REFID: AtomicUsize = AtomicUsize::new(0);
+
+        unsafe extern "C" fn reg_cb(
+            _status: i32,
+            refid: EventHandlerRef,
+            _cbdata: *mut std::os::raw::c_void,
+        ) {
+            REG_REFID.store(refid, Ordering::SeqCst);
         }
+
+        let ref_id: EventHandlerRef = 424245;
+        let state = Box::new(HandlerRegState {
+            user_fn: Box::new(Some(test_handler)),
+            user_cbfunc: Some(reg_cb),
+            user_cbdata: std::ptr::null_mut(),
+        });
+
+        handler_reg_cb_bridge(
+            0, /* PMIX_SUCCESS */
+            ref_id,
+            Box::into_raw(state) as *mut c_void,
+        );
+
+        // The user fn is now parked in the registry under the delivered ref id,
+        // and the user's completion callback was forwarded the ref id.
+        assert_eq!(REG_REFID.load(Ordering::SeqCst), ref_id);
+        let parked = {
+            let registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+            registry.get(&ref_id).and_then(|b| *b.as_ref())
+        };
+        assert!(
+            parked.is_some(),
+            "user fn should be parked on successful registration"
+        );
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .remove(&ref_id);
+    }
+
+    #[test]
+    fn test_handler_reg_cb_bridge_error_frees_state() {
+        static REG_STATUS: AtomicI32 = AtomicI32::new(0);
+
+        unsafe extern "C" fn reg_cb(
+            status: i32,
+            _refid: EventHandlerRef,
+            _cbdata: *mut std::os::raw::c_void,
+        ) {
+            REG_STATUS.store(status, Ordering::SeqCst);
+        }
+
+        let ref_id: EventHandlerRef = 424246;
+        let state = Box::new(HandlerRegState {
+            user_fn: Box::new(Some(test_handler)),
+            user_cbfunc: Some(reg_cb),
+            user_cbdata: std::ptr::null_mut(),
+        });
+
+        handler_reg_cb_bridge(
+            -39, /* PMIX_ERR_INIT */
+            ref_id,
+            Box::into_raw(state) as *mut c_void,
+        );
+
+        // Failure: nothing parked (box freed instead), user cbfunc still
+        // forwarded the error status verbatim.
+        assert_eq!(REG_STATUS.load(Ordering::SeqCst), -39);
+        let registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+        assert!(
+            registry.get(&ref_id).is_none(),
+            "no fn parked on failed registration"
+        );
+    }
+
+    #[test]
+    fn test_deregister_removes_registry_entry() {
+        let ref_id: EventHandlerRef = 424247;
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .insert(ref_id, Box::new(Some(test_handler)));
+
+        // Without PMIx init the C call fails, but the registry entry is freed
+        // first — no handler can fire into freed memory after this returns.
+        let _ = deregister_event_handler(ref_id, None);
+
+        let registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+        assert!(
+            registry.get(&ref_id).is_none(),
+            "deregistration must free the user fn"
+        );
     }
 
     // ─── PmixDataRange tests ────────────────────────────────────────────────
@@ -1136,108 +1473,10 @@ mod tests {
         }
     }
 
-    // ─── wrap_notification_fn with Some ─────────────────────────────────────
-
-    #[test]
-    fn test_wrap_notification_fn_some_returns_bridge() {
-        extern "C" fn dummy(
-            _id: EventHandlerRef,
-            _status: i32,
-            _source: *const c_void,
-            _info: *mut c_void,
-            _ninfo: usize,
-            _results: *mut c_void,
-            _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
-            _cbdata: *mut c_void,
-        ) {
-        }
-        let (ffi_fn, cbdata) = wrap_notification_fn(Some(dummy));
-        assert!(ffi_fn.is_some());
-        assert!(!cbdata.is_null());
-        // Clean up
-        unsafe {
-            let _ = Box::from_raw(cbdata as *mut NotificationFn);
-        }
-    }
-
-    #[test]
-    fn test_wrap_notification_fn_none_returns_null() {
-        let (ffi_fn, cbdata) = wrap_notification_fn(None);
-        assert!(ffi_fn.is_none());
-        assert!(cbdata.is_null());
-    }
-
-    // ─── notification_bridge tests ──────────────────────────────────────────
-
-    #[test]
-    fn test_notification_bridge_with_null_cbdata() {
-        // When cbdata is null, notification_bridge should not crash
-        // It checks if let Some(user_fn) = *(cbdata as *mut NotificationFn)
-        // With a null pointer, this would dereference null — but since
-        // we're testing, we use a valid pointer to None
-        let boxed_fn: Box<NotificationFn> = Box::new(None);
-        let raw = Box::into_raw(boxed_fn) as *mut c_void;
-        unsafe {
-            notification_bridge(
-                42,
-                0,
-                std::ptr::null(),
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                0,
-                None,
-                raw,
-            );
-        }
-        // Clean up — the boxed NotificationFn with None value
-        unsafe {
-            let _ = Box::from_raw(raw as *mut NotificationFn);
-        }
-    }
-
-    #[test]
-    fn test_notification_bridge_invokes_user_fn() {
-        use std::sync::Arc;
-        let called = Arc::new(std::sync::Mutex::new(false));
-        let _called_clone = called.clone();
-
-        extern "C" fn dummy(
-            _id: EventHandlerRef,
-            _status: i32,
-            _source: *const c_void,
-            _info: *mut c_void,
-            _ninfo: usize,
-            _results: *mut c_void,
-            _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
-            _cbdata: *mut c_void,
-        ) {
-        }
-
-        // Create a boxed NotificationFn with Some(dummy)
-        let boxed_fn: Box<NotificationFn> = Box::new(Some(dummy));
-        let raw = Box::into_raw(boxed_fn) as *mut c_void;
-
-        unsafe {
-            notification_bridge(
-                42,
-                0,
-                std::ptr::null(),
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                0,
-                None,
-                raw,
-            );
-        }
-        // Clean up
-        unsafe {
-            let _ = Box::from_raw(raw as *mut NotificationFn);
-        }
-    }
+    // ─── Notification bridge (registry-based) tests live at the top of this
+    // module (see `test_notification_bridge_*`). The old boxed-cbdata
+    // mechanism they replaced is gone; handlers are stored in
+    // HANDLER_REGISTRY keyed by the reference ID.
 
     // ─── PmixDataRange variant tests ────────────────────────────────────────
 
@@ -2210,59 +2449,6 @@ mod tests {
     fn test_data_range_from_raw_one() {
         let range = PmixDataRange::from_raw(1);
         assert_eq!(range.to_raw(), 1);
-    }
-
-    // ─── wrap_notification_fn: multiple calls produce independent boxes ────
-
-    #[test]
-    fn test_wrap_notification_fn_multiple_calls_independent() {
-        extern "C" fn dummy1(
-            _id: EventHandlerRef,
-            _status: i32,
-            _source: *const c_void,
-            _info: *mut c_void,
-            _ninfo: usize,
-            _results: *mut c_void,
-            _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
-            _cbdata: *mut c_void,
-        ) {
-        }
-        extern "C" fn dummy2(
-            _id: EventHandlerRef,
-            _status: i32,
-            _source: *const c_void,
-            _info: *mut c_void,
-            _ninfo: usize,
-            _results: *mut c_void,
-            _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
-            _cbdata: *mut c_void,
-        ) {
-        }
-        let (ffi1, data1) = wrap_notification_fn(Some(dummy1));
-        let (ffi2, data2) = wrap_notification_fn(Some(dummy2));
-        assert!(ffi1.is_some());
-        assert!(ffi2.is_some());
-        assert!(!data1.is_null());
-        assert!(!data2.is_null());
-        // Both should point to the same bridge function
-        assert!(ffi1.is_some() && ffi2.is_some());
-        // Clean up both boxes
-        unsafe {
-            let _ = Box::from_raw(data1 as *mut NotificationFn);
-            let _ = Box::from_raw(data2 as *mut NotificationFn);
-        }
-    }
-
-    #[test]
-    fn test_wrap_notification_fn_none_multiple_calls() {
-        let (ffi1, data1) = wrap_notification_fn(None);
-        let (ffi2, data2) = wrap_notification_fn(None);
-        assert!(ffi1.is_none());
-        assert!(ffi2.is_none());
-        assert!(data1.is_null());
-        assert!(data2.is_null());
     }
 
     // ─── register_event_handler_nb with user cbdata ────────────────────────

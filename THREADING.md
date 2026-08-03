@@ -5,7 +5,8 @@
 **Related:** [#51](https://github.com/SedahsDev/pmix-rs/issues/51)–[#52](https://github.com/SedahsDev/pmix-rs/issues/52), [#54](https://github.com/SedahsDev/pmix-rs/issues/54), [#66](https://github.com/SedahsDev/pmix-rs/issues/66)–[#67](https://github.com/SedahsDev/pmix-rs/issues/67)
 
 Crate-root docs in `src/lib.rs` (`//! # Concurrency model`) match this document.  
-Compile-time matrix: `src/threading_assert.rs`.
+Compile-time matrix: `src/threading_assert.rs`.  
+Callback hop-off helpers + bridge policy: `src/threading.rs`.
 
 ---
 
@@ -93,16 +94,24 @@ Deadlocks: external progress without a loop; mutex held across `progress()` + ca
 
 1. Use session types (`PmixClient` / `PmixServer` / `PmixTool`) — clone for workers; `disconnect` once.  
 2. Build `Info` and other C-owned handles on the calling thread.  
-3. Callbacks = progress thread — hop before blocking PMIx.  
+3. Callbacks = progress thread — hop before blocking PMIx. Use
+   `threading::spawn_from_callback` (fire-and-forget thread) or
+   `threading::CallbackChannel` (app-thread receiver) — see
+   `examples/callback_hop.rs`. Never join/wait in-handler; convert C-owned
+   (`!Send`) values to Rust-owned data (e.g. `bytes_copy()`) before hopping.  
 4. One connect/disconnect cycle per process (per role).  
 5. Progress must run.  
-6. cbdata: `crate::cbdata::encode_req_id` / `decode_req_id`.
+6. cbdata: `crate::cbdata::encode_req_id` / `decode_req_id`.  
+7. Bridges never hold a registry `Mutex` across user callback execution
+   (regression-tested in `events`).
 
 ---
 
 ## 7. Examples
 
-`examples/client_minimal.rs`, `simple_put_get.rs`, `simple_fence.rs`, `server_minimal.rs`, `tool_attach.rs`.
+`examples/client_minimal.rs`, `simple_put_get.rs`, `simple_fence.rs`,
+`server_minimal.rs`, `tool_attach.rs`, `callback_hop.rs` (get_nb + events
+callback hop-off via `threading` helpers).
 
 ---
 
@@ -116,7 +125,7 @@ Deadlocks: external progress without a loop; mutex held across `progress()` + ca
 | Remove Context/init | #69 | Done |
 | Server/tool sessions | #49 | Done |
 | C-owned !Send + assert matrix | #50 | Done (`threading_assert.rs`) |
-| Callback hop / audit | #51, #67 | Open |
+| Callback hop / audit | #51, #67 | #51 Done (`threading` module + events registry); #67 Open |
 | Server upcall example | #52 | Open |
 | Global FFI mutex | #53 | Deferred |
 | MT integration tests | #54 | Open |

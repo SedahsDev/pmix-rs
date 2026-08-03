@@ -22,6 +22,11 @@
 //!   (clones must not each run `PMIx_Finalize`). Call [`disconnect`](PmixClient::disconnect)
 //!   or [`finalize`].
 //! - Server upcalls may run on PMIx internal threads; keep callbacks short.
+//! - `_nb` completions and events are delivered on the **progress thread**.
+//!   Hop off before any blocking work with the [`threading`] helpers
+//!   (`spawn_from_callback`, `CallbackChannel`); never call blocking PMIx
+//!   APIs from inside a callback. See `examples/callback_hop.rs` and
+//!   [THREADING.md](../THREADING.md).
 //!
 //! See [THREADING.md](../THREADING.md) in the repo for the full model.
 //!
@@ -44,6 +49,7 @@ pub mod process_mgmt;
 pub mod query_log;
 pub mod security;
 pub mod server;
+pub mod threading;
 pub mod tool;
 pub mod utility;
 #[cfg(test)]
