@@ -91,6 +91,20 @@ use std::sync::mpsc::{self, Receiver, RecvError, RecvTimeoutError, Sender, TryRe
 /// * [`progress`](crate::progress) (re-entering the event engine).
 /// * Waiting on another thread (joining a handle, blocking on a lock that an
 ///   application thread holds while it calls PMIx).
+/// * Holding a crate registry `Mutex` across user code (bridges must drop the
+///   lock before invoking application callbacks).
+///
+/// ```rust,ignore
+/// // ❌ NEVER — blocks the progress thread on a PMIx round-trip
+/// let _ = pmix::data_ops::get(&proc, "pmix.job.size", None);
+///
+/// // ❌ NEVER — waits for a condition that only progress can satisfy
+/// while !ready.load(Ordering::SeqCst) { /* spin / park */ }
+///
+/// // ❌ NEVER — holds a registry lock across application callback code
+/// let mut guard = EVENT_HANDLERS.lock().unwrap();
+/// if let Some(cb) = guard.get_mut(&id) { cb(); } // user code under lock
+/// ```
 ///
 /// Use [`spawn_from_callback`] or a [`CallbackChannel`] to hop off first.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -113,6 +127,11 @@ pub struct ProgressContext;
 ///   callback frame; move Rust-owned data (or clones) into the closure.
 /// * If spawning fails (thread limits / resource exhaustion), the error is
 ///   returned — log it and continue; never panic from a PMIx callback.
+/// * A panic inside `f` is **isolated to the hop thread** (it does not abort
+///   the process by itself). This helper logs a branded diagnostic on stderr
+///   and then resumes unwinding so a joined handle still reports
+///   [`JoinHandle::join`](std::thread::JoinHandle::join) `Err`. Prefer not
+///   panicking in hop work in long-running HPC jobs — treat panics as bugs.
 ///
 /// # Example
 ///
@@ -130,7 +149,19 @@ where
 {
     std::thread::Builder::new()
         .name("pmix-callback-hop".to_string())
-        .spawn(f)
+        .spawn(move || {
+            // Isolate panics to this hop thread. Log a clear diagnostic for
+            // operators (fire-and-forget callers never join), then resume so
+            // `JoinHandle::join` still surfaces the payload instead of a
+            // silent `Ok(())`.
+            if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+                eprintln!(
+                    "pmix: thread 'pmix-callback-hop' panicked while running \
+                     work hopped off the PMIx progress thread"
+                );
+                std::panic::resume_unwind(payload);
+            }
+        })
 }
 
 /// Channel pair for hopping callback payloads off the progress thread.
@@ -193,6 +224,12 @@ impl<T> CallbackChannel<T> {
     }
 
     /// Non-blocking poll for a payload.
+    ///
+    /// Returns [`TryRecvError::Empty`] when no message is ready yet, and
+    /// [`TryRecvError::Disconnected`] when every sender has been dropped
+    /// (no further messages will arrive). Callers should treat both as
+    /// non-fatal — never unwrap this on the application thread without
+    /// deciding how end-of-stream is handled.
     pub fn try_recv(&self) -> Result<T, TryRecvError> {
         self.rx.try_recv()
     }
@@ -253,6 +290,25 @@ mod tests {
     }
 
     #[test]
+    fn spawn_from_callback_panic_is_surfaced_on_join() {
+        // Hop-thread panics must not be swallowed into a silent Ok(()) —
+        // callers that join still observe the failure.
+        let handle = spawn_from_callback(|| panic!("hop-work boom")).expect("spawn");
+        let join_err = handle
+            .join()
+            .expect_err("panic in hop work must surface on JoinHandle::join");
+        let msg = join_err
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| join_err.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("<non-string panic payload>");
+        assert!(
+            msg.contains("hop-work boom"),
+            "unexpected panic payload: {msg}"
+        );
+    }
+
+    #[test]
     fn callback_channel_send_recv_across_threads() {
         let hop = CallbackChannel::<String>::new();
         let tx = hop.sender();
@@ -269,6 +325,17 @@ mod tests {
     fn callback_channel_try_recv_empty() {
         let hop = CallbackChannel::<u8>::new();
         assert!(matches!(hop.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn callback_channel_try_recv_disconnected_when_senders_dropped() {
+        // Keep the Result API (Empty vs Disconnected) so callers can tell a
+        // quiet progress thread from end-of-stream after every sender dies.
+        let hop = CallbackChannel::<u8>::new();
+        let tx = hop.sender();
+        let rx = hop.into_receiver(); // drops the channel's owned sender
+        drop(tx); // last sender gone → Disconnected, not Empty
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Disconnected)));
     }
 
     #[test]

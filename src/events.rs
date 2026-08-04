@@ -454,6 +454,20 @@ pub fn deregister_event_handler(
     // no longer fire into freed memory, even if an event is already in flight
     // on the progress thread. If the C deregistration then fails, the handler
     // stays registered but its events are silently dropped (no UAF).
+    //
+    // Ordering (registry remove, then PMIx_Deregister_event_handler):
+    // - OpenPMIx documents that once `PMIx_Deregister_event_handler` returns
+    //   successfully, no further notification callbacks will be delivered for
+    //   that ref. Removing first closes the Rust side before that guarantee
+    //   kicks in, so a progress-thread delivery already past the C check but
+    //   not yet into `notification_bridge` cannot observe a live registry
+    //   entry whose Box is about to be dropped.
+    // - The inverse order (C deregister, then remove) would leave a window
+    //   where the bridge can still resolve the user fn while another thread
+    //   is about to free it.
+    // - Trade-off on C failure: the C handler may remain registered, but
+    //   `notification_bridge` becomes a no-op for that ref (unknown id). That
+    //   is preferable to use-after-free.
     HANDLER_REGISTRY
         .lock()
         .expect("mutex poisoned (events.rs)")
@@ -490,6 +504,14 @@ pub fn deregister_event_handler_nb(
     cbfunc: OpCbFn,
     cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
+    // Same registry-first ordering as the blocking path: drop the user fn
+    // before asking OpenPMIx to stop delivering events for this ref. See the
+    // comment on [`deregister_event_handler`].
+    HANDLER_REGISTRY
+        .lock()
+        .expect("mutex poisoned (events.rs)")
+        .remove(&evhdlr_ref);
+
     // SAFETY: FFI call into PMIx library. Same safety considerations as
     // the blocking variant.
     let raw_status = unsafe { ffi::PMIx_Deregister_event_handler(evhdlr_ref, cbfunc, cbdata) };
@@ -756,15 +778,15 @@ mod tests {
         }
     }
 
-    /// Deadlock regression (issue #51): the notification bridge must NOT hold
-    /// the registry lock while the user callback runs.
+    /// Deadlock / lock-order regression (issue #51): the event-handler registry
+    /// lock must **not** be held while the user callback runs.
     ///
     /// A user handler that blocks is invoked from a stand-in progress thread;
     /// while it is blocked, this test must still be able to acquire the
     /// registry lock. If the lock were held across the user call, the
     /// `try_lock` below would fail and the test would fail.
     #[test]
-    fn test_notification_bridge_no_lock_across_user_code() {
+    fn test_event_handler_lock_not_held_during_user_callback() {
         static ENTER_TX: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
         static RELEASE_RX: Mutex<Option<mpsc::Receiver<()>>> = Mutex::new(None);
 

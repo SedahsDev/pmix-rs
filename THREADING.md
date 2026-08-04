@@ -105,6 +105,23 @@ Deadlocks: external progress without a loop; mutex held across `progress()` + ca
 7. Bridges never hold a registry `Mutex` across user callback execution
    (regression-tested in `events`).
 
+### 6.1 Forbidden on the progress thread (concrete)
+
+```rust,ignore
+// ❌ NEVER — blocks progress on a PMIx round-trip
+let _ = pmix::data_ops::get(&proc, "pmix.job.size", None);
+
+// ❌ NEVER — waits for a condition only progress can satisfy
+while !ready.load(Ordering::SeqCst) { /* spin / park */ }
+
+// ❌ NEVER — holds a registry lock across application callback code
+let mut guard = EVENT_HANDLERS.lock().unwrap();
+if let Some(cb) = guard.get_mut(&id) { cb(); } // user code under lock
+```
+
+Hop first (`spawn_from_callback` / `CallbackChannel`), then do the blocking
+work on an application thread. Full policy: `src/threading.rs`.
+
 ---
 
 ## 7. Examples
