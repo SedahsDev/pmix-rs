@@ -474,7 +474,7 @@ fn test_notify_event_does_not_panic() {
             &source,
             PmixDataRange::Session,
             &info,
-        );
+        )
     });
     assert!(result.is_ok(), "notify_event should not panic");
 }

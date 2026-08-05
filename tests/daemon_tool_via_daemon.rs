@@ -8,7 +8,7 @@
 
 mod daemon_helper;
 
-use pmix::tool::{PmixTool, 
+use pmix::tool::{PmixTool,
     is_tool_initialized, tool_attach_to_server, tool_connect_to_server, tool_disconnect,
     tool_finalize, tool_get_servers, tool_init, tool_init_minimal, tool_is_connected,
     tool_set_server,

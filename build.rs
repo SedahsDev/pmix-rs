@@ -96,17 +96,14 @@ fn first_existing_lib_dir(prefix: &Path) -> Option<PathBuf> {
         }
     }
     // multiarch: /usr/lib/x86_64-linux-gnu
-    for lib in [
+    [
         PathBuf::from("/usr/lib/x86_64-linux-gnu"),
         PathBuf::from("/usr/lib64"),
         PathBuf::from("/usr/lib"),
         PathBuf::from("/usr/local/lib"),
-    ] {
-        if lib.join("libpmix.so").exists() || lib.join("libpmix.a").exists() {
-            return Some(lib);
-        }
-    }
-    None
+    ]
+    .into_iter()
+    .find(|lib| lib.join("libpmix.so").exists() || lib.join("libpmix.a").exists())
 }
 
 fn discover_via_pkg_config() -> Option<(PathBuf, PathBuf)> {
@@ -244,6 +241,17 @@ fn main() {
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
     println!("cargo:rustc-link-lib=pmix");
     println!("cargo:rerun-if-changed=wrapper.h");
+    // Re-run if the installed OpenPMIx headers change (e.g. in-place upgrade
+    // at the same PMIX_PREFIX). Without this, stale bindings persist until
+    // `cargo clean`.
+    println!(
+        "cargo:rerun-if-changed={}",
+        include_dir.join("pmix.h").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        include_dir.join("pmix_version.h").display()
+    );
 
     let out_path = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("bindings.rs");
 
@@ -292,10 +300,20 @@ fn main() {
             );
             process::exit(1);
         }
-        Err(_panic) => {
+        Err(panic) => {
+            // bindgen's missing-libclang panic carries actionable detail in the
+            // payload (e.g. "Unable to find libclang: ..."). Downcast and print
+            // it alongside the generic hint so users see the real cause.
+            let detail = panic
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("(no message)");
             eprintln!(
                 "\nerror: bindgen panicked while generating PMIx bindings.\n\
                  This usually means libclang was not found.\n\
+                 \n\
+                 Panic detail: {detail}\n\
                  \n\
                  Install libclang and ensure clang is on PATH, e.g.:\n\
                    Debian/Ubuntu: sudo apt-get install -y libclang-dev clang pkg-config\n\
