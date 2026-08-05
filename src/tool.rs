@@ -256,6 +256,9 @@ impl PmixTool {
 
         let status = unsafe { ffi::PMIx_tool_finalize() };
 
+        // Drop parked event handlers that were never deregistered.
+        crate::events::clear_handler_registry();
+
         self.inner
             .state
             .store(PmixToolState::Dead as u8, Ordering::Release);

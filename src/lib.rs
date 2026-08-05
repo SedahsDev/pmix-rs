@@ -3632,6 +3632,11 @@ impl PmixClient {
             None => unsafe { PMIx_Finalize(ptr::null_mut(), 0) },
         };
 
+        // Drop parked event handlers that were never deregistered. After
+        // PMIx_Finalize, OpenPMIx will not deliver further notifications for
+        // this session (crate no-reinit policy).
+        events::clear_handler_registry();
+
         self.inner
             .state
             .store(PmixClientState::Dead as u8, Ordering::Release);

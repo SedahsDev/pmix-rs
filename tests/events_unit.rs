@@ -46,7 +46,7 @@ fn test_notification_fn_none_is_none() {
 
 #[test]
 fn test_notification_fn_some_is_some() {
-    extern "C" fn dummy(
+    fn dummy(
         _: EventHandlerRef,
         _: i32,
         _: *const std::os::raw::c_void,
@@ -173,7 +173,7 @@ fn test_register_event_handler_multiple_codes() {
 
 #[test]
 fn test_register_event_handler_with_notification_fn() {
-    extern "C" fn dummy_handler(
+    fn dummy_handler(
         _: EventHandlerRef,
         _: i32,
         _: *const std::os::raw::c_void,
@@ -257,7 +257,7 @@ fn test_register_event_handler_nb_empty_codes() {
 #[test]
 fn test_register_event_handler_nb_with_notification_fn() {
     extern "C" fn dummy_reg_cb(_: i32, _: EventHandlerRef, _: *mut std::os::raw::c_void) {}
-    extern "C" fn dummy_handler(
+    fn dummy_handler(
         _: EventHandlerRef,
         _: i32,
         _: *const std::os::raw::c_void,

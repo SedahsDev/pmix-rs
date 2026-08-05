@@ -127,7 +127,7 @@ fn main() {
 /// OpenPMIx requires every handler to complete the event chain by calling
 /// `cbfunc(..., cbdata)`. `progress_local_event_hdlr` thread-shifts, so the
 /// completion may safely run from the hopped-off application thread.
-unsafe extern "C" fn on_event(
+unsafe fn on_event(
     id: pmix::events::EventHandlerRef,
     status: i32,
     _source: *const c_void,

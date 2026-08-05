@@ -119,8 +119,17 @@ pub type EventHandlerRef = usize;
 ///     void *cbdata
 /// );
 /// ```
+///
+/// # ABI
+///
+/// This is a **Rust-ABI** `unsafe fn`, not `extern "C"`. Only
+/// [`notification_bridge`] is registered with OpenPMIx; it is the sole
+/// C→Rust FFI boundary. Keeping the user handler off the C ABI means a
+/// panic inside the handler can be caught (`catch_unwind`) instead of
+/// aborting via `nounwind` — required so the bridge can still complete the
+/// OpenPMIx event chain.
 pub type NotificationFn = Option<
-    unsafe extern "C" fn(
+    unsafe fn(
         evhdlr_registration_id: EventHandlerRef,
         status: i32,
         source: *const c_void,
@@ -169,13 +178,57 @@ pub type OpCbFn = Option<unsafe extern "C" fn(status: i32, cbdata: *mut c_void)>
 /// PMIx retains an event handler — and its `cbdata` — for the lifetime of the
 /// registration, so the user's [`NotificationFn`] must outlive it. We store
 /// the function here, keyed by the reference ID that PMIx passes to the
-/// notification bridge as its first argument, and free it at deregistration.
+/// notification bridge as its first argument, and free it at deregistration
+/// (or session finalize via [`clear_handler_registry`]).
+///
 /// This follows the bridge policy in [`crate::threading`]: the registry lock
 /// is held only to copy the function pointer out, never across the user call,
 /// and no callback data rides in a raw `cbdata` pointer.
+///
+/// # Invariant
+///
+/// Entries are plain [`NotificationFn`] values (`Option` of a function pointer).
+/// Function pointers are `Copy`, so copying the fn out under the lock and later
+/// dropping the `Box` is not a use-after-free. That analysis would not hold if
+/// this type ever became a capturing closure / trait object.
 type HandlerRegistry = HashMap<EventHandlerRef, Box<NotificationFn>>;
 static HANDLER_REGISTRY: LazyLock<Mutex<HandlerRegistry>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Drop every parked notification handler.
+///
+/// Called from client / tool / server session finalize paths so registrations
+/// that were never explicitly deregistered do not leak `Box<NotificationFn>`
+/// for the rest of the process lifetime. Safe under the crate's no-reinit
+/// policy: after finalize, no further event deliveries are expected.
+pub(crate) fn clear_handler_registry() {
+    HANDLER_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+/// Complete an OpenPMIx local event-handler chain (pass-through / recovery).
+///
+/// # Safety
+///
+/// `cbfunc` / `cbdata` / `results` must be the values OpenPMIx supplied to the
+/// notification handler (or nulls). Double-completion of the same chain is
+/// undefined at the C layer — call at most once per delivery.
+unsafe fn complete_event_chain(
+    status: i32,
+    results: *mut ffi::pmix_info_t,
+    nresults: usize,
+    cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+    cbdata: *mut c_void,
+) {
+    if let Some(cbfunc) = cbfunc {
+        // SAFETY: caller upholds OpenPMIx chain-completion contract.
+        unsafe {
+            cbfunc(status, results, nresults, None, ptr::null_mut(), cbdata);
+        }
+    }
+}
 
 /// Convert a user-provided `NotificationFn` into the FFI `pmix_notification_fn_t`.
 ///
@@ -203,6 +256,11 @@ static HANDLER_REGISTRY: LazyLock<Mutex<HandlerRegistry>> =
 /// insert) this bridge still calls `cbfunc` as a pass-through so the chain
 /// stays alive. The chain pointer is always forwarded verbatim — never
 /// replaced with `NULL`.
+///
+/// User-handler panics are caught: unwinding across the C→Rust FFI boundary
+/// is undefined behaviour, and a panic that skips `cbfunc` would stall the
+/// chain. The bridge completes the chain, logs, and **contains** the panic
+/// (does not `resume_unwind` into OpenPMIx).
 unsafe extern "C" fn notification_bridge(
     evhdlr_registration_id: EventHandlerRef,
     status: i32,
@@ -218,7 +276,7 @@ unsafe extern "C" fn notification_bridge(
     // across the user call (bridge policy). Function pointers are `Copy`, so
     // a short scoped critical section is all we need.
     let user_fn = {
-        let registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+        let registry = HANDLER_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
         registry
             .get(&evhdlr_registration_id)
             .and_then(|b| *b.as_ref())
@@ -228,7 +286,11 @@ unsafe extern "C" fn notification_bridge(
         // SAFETY: cast FFI pointers to c_void for the user-facing NotificationFn
         // ABI. Forward OpenPMIx's chain pointer (`cbdata`) and completion
         // `cbfunc` verbatim — the handler must return them via cbfunc.
-        unsafe {
+        //
+        // catch_unwind: this bridge is an `extern "C"` entry called from
+        // OpenPMIx. A panic must not unwind into C, and must not leave the
+        // event chain incomplete.
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
             user_fn(
                 evhdlr_registration_id,
                 status,
@@ -240,14 +302,31 @@ unsafe extern "C" fn notification_bridge(
                 cbfunc,
                 cbdata,
             );
+        }))
+        .is_err();
+
+        if panicked {
+            eprintln!(
+                "pmix::events: notification handler panicked on the progress thread; \
+                 completing the OpenPMIx event chain and containing the panic \
+                 (must not unwind across FFI)"
+            );
+            // Best-effort chain recovery. If the handler already completed the
+            // chain before panicking, this is a second completion (undefined at
+            // the C layer); that is still preferable to permanently stalling
+            // every subsequent notify when the handler panics first.
+            // SAFETY: same OpenPMIx-supplied cbfunc/cbdata/results as this delivery.
+            unsafe {
+                complete_event_chain(status, results, nresults, cbfunc, cbdata);
+            }
         }
-    } else if let Some(cbfunc) = cbfunc {
+    } else {
         // Registry miss / no user handler: pass-through completion keeps the
         // OpenPMIx event chain alive. Do not drop `cbfunc` here.
         // SAFETY: OpenPMIx-supplied completion with its chain pointer; status
         // and results are forwarded as received.
         unsafe {
-            cbfunc(status, results, nresults, None, ptr::null_mut(), cbdata);
+            complete_event_chain(status, results, nresults, cbfunc, cbdata);
         }
     }
 }
@@ -315,6 +394,17 @@ extern "C" fn handler_reg_cb_bridge(status: i32, refid: EventHandlerRef, cbdata:
 /// * `Ok(handler_ref)` — the handler reference ID (a non-negative integer;
 ///   **`0` is a valid first ref id** in OpenPMIx, not a failure sentinel).
 /// * `Err(PmixStatus)` — registration failed (e.g., `PMIX_ERR_INIT`).
+///
+/// # Registration-window delivery
+///
+/// The C-side handler is live as soon as `PMIx_Register_event_handler`
+/// returns, but the reference ID is only known **after** that return, so
+/// the Rust registry insert cannot run earlier. An event delivered in that
+/// gap is **pass-through-completed without invoking `evhdlr`** (dropped at
+/// the Rust layer; the OpenPMIx chain still advances). Loss-sensitive
+/// notifications (e.g. `PMIX_EVENT_JOB_END`) can therefore miss a delivery
+/// that races registration — re-check state after register returns, or
+/// tolerate a possible drop in that window.
 ///
 /// # C API
 /// ```c
@@ -755,7 +845,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 
     /// A no-op user notification handler for bridge tests.
-    unsafe extern "C" fn test_handler(
+    unsafe fn test_handler(
         _id: EventHandlerRef,
         _status: i32,
         _source: *const std::os::raw::c_void,
@@ -786,7 +876,7 @@ mod tests {
         static CALLED: AtomicBool = AtomicBool::new(false);
         static SAW_CBDATA: AtomicUsize = AtomicUsize::new(0);
 
-        unsafe extern "C" fn recording_handler(
+        unsafe fn recording_handler(
             _id: EventHandlerRef,
             status: i32,
             _source: *const std::os::raw::c_void,
@@ -909,6 +999,106 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_notification_bridge_user_panic_completes_chain_and_is_contained() {
+        // A panicking user handler must not unwind into OpenPMIx (UB) and must
+        // still complete the event chain so blocking notify_event cannot hang.
+        static CBFUNC_CALLED: AtomicBool = AtomicBool::new(false);
+        static CBFUNC_STATUS: AtomicI32 = AtomicI32::new(i32::MIN);
+        static CBFUNC_CBDATA: AtomicUsize = AtomicUsize::new(0);
+
+        unsafe fn panicking_handler(
+            _id: EventHandlerRef,
+            _status: i32,
+            _source: *const std::os::raw::c_void,
+            _info: *mut std::os::raw::c_void,
+            _ninfo: usize,
+            _results: *mut std::os::raw::c_void,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbdata: *mut std::os::raw::c_void,
+        ) {
+            panic!("user notification handler panicked on purpose");
+        }
+
+        unsafe extern "C" fn recording_cbfunc(
+            status: i32,
+            _results: *mut ffi::pmix_info_t,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_op_cbfunc_t,
+            _thiscbdata: *mut c_void,
+            notification_cbdata: *mut c_void,
+        ) {
+            CBFUNC_STATUS.store(status, Ordering::SeqCst);
+            CBFUNC_CBDATA.store(notification_cbdata as usize, Ordering::SeqCst);
+            CBFUNC_CALLED.store(true, Ordering::SeqCst);
+        }
+
+        let ref_id: EventHandlerRef = 424_250;
+        let chain_token = 0xE_u8;
+        let chain_ptr = &chain_token as *const u8 as *mut c_void;
+
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .insert(ref_id, Box::new(Some(panicking_handler)));
+
+        // Must return normally (panic contained) — would abort the test thread
+        // if resume_unwind crossed the bridge.
+        unsafe {
+            notification_bridge(
+                ref_id,
+                11,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                Some(recording_cbfunc),
+                chain_ptr,
+            );
+        }
+
+        assert!(
+            CBFUNC_CALLED.load(Ordering::SeqCst),
+            "hit-path panic must still complete the OpenPMIx event chain"
+        );
+        assert_eq!(CBFUNC_STATUS.load(Ordering::SeqCst), 11);
+        assert_eq!(
+            CBFUNC_CBDATA.load(Ordering::SeqCst),
+            chain_ptr as usize,
+            "panic recovery must forward chain cbdata verbatim"
+        );
+
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .remove(&ref_id);
+    }
+
+    #[test]
+    fn test_clear_handler_registry_drops_parked_fns() {
+        let ref_id: EventHandlerRef = 424_251;
+        HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .insert(ref_id, Box::new(Some(test_handler)));
+        assert!(HANDLER_REGISTRY
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .contains_key(&ref_id));
+
+        clear_handler_registry();
+
+        assert!(
+            HANDLER_REGISTRY
+                .lock()
+                .expect("mutex poisoned (events.rs)")
+                .is_empty(),
+            "finalize cleanup must drop every parked NotificationFn"
+        );
+    }
+
     /// Deadlock / lock-order regression (issue #51): the event-handler registry
     /// lock must **not** be held while the user callback runs.
     ///
@@ -921,7 +1111,7 @@ mod tests {
         static ENTER_TX: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
         static RELEASE_RX: Mutex<Option<mpsc::Receiver<()>>> = Mutex::new(None);
 
-        unsafe extern "C" fn blocking_handler(
+        unsafe fn blocking_handler(
             _id: EventHandlerRef,
             _status: i32,
             _source: *const std::os::raw::c_void,
@@ -1219,7 +1409,7 @@ mod tests {
 
     #[test]
     fn test_notification_fn_is_option() {
-        // Verify NotificationFn is Option<extern "C" fn(...)>
+        // Verify NotificationFn is Option<unsafe fn(...)>
         let fn_: NotificationFn = None;
         assert!(fn_.is_none());
         assert_eq!(fn_.as_ref(), None);
@@ -1298,7 +1488,7 @@ mod tests {
 
     #[test]
     fn test_register_event_handler_with_notification_fn() {
-        extern "C" fn dummy_handler(
+        fn dummy_handler(
             _id: EventHandlerRef,
             _status: i32,
             _source: *const std::os::raw::c_void,
@@ -1788,7 +1978,7 @@ mod tests {
 
     #[test]
     fn test_register_event_handler_nb_with_notification_fn() {
-        extern "C" fn dummy_handler(
+        fn dummy_handler(
             _id: EventHandlerRef,
             _status: i32,
             _source: *const c_void,
@@ -2785,7 +2975,7 @@ mod tests {
 
     #[test]
     fn test_notification_bridge_with_some_user_fn() {
-        extern "C" fn dummy(
+        fn dummy(
             _id: EventHandlerRef,
             _status: i32,
             _source: *const c_void,
