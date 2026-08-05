@@ -52,10 +52,16 @@ fn discover_pmix() -> (PathBuf, PathBuf) {
         } else {
             continue;
         };
-        let lib = first_existing_lib_dir(p)
-            .or_else(|| first_existing_lib_dir(Path::new("/usr")))
-            .or_else(|| first_existing_lib_dir(Path::new("/usr/local")))
-            .unwrap_or_else(|| PathBuf::from("/usr/lib"));
+        // Only use a lib from the *same* prefix that provides the headers.
+        // Cross-pairing (e.g. 6.1 headers from /opt/pmix with a 5.0.7 lib
+        // from /usr) leads to undefined symbols at link/runtime — the version
+        // gate reads the header, and the sentinel check validates bindgen
+        // output (also header-derived), but neither can verify the linked
+        // library. See review comment on build.rs:56.
+        let lib = match first_existing_lib_dir(p) {
+            Some(lib) => lib,
+            None => continue,
+        };
         return (inc, lib);
     }
 
@@ -272,6 +278,12 @@ fn main() {
                 panic!("failed to write bindings to {}: {e}", out_path.display())
             });
             // Sanity: generated bindings must expose the 6.1-only symbol the crate calls.
+            // This validates the *header* version (bindgen output is header-derived) —
+            // it is NOT a link-time guarantee. A mismatched libpmix (e.g. headers 6.1
+            // paired with a 5.0.7 library) would pass this check but fail at link or
+            // runtime. The discover_pmix fallback path prevents cross-prefix pairing
+            // to mitigate this; when using PMIX_PREFIX/PMIX_INCLUDE_DIR+PMIX_LIB_DIR
+            // the user is responsible for ensuring header and lib versions match.
             let generated = fs::read_to_string(&out_path)
                 .unwrap_or_else(|e| panic!("failed to read generated bindings: {e}"));
             if !generated.contains("PMIx_Progress_thread_stop") {

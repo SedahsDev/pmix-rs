@@ -320,14 +320,40 @@ pub fn assert_error(status: pmix::PmixStatus) {
 /// Ensures the process-wide [`pmix::PmixClient`] is connected once per test binary (DVM/prterun).
 ///
 /// Prefer this over calling `PmixClient::connect_new` in every test — PMIx allows one logical
-/// client init per process. Drop does **not** finalize; process exit tears down the DVM job.
-/// Multiple cycles are not supported.
+/// client init per process. `PmixClient::Drop` does **not** finalize (clones share the session),
+/// so we register a `thread_local` Drop guard whose destructor calls `pmix::finalize(None)` at
+/// main-thread exit (= process exit). Without this, prterun reports "exited without calling
+/// finalize" and returns a non-zero exit code even when all tests pass.
 pub fn ensure_pmix_init() -> &'static pmix::PmixClient {
     use std::sync::OnceLock;
     static PMIX_CTX: OnceLock<pmix::PmixClient> = OnceLock::new();
-    PMIX_CTX.get_or_init(|| {
+    let ctx = PMIX_CTX.get_or_init(|| {
         pmix::PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun")
-    })
+    });
+    // Install the at-exit finalizer exactly once. Thread-local destructors run when
+    // the main thread exits (process exit), which is the point where prterun checks
+    // that all ranks called PMIx_Finalize. Static destructors are not guaranteed to
+    // run, so we cannot rely on `OnceLock<PmixClient>::Drop` (which is a no-op anyway).
+    FINALIZE_GUARD.with(|_| {});
+    ctx
+}
+
+// Thread-local guard whose destructor calls `pmix::finalize(None)` at process exit.
+// `thread_local!` destructors for the *main* thread run at program exit, which is
+// when prterun expects every rank to have finalized. The guard holds no data — its
+// mere existence on the main thread ensures the destructor fires.
+thread_local! {
+    static FINALIZE_GUARD: FinalizeOnExit = FinalizeOnExit;
+}
+
+struct FinalizeOnExit;
+
+impl Drop for FinalizeOnExit {
+    fn drop(&mut self) {
+        // finalize is a no-op if the session is not Live, so this is safe even if
+        // the test binary never called ensure_pmix_init.
+        let _ = pmix::finalize(None);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
