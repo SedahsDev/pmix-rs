@@ -89,7 +89,23 @@ pub type EventHandlerRef = usize;
 /// * `results` — results from handlers that ran before this one.
 /// * `nresults` — number of results entries.
 /// * `cbfunc` — completion callback to call when this handler is done.
-/// * `cbdata` — user data to pass through to `cbfunc`.
+/// * `cbdata` — **OpenPMIx event-chain pointer**. Must be returned **verbatim**
+///   through `cbfunc` (as `notification_cbdata`). OpenPMIx's
+///   `progress_local_event_hdlr` casts it to the chain object with no NULL
+///   check — discarding it or substituting `NULL` stalls or crashes the
+///   event engine. Call `cbfunc` from the progress thread or from a hopped-off
+///   application thread (`progress_local_event_hdlr` thread-shifts).
+///
+/// # Contract
+///
+/// Handlers **must** complete the event chain. Typical completion:
+///
+/// ```text
+/// cbfunc(status, results, nresults, None, null_mut(), cbdata)
+/// ```
+///
+/// Omitting the call permanently stalls the chain (blocking `notify_event`
+/// never returns; subsequent deliveries hang).
 ///
 /// # C API
 /// ```c
@@ -172,6 +188,21 @@ static HANDLER_REGISTRY: LazyLock<Mutex<HandlerRegistry>> =
 /// [`HANDLER_REGISTRY`] under a scoped lock that is released before the user
 /// callback executes; the callback must not call blocking PMIx APIs (see
 /// [`crate::threading`]).
+///
+/// # Event-chain completion
+///
+/// OpenPMIx invokes the registered handler with
+/// `cbfunc = progress_local_event_hdlr` and `cbdata = (void*)chain`. The
+/// handler **must** call `cbfunc(..., cbdata)` or the chain never advances
+/// (`cycle_events` / `final_cbfunc` never run). A blocking `notify_event`
+/// waits on that completion, so a missed `cbfunc` is a permanent hang — not
+/// a silent drop.
+///
+/// On registry miss (no user fn, `evhdlr = None`, deregistration race, or
+/// the brief window after blocking registration returns but before the
+/// insert) this bridge still calls `cbfunc` as a pass-through so the chain
+/// stays alive. The chain pointer is always forwarded verbatim — never
+/// replaced with `NULL`.
 unsafe extern "C" fn notification_bridge(
     evhdlr_registration_id: EventHandlerRef,
     status: i32,
@@ -181,7 +212,7 @@ unsafe extern "C" fn notification_bridge(
     results: *mut ffi::pmix_info_t,
     nresults: usize,
     cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
-    _cbdata: *mut c_void,
+    cbdata: *mut c_void,
 ) {
     // Copy the user fn pointer out of the registry WITHOUT holding the lock
     // across the user call (bridge policy). Function pointers are `Copy`, so
@@ -193,10 +224,10 @@ unsafe extern "C" fn notification_bridge(
             .and_then(|b| *b.as_ref())
     };
 
-    // SAFETY: We cast the FFI pointers back to c_void and call the user's
-    // callback. The user callback receives opaque pointers and is not expected
-    // to dereference them without casting back.
     if let Some(user_fn) = user_fn {
+        // SAFETY: cast FFI pointers to c_void for the user-facing NotificationFn
+        // ABI. Forward OpenPMIx's chain pointer (`cbdata`) and completion
+        // `cbfunc` verbatim — the handler must return them via cbfunc.
         unsafe {
             user_fn(
                 evhdlr_registration_id,
@@ -207,8 +238,16 @@ unsafe extern "C" fn notification_bridge(
                 results as *mut c_void,
                 nresults,
                 cbfunc,
-                std::ptr::null_mut(),
+                cbdata,
             );
+        }
+    } else if let Some(cbfunc) = cbfunc {
+        // Registry miss / no user handler: pass-through completion keeps the
+        // OpenPMIx event chain alive. Do not drop `cbfunc` here.
+        // SAFETY: OpenPMIx-supplied completion with its chain pointer; status
+        // and results are forwarded as received.
+        unsafe {
+            cbfunc(status, results, nresults, None, ptr::null_mut(), cbdata);
         }
     }
 }
@@ -268,12 +307,13 @@ extern "C" fn handler_reg_cb_bridge(status: i32, refid: EventHandlerRef, cbdata:
 /// * `codes` — array of event codes to handle (empty = all events).
 /// * `info` — optional info directives (e.g., range, scope).
 /// * `evhdlr` — the notification callback function.
-/// * `cbfunc` — `None` for blocking mode; `Some(...)` for non-blocking
-///   (in which case the reference ID is delivered to `cbfunc` and the return
-///   value is not meaningful — prefer [`register_event_handler_nb`]).
+/// * `cbfunc` — must be `None` (blocking). Non-blocking registration with a
+///   completion callback is [`register_event_handler_nb`] only; passing
+///   `Some` here returns `PMIX_ERR_BAD_PARAM`.
 ///
 /// # Returns
-/// * `Ok(handler_ref)` — the handler reference ID (positive integer).
+/// * `Ok(handler_ref)` — the handler reference ID (a non-negative integer;
+///   **`0` is a valid first ref id** in OpenPMIx, not a failure sentinel).
 /// * `Err(PmixStatus)` — registration failed (e.g., `PMIX_ERR_INIT`).
 ///
 /// # C API
@@ -290,13 +330,21 @@ extern "C" fn handler_reg_cb_bridge(status: i32, refid: EventHandlerRef, cbdata:
 /// # Errors
 /// * `PMIX_ERR_INIT` — PMIx has not been initialized.
 /// * `PMIX_ERR_EVENT_REGISTRATION` — handler registration failed.
-/// * `PMIX_ERR_BAD_PARAM` — invalid parameters.
+/// * `PMIX_ERR_BAD_PARAM` — invalid parameters (including non-`None` `cbfunc`).
 pub fn register_event_handler(
     codes: &[PmixStatus],
     info: &Info,
     evhdlr: NotificationFn,
     cbfunc: HandlerRegCbFn,
 ) -> Result<EventHandlerRef, PmixStatus> {
+    // Blocking API only. A non-null cbfunc would make OpenPMIx treat this as
+    // non-blocking (refid delivered only via callback) while this wrapper
+    // still treats the return status as the refid — that combination is
+    // incorrect. Route async registrations through register_event_handler_nb.
+    if cbfunc.is_some() {
+        return Err(PmixStatus::Known(PmixError::ErrBadParam));
+    }
+
     let (codes_ptr, ncodes) = if codes.is_empty() {
         (ptr::null_mut(), 0)
     } else {
@@ -323,7 +371,7 @@ pub fn register_event_handler(
             info_ptr as *mut ffi::pmix_info_t,
             ninfo,
             Some(notification_bridge),
-            cbfunc,
+            None,
             ptr::null_mut(),
         )
     };
@@ -332,9 +380,13 @@ pub fn register_event_handler(
     if status.is_success() {
         let handler_ref = raw_status as EventHandlerRef;
         if evhdlr.is_some() {
-            // Park the user fn for the lifetime of the registration. PMIx may
-            // deliver an event to the bridge the moment registration returns,
-            // so insert before returning to the caller.
+            // Park the user fn for the lifetime of the registration.
+            //
+            // Race window: the C-side handler is live as soon as
+            // PMIx_Register_event_handler returns, but the refid is only known
+            // *after* that return, so the insert cannot move earlier. An event
+            // delivered in this gap hits a registry miss in notification_bridge,
+            // which pass-through-completes the chain (dropped delivery, no hang).
             HANDLER_REGISTRY
                 .lock()
                 .expect("mutex poisoned (events.rs)")
@@ -395,12 +447,17 @@ pub fn register_event_handler_nb(
         user_cbfunc: cbfunc,
         user_cbdata: cbdata,
     });
+    let state_ptr = Box::into_raw(state);
 
     // SAFETY: FFI call into PMIx library. The codes slice lives for the
-    // duration of this call. The boxed HandlerRegState is reclaimed by
-    // handler_reg_cb_bridge exactly once; on synchronous failure it is
-    // intentionally leaked (PMIx may still invoke the completion callback
-    // with an error status, so freeing it here could double-free).
+    // duration of this call. On the async path the boxed HandlerRegState is
+    // reclaimed exactly once by handler_reg_cb_bridge.
+    //
+    // Synchronous failure paths in OpenPMIx (`!initialized`, progress thread
+    // stopped, OOM on the registration object) return *before* thread-shifting
+    // and **never** invoke the registration completion callback — so the box
+    // must be freed here. Only free on Err: a successful accept transfers
+    // ownership to the completion bridge.
     let raw_status = unsafe {
         ffi::PMIx_Register_event_handler(
             codes_ptr,
@@ -409,7 +466,7 @@ pub fn register_event_handler_nb(
             ninfo,
             Some(notification_bridge),
             Some(handler_reg_cb_bridge),
-            Box::into_raw(state) as *mut c_void,
+            state_ptr as *mut c_void,
         )
     };
 
@@ -417,6 +474,12 @@ pub fn register_event_handler_nb(
     if status.is_success() {
         Ok(())
     } else {
+        // SAFETY: synchronous failure ⇒ completion bridge will not run; we
+        // still own the box and must free it to avoid a permanent leak of the
+        // boxed NotificationFn and user cbdata.
+        unsafe {
+            drop(Box::from_raw(state_ptr));
+        }
         Err(status)
     }
 }
@@ -452,8 +515,7 @@ pub fn deregister_event_handler(
 ) -> Result<(), PmixStatus> {
     // Free the boxed user fn BEFORE the C call so the notification bridge can
     // no longer fire into freed memory, even if an event is already in flight
-    // on the progress thread. If the C deregistration then fails, the handler
-    // stays registered but its events are silently dropped (no UAF).
+    // on the progress thread.
     //
     // Ordering (registry remove, then PMIx_Deregister_event_handler):
     // - OpenPMIx documents that once `PMIx_Deregister_event_handler` returns
@@ -465,9 +527,10 @@ pub fn deregister_event_handler(
     // - The inverse order (C deregister, then remove) would leave a window
     //   where the bridge can still resolve the user fn while another thread
     //   is about to free it.
-    // - Trade-off on C failure: the C handler may remain registered, but
-    //   `notification_bridge` becomes a no-op for that ref (unknown id). That
-    //   is preferable to use-after-free.
+    // - Trade-off on C failure / in-flight delivery: the C handler may remain
+    //   registered briefly, but `notification_bridge` hits a registry miss and
+    //   **pass-through-completes** the OpenPMIx event chain (no hang, no UAF).
+    //   The delivery is dropped at the Rust layer rather than forwarded.
     HANDLER_REGISTRY
         .lock()
         .expect("mutex poisoned (events.rs)")
@@ -585,7 +648,11 @@ pub fn notify_event(
     };
 
     let st = PmixStatus::from_raw(raw_status);
-    if st.is_success() { Ok(()) } else { Err(st) }
+    if st.is_success() {
+        Ok(())
+    } else {
+        Err(st)
+    }
 }
 
 /// Non-blocking variant of [`notify_event`].
@@ -633,7 +700,11 @@ pub fn notify_event_nb(
     };
 
     let st = PmixStatus::from_raw(raw_status);
-    if st.is_success() { Ok(()) } else { Err(st) }
+    if st.is_success() {
+        Ok(())
+    } else {
+        Err(st)
+    }
 }
 
 #[cfg(test)]
@@ -713,6 +784,7 @@ mod tests {
     #[test]
     fn test_notification_bridge_invokes_user_fn() {
         static CALLED: AtomicBool = AtomicBool::new(false);
+        static SAW_CBDATA: AtomicUsize = AtomicUsize::new(0);
 
         unsafe extern "C" fn recording_handler(
             _id: EventHandlerRef,
@@ -723,13 +795,18 @@ mod tests {
             _results: *mut std::os::raw::c_void,
             _nresults: usize,
             _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
-            _cbdata: *mut std::os::raw::c_void,
+            cbdata: *mut std::os::raw::c_void,
         ) {
             assert_eq!(status, 7, "handler should receive the event status");
+            SAW_CBDATA.store(cbdata as usize, Ordering::SeqCst);
             CALLED.store(true, Ordering::SeqCst);
         }
 
         let ref_id: EventHandlerRef = 424243;
+        // Non-null sentinel standing in for OpenPMIx's event-chain pointer.
+        let chain_token = 0xC_u8;
+        let chain_ptr = &chain_token as *const u8 as *mut c_void;
+
         HANDLER_REGISTRY
             .lock()
             .expect("mutex poisoned (events.rs)")
@@ -745,13 +822,18 @@ mod tests {
                 std::ptr::null_mut(),
                 0,
                 None,
-                std::ptr::null_mut(),
+                chain_ptr,
             );
         }
 
         assert!(
             CALLED.load(Ordering::SeqCst),
             "bridge must invoke the user fn"
+        );
+        assert_eq!(
+            SAW_CBDATA.load(Ordering::SeqCst),
+            chain_ptr as usize,
+            "bridge must forward OpenPMIx chain cbdata verbatim (not NULL)"
         );
         HANDLER_REGISTRY
             .lock()
@@ -760,12 +842,61 @@ mod tests {
     }
 
     #[test]
-    fn test_notification_bridge_unknown_ref_is_noop() {
-        // No registry entry — the bridge must skip silently (this also covers
-        // the window before a registration completes).
+    fn test_notification_bridge_unknown_ref_invokes_cbfunc() {
+        // Registry miss must still complete the OpenPMIx event chain — a
+        // silent return stalls blocking notify_event forever.
+        static CBFUNC_CALLED: AtomicBool = AtomicBool::new(false);
+        static CBFUNC_STATUS: AtomicI32 = AtomicI32::new(i32::MIN);
+        static CBFUNC_CBDATA: AtomicUsize = AtomicUsize::new(0);
+
+        unsafe extern "C" fn recording_cbfunc(
+            status: i32,
+            _results: *mut ffi::pmix_info_t,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_op_cbfunc_t,
+            _thiscbdata: *mut c_void,
+            notification_cbdata: *mut c_void,
+        ) {
+            CBFUNC_STATUS.store(status, Ordering::SeqCst);
+            CBFUNC_CBDATA.store(notification_cbdata as usize, Ordering::SeqCst);
+            CBFUNC_CALLED.store(true, Ordering::SeqCst);
+        }
+
+        let chain_token = 0xD_u8;
+        let chain_ptr = &chain_token as *const u8 as *mut c_void;
+
         unsafe {
             notification_bridge(
                 999_999_999,
+                42,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                Some(recording_cbfunc),
+                chain_ptr,
+            );
+        }
+
+        assert!(
+            CBFUNC_CALLED.load(Ordering::SeqCst),
+            "miss path must invoke completion cbfunc"
+        );
+        assert_eq!(CBFUNC_STATUS.load(Ordering::SeqCst), 42);
+        assert_eq!(
+            CBFUNC_CBDATA.load(Ordering::SeqCst),
+            chain_ptr as usize,
+            "miss path must forward chain cbdata verbatim"
+        );
+    }
+
+    #[test]
+    fn test_notification_bridge_unknown_ref_null_cbfunc_is_safe() {
+        // No registry entry and no completion callback — must not panic.
+        unsafe {
+            notification_bridge(
+                999_999_998,
                 0,
                 std::ptr::null(),
                 std::ptr::null_mut(),
@@ -1033,7 +1164,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let (info_ptr, ninfo) = if info.len > 0 {
             (info.handle as *const ffi::pmix_info_t, info.len)
@@ -1131,7 +1262,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&[], &info, None, None);
         // Without PMIx init, this returns an error (not BAD_PARAM)
@@ -1153,7 +1284,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1183,7 +1314,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, Some(dummy_handler), None);
         match result {
@@ -1204,7 +1335,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler_nb(
             &codes,
@@ -1228,7 +1359,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result =
             register_event_handler_nb(&[], &info, None, Some(dummy_reg_cb), std::ptr::null_mut());
@@ -1307,7 +1438,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrJobAborted),
@@ -1330,7 +1461,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         for range_raw in [0u8, 1, 2, 3] {
             let range = PmixDataRange::from_raw(range_raw);
@@ -1361,7 +1492,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrNotSupported),
@@ -1387,7 +1518,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event_nb(
             PmixStatus::Known(PmixError::ErrJobAborted),
@@ -1469,7 +1600,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
 
@@ -1558,7 +1689,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let ranges = [
             PmixDataRange::Undef,
@@ -1596,7 +1727,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let ranges = [
             PmixDataRange::Undef,
@@ -1641,7 +1772,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1674,7 +1805,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler_nb(
             &codes,
@@ -1749,7 +1880,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let (info_ptr, ninfo) = if info.len > 0 {
             (info.handle as *const ffi::pmix_info_t, info.len)
@@ -1788,7 +1919,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event_nb(
             PmixStatus::Known(PmixError::ErrJobAborted),
@@ -1816,7 +1947,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler_nb(
             &codes,
@@ -1841,7 +1972,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
         for _ in 0..5 {
@@ -1880,7 +2011,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         for _ in 0..5 {
             let result = notify_event(
@@ -1908,17 +2039,16 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
-        // Register with callback (non-blocking style, though we test synchronously)
+        // Register with callback on the blocking API must reject with BAD_PARAM
+        // (non-blocking registration is register_event_handler_nb only).
         let result = register_event_handler(&codes, &info, None, Some(dummy_reg_cb));
-        match result {
-            Ok(_) => {}
-            Err(e) => {
-                let raw = e.to_raw();
-                assert!(raw < 0, "Expected error without DVM, got {}", raw);
-            }
-        }
+        assert_eq!(
+            result,
+            Err(PmixStatus::Known(PmixError::ErrBadParam)),
+            "blocking register_event_handler must reject non-None cbfunc"
+        );
     }
 
     #[test]
@@ -1927,7 +2057,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -1949,7 +2079,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -1976,7 +2106,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2003,7 +2133,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2030,7 +2160,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2057,7 +2187,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2084,7 +2214,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2111,7 +2241,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2140,7 +2270,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2157,7 +2287,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2174,7 +2304,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2191,7 +2321,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2208,7 +2338,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2225,7 +2355,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2244,7 +2374,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2266,7 +2396,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrNotSupported),
@@ -2288,7 +2418,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrBadParam),
@@ -2310,7 +2440,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event(
             PmixStatus::Known(PmixError::ErrInit),
@@ -2335,7 +2465,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event_nb(
             PmixStatus::Known(PmixError::ErrTimeout),
@@ -2360,7 +2490,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = notify_event_nb(
             PmixStatus::Known(PmixError::ErrLostConnection),
@@ -2482,7 +2612,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         // Pass a non-null cbdata pointer (user data)
         let user_data: u32 = 42;
@@ -2531,7 +2661,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let user_data: u64 = 0xDEADBEEF;
         let result = notify_event_nb(
@@ -2559,7 +2689,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2576,7 +2706,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2593,7 +2723,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {
@@ -2610,7 +2740,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = register_event_handler(&codes, &info, None, None);
         match result {

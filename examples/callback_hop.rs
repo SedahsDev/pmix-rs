@@ -10,7 +10,7 @@
 //!   cloned sender and returns immediately.
 //! * [`spawn_from_callback`](pmix::threading::spawn_from_callback) — the event
 //!   handler (also on the progress thread) hops blocking work onto a fresh
-//!   application thread.
+//!   application thread, then completes the OpenPMIx event chain via `cbfunc`.
 //! * [`ProgressContext`](pmix::threading::ProgressContext) — a zero-sized
 //!   marker that documents "we are on the progress thread" and the forbidden
 //!   APIs at the point of use.
@@ -25,6 +25,7 @@
 //! ```
 
 use std::os::raw::c_void;
+use std::ptr;
 use std::sync::mpsc;
 
 fn main() {
@@ -47,12 +48,18 @@ fn main() {
     // ── 1. Events path ─────────────────────────────────────────────────────
     // Empty `codes` = handle all events. The handler runs on the PMIx
     // progress thread, so it hops off before doing any work.
+    //
+    // Track success via `Result` — OpenPMIx assigns handler indices from 0, so
+    // `Ok(0)` is a legitimate first registration, not a failure sentinel.
     let info = pmix::info::empty();
     let handler_ref = match pmix::events::register_event_handler(&[], &info, Some(on_event), None) {
-        Ok(r) => r,
+        Ok(r) => {
+            println!("registered event handler {r}");
+            Some(r)
+        }
         Err(e) => {
             println!("register_event_handler failed (no DVM?): {e:?}");
-            0
+            None
         }
     };
 
@@ -66,6 +73,8 @@ fn main() {
     }
 
     // ── 3. Deliver an event so the handler fires (needs a DVM) ─────────────
+    // Blocking notify_event waits on the event chain; the handler must call
+    // its completion cbfunc (see on_event) or this never returns under a DVM.
     let event = pmix::PmixStatus::Known(pmix::PmixError::EventJobEnd);
     match pmix::events::notify_event(event, &proc, pmix::PmixDataRange::Session, &info) {
         Ok(()) => println!("notify_event accepted — handler will fire on the progress thread"),
@@ -98,7 +107,7 @@ fn main() {
     }
 
     // ── 5. Cleanup ─────────────────────────────────────────────────────────
-    if handler_ref != 0 {
+    if let Some(handler_ref) = handler_ref {
         match pmix::events::deregister_event_handler(handler_ref, None) {
             Ok(()) => println!("deregistered event handler {handler_ref}"),
             Err(e) => println!("deregister_event_handler: {e:?}"),
@@ -114,6 +123,10 @@ fn main() {
 /// documents that blocking PMIx calls are forbidden here, and the work is
 /// hopped onto a fresh application thread via
 /// [`spawn_from_callback`](pmix::threading::spawn_from_callback).
+///
+/// OpenPMIx requires every handler to complete the event chain by calling
+/// `cbfunc(..., cbdata)`. `progress_local_event_hdlr` thread-shifts, so the
+/// completion may safely run from the hopped-off application thread.
 unsafe extern "C" fn on_event(
     id: pmix::events::EventHandlerRef,
     status: i32,
@@ -122,8 +135,8 @@ unsafe extern "C" fn on_event(
     _ninfo: usize,
     _results: *mut c_void,
     _nresults: usize,
-    _cbfunc: pmix::events::pmix_event_notification_cbfunc_fn_t,
-    _cbdata: *mut c_void,
+    cbfunc: pmix::events::pmix_event_notification_cbfunc_fn_t,
+    cbdata: *mut c_void,
 ) {
     // We are on the progress thread — this marker is documentation, and any
     // blocking PMIx call here would deadlock progress.
@@ -131,8 +144,30 @@ unsafe extern "C" fn on_event(
 
     // Hop off: spawn an application thread for the actual handling. We never
     // join it here (that could block progress and deadlock the process).
+    // Complete the OpenPMIx event chain from the app thread after the work.
+    //
+    // Raw `*mut c_void` is `!Send`; carry the chain address as `usize` across
+    // the hop. Function pointers are already `Send`. Calling `cbfunc` from the
+    // app thread is the intended hop-off pattern (`progress_local_event_hdlr`
+    // does PMIX_THREADSHIFT internally).
+    let chain_addr = cbdata as usize;
     let _ = pmix::threading::spawn_from_callback(move || {
         println!("[app thread] event {id} fired with status {status} — blocking work is safe here");
+        if let Some(cbfunc) = cbfunc {
+            // SAFETY: complete the event chain; return OpenPMIx's chain pointer
+            // verbatim (never NULL). Address was received from OpenPMIx and is
+            // valid until the chain completes.
+            unsafe {
+                cbfunc(
+                    status,
+                    ptr::null_mut(),
+                    0,
+                    None,
+                    ptr::null_mut(),
+                    chain_addr as *mut c_void,
+                );
+            }
+        }
     });
 }
 

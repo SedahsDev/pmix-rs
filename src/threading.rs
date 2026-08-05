@@ -127,9 +127,12 @@ pub struct ProgressContext;
 ///   callback frame; move Rust-owned data (or clones) into the closure.
 /// * If spawning fails (thread limits / resource exhaustion), the error is
 ///   returned — log it and continue; never panic from a PMIx callback.
-/// * A panic inside `f` is **isolated to the hop thread** (it does not abort
-///   the process by itself). This helper logs a branded diagnostic on stderr
-///   and then resumes unwinding so a joined handle still reports
+/// * A panic inside `f` is confined to the hop thread under the default
+///   `panic = "unwind"` profile: it does **not** abort the process by itself
+///   (the default panic hook does not call `exit()` for non-main threads).
+///   Under `panic = "abort"` the process aborts regardless of this helper.
+///   This helper logs a branded diagnostic on stderr for fire-and-forget
+///   callers, then resumes unwinding so a joined handle still reports
 ///   [`JoinHandle::join`](std::thread::JoinHandle::join) `Err`. Prefer not
 ///   panicking in hop work in long-running HPC jobs — treat panics as bugs.
 ///
@@ -150,10 +153,11 @@ where
     std::thread::Builder::new()
         .name("pmix-callback-hop".to_string())
         .spawn(move || {
-            // Isolate panics to this hop thread. Log a clear diagnostic for
-            // operators (fire-and-forget callers never join), then resume so
-            // `JoinHandle::join` still surfaces the payload instead of a
-            // silent `Ok(())`.
+            // Log a clear diagnostic for operators (fire-and-forget callers
+            // never join), then resume so `JoinHandle::join` still surfaces
+            // the payload instead of a silent `Ok(())`. This is not true
+            // isolation under `panic = "abort"`, and resume_unwind still
+            // panics the hop thread (by design, for joiners).
             if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
                 eprintln!(
                     "pmix: thread 'pmix-callback-hop' panicked while running \
