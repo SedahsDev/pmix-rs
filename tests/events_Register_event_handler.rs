@@ -22,7 +22,7 @@ fn event_handler_ref_is_usize() {
     assert_eq!(_ref_id, 42);
 }
 
-/// `NotificationFn` is `Option<unsafe extern "C" fn(...)>`.
+/// `NotificationFn` is `Option<unsafe fn(...)>`.
 #[test]
 fn notification_fn_type_is_option() {
     // Verify the type alias compiles and can be None.
