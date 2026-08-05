@@ -134,7 +134,7 @@ fn discover_via_pkg_config() -> Option<(PathBuf, PathBuf)> {
             if has_libpmix {
                 // Prefer a -L that actually holds libpmix.
                 lib = Some(p);
-            } else if lib.is_none() {
+            } else {
                 // Keep first -L as fallback.
                 lib.get_or_insert(p);
             }

@@ -28,9 +28,9 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use pmix::Info;
 use pmix::info_with_string_key;
-use pmix::tool::{PmixTool, PmixToolHandle, tool_init};
+use pmix::tool::{tool_init, PmixTool, PmixToolHandle};
+use pmix::Info;
 
 /// Default timeout for `tool_init` FFI calls (in seconds).
 ///
@@ -325,7 +325,9 @@ pub fn assert_error(status: pmix::PmixStatus) {
 pub fn ensure_pmix_init() -> &'static pmix::PmixClient {
     use std::sync::OnceLock;
     static PMIX_CTX: OnceLock<pmix::PmixClient> = OnceLock::new();
-    PMIX_CTX.get_or_init(|| pmix::PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun"))
+    PMIX_CTX.get_or_init(|| {
+        pmix::PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun")
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

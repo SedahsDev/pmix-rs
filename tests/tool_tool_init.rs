@@ -8,10 +8,9 @@
 mod daemon_helper;
 
 use pmix::tool::{
-    PmixServerHandle, PmixToolHandle, is_tool_initialized, tool_attach_to_server, tool_disconnect,
-    tool_init,
+    is_tool_initialized, tool_attach_to_server, tool_disconnect, PmixServerHandle, PmixToolHandle,
 };
-use pmix::{InfoBuilder, PmixStatus};
+use pmix::PmixStatus;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixToolHandle — structure and traits
@@ -144,14 +143,19 @@ fn test_tool_finalize_after_init() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// tool_attach_to_server succeeds with daemon after tool_init.
-/// Note: requires specific PMIx server configuration, so marked ignore.
+///
+/// Routes through the shared singleton handle (`get_tool_handle`) so the
+/// process-global PMIx tool session is initialized exactly once. Calling
+/// `tool_init` directly here would leave the session `Live`, causing every
+/// later test's init to return `ErrExists`. The attach call passes the
+/// daemon URI via `get_tool_init_info()` — `PMIx_tool_attach_to_server`
+/// needs `PMIX_SERVER_URI` (or `PMIX_CONNECT_TO_SYSTEM`) in the info
+/// array; an empty array returns `ErrBadParam`.
 #[test]
 #[ignore = "requires PMIx server with attach support"]
 fn test_tool_attach_to_server_with_daemon() {
-    let _guard =
-        daemon_helper::connect_to_daemon().expect("PMIx daemon not available — start prte service");
-    let info = InfoBuilder::new().build();
-    let _handle = tool_init(None, &info).expect("tool_init failed");
+    let _shared = daemon_helper::get_tool_handle().expect("shared tool handle");
+    let info = daemon_helper::get_tool_init_info();
     let result = tool_attach_to_server(None, true, &info);
     assert!(
         result.is_ok(),
@@ -161,14 +165,14 @@ fn test_tool_attach_to_server_with_daemon() {
 }
 
 /// tool_attach_to_server returns handles when requested.
-/// Note: requires specific PMIx server configuration, so marked ignore.
+///
+/// See `test_tool_attach_to_server_with_daemon` for why this uses the
+/// shared singleton + URI-carrying info instead of a direct `tool_init`.
 #[test]
 #[ignore = "requires PMIx server with attach support"]
 fn test_tool_attach_to_server_returns_handles() {
-    let _guard =
-        daemon_helper::connect_to_daemon().expect("PMIx daemon not available — start prte service");
-    let info = InfoBuilder::new().build();
-    let _handle = tool_init(None, &info).expect("tool_init failed");
+    let _shared = daemon_helper::get_tool_handle().expect("shared tool handle");
+    let info = daemon_helper::get_tool_init_info();
     let (tool_handle, server_handle) =
         tool_attach_to_server(None, true, &info).expect("attach_to_server failed");
 

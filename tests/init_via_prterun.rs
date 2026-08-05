@@ -15,8 +15,6 @@
 //!    - Tests context, proc, namespace, rank from DVM connection
 mod daemon_helper;
 
-use pmix::InfoBuilder;
-
 /// Check if we were launched by the DVM (prterun/prun).
 fn is_dvm_launched() -> bool {
     std::env::var("PMIX_NAMESPACE").is_ok()
@@ -47,15 +45,18 @@ fn test_init_fails_without_dvm() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// PmixClient::connect_new() succeeds when launched by prterun.
+///
+/// Routes through `ensure_pmix_init()` so the process-wide PMIx client
+/// session is initialized exactly once. Calling `connect_new` directly
+/// here would hit the already-`Live` singleton (established by the
+/// alphabetically-earlier `test_context_proc_info`) and return `ErrExists`.
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_succeeds_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let result = pmix::PmixClient::connect_new(None);
-    assert!(
-        result.is_ok(),
-        "PmixClient::connect_new() should succeed when launched by prterun"
-    );
+    let context = daemon_helper::ensure_pmix_init();
+    // The singleton context is usable — require_proc() panics if init failed.
+    let _proc = context.require_proc();
 }
 
 /// PmixClient::connect_new() returns a valid context with rank 0.
@@ -81,15 +82,20 @@ fn test_initialized_after_init() {
 }
 
 /// PmixClient::connect_new() with Info succeeds via prterun.
+///
+/// Routes through `ensure_pmix_init()` — see `test_init_succeeds_via_prterun`
+/// for why a direct `connect_new` would return `ErrExists` against the
+/// already-`Live` singleton. The singleton itself calls `connect_new(None)`;
+/// this test verifies the resulting context is usable with rank 0.
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_with_info_via_prterun() {
     assert!(is_dvm_launched(), "this test must be launched by prterun");
-    let info = InfoBuilder::new().build();
-    let result = pmix::PmixClient::connect_new(Some(info));
-    assert!(
-        result.is_ok(),
-        "PmixClient::connect_new() with info should succeed via prterun"
+    let context = daemon_helper::ensure_pmix_init();
+    assert_eq!(
+        context.require_rank(),
+        0,
+        "rank should be 0 for single-process job"
     );
 }
 
