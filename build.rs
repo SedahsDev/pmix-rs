@@ -128,20 +128,15 @@ fn discover_via_pkg_config() -> Option<(PathBuf, PathBuf)> {
             }
         } else if let Some(path) = tok.strip_prefix("-L") {
             let p = PathBuf::from(path);
-            if p.join("libpmix.so").exists()
+            let has_libpmix = p.join("libpmix.so").exists()
                 || p.join("libpmix.a").exists()
-                || p.join("libpmix.dylib").exists()
-                || lib.is_none()
-            {
-                // Prefer a -L that actually holds libpmix; otherwise keep first.
-                if p.join("libpmix.so").exists()
-                    || p.join("libpmix.a").exists()
-                    || p.join("libpmix.dylib").exists()
-                {
-                    lib = Some(p);
-                } else {
-                    lib.get_or_insert(p);
-                }
+                || p.join("libpmix.dylib").exists();
+            if has_libpmix {
+                // Prefer a -L that actually holds libpmix.
+                lib = Some(p);
+            } else if lib.is_none() {
+                // Keep first -L as fallback.
+                lib.get_or_insert(p);
             }
         }
     }

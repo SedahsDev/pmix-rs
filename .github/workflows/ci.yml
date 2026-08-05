@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
   # OpenPMIx minimum required by pmix-rs (threading model + API surface).
   OPENPMIX_VERSION: "6.1.0"
-  PRTE_VERSION: "3.0.8"
+  PRTE_VERSION: "4.1.0"
 
 jobs:
   ############################################################################
