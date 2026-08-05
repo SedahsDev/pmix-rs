@@ -300,7 +300,7 @@ fn test_tool_attach_after_init() {
         Ok(handle) => {
             // Now try to attach to a server
             let attach_info = InfoBuilder::new().build();
-            let attach_result = tool_attach_to_server(Some(handle.proc()), true, &attach_info);
+            let attach_result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
             match attach_result {
                 Ok((tool, server)) => {
                     // Connection established
@@ -342,7 +342,7 @@ fn test_tool_attach_both_handles() {
     match init_result {
         Ok(handle) => {
             let attach_info = InfoBuilder::new().build();
-            let attach_result = tool_attach_to_server(Some(handle.proc()), true, &attach_info);
+            let attach_result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
             match attach_result {
                 Ok((tool, server)) => {
                     assert!(

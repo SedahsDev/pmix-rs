@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use pmix::Info;
 use pmix::info_with_string_key;
-use pmix::tool::{PmixToolHandle, tool_init};
+use pmix::tool::{PmixTool, PmixToolHandle, tool_init};
 
 /// Default timeout for `tool_init` FFI calls (in seconds).
 ///
@@ -135,7 +135,7 @@ pub fn get_tool_init_info() -> Info {
 ///
 /// Callers must hold the daemon lock (via `daemon_lock()`) before using
 /// the handle, since PMIx C APIs access global state.
-static SHARED_TOOL: std::sync::OnceLock<PmixToolHandle> = std::sync::OnceLock::new();
+static SHARED_TOOL: std::sync::OnceLock<PmixTool> = std::sync::OnceLock::new();
 
 /// Whether initialization was attempted but failed.
 static INIT_FAILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -152,8 +152,8 @@ static INIT_FAILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 /// then construct the Info inside the thread. This avoids any issues with
 /// Info's internal pointer not being Send.
 ///
-/// Returns `Ok(PmixToolHandle)` on success, `Err(String)` on timeout or FFI error.
-fn tool_init_with_timeout(uri: &str) -> Result<PmixToolHandle, String> {
+/// Returns `Ok(PmixTool)` on success, `Err(String)` on timeout or FFI error.
+fn tool_init_with_timeout(uri: &str) -> Result<PmixTool, String> {
     let uri = uri.to_string();
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -203,7 +203,7 @@ fn tool_init_with_timeout(uri: &str) -> Result<PmixToolHandle, String> {
 ///
 /// Uses a timeout wrapper around `tool_init` to prevent indefinite hangs
 /// when the PRTE daemon is running but not accepting tool connections.
-pub fn get_tool_handle() -> Result<&'static PmixToolHandle, String> {
+pub fn get_tool_handle() -> Result<&'static PmixTool, String> {
     // Fast path: already initialized (lock-free)
     if let Some(handle) = SHARED_TOOL.get() {
         return Ok(handle);

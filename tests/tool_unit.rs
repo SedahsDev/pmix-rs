@@ -5,6 +5,7 @@
 
 use pmix::tool::*;
 use pmix::{InfoBuilder, PmixStatus};
+use pmix::tool::PmixTool;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // tool_init — parameter variation tests

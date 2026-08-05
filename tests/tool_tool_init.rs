@@ -69,6 +69,7 @@ fn test_server_handle_traits() {
 
 /// tool_init succeeds with a running daemon.
 #[test]
+#[ignore = "requires PMIx/PRTE daemon"]
 fn test_tool_init_with_daemon() {
     let result = daemon_helper::get_tool_handle();
     assert!(
@@ -80,21 +81,24 @@ fn test_tool_init_with_daemon() {
 
 /// tool_init returns a handle with a valid namespace and rank.
 #[test]
+#[ignore = "requires PMIx/PRTE daemon"]
 fn test_tool_init_returns_valid_handle() {
     let handle = daemon_helper::get_tool_handle().expect("tool_init failed");
 
     // Handle should have a non-empty namespace.
-    let nspace = handle.proc().nspace();
+    let proc = handle.proc().expect("handle should have a proc");
+    let nspace = proc.nspace();
     assert!(nspace.is_some(), "handle should have a namespace");
     let nspace = nspace.unwrap();
     assert!(!nspace.is_empty(), "namespace should not be empty");
 
     // Rank should be a valid u32.
-    let _rank: u32 = handle.proc().rank();
+    let _rank: u32 = proc.rank();
 }
 
 /// tool_init_minimal succeeds with a running daemon.
 #[test]
+#[ignore = "requires PMIx/PRTE daemon"]
 fn test_tool_init_minimal_with_daemon() {
     let _handle = daemon_helper::get_tool_handle().expect("tool_init failed");
     // tool_init_minimal is an alias for tool_init with no info — the singleton
@@ -128,6 +132,7 @@ fn test_tool_initialized_idempotent() {
 /// Note: we cannot actually call tool_finalize on the shared handle since
 /// other tests need it. This test verifies the init succeeded instead.
 #[test]
+#[ignore = "requires PMIx/PRTE daemon"]
 fn test_tool_finalize_after_init() {
     let handle = daemon_helper::get_tool_handle().expect("tool_init failed");
     // Handle is valid — finalize would work but we can't call it on the shared handle.
@@ -221,6 +226,7 @@ fn test_proc_rank_return_type() {
 
 /// Full tool lifecycle: init -> is_initialized -> finalize -> !is_initialized.
 #[test]
+#[ignore = "requires PMIx/PRTE daemon"]
 fn test_tool_lifecycle_with_daemon() {
     let handle = daemon_helper::get_tool_handle().expect("tool_init failed");
 
@@ -232,6 +238,7 @@ fn test_tool_lifecycle_with_daemon() {
 
 /// Test tool_disconnect with a real PMIx environment.
 #[test]
+#[ignore = "requires PMIx/PRTE daemon"]
 fn test_tool_disconnect_with_daemon() {
     let _handle = daemon_helper::get_tool_handle().expect("tool_init failed");
 

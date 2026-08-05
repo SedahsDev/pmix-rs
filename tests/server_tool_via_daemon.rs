@@ -22,6 +22,7 @@ mod daemon_helper;
 
 use pmix::server::{PmixServerModule, server_finalize, server_init, server_tool_attach_to_server};
 use pmix::{InfoBuilder, PmixStatus, Proc};
+use pmix::tool::PmixTool;
 
 // Dummy callbacks for testing module with callbacks set.
 // All PmixServerModule callbacks are Option<unsafe extern "C" fn()>

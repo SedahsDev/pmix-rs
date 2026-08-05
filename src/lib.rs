@@ -3498,10 +3498,9 @@ fn client_session() -> Arc<PmixClientInner> {
 /// # Example
 ///
 /// ```no_run
-/// use pmix::{PmixClient, put_value, commit, fence, PmixScope};
-/// use std::ffi::CString;
+/// use pmix::PmixClient;
 ///
-/// let client = PmixClient::connect_new(None)?;
+/// let client = PmixClient::connect_new(None).expect("connect");
 ///
 /// let worker = client.clone();
 /// std::thread::spawn(move || {
@@ -3509,8 +3508,7 @@ fn client_session() -> Arc<PmixClientInner> {
 ///     // put_value / get_value / … with worker.proc()
 /// });
 ///
-/// client.disconnect(None)?;
-/// # Ok::<(), pmix::PmixError>(())
+/// client.disconnect(None).expect("disconnect");
 /// ```
 #[derive(Debug, Clone)]
 pub struct PmixClient {

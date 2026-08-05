@@ -67,10 +67,11 @@ fn test_tool_init_returns_valid_handle() {
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
     let info = InfoBuilder::new().build();
     let handle = pmix::tool::tool_init(None, &info).expect("tool_init failed");
-    let nspace = handle.proc().nspace();
+    let proc = handle.proc().expect("handle should have a proc");
+    let nspace = proc.nspace();
     assert!(nspace.is_some(), "handle should have a namespace");
     assert!(!nspace.unwrap().is_empty(), "namespace should not be empty");
-    let _rank: u32 = handle.proc().rank();
+    let _rank: u32 = proc.rank();
 }
 
 /// tool_init with Info succeeds.

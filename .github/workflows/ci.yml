@@ -8,11 +8,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # OpenPMIx minimum required by pmix-rs (threading model + API surface).
+  OPENPMIX_VERSION: "6.1.0"
   PRTE_VERSION: "3.0.8"
 
 jobs:
   ############################################################################
-  # Regular tests — no daemon needed
+  # Regular tests — OpenPMIx ≥ 6.1 from source, libclang for bindgen
   ############################################################################
   test:
     name: Regular tests
@@ -39,24 +41,68 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-git-
 
-      - name: Install PMIx development libraries
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpmix-dev libpmix-bin
+          sudo apt-get install -y \
+            build-essential autoconf automake libtool pkg-config \
+            libevent-dev libhwloc-dev \
+            libclang-dev clang
 
-      - name: Verify PMIx headers
+      - name: Cache OpenPMIx ${{ env.OPENPMIX_VERSION }}
+        id: cache-openpmix
+        uses: actions/cache@v4
+        with:
+          path: openpmix-${{ env.OPENPMIX_VERSION }}
+          key: openpmix-${{ env.OPENPMIX_VERSION }}-ubuntu-24.04-v1
+
+      - name: Build OpenPMIx ${{ env.OPENPMIX_VERSION }}
+        if: steps.cache-openpmix.outputs.cache-hit != 'true'
         run: |
-          ls /usr/lib/x86_64-linux-gnu/pmix2/include/pmix.h
-          ldconfig -p | grep libpmix
+          set -euo pipefail
+          PREFIX="$GITHUB_WORKSPACE/openpmix-${OPENPMIX_VERSION}"
+          cd /tmp
+          git clone --depth 1 --branch "v${OPENPMIX_VERSION}" --recurse-submodules \
+            https://github.com/openpmix/openpmix.git "openpmix-${OPENPMIX_VERSION}"
+          cd "openpmix-${OPENPMIX_VERSION}"
+          ./autogen.pl
+          ./configure --prefix="$PREFIX" --disable-debug CFLAGS="-O2"
+          make -j"$(nproc)"
+          make install
+
+      - name: Export PMIX_PREFIX
+        run: |
+          PREFIX="$GITHUB_WORKSPACE/openpmix-${OPENPMIX_VERSION}"
+          echo "PMIX_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PREFIX/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          test -f "$PREFIX/include/pmix.h"
+          grep -E 'PMIX_VERSION_MAJOR[[:space:]]+6' "$PREFIX/include/pmix_version.h"
+          grep -E 'PMIX_VERSION_MINOR[[:space:]]+1' "$PREFIX/include/pmix_version.h"
 
       - name: Build
         run: cargo build --all-targets
+
+      - name: Assert working tree stayed clean
+        run: |
+          # Bindings must land only in OUT_DIR — never under src/ or elsewhere tracked.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: cargo build dirtied the working tree:"
+            git status --porcelain
+            git diff --stat || true
+            exit 1
+          fi
+          if [ -e src/bindings.rs ]; then
+            echo "ERROR: src/bindings.rs must not exist after build"
+            exit 1
+          fi
+          echo "Working tree clean after cargo build."
 
       - name: Run regular tests
         run: cargo test
 
   ############################################################################
-  # Daemon tests — build PRTE, start daemon, run ignored tests
+  # Daemon tests — build PRTE (bundles OpenPMIx), start daemon, run ignored tests
   ############################################################################
   daemon-tests:
     name: Daemon tests
@@ -87,16 +133,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libpmix-dev libpmix-bin \
             build-essential autoconf automake libtool pkg-config \
-            libevent-dev libhwloc-dev
+            libevent-dev libhwloc-dev \
+            libclang-dev clang
 
       - name: Cache PRTE build
         id: cache-prte
         uses: actions/cache@v4
         with:
           path: prte-${{ env.PRTE_VERSION }}
-          key: prte-${{ env.PRTE_VERSION }}-ubuntu-24.04
+          key: prte-${{ env.PRTE_VERSION }}-ubuntu-24.04-internal-pmix-v1
 
       - name: Download and build PRTE
         if: steps.cache-prte.outputs.cache-hit != 'true'
@@ -107,7 +153,6 @@ jobs:
           tar xzf prrte-${PRTE_VERSION}.tar.gz
           cd prrte-${PRTE_VERSION}
 
-          # If autogen is needed, run it; otherwise configure directly
           if [ -f autogen.pl ]; then
             ./autogen.pl
           fi
@@ -122,23 +167,15 @@ jobs:
           make -j"$(nproc)"
           make install
 
-      - name: Restore cached PRTE
-        if: steps.cache-prte.outputs.cache-hit == 'true'
-        run: |
-          # Ensure the cached install is on PATH and LD_LIBRARY_PATH
-          true
-
       - name: Start PRTE daemon
         run: |
           PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
           export PATH="$PRTE_HOME/bin:$PATH"
           export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
 
-          # Create URI directory
           URI_DIR="$GITHUB_WORKSPACE/prte_uri"
           mkdir -p "$URI_DIR"
 
-          # Start PRTE daemon in background, writing URI to our directory
           "$PRTE_HOME/bin/prte" \
             --report-uri "$URI_DIR/uri" \
             --no-ready-msg &
@@ -148,8 +185,9 @@ jobs:
           echo "PRTE_PID=$PRTE_PID" >> "$GITHUB_ENV"
           echo "PRTE_URI_DIR=$URI_DIR" >> "$GITHUB_ENV"
           echo "PRTE_HOME=$PRTE_HOME" >> "$GITHUB_ENV"
+          # Point bindgen/link at PRTE's bundled OpenPMIx.
+          echo "PMIX_PREFIX=$PRTE_HOME" >> "$GITHUB_ENV"
 
-          # Wait for the URI file to appear (up to 30 seconds)
           for i in $(seq 1 30); do
             if [ -f "$URI_DIR/uri" ]; then
               echo "PRTE URI file ready after ${i}s"
@@ -164,26 +202,30 @@ jobs:
             exit 1
           fi
 
-          # Verify the daemon is actually running
           kill -0 "$PRTE_PID" || { echo "PRTE daemon exited prematurely"; exit 1; }
 
       - name: Build Rust crate
         run: |
-          PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
           export PATH="$PRTE_HOME/bin:$PATH"
           export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
+          export PMIX_PREFIX="$PRTE_HOME"
           cargo build --all-targets
+
+      - name: Assert working tree stayed clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: cargo build dirtied the working tree:"
+            git status --porcelain
+            exit 1
+          fi
 
       - name: Run daemon-dependent tests (ignored)
         run: |
-          PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
           export PATH="$PRTE_HOME/bin:$PATH"
           export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
-
-          # Point daemon_helper to the PRTE URI file
+          export PMIX_PREFIX="$PRTE_HOME"
           export PMIX_TEST_URI_FILE="$PRTE_URI_DIR/uri"
 
-          # Run the three test suites that use daemon_helper with --ignored flag
           echo "=== Running tool_tool_init daemon tests ==="
           cargo test --test tool_tool_init -- --ignored --test-threads=1
 
@@ -226,16 +268,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libpmix-dev libpmix-bin \
             build-essential autoconf automake libtool pkg-config \
-            libevent-dev libhwloc-dev
+            libevent-dev libhwloc-dev \
+            libclang-dev clang
 
       - name: Cache PRTE build
         id: cache-prte
         uses: actions/cache@v4
         with:
           path: prte-${{ env.PRTE_VERSION }}
-          key: prte-${{ env.PRTE_VERSION }}-ubuntu-24.04
+          key: prte-${{ env.PRTE_VERSION }}-ubuntu-24.04-internal-pmix-v1
 
       - name: Download and build PRTE
         if: steps.cache-prte.outputs.cache-hit != 'true'
@@ -265,15 +307,24 @@ jobs:
           PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
           export PATH="$PRTE_HOME/bin:$PATH"
           export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
+          export PMIX_PREFIX="$PRTE_HOME"
           cargo build --test init_via_prterun
+
+      - name: Assert working tree stayed clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: cargo build dirtied the working tree:"
+            git status --porcelain
+            exit 1
+          fi
 
       - name: Run DVM-launched tests via prterun
         run: |
           PRTE_HOME="$GITHUB_WORKSPACE/prte-${PRTE_VERSION}"
           export PATH="$PRTE_HOME/bin:$PATH"
           export LD_LIBRARY_PATH="$PRTE_HOME/lib:$LD_LIBRARY_PATH"
+          export PMIX_PREFIX="$PRTE_HOME"
 
-          # Run the init_via_prterun tests under prterun
           prterun -np 1 --report-uri /tmp/prte_uri/uri \
             cargo test --test init_via_prterun -- --ignored --test-threads=1
 
@@ -291,10 +342,49 @@ jobs:
         with:
           components: clippy
 
-      - name: Install PMIx development libraries
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpmix-dev libpmix-bin
+          sudo apt-get install -y \
+            build-essential autoconf automake libtool pkg-config \
+            libevent-dev libhwloc-dev \
+            libclang-dev clang
+
+      - name: Cache OpenPMIx ${{ env.OPENPMIX_VERSION }}
+        id: cache-openpmix
+        uses: actions/cache@v4
+        with:
+          path: openpmix-${{ env.OPENPMIX_VERSION }}
+          key: openpmix-${{ env.OPENPMIX_VERSION }}-ubuntu-24.04-v1
+
+      - name: Build OpenPMIx ${{ env.OPENPMIX_VERSION }}
+        if: steps.cache-openpmix.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          PREFIX="$GITHUB_WORKSPACE/openpmix-${OPENPMIX_VERSION}"
+          cd /tmp
+          git clone --depth 1 --branch "v${OPENPMIX_VERSION}" --recurse-submodules \
+            https://github.com/openpmix/openpmix.git "openpmix-${OPENPMIX_VERSION}"
+          cd "openpmix-${OPENPMIX_VERSION}"
+          ./autogen.pl
+          ./configure --prefix="$PREFIX" --disable-debug CFLAGS="-O2"
+          make -j"$(nproc)"
+          make install
+
+      - name: Export PMIX_PREFIX
+        run: |
+          PREFIX="$GITHUB_WORKSPACE/openpmix-${OPENPMIX_VERSION}"
+          echo "PMIX_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PREFIX/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Clippy check
         run: cargo clippy --all-targets -- -D warnings
+
+      - name: Assert working tree stayed clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: cargo clippy dirtied the working tree:"
+            git status --porcelain
+            exit 1
+          fi

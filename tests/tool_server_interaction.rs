@@ -139,7 +139,7 @@ fn test_attach_to_server_with_init_no_panic() {
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
     let attach_info = InfoBuilder::new().build();
     // This may succeed or fail depending on server config, but must not panic.
-    let _result = tool_attach_to_server(Some(handle.proc()), true, &attach_info);
+    let _result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
 }
 
 /// tool_attach_to_server with want_server=true returns Option<PmixServerHandle>.
@@ -150,7 +150,7 @@ fn test_attach_to_server_want_server_returns_option() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
     let attach_info = InfoBuilder::new().build();
-    let result = tool_attach_to_server(Some(handle.proc()), true, &attach_info);
+    let result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
     match result {
         Ok((tool_handle, server_handle)) => {
             // Both are Options — may be Some or None depending on server
@@ -177,7 +177,7 @@ fn test_attach_to_server_no_server_flag_returns_none() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
     let attach_info = InfoBuilder::new().build();
-    let result = tool_attach_to_server(Some(handle.proc()), false, &attach_info);
+    let result = tool_attach_to_server(handle.proc().as_ref(), false, &attach_info);
     match result {
         Ok((_, server_handle)) => {
             assert!(
@@ -523,7 +523,7 @@ fn test_set_server_with_init_no_panic() {
 
     // Use the tool's own proc as the server proc — may or may not work
     let info = InfoBuilder::new().build();
-    let result = tool_set_server(handle.proc(), &info);
+    let result = tool_set_server(&handle.require_proc(), &info);
     // We accept either success or error — the key is no panic
     let _ = result;
 }
@@ -561,7 +561,7 @@ fn test_lifecycle_init_attach_disconnect_finalize() {
 
     // Step 1: attach (may succeed or fail)
     let attach_info = InfoBuilder::new().build();
-    match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
+    match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
         Ok((_, Some(server))) => {
             // Step 2: disconnect from the server we attached to
             let disconnect_result = tool_disconnect(server.proc());
@@ -610,7 +610,7 @@ fn test_lifecycle_init_set_server_finalize() {
 
     // Step 1: set_server (using tool's own proc as target)
     let info = InfoBuilder::new().build();
-    let _set_result = tool_set_server(handle.proc(), &info);
+    let _set_result = tool_set_server(&handle.require_proc(), &info);
 
     // Step 2: finalize — singleton handle, Drop handles it at process exit
 }
@@ -634,7 +634,7 @@ fn test_lifecycle_full_combined() {
 
     // Step 3: attach (may succeed or fail)
     let attach_info = InfoBuilder::new().build();
-    match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
+    match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
         Ok((_, Some(server))) => {
             // Step 4: disconnect
             let _ = tool_disconnect(server.proc());
@@ -686,7 +686,7 @@ fn test_finalize_after_failed_attach() {
 
     // Try attach with empty info (likely to fail)
     let empty_info = InfoBuilder::new().build();
-    let _ = tool_attach_to_server(Some(handle.proc()), true, &empty_info);
+    let _ = tool_attach_to_server(handle.proc().as_ref(), true, &empty_info);
 
     // Finalize should still work — this test specifically tests finalize behavior
     let finalize_result = tool_finalize(handle.clone());
@@ -945,7 +945,7 @@ fn test_is_tool_initialized_transitions() {
         "Should still be true after disconnect"
     );
 
-    let _ = tool_set_server(handle.proc(), &info);
+    let _ = tool_set_server(&handle.require_proc(), &info);
     assert!(
         is_tool_initialized(),
         "Should still be true after set_server"
