@@ -64,8 +64,9 @@
 //! Rust-owned data first (e.g. [`bytes_copy`](crate::PmixOwnedValue::bytes_copy))
 //! and send the copy.
 //!
-//! See also `examples/callback_hop.rs` for a complete `get_nb` + events
-//! demonstration, and [THREADING.md](../THREADING.md).
+//! See also `examples/callback_hop.rs` (`get_nb` + events) and
+//! `examples/server_upcall_hop.rs` (server module fence/modex upcalls +
+//! delayed `cbfunc`), plus [THREADING.md](../THREADING.md).
 
 use std::sync::mpsc::{self, Receiver, RecvError, RecvTimeoutError, Sender, TryRecvError};
 

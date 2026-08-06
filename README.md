@@ -119,6 +119,8 @@ cargo run --example tool_attach
 cargo run --example simple_put_get
 cargo run --example simple_fence
 cargo run --example data_packing
+cargo run --example callback_hop          # client _nb / events hop-off (#51)
+cargo run --example server_upcall_hop     # server fence/modex upcall hop (#52)
 ```
 
 Under a PMIx DVM:
