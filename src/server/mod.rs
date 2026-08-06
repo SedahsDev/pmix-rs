@@ -27,6 +27,29 @@
 //! server.disconnect().expect("server disconnect");
 //! ```
 //!
+//! # Server module upcalls (progress context)
+//!
+//! Host callbacks in [`PmixServerModule`] (`fence_nb`, `direct_modex`,
+//! `publish`, …) run on the PMIx **progress thread** (or another host
+//! progress context OpenPMIx chooses) — **not** on an application worker
+//! you pin. That has two consequences:
+//!
+//! 1. **Do not block back into PMIx from an upcall.** Waiting on a
+//!    blocking `PMIx_*` entry (or joining a thread that does) deadlocks
+//!    progress. Hop first with
+//!    [`crate::threading::spawn_from_callback`] /
+//!    [`crate::threading::CallbackChannel`], then finish the request by
+//!    invoking the provided `cbfunc` **later** from an app thread.
+//! 2. **Upcalls are not CPU-pin targets.** Pin the progress engine via
+//!    [`InitOptions::bind_progress_thread`](crate::InitOptions::bind_progress_thread)
+//!    (see [THREADING.md](../../THREADING.md) §4). Do not try to pin
+//!    which core runs `fence_nb` / `direct_modex` themselves.
+//!
+//! Full hop-off policy and forbidden APIs:
+//! [`crate::threading::ProgressContext`]. Worked fence/modex pattern:
+//! `examples/server_upcall_hop.rs`. Client `_nb` / events counterpart:
+//! `examples/callback_hop.rs` ([#51](https://github.com/SedahsDev/pmix-rs/issues/51)).
+//!
 //! # Callbacks
 //!
 //! The `PmixServerModule` struct mirrors `pmix_server_module_t`. Each
@@ -81,11 +104,58 @@ pub use pset::*;
 /// implemented by the server. The PMIx library checks for null before
 /// calling each callback, so it is safe to set only the ones you need.
 ///
+/// # Progress-thread rules (read before implementing any field)
+///
+/// OpenPMIx invokes these host upcalls from **progress context** (typically
+/// the PMIx progress / event-engine thread). They are **not** a place to
+/// pin application CPUs — pin progress separately
+/// ([THREADING.md](../../THREADING.md) §4; helpers in [`crate::threading`]).
+///
+/// | Do | Don't |
+/// |----|--------|
+/// | Return quickly from the upcall | Call blocking PMIx APIs in-handler |
+/// | Hop off with [`spawn_from_callback`](crate::threading::spawn_from_callback) or [`CallbackChannel`](crate::threading::CallbackChannel) | Join / park waiting for progress |
+/// | Invoke the provided `cbfunc` **later** when RM work finishes | Block the upcall until remote collectives complete |
+/// | Copy C buffers you need before hopping (`!Send` / lifetime ends at return) | Hold crate registry locks across user/RM code |
+///
+/// ```rust,ignore
+/// // ❌ NEVER — blocks progress on a PMIx round-trip from a server upcall
+/// let _ = pmix::data_ops::get(&proc, "pmix.job.size", None);
+///
+/// // ❌ NEVER — waits in-handler for work that needs progress
+/// handle.join().unwrap();
+///
+/// // ✅ Hop, then complete asynchronously via cbfunc
+/// let _ctx = pmix::threading::ProgressContext;
+/// let cb = cbfunc; // capture
+/// let chain = cbdata as usize; // *mut c_void is !Send
+/// let _ = pmix::threading::spawn_from_callback(move || {
+///     // RM / network work is safe here
+///     if let Some(cb) = cb {
+///         unsafe { cb(PMIX_SUCCESS, /* … */, chain as *mut _, None, std::ptr::null_mut()); }
+///     }
+/// });
+/// // return PMIX_SUCCESS from the upcall immediately
+/// ```
+///
+/// See `examples/server_upcall_hop.rs` for a complete fence_nb / direct_modex
+/// pattern, and [`crate::threading`] / `examples/callback_hop.rs` for the
+/// shared hop-off helpers used by client `_nb` completions and events.
+///
+/// # Field types
+///
+/// Fields are stored as `Option<unsafe extern "C" fn()>` so the struct layout
+/// matches a table of C function pointers. Real upcalls have richer C
+/// signatures (`pmix_server_fencenb_fn_t`, …); cast with `std::mem::transmute`
+/// when installing a typed handler (as in the example).
+///
 /// # C API
 /// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
 #[derive(Debug, Default)]
 pub struct PmixServerModule {
     /// Called when a client process connects to this server.
+    ///
+    /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
     ///
     /// # C type
     /// `pmix_server_client_connected_fn_t`
@@ -93,23 +163,40 @@ pub struct PmixServerModule {
 
     /// Called when a client process finalizes its connection.
     ///
+    /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
+    ///
     /// # C type
     /// `pmix_server_client_finalized_fn_t`
     pub client_finalized: Option<unsafe extern "C" fn()>,
 
     /// Called when a client requests an abort.
     ///
+    /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
+    /// Complete via the provided `pmix_op_cbfunc_t` after hopping if work blocks.
+    ///
     /// # C type
     /// `pmix_server_abort_fn_t`
     pub abort: Option<unsafe extern "C" fn()>,
 
-    /// Non-blocking fence callback.
+    /// Non-blocking fence / collective upcall (`PMIx_Fence` / `PMIx_Fence_nb`).
+    ///
+    /// OpenPMIx calls this once local participants have contributed. The host
+    /// must share any provided modex blob with peer daemons and complete via
+    /// `pmix_modex_cbfunc_t` — typically **after** hopping off progress
+    /// (network / collective work must not block the upcall).
+    ///
+    /// **Not a CPU-pin target** — progress pinning is separate ([THREADING.md](../../THREADING.md)).
+    /// Pattern: `examples/server_upcall_hop.rs`.
     ///
     /// # C type
     /// `pmix_server_fencenb_fn_t`
     pub fence_nb: Option<unsafe extern "C" fn()>,
 
-    /// Direct modex request callback.
+    /// Direct modex request — fetch a remote proc's modex blob via the host.
+    ///
+    /// Same progress-thread rules as [`Self::fence_nb`]: schedule the remote
+    /// fetch off-progress and invoke `pmix_modex_cbfunc_t` when the blob is
+    /// ready (or on error). See `examples/server_upcall_hop.rs`.
     ///
     /// # C type
     /// `pmix_server_dmodex_req_fn_t`

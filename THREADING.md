@@ -61,6 +61,22 @@ client.disconnect(None)?;
 
 Deadlocks: external progress without a loop; mutex held across `progress()` + callback; blocking PMIx inside a callback; `progress()` after `progress_thread_stop()`.
 
+### 4.1 Server module upcalls (not pin targets)
+
+`PmixServerModule` host callbacks (`fence_nb`, `direct_modex`, `publish`, …)
+run in **progress context**. They are **not** CPU-pin targets — pin the
+progress engine (table above), not which core runs a given upcall body.
+
+Rules (same deadlock class as client `_nb` / events — issue #51 helpers):
+
+1. Return quickly; never call blocking PMIx from the upcall.
+2. Hop with `threading::spawn_from_callback` or `CallbackChannel`.
+3. Invoke the provided `cbfunc` **later** when RM / network work finishes.
+4. Copy C buffers before hopping; do not join hop work in-handler.
+
+Docs live next to the type: `PmixServerModule` in `src/server/mod.rs`.  
+Worked example: `examples/server_upcall_hop.rs` (issue #52).
+
 ---
 
 ## 5. Type inventory
@@ -94,11 +110,15 @@ Deadlocks: external progress without a loop; mutex held across `progress()` + ca
 
 1. Use session types (`PmixClient` / `PmixServer` / `PmixTool`) — clone for workers; `disconnect` once.  
 2. Build `Info` and other C-owned handles on the calling thread.  
-3. Callbacks = progress thread — hop before blocking PMIx. Use
-   `threading::spawn_from_callback` (fire-and-forget thread) or
-   `threading::CallbackChannel` (app-thread receiver) — see
-   `examples/callback_hop.rs`. Never join/wait in-handler; convert C-owned
-   (`!Send`) values to Rust-owned data (e.g. `bytes_copy()`) before hopping.  
+3. Callbacks **and server module upcalls** = progress context — hop before
+   blocking PMIx. Use `threading::spawn_from_callback` (fire-and-forget
+   thread) or `threading::CallbackChannel` (app-thread receiver) — see
+   `examples/callback_hop.rs` (client `_nb` / events) and
+   `examples/server_upcall_hop.rs` (fence_nb / direct_modex + delayed
+   `cbfunc`). Never join/wait in-handler; convert C-owned (`!Send`) values
+   to Rust-owned data (e.g. `bytes_copy()`) before hopping. Server upcalls
+   are **not** CPU-pin targets (§4.1).  
+
 4. One connect/disconnect cycle per process (per role).  
 5. Progress must run.  
 6. cbdata: `crate::cbdata::encode_req_id` / `decode_req_id`.  
@@ -128,7 +148,8 @@ work on an application thread. Full policy: `src/threading.rs`.
 
 `examples/client_minimal.rs`, `simple_put_get.rs`, `simple_fence.rs`,
 `server_minimal.rs`, `tool_attach.rs`, `callback_hop.rs` (get_nb + events
-callback hop-off via `threading` helpers).
+callback hop-off via `threading` helpers), `server_upcall_hop.rs`
+(server module fence/modex upcall hop + delayed `cbfunc`).
 
 ---
 
@@ -143,7 +164,7 @@ callback hop-off via `threading` helpers).
 | Server/tool sessions | #49 | Done |
 | C-owned !Send + assert matrix | #50 | Done (`threading_assert.rs`) |
 | Callback hop / audit | #51, #67 | #51 Done (`threading` module + events registry); #67 Open |
-| Server upcall example | #52 | Open |
+| Server upcall example | #52 | Done (`PmixServerModule` docs + `server_upcall_hop` example) |
 | Global FFI mutex | #53 | Deferred |
 | MT integration tests | #54 | Open |
 | Extra static_assertions | #66 | Mostly superseded by #50 |

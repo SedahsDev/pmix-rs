@@ -21,7 +21,11 @@
 //! - One logical connect/disconnect per process. **Drop does not finalize**
 //!   (clones must not each run `PMIx_Finalize`). Call [`disconnect`](PmixClient::disconnect)
 //!   or [`finalize`].
-//! - Server upcalls may run on PMIx internal threads; keep callbacks short.
+//! - Server module upcalls ([`server::PmixServerModule`]) run in **progress
+//!   context** — keep them short, hop before blocking PMIx, complete via the
+//!   provided `cbfunc` later. They are **not** CPU-pin targets (pin progress
+//!   via [`InitOptions::bind_progress_thread`]). See
+//!   `examples/server_upcall_hop.rs` and [THREADING.md](../THREADING.md) §4.1.
 //! - `_nb` completions and events are delivered on the **progress thread**.
 //!   Hop off before any blocking work with the [`threading`] helpers
 //!   (`spawn_from_callback`, `CallbackChannel`); never call blocking PMIx
