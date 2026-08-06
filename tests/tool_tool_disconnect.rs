@@ -254,7 +254,7 @@ fn test_attach_then_disconnect() {
         Ok(handle) => {
             // Attach to a server
             let attach_info = InfoBuilder::new().build();
-            let attach_result = tool_attach_to_server(Some(handle.proc()), true, &attach_info);
+            let attach_result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
             match attach_result {
                 Ok((_, Some(server))) => {
                     // Disconnect from the server
@@ -296,7 +296,7 @@ fn test_disconnect_not_connected() {
         Ok(handle) => {
             // Try to disconnect from a server we never connected to.
             // We use the tool's own proc as a fake server identifier.
-            let disconnect_result = tool_disconnect(handle.proc());
+            let disconnect_result = tool_disconnect(handle.proc().as_ref().expect("proc"));
             // This should fail because we're not connected to ourselves as a server.
             match disconnect_result {
                 Ok(()) => {
@@ -329,7 +329,7 @@ fn test_disconnect_with_server_handle() {
     match tool_init(None, &init_info) {
         Ok(handle) => {
             let attach_info = InfoBuilder::new().build();
-            match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
+            match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                 Ok((_, Some(server))) => {
                     // Clone the server handle before disconnecting
                     let server_clone = server.clone();
@@ -366,13 +366,13 @@ fn test_attach_disconnect_cycle() {
         Ok(handle) => {
             let attach_info = InfoBuilder::new().build();
             // First attach
-            match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
+            match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                 Ok((_, Some(server1))) => {
                     // First disconnect
                     let r1 = tool_disconnect(server1.proc());
                     if r1.is_ok() {
                         // Re-attach
-                        match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
+                        match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                             Ok((_, Some(server2))) => {
                                 // Second disconnect
                                 let r2 = tool_disconnect(server2.proc());
@@ -410,7 +410,7 @@ fn test_disconnect_leaves_tool_initialized() {
             );
 
             let attach_info = InfoBuilder::new().build();
-            match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
+            match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                 Ok((_, Some(server))) => {
                     // Disconnect from server
                     let _ = tool_disconnect(server.proc());
@@ -442,7 +442,7 @@ fn test_finalize_after_failed_disconnect() {
     match tool_init(None, &init_info) {
         Ok(handle) => {
             // Try to disconnect from a non-connected server
-            let _ = tool_disconnect(handle.proc());
+            let _ = tool_disconnect(handle.proc().as_ref().expect("proc"));
             // Finalize should still work
             let result = tool_finalize(handle);
             assert!(
@@ -466,7 +466,7 @@ fn test_disconnect_with_minimal_init() {
     match tool_init_minimal() {
         Ok(handle) => {
             let attach_info = InfoBuilder::new().build();
-            match tool_attach_to_server(Some(handle.proc()), true, &attach_info) {
+            match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                 Ok((_, Some(server))) => {
                     let result = tool_disconnect(server.proc());
                     assert!(result.is_ok(), "Disconnect should succeed: {:?}", result);

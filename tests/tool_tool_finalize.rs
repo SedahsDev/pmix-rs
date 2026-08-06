@@ -14,7 +14,7 @@
 //! The tool library is reference-counted. Each `tool_finalize` decrements
 //! the count; the connection closes when it reaches zero.
 
-use pmix::tool::{PmixToolHandle, tool_finalize, tool_init, tool_init_minimal};
+use pmix::tool::{PmixTool, PmixToolHandle, tool_finalize, tool_init, tool_init_minimal};
 use pmix::{InfoBuilder, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ use pmix::{InfoBuilder, PmixStatus};
 /// tool_finalize takes PmixToolHandle and returns Result<(), PmixStatus>.
 #[test]
 fn test_tool_finalize_signature() {
-    let _: fn(PmixToolHandle) -> Result<(), PmixStatus> = tool_finalize;
+    let _: fn(PmixTool) -> Result<(), PmixStatus> = tool_finalize;
 }
 
 /// tool_finalize consumes the handle by value (not by reference).
@@ -32,7 +32,7 @@ fn test_tool_finalize_signature() {
 fn test_tool_finalize_consumes_handle() {
     // Compile-time check: the parameter is PmixToolHandle by value.
     // If it took &PmixToolHandle, this type alias would not match.
-    type F = fn(PmixToolHandle) -> Result<(), PmixStatus>;
+    type F = fn(PmixTool) -> Result<(), PmixStatus>;
     let _f: F = tool_finalize;
 }
 
@@ -43,7 +43,7 @@ fn test_tool_finalize_return_unit() {
     type Ret = Result<(), PmixStatus>;
     fn _assert_same_type(_r: Ret) {}
     // tool_finalize returns exactly this type.
-    let _: fn(PmixToolHandle) -> Ret = tool_finalize;
+    let _: fn(PmixTool) -> Ret = tool_finalize;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,21 +54,21 @@ fn test_tool_finalize_return_unit() {
 #[test]
 fn test_tool_handle_is_clone() {
     fn assert_clone<T: Clone>() {}
-    assert_clone::<PmixToolHandle>();
+    assert_clone::<PmixTool>();
 }
 
 /// PmixToolHandle is Debug (useful for error reporting).
 #[test]
 fn test_tool_handle_is_debug() {
     fn assert_debug<T: std::fmt::Debug>() {}
-    assert_debug::<PmixToolHandle>();
+    assert_debug::<PmixTool>();
 }
 
 /// PmixToolHandle is both Clone and Debug.
 #[test]
 fn test_tool_handle_traits_combined() {
     fn assert_clone_debug<T: Clone + std::fmt::Debug>() {}
-    assert_clone_debug::<PmixToolHandle>();
+    assert_clone_debug::<PmixTool>();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,9 +111,9 @@ fn test_pmix_status_equality() {
 #[test]
 fn test_init_finalize_type_pair() {
     // tool_init -> Result<PmixToolHandle, PmixStatus>
-    // tool_finalize -> fn(PmixToolHandle) -> Result<(), PmixStatus>
+    // tool_finalize -> fn(PmixTool) -> Result<(), PmixStatus>
     // The Ok type of init is exactly the parameter type of finalize.
-    type InitOk = PmixToolHandle;
+    type InitOk = PmixTool;
     fn assert_finalize_accepts_init_ok(h: InitOk) -> Result<(), PmixStatus> {
         tool_finalize(h)
     }
@@ -123,7 +123,7 @@ fn test_init_finalize_type_pair() {
 /// tool_init_minimal returns the same handle type as tool_init.
 #[test]
 fn test_init_minimal_compatible_with_finalize() {
-    type InitReturn = Result<PmixToolHandle, PmixStatus>;
+    type InitReturn = Result<PmixTool, PmixStatus>;
     fn _check_full() -> InitReturn {
         tool_init(None, &InfoBuilder::new().build())
     }
@@ -142,7 +142,7 @@ fn test_init_minimal_compatible_with_finalize() {
 #[test]
 fn test_tool_finalize_function_pointer() {
     // Verify tool_finalize is a plain function (not a closure or method).
-    let f: fn(PmixToolHandle) -> Result<(), PmixStatus> = tool_finalize;
+    let f: fn(PmixTool) -> Result<(), PmixStatus> = tool_finalize;
     // The function pointer itself is safe to hold — calling it requires
     // a valid PmixToolHandle obtained from tool_init.
     let _ = f as *const ();
@@ -157,9 +157,9 @@ fn test_tool_finalize_function_pointer() {
 #[test]
 fn test_tool_finalize_move_semantics() {
     // This is a compile-time structural check.
-    // tool_finalize signature: fn(PmixToolHandle) -> Result<(), PmixStatus>
+    // tool_finalize signature: fn(PmixTool) -> Result<(), PmixStatus>
     // The handle is passed by value, so it is moved/consumed.
-    fn assert_consumes_by_value(_: PmixToolHandle) {}
+    fn assert_consumes_by_value(_: PmixTool) {}
     let _ = assert_consumes_by_value;
 }
 
@@ -260,7 +260,7 @@ fn test_finalize_with_custom_proc() {
         Err(_) => return,
     };
     // Verify handle has valid proc
-    let proc = handle.proc();
+    let proc = handle.proc().expect("proc");
     assert!(
         proc.nspace().is_some(),
         "Handle should have a namespace before finalize"

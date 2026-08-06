@@ -91,7 +91,8 @@ fn register_event_handler_with_codes_without_init_fails() {
 /// The callback uses `c_void` pointers matching the `NotificationFn` type alias.
 #[test]
 fn register_event_handler_with_callback_without_init_fails() {
-    extern "C" fn dummy_notification_handler(
+    // NotificationFn is a Rust-ABI unsafe fn (bridged via notification_bridge).
+    unsafe fn dummy_notification_handler(
         _evhdlr_registration_id: EventHandlerRef,
         _status: i32,
         _source: *const c_void,

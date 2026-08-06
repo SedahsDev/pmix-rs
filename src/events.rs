@@ -799,6 +799,7 @@ pub fn notify_event_nb(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::too_many_arguments)]
     use super::*;
     use std::sync::mpsc;
 

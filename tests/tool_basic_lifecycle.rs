@@ -15,7 +15,7 @@
 //! All tests compile and pass without daemon/prterun.
 
 use pmix::tool::{
-    PmixServerHandle, PmixToolHandle, is_tool_initialized, tool_finalize, tool_init,
+    PmixServerHandle, PmixTool, PmixToolHandle, is_tool_initialized, tool_finalize, tool_init,
     tool_init_minimal,
 };
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus, Proc};
@@ -90,7 +90,7 @@ fn test_tool_init_minimal_no_panic() {
 /// tool_init_minimal() returns a Result<PmixToolHandle, PmixStatus>.
 #[test]
 fn test_tool_init_minimal_return_type() {
-    let result: Result<PmixToolHandle, PmixStatus> = tool_init_minimal();
+    let result: Result<PmixTool, PmixStatus> = tool_init_minimal();
     // The result is either Ok(handle) or Err(status) — both are valid.
     match result {
         Ok(handle) => {
@@ -111,7 +111,7 @@ fn test_tool_init_minimal_return_type() {
 /// tool_init_minimal() result is consistent across multiple calls.
 #[test]
 fn test_tool_init_minimal_consistent_result() {
-    let results: Vec<Result<PmixToolHandle, PmixStatus>> =
+    let results: Vec<Result<PmixTool, PmixStatus>> =
         (0..5).map(|_| tool_init_minimal()).collect();
 
     let first_ok = results[0].is_ok();
@@ -149,7 +149,7 @@ fn test_tool_init_minimal_error_not_success() {
 /// tool_init_minimal return type matches tool_init.
 #[test]
 fn test_tool_init_minimal_same_return_type_as_tool_init() {
-    type InitReturn = Result<PmixToolHandle, PmixStatus>;
+    type InitReturn = Result<PmixTool, PmixStatus>;
 
     fn _check_minimal() -> InitReturn {
         tool_init_minimal()
@@ -176,28 +176,28 @@ fn test_tool_init_none_no_panic() {
 /// tool_init returns a Result type (compile-time signature check).
 #[test]
 fn test_tool_init_signature() {
-    let _: fn(Option<&Proc>, &Info) -> Result<PmixToolHandle, PmixStatus> = tool_init;
+    let _: fn(Option<&Proc>, &Info) -> Result<PmixTool, PmixStatus> = tool_init;
 }
 
 /// tool_init takes Option<&Proc> as first argument.
 #[test]
 fn test_tool_init_accepts_option_proc() {
     let info = InfoBuilder::new().build();
-    let _: Result<PmixToolHandle, PmixStatus> = tool_init(None, &info);
+    let _: Result<PmixTool, PmixStatus> = tool_init(None, &info);
 }
 
 /// tool_init takes &Info as second argument.
 #[test]
 fn test_tool_init_accepts_info_ref() {
     let info = InfoBuilder::new().build();
-    let _: Result<PmixToolHandle, PmixStatus> = tool_init(None, &info);
+    let _: Result<PmixTool, PmixStatus> = tool_init(None, &info);
 }
 
 /// tool_init with empty InfoBuilder returns consistent result across calls.
 #[test]
 fn test_tool_init_consistent_result() {
     let info = InfoBuilder::new().build();
-    let results: Vec<Result<PmixToolHandle, PmixStatus>> =
+    let results: Vec<Result<PmixTool, PmixStatus>> =
         (0..5).map(|_| tool_init(None, &info)).collect();
 
     let first_ok = results[0].is_ok();
@@ -289,23 +289,23 @@ fn test_server_handle_is_debug() {
 // tool_finalize — type and signature checks
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// tool_finalize signature: fn(PmixToolHandle) -> Result<(), PmixStatus>.
+/// tool_finalize signature: fn(PmixTool) -> Result<(), PmixStatus>.
 #[test]
 fn test_tool_finalize_signature() {
-    let _: fn(PmixToolHandle) -> Result<(), PmixStatus> = tool_finalize;
+    let _: fn(PmixTool) -> Result<(), PmixStatus> = tool_finalize;
 }
 
 /// tool_finalize consumes handle by value (move semantics).
 #[test]
 fn test_tool_finalize_consumes_handle() {
-    type F = fn(PmixToolHandle) -> Result<(), PmixStatus>;
+    type F = fn(PmixTool) -> Result<(), PmixStatus>;
     let _f: F = tool_finalize;
 }
 
 /// tool_init Ok type matches tool_finalize parameter type.
 #[test]
 fn test_init_finalize_type_pair() {
-    type InitOk = PmixToolHandle;
+    type InitOk = PmixTool;
     fn _assert_finalize_accepts_init_ok(h: InitOk) -> Result<(), PmixStatus> {
         tool_finalize(h)
     }
@@ -437,7 +437,7 @@ fn test_lifecycle_init_and_flag_consistency() {
 #[test]
 fn test_lifecycle_multiple_inits_consistent() {
     let info = InfoBuilder::new().build();
-    let results: Vec<Result<PmixToolHandle, PmixStatus>> =
+    let results: Vec<Result<PmixTool, PmixStatus>> =
         (0..5).map(|_| tool_init(None, &info)).collect();
 
     let first_ok = results[0].is_ok();
@@ -540,14 +540,14 @@ fn test_lifecycle_handle_clone_before_finalize() {
         let cloned = handle.clone();
         // Both handles should have the same proc info.
         assert_eq!(
-            handle.proc().rank(),
-            cloned.proc().rank(),
+            handle.proc().as_ref().map(|p| p.rank()).unwrap_or(0),
+            cloned.proc().as_ref().map(|p| p.rank()).unwrap_or(0),
             "cloned handle should have same rank"
         );
         // Finalize original.
         let _ = tool_finalize(handle);
         // Cloned handle still accessible.
-        let _rank = cloned.proc().rank();
+        let _rank = cloned.proc().as_ref().map(|p| p.rank()).unwrap_or(0);
     }
 }
 
@@ -748,7 +748,7 @@ fn test_success_path_tool_init_with_daemon() {
     let result = tool_init(None, &info);
     if let Ok(handle) = result {
         // Handle should have valid proc info.
-        let proc = handle.proc();
+        let proc = handle.proc().expect("proc");
         let _rank: u32 = proc.rank();
         // nspace may or may not be available.
         let _nspace = proc.nspace();
@@ -768,7 +768,7 @@ fn test_success_path_handle_debug_output() {
         let debug = format!("{:?}", handle);
         assert!(!debug.is_empty(), "handle debug output should not be empty");
         assert!(
-            debug.contains("PmixToolHandle"),
+            debug.contains("PmixTool"),
             "debug output should contain struct name"
         );
 
@@ -785,13 +785,13 @@ fn test_success_path_handle_clone_identical() {
     if let Ok(handle) = result {
         let cloned = handle.clone();
         assert_eq!(
-            handle.proc().rank(),
-            cloned.proc().rank(),
+            handle.proc().as_ref().map(|p| p.rank()).unwrap_or(0),
+            cloned.proc().as_ref().map(|p| p.rank()).unwrap_or(0),
             "cloned handle should have same rank"
         );
         assert_eq!(
-            handle.proc().nspace(),
-            cloned.proc().nspace(),
+            handle.proc().as_ref().and_then(|p| p.nspace()),
+            cloned.proc().as_ref().and_then(|p| p.nspace()),
             "cloned handle should have same nspace"
         );
 
@@ -839,7 +839,7 @@ fn test_success_path_flag_state_tracking() {
 fn test_info_builder_produces_valid_info() {
     let info = InfoBuilder::new().build();
     // Just verify it compiles and can be used.
-    let _: Result<PmixToolHandle, PmixStatus> = tool_init(None, &info);
+    let _: Result<PmixTool, PmixStatus> = tool_init(None, &info);
 }
 
 /// Empty InfoBuilder produces an Info with zero entries.

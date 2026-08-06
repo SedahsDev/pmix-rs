@@ -3498,10 +3498,9 @@ fn client_session() -> Arc<PmixClientInner> {
 /// # Example
 ///
 /// ```no_run
-/// use pmix::{PmixClient, put_value, commit, fence, PmixScope};
-/// use std::ffi::CString;
+/// use pmix::PmixClient;
 ///
-/// let client = PmixClient::connect_new(None)?;
+/// let client = PmixClient::connect_new(None).expect("connect");
 ///
 /// let worker = client.clone();
 /// std::thread::spawn(move || {
@@ -3509,8 +3508,7 @@ fn client_session() -> Arc<PmixClientInner> {
 ///     // put_value / get_value / … with worker.proc()
 /// });
 ///
-/// client.disconnect(None)?;
-/// # Ok::<(), pmix::PmixError>(())
+/// client.disconnect(None).expect("disconnect");
 /// ```
 #[derive(Debug, Clone)]
 pub struct PmixClient {
@@ -3713,7 +3711,6 @@ impl PmixClient {
 }
 
 pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwnedValue, PmixError> {
-    let status: PmixStatus;
     let mut value: *mut pmix_value_t = null_mut();
     let info_handle: *const pmix_info_t;
     let ninfos: usize;
@@ -3734,7 +3731,7 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
     }
 
     let key_ptr = CStr::from_bytes_with_nul(key).unwrap().as_ptr();
-    status = PmixStatus::from_raw(crate::pmix_ffi_or_mock!(
+    let status = PmixStatus::from_raw(crate::pmix_ffi_or_mock!(
         mock = unsafe {
             crate::mock_ffi::mock_get(
                 &proc.handle as *const _ as *const std::ffi::c_void,

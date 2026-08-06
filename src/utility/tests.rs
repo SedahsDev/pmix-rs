@@ -3041,10 +3041,28 @@ use super::*;
     }
 
     /// register_attributes with empty attrs array (extended test).
+    ///
+    /// When PMIx is not initialized, this returns `Err` (PMIX_ERR_INIT).
+    /// When PMIx is already initialized (e.g. full test suite), the C library
+    /// returns `PMIX_SUCCESS` (openpmix `pmix_attributes.c` checks
+    /// `pmix_globals.initialized`). Both outcomes are valid — see sibling tests
+    /// (`test_register_attributes_requires_init`, `test_register_attributes_empty_attrs`)
+    /// which tolerate both for the same reason.
     #[test]
     fn test_register_attributes_empty_attrs_extended() {
         let result = register_attributes("PMIx_Get", &[]);
-        assert!(result.is_err());
+        match result {
+            Err(status) => {
+                assert!(
+                    status.is_error(),
+                    "register_attributes error should be an error status, got raw {}",
+                    status.to_raw()
+                );
+            }
+            Ok(()) => {
+                // PMIx is already initialized (e.g. full test suite).
+            }
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────

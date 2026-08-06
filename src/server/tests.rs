@@ -358,13 +358,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     // ── Error path tests: FFI calls without server init ──────────────────────
 
     #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
     fn test_server_connect_rejects_empty_procs() {
         let handle = PmixServer::new();
         let result = server_connect(&handle, &[], &[]);

@@ -339,7 +339,11 @@ fn init_error_is_known_pmixerror() {
     }
 }
 
-/// `init` error is an error (not success) — raw value is negative.
+/// `init` error (when returned) is an error status — raw value is negative.
+///
+/// OpenPMIx ≥ 6.1 may successfully start a local/singleton client without an
+/// external DVM, so success is also acceptable here. When init *does* fail,
+/// the status must be a real error (not success).
 #[test]
 fn init_error_is_error_not_success() {
     match PmixClient::connect_new(None) {
@@ -355,7 +359,10 @@ fn init_error_is_error_not_success() {
                 e
             );
         }
-        Ok(_) => panic!("init should fail without DVM"),
+        Ok(client) => {
+            // Singleton / local init succeeded — clean up.
+            let _ = client.disconnect(None);
+        }
     }
 }
 

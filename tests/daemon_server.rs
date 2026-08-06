@@ -25,6 +25,7 @@ use pmix::server::{
     server_spawn_nb, server_tool_attach_to_server,
 };
 use pmix::{IOFChannelFlags, InfoBuilder, PmixError, PmixStatus, Proc};
+use pmix::tool::PmixTool;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type signature tests

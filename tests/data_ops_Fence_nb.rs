@@ -291,6 +291,7 @@ fn fence_nb_collect_data_before_init() {
 /// a different thread by the PMIx library.
 #[test]
 fn fence_callback_is_send() {
+    #[allow(dead_code)]
     struct SendCallback;
     impl FenceCallback for SendCallback {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
