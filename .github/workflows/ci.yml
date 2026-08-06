@@ -261,8 +261,9 @@ jobs:
           # (require prterun-launched process) and cannot pass as external tool.
           cargo test --test lib_core_api -- --ignored test_tool_ --test-threads=1
 
-          echo "=== Running fabric_fabric_comprehensive daemon tests ==="
-          cargo test --test fabric_fabric_comprehensive -- --ignored --test-threads=1
+          # fabric_fabric_comprehensive has no daemon-job ignored tests: its two
+          # former `#[ignore]` nb "without_init" cases were mislabeled (they called
+          # ensure_pmix_init / DVM client path) and now run in the Regular suite.
 
       - name: Stop PRTE daemon
         if: always()

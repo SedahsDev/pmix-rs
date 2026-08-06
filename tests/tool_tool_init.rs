@@ -155,9 +155,9 @@ fn test_tool_finalize_after_init() {
 /// Because the singleton already connected to this daemon via `tool_init`,
 /// OpenPMIx only supports one active server attachment. A second attach to
 /// the same server is not a valid operation and returns `ErrUnreach` from
-/// the PTL connection layer (`pmix_ptl.connect_to_peer`). We assert this
-/// specific outcome — accepting both `Ok` and `Err` would make the test
-/// vacuous (it would pass on either result).
+/// the PTL connection layer (`pmix_ptl.connect_to_peer`). We assert that
+/// specific outcome — a fresh unattached tool session (needed for `Ok`) is
+/// not available in this process-global singleton harness.
 #[test]
 #[ignore = "requires PMIx server with attach support"]
 fn test_tool_attach_to_server_with_daemon() {
@@ -165,24 +165,23 @@ fn test_tool_attach_to_server_with_daemon() {
     let info = daemon_helper::get_tool_init_info();
     let result = tool_attach_to_server(None, true, &info);
     match result {
-        Ok(_) => {
-            // Attach succeeded — unexpected when already connected, but
-            // tolerate it if the daemon allows re-attach.
-        }
         Err(pmix::PmixStatus::Known(pmix::PmixError::ErrUnreach)) => {
-            // Already connected to this daemon — OpenPMIx does not support a
-            // second attach to the same server.
+            // Expected: already connected via the shared tool_init singleton.
         }
-        Err(e) => {
-            panic!("attach_to_server returned unexpected error (expected Ok or ErrUnreach): {e:?}")
+        other => {
+            panic!(
+                "attach_to_server on already-connected tool must return ErrUnreach, got: {other:?}"
+            )
         }
     }
 }
 
-/// `tool_attach_to_server` handle extraction against an already-connected daemon.
+/// `tool_attach_to_server` on an already-connected daemon returns `ErrUnreach`.
 ///
 /// See `test_tool_attach_to_server_with_daemon` for the singleton + URI-carrying
-/// info rationale and the already-attached `ErrUnreach` contract.
+/// info rationale. Handle extraction on the `Ok` path is not exercised here:
+/// the shared singleton is already attached, so the C library rejects a second
+/// attach with `ErrUnreach` rather than returning handles.
 #[test]
 #[ignore = "requires PMIx server with attach support"]
 fn test_tool_attach_to_server_returns_handles() {
@@ -190,27 +189,13 @@ fn test_tool_attach_to_server_returns_handles() {
     let info = daemon_helper::get_tool_init_info();
     let result = tool_attach_to_server(None, true, &info);
     match result {
-        Ok((tool_handle, server_handle)) => {
-            // If tool_handle is Some, it should have a valid namespace.
-            if let Some(th) = tool_handle {
-                let nspace = th.proc().nspace();
-                assert!(
-                    nspace.is_some(),
-                    "tool handle should have a namespace on successful attach"
-                );
-            }
-            // If server_handle is Some, it should have a valid namespace.
-            if let Some(sh) = server_handle {
-                let debug = format!("{sh:?}");
-                assert!(!debug.is_empty(), "server handle debug should not be empty");
-            }
-        }
         Err(pmix::PmixStatus::Known(pmix::PmixError::ErrUnreach)) => {
-            // Already connected — expected outcome when the singleton
-            // already connected via tool_init.
+            // Expected: already connected via the shared tool_init singleton.
         }
-        Err(e) => {
-            panic!("attach_to_server returned unexpected error (expected Ok or ErrUnreach): {e:?}")
+        other => {
+            panic!(
+                "attach_to_server on already-connected tool must return ErrUnreach, got: {other:?}"
+            )
         }
     }
 }
