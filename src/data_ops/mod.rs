@@ -13,6 +13,7 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, free_value};
 
 #[cfg(any(test, feature = "mock_ffi"))]
@@ -114,7 +115,9 @@ extern "C" fn publish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("data_ops", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Non-blocking publish of data for later lookup.
@@ -268,7 +271,9 @@ extern "C" fn get_value_callback_bridge(
     };
 
     // Invoke the user's Rust callback.
-    cb.on_result(pmix_status, value);
+    let _ = invoke_user_callback("data_ops", move || {
+        cb.on_result(pmix_status, value);
+    });
 }
 
 /// Non-blocking retrieval of a key-value attribute.
@@ -767,7 +772,9 @@ extern "C" fn lookup_callback_bridge(
         Vec::new()
     };
 
-    cb.on_result(pmix_status, results);
+    let _ = invoke_user_callback("data_ops", move || {
+        cb.on_result(pmix_status, results);
+    });
 }
 
 /// Non-blocking lookup of published data.
@@ -937,7 +944,9 @@ extern "C" fn unpublish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("data_ops", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Unpublish data posted by this process using the given keys.
@@ -1280,7 +1289,9 @@ extern "C" fn fence_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_v
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("data_ops", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Non-blocking fence / barrier across a group of processes.

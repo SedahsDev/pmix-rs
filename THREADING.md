@@ -123,7 +123,9 @@ Worked example: `examples/server_upcall_hop.rs` (issue #52).
 5. Progress must run.  
 6. cbdata: `crate::cbdata::encode_req_id` / `decode_req_id`.  
 7. Bridges never hold a registry `Mutex` across user callback execution
-   (regression-tested in `events`).
+   (regression-tested in `events` / `groups`; full inventory in §9).
+   Prefer `threading::invoke_user_callback` so user panics cannot unwind
+   into OpenPMIx.
 
 ### 6.1 Forbidden on the progress thread (concrete)
 
@@ -188,8 +190,53 @@ process. Companion example: `examples/external_progress_mt.rs`.
 | Remove Context/init | #69 | Done |
 | Server/tool sessions | #49 | Done |
 | C-owned !Send + assert matrix | #50 | Done (`threading_assert.rs`) |
-| Callback hop / audit | #51, #67 | #51 Done (`threading` module + events registry); #67 Open |
+| Callback hop / audit | #51, #67 | Done (`threading` helpers + #67 registry audit checklist §9) |
 | Server upcall example | #52 | Done (`PmixServerModule` docs + `server_upcall_hop` example) |
 | Global FFI mutex | #53 | Deferred |
 | MT integration tests | #54 | Done (`tests/threading_mt_via_prterun.rs` + `run_daemon_tests.sh THREADING`) |
 | Extra static_assertions | #66 | Mostly superseded by #50 |
+
+---
+
+## 9. Callback registry audit checklist (#67)
+
+Policy (`src/threading.rs`): bridges **never** hold a registry `Mutex` across
+user callback execution; one-shot completions encode cbdata with
+`cbdata::encode_req_id` / `decode_req_id` (not a raw `Box` pointer); user
+panics are **contained** at the `extern "C"` boundary via
+`threading::invoke_user_callback` (events also complete the OpenPMIx chain).
+
+| Module | Bridges / registries | Lock scope | cbdata | Panic contain |
+|--------|----------------------|------------|--------|---------------|
+| `data_ops` | publish / get / lookup / unpublish / fence | remove under lock, invoke after | `encode_req_id` | `invoke_user_callback` |
+| `events` | `HANDLER_REGISTRY`, `notification_bridge`, reg bridge | copy/`remove` under lock | handler ref id / `Box` reg state only for nb reg | `catch_unwind` + chain `cbfunc` |
+| `query_log` | query / log | remove → invoke | `encode_req_id` | `invoke_user_callback` |
+| `security` | credential / validation | remove → invoke | `encode_req_id` | `invoke_user_callback` |
+| `allocation` | allocation / job_ctrl / session_ctrl | remove → invoke | `encode_req_id` | `invoke_user_callback` |
+| `monitoring` | monitor | remove → `drop` → invoke | `encode_req_id_u64` | `invoke_user_callback` |
+| `groups` | construct / invite / join / leave / destruct | remove → invoke | `encode_req_id` (migrated off `Box` cbdata) | `invoke_user_callback` |
+| `process_mgmt` | spawn / connect / disconnect `_nb` | remove → invoke | `encode_req_id` (migrated off `Box` cbdata) | `invoke_user_callback` |
+| `server` | nspace/client/dmodex/setup/iof/inventory | remove → invoke | `encode_req_id` | `invoke_user_callback` |
+| `server/data` | fence/connect/disconnect `_nb` | remove → invoke | `encode_req_id` (migrated off `Box` cbdata) | `invoke_user_callback` |
+| `server/pset` | register/deregister resources | remove → invoke | `encode_req_id` | `invoke_user_callback` |
+| `utility` IOF | `IOF_REGISTRY` + pull/dereg/push | lock released before user IO/reg/dereg/push cbs | pull: C handle + context ptr (long-lived); dereg/push one-shot `Box` ctx | `invoke_user_callback` |
+
+**Exceptions (documented, not hold-across-user-code):**
+
+- **Events nb registration** parks `HandlerRegState` via `Box` in C `cbdata`
+  until the registration completion delivers a ref id (then registry insert).
+- **IOF pull** is long-lived: the IO callback is keyed by the C handle in
+  `IOF_REGISTRY`; the registration `cbdata` is the context pointer. One-shot
+  dereg/push completions still use a boxed context pointer today (no registry
+  mutex held across the user call).
+
+**Regression tests:**
+
+- `events::test_notification_bridge_no_lock_across_user_code`
+- `events::test_notification_bridge_user_panic_completes_chain_and_is_contained`
+- `groups::test_group_leave_bridge_no_lock_across_user_code`
+- `groups::test_group_leave_bridge_contains_user_panic`
+- `threading::invoke_user_callback_contains_panic`
+
+No known hold-across-user-code sites remain after this audit.
+

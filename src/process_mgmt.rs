@@ -51,11 +51,15 @@
 //! let result = disconnect(&[target], &[disconnect_info]);
 //! ```
 
+use crate::cbdata::{decode_req_id, encode_req_id};
 use crate::ffi;
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
+use std::sync::{LazyLock, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Abort
@@ -474,6 +478,23 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 // PMIx_Spawn_nb
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── One-shot completion registries (issue #67) ───────────────────────────────
+static SPAWN_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static SPAWN_REGISTRY: LazyLock<Mutex<HashMap<usize, SpawnCallbackWrapper>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static CONNECT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static CONNECT_REGISTRY: LazyLock<Mutex<HashMap<usize, ConnectCallbackWrapper>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static DISCONNECT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static DISCONNECT_REGISTRY: LazyLock<Mutex<HashMap<usize, DisconnectCallbackWrapper>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn next_req_id(seq: &Mutex<usize>) -> usize {
+    let mut g = seq.lock().unwrap_or_else(|e| e.into_inner());
+    *g = g.saturating_add(1).max(1);
+    *g
+}
+
 /// Non-blocking spawn callback wrapper.
 ///
 /// Wraps a Rust closure so it can be called from the C FFI callback.
@@ -494,6 +515,35 @@ impl SpawnCallbackWrapper {
             callback: Box::new(f),
         }
     }
+}
+
+extern "C" fn spawn_callback_bridge(
+    status: ffi::pmix_status_t,
+    nspace: *mut c_char,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+    let req_id = decode_req_id(cbdata);
+    let cb = {
+        let mut registry = SPAWN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&req_id)
+    };
+    let Some(cb_wrapper) = cb else {
+        return;
+    };
+    let pmix_status = PmixStatus::from_raw(status);
+    let nspace_str = if pmix_status.is_success() && !nspace.is_null() {
+        // SAFETY: PMIx provides a NUL-terminated nspace on success for this call.
+        let cstr = unsafe { CStr::from_ptr(nspace) };
+        Some(cstr.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+    let _ = invoke_user_callback("process_mgmt", move || {
+        (cb_wrapper.callback)(pmix_status, nspace_str);
+    });
 }
 
 /// Non-blocking spawn with a Rust closure callback.
@@ -527,40 +577,20 @@ pub fn spawn_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Box the callback wrapper so it lives on the heap and outlives
-    // the FFI call. We pass it as cbdata and recover it in the C
-    // callback via Box::from_raw.
-    let cb_box: *mut SpawnCallbackWrapper = Box::into_raw(Box::new(callback));
-
-    // The C bridge function that PMIx calls back into.
-    // SAFETY: This extern "C" function is only called by PMIx with
-    // the cbdata pointer we provided (Box<SpawnCallbackWrapper>).
-    // It takes ownership of the box via Box::from_raw.
-    extern "C" fn spawn_callback_bridge(
-        status: ffi::pmix_status_t,
-        nspace: *mut c_char,
-        cbdata: *mut c_void,
-    ) {
-        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut SpawnCallbackWrapper) };
-
-        let pmix_status = PmixStatus::from_raw(status);
-        let nspace_str = if pmix_status.is_success() && !nspace.is_null() {
-            let cstr = unsafe { CStr::from_ptr(nspace) };
-            Some(cstr.to_string_lossy().into_owned())
-        } else {
-            None
-        };
-
-        (cb_wrapper.callback)(pmix_status, nspace_str);
-        // The box is dropped here.
+    let req_id = next_req_id(&SPAWN_SEQ);
+    {
+        let mut registry = SPAWN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.insert(req_id, callback);
     }
+    let cbdata = encode_req_id(req_id);
 
     let napps = apps.len();
 
     // SAFETY: PMIx_App_create allocates and constructs napps pmix_app_t.
     let raw_apps: *mut ffi::pmix_app_t = unsafe { ffi::PMIx_App_create(napps) };
     if raw_apps.is_null() {
-        unsafe { drop(Box::from_raw(cb_box)) };
+        let mut registry = SPAWN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&req_id);
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_OUT_OF_RESOURCE));
     }
 
@@ -636,7 +666,7 @@ pub fn spawn_nb(
     // - `raw_apps` is a valid array of `napps` pmix_app_t structures
     //   with C-allocated string fields.
     // - `spawn_callback_bridge` is a valid extern "C" callback.
-    // - `cb_box` is a valid heap-allocated SpawnCallbackWrapper.
+    // - `cbdata` is an opaque request ID (`encode_req_id`) for SPAWN_REGISTRY.
     // - PMIx_Spawn_nb returns immediately; the callback is invoked
     //   asynchronously by the PMIx library at a later time.
     // - PMIx copies app data internally, so our guard can free
@@ -648,7 +678,7 @@ pub fn spawn_nb(
             raw_apps,
             napps,
             Some(spawn_callback_bridge),
-            cb_box as *mut c_void,
+            cbdata,
         )
     };
 
@@ -658,8 +688,10 @@ pub fn spawn_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        // On synchronous failure, PMIx still calls the callback with
-        // the error status, so the bridge function will drop cb_box.
+        // Sync failure: OpenPMIx may still deliver the completion; if it does
+        // not, drop the parked callback so the registry does not leak.
+        let mut registry = SPAWN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -784,27 +816,25 @@ impl ConnectCallbackWrapper {
 // PMIx_Connect_nb
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Non-blocking connect with a Rust closure callback.
-///
-/// Records a set of processes as "connected" without blocking. The
-/// provided callback is invoked when the operation completes.
-///
-/// * The callback receives `PmixStatus`:
-///   - `PMIX_SUCCESS` — all participating processes have connected.
-///   - Error code — the connect operation failed.
-/// * The `callback` closure must be `Send + 'static` because it may
-///   be invoked from a different thread by the PMIx library.
-///
-/// # Returns
-/// * `Ok(())` — the connect request was accepted (async, result in callback).
-/// * `Err(PmixStatus)` — the connect request itself failed synchronously.
-///
-/// # C API
-/// ```c
-/// pmix_status_t PMIx_Connect_nb(const pmix_proc_t procs[], size_t nprocs,
-///                               const pmix_info_t info[], size_t ninfo,
-///                               pmix_op_cbfunc_t cbfunc, void *cbdata);
-/// ```
+extern "C" fn connect_callback_bridge(status: i32, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+    let req_id = decode_req_id(cbdata);
+    let cb = {
+        let mut registry = CONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&req_id)
+    };
+    let Some(cb_wrapper) = cb else {
+        return;
+    };
+    let pmix_status = PmixStatus::from_raw(status);
+    let _ = invoke_user_callback("process_mgmt", move || {
+        (cb_wrapper.callback)(pmix_status);
+    });
+}
+
+/// C bridge for `pmix_spawn_cbfunc_t` — registry lookup, then user invoke.
 pub fn connect_nb(
     procs: &[Proc],
     info: &[Info],
@@ -814,21 +844,12 @@ pub fn connect_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Box the callback wrapper so it lives on the heap and outlives
-    // the FFI call. We pass it as cbdata and recover it in the C
-    // callback via Box::from_raw.
-    let cb_box: *mut ConnectCallbackWrapper = Box::into_raw(Box::new(callback));
-
-    // The C bridge function that PMIx calls back into.
-    // SAFETY: This extern "C" function is only called by PMIx with
-    // the cbdata pointer we provided (Box<ConnectCallbackWrapper>).
-    // It takes ownership of the box via Box::from_raw.
-    extern "C" fn connect_callback_bridge(status: i32, cbdata: *mut c_void) {
-        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut ConnectCallbackWrapper) };
-        let pmix_status = PmixStatus::from_raw(status);
-        (cb_wrapper.callback)(pmix_status);
-        // The box is dropped here.
+    let req_id = next_req_id(&CONNECT_SEQ);
+    {
+        let mut registry = CONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.insert(req_id, callback);
     }
+    let cbdata = encode_req_id(req_id);
 
     // Convert proc slice to a raw pointer.
     // SAFETY: `procs` is a non-empty slice of `Proc` values.
@@ -853,8 +874,7 @@ pub fn connect_nb(
     // - `info_ptr` is either null or points to a valid slice of
     //   `pmix_info_t` pointers.
     // - `connect_callback_bridge` is a valid extern "C" callback.
-    // - `cb_box` is a valid heap-allocated ConnectCallbackWrapper
-    //   that will be recovered in the callback via Box::from_raw.
+    // - `cbdata` is an opaque request ID for CONNECT_REGISTRY.
     // - PMIx_Connect_nb returns immediately; the callback is invoked
     //   asynchronously by the PMIx library at a later time.
     let raw_status = unsafe {
@@ -864,7 +884,7 @@ pub fn connect_nb(
             info_ptr,
             ninfo,
             Some(connect_callback_bridge),
-            cb_box as *mut c_void,
+            cbdata,
         )
     };
 
@@ -872,9 +892,8 @@ pub fn connect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        // On synchronous failure, PMIx may or may not call the callback.
-        // To be safe, reclaim the box to avoid a memory leak.
-        unsafe { drop(Box::from_raw(cb_box)) }
+        let mut registry = CONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -1027,6 +1046,45 @@ impl DisconnectCallbackWrapper {
 ///                                  const pmix_info_t info[], size_t ninfo,
 ///                                  pmix_op_cbfunc_t cbfunc, void *cbdata);
 /// ```
+extern "C" fn disconnect_callback_bridge(status: i32, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+    let req_id = decode_req_id(cbdata);
+    let cb = {
+        let mut registry = DISCONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&req_id)
+    };
+    let Some(cb_wrapper) = cb else {
+        return;
+    };
+    let pmix_status = PmixStatus::from_raw(status);
+    let _ = invoke_user_callback("process_mgmt", move || {
+        (cb_wrapper.callback)(pmix_status);
+    });
+}
+
+/// Non-blocking connect with a Rust closure callback.
+///
+/// Records a set of processes as "connected" without blocking. The
+/// provided callback is invoked when the operation completes.
+///
+/// * The callback receives `PmixStatus`:
+///   - `PMIX_SUCCESS` — all participating processes have connected.
+///   - Error code — the connect operation failed.
+/// * The `callback` closure must be `Send + 'static` because it may
+///   be invoked from a different thread by the PMIx library.
+///
+/// # Returns
+/// * `Ok(())` — the connect request was accepted (async, result in callback).
+/// * `Err(PmixStatus)` — the connect request itself failed synchronously.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_Connect_nb(const pmix_proc_t procs[], size_t nprocs,
+///                               const pmix_info_t info[], size_t ninfo,
+///                               pmix_op_cbfunc_t cbfunc, void *cbdata);
+/// ```
 pub fn disconnect_nb(
     procs: &[Proc],
     info: &[Info],
@@ -1036,21 +1094,12 @@ pub fn disconnect_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Box the callback wrapper so it lives on the heap and outlives
-    // the FFI call. We pass it as cbdata and recover it in the C
-    // callback via Box::from_raw.
-    let cb_box: *mut DisconnectCallbackWrapper = Box::into_raw(Box::new(callback));
-
-    // The C bridge function that PMIx calls back into.
-    // SAFETY: This extern "C" function is only called by PMIx with
-    // the cbdata pointer we provided (Box<DisconnectCallbackWrapper>).
-    // It takes ownership of the box via Box::from_raw.
-    extern "C" fn disconnect_callback_bridge(status: i32, cbdata: *mut c_void) {
-        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut DisconnectCallbackWrapper) };
-        let pmix_status = PmixStatus::from_raw(status);
-        (cb_wrapper.callback)(pmix_status);
-        // The box is dropped here.
+    let req_id = next_req_id(&DISCONNECT_SEQ);
+    {
+        let mut registry = DISCONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.insert(req_id, callback);
     }
+    let cbdata = encode_req_id(req_id);
 
     // Convert proc slice to a raw pointer.
     // SAFETY: `procs` is a non-empty slice of `Proc` values.
@@ -1075,8 +1124,7 @@ pub fn disconnect_nb(
     // - `info_ptr` is either null or points to a valid slice of
     //   `pmix_info_t` pointers.
     // - `disconnect_callback_bridge` is a valid extern "C" callback.
-    // - `cb_box` is a valid heap-allocated DisconnectCallbackWrapper
-    //   that will be recovered in the callback via Box::from_raw.
+    // - `cbdata` is an opaque request ID for DISCONNECT_REGISTRY.
     // - PMIx_Disconnect_nb returns immediately; the callback is invoked
     //   asynchronously by the PMIx library at a later time.
     let raw_status = unsafe {
@@ -1086,7 +1134,7 @@ pub fn disconnect_nb(
             info_ptr,
             ninfo,
             Some(disconnect_callback_bridge),
-            cb_box as *mut c_void,
+            cbdata,
         )
     };
 
@@ -1094,9 +1142,8 @@ pub fn disconnect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        // On synchronous failure, PMIx may or may not call the callback.
-        // To be safe, reclaim the box to avoid a memory leak.
-        unsafe { drop(Box::from_raw(cb_box)) }
+        let mut registry = DISCONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&req_id);
         Err(pmix_status)
     }
 }

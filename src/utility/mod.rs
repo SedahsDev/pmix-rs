@@ -951,6 +951,7 @@ pub fn register_attributes(function: &str, attrs: &[&str]) -> Result<(), PmixSta
 // ─────────────────────────────────────────────────────────────────────────────
 
 use std::collections::HashMap;
+use crate::threading::invoke_user_callback;
 use std::sync::{LazyLock, Mutex};
 
 /// Global registry mapping IOF handles to their Rust callback contexts.
@@ -1038,7 +1039,9 @@ extern "C" fn io_callback_bridge(
     };
 
     let channel_flags = IOFChannelFlags(channel);
-    (ctx.io_cb)(iofhdlr, channel_flags, source_proc, bytes);
+    let _ = invoke_user_callback("utility", move || {
+        (ctx.io_cb)(iofhdlr, channel_flags, source_proc, bytes);
+    });
 }
 
 /// C bridge for the registration callback (`pmix_hdlr_reg_cbfunc_t`).
@@ -1066,7 +1069,9 @@ extern "C" fn reg_callback_bridge(
     }
 
     let pmix_status = PmixStatus::from_raw(status);
-    (ctx.reg_cb)(pmix_status, refid);
+    let _ = invoke_user_callback("utility", move || {
+        (ctx.reg_cb)(pmix_status, refid);
+    });
 }
 
 /// Callback trait for receiving IO data from remote processes.
@@ -1270,7 +1275,9 @@ extern "C" fn dereg_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std
 
     // Invoke the user's deregistration callback, then the Box drops,
     // freeing both the context and the contained closure.
-    (boxed_ctx.cb)(pmix_status);
+    let _ = invoke_user_callback("utility", move || {
+        (boxed_ctx.cb)(pmix_status);
+    });
 }
 
 /// Deregister from IO forwarding previously established via `iof_pull`.
@@ -1559,7 +1566,9 @@ extern "C" fn push_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std:
     let ctx = unsafe { Box::from_raw(ctx_ptr) };
 
     let pmix_status = PmixStatus::from_raw(status);
-    (ctx.cb)(pmix_status);
+    let _ = invoke_user_callback("utility", move || {
+        (ctx.cb)(pmix_status);
+    });
 }
 
 /// Push data collected locally (typically from stdin) to stdin of target

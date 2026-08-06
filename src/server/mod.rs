@@ -69,6 +69,7 @@
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::security::PmixCredential;
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
@@ -538,7 +539,9 @@ pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_statu
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Register an nspace (job namespace) with the PMIx server library.
@@ -751,7 +754,9 @@ pub(crate) extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_sta
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deregister an nspace (job namespace) and purge all related data.
@@ -912,7 +917,9 @@ pub(crate) extern "C" fn register_client_callback_bridge(status: ffi::pmix_statu
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Register a client process with the PMIx server library.
@@ -1084,7 +1091,9 @@ pub(crate) extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_sta
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deregister a specific client process and purge all data relating to it.
@@ -1472,7 +1481,9 @@ pub(crate) extern "C" fn dmodex_request_callback_bridge(
 
     // Invoke the user's Rust callback with the copied data.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status, blob);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status, blob);
+    });
 }
 
 /// Request modex data for a specific process (direct modex operation).
@@ -1732,7 +1743,9 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
 
     // Invoke the user's Rust callback with the copied data.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status, copied_info);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status, copied_info);
+    });
 }
 
 /// Request application-specific setup prior to process launch.
@@ -1928,7 +1941,9 @@ pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_s
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Setup local support for a given namespace before spawning local clients.
@@ -2133,7 +2148,9 @@ pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t,
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deliver forwarded I/O data to the local PMIx server for distribution.
@@ -2410,7 +2427,9 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     
             _not_thread_safe: std::marker::PhantomData,
         };
-    cb.on_complete(pmix_status, inventory);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status, inventory);
+    });
     // release_fn is unused — we manage our own memory via CollectInventoryResults Drop.
     let _ = release_fn;
 }
@@ -2611,7 +2630,9 @@ pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_sta
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deliver collected inventory information to the PMIx server library.
