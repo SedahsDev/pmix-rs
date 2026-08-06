@@ -121,12 +121,21 @@ cargo run --example simple_fence
 cargo run --example data_packing
 cargo run --example callback_hop          # client _nb / events hop-off (#51)
 cargo run --example server_upcall_hop     # server fence/modex upcall hop (#52)
+cargo run --example external_progress_mt  # host progress + MT put (#54)
 ```
 
 Under a PMIx DVM:
 
 ```bash
 prterun -np 2 ./target/debug/examples/simple_put_get
+```
+
+Multi-thread + external-progress integration tests (issue #54):
+
+```bash
+./scripts/run_daemon_tests.sh THREADING
+# or:
+prterun -np 1 cargo test --test threading_mt_via_prterun -- --ignored --test-threads=1
 # or
 ./scripts/run_daemon_tests.sh
 ```
