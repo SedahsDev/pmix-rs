@@ -82,10 +82,42 @@ case "${1:-ALL}" in
         echo "Running multi-thread + external-progress tests (issue #54)..."
         # Build once, then run the test binary under prterun (avoids nested cargo
         # and lets us bound each case with timeout).
-        cargo test --test threading_mt_via_prterun --no-run
-        BIN=$(ls -1t target/debug/deps/threading_mt_via_prterun-* | grep -v '\.d$' | head -1)
-        if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
+        # Resolve the exact executable via cargo JSON (deterministic; avoids
+        # `ls <glob>` dying under set -e when the glob is empty).
+        BIN=$(
+            cargo test --test threading_mt_via_prterun --no-run --message-format=json \
+                | python3 -c '
+import json, sys
+bin_path = None
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        msg = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if msg.get("reason") != "compiler-artifact":
+        continue
+    target = msg.get("target") or {}
+    if "test" not in (target.get("kind") or []):
+        continue
+    name = target.get("name") or ""
+    if name != "threading_mt_via_prterun" and not name.startswith("threading_mt_via_prterun"):
+        continue
+    exe = msg.get("executable")
+    if exe:
+        bin_path = exe
+if not bin_path:
+    sys.exit(1)
+print(bin_path)
+'
+        ) || {
             echo "ERROR: could not locate threading_mt_via_prterun test binary"
+            exit 1
+        }
+        if [ ! -x "$BIN" ]; then
+            echo "ERROR: threading_mt_via_prterun test binary is not executable: $BIN"
             exit 1
         fi
         echo "Test binary: $BIN"

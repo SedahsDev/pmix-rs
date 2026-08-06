@@ -398,6 +398,8 @@ fn mt_concurrent_fence_nb_completions() {
 /// Callback parks on the progress path — models THREADING.md §6.1 deadlock class.
 struct BlockingFenceCb {
     pair: Arc<(Mutex<bool>, Condvar)>,
+    /// Set after the condvar wait so the test can prove `on_complete` ran.
+    ran: Arc<AtomicBool>,
 }
 
 impl FenceCallback for BlockingFenceCb {
@@ -409,11 +411,15 @@ impl FenceCallback for BlockingFenceCb {
         let _ = cvar
             .wait_timeout(guard, Duration::from_secs(3))
             .expect("condvar");
+        self.ran.store(true, Ordering::Release);
     }
 }
 
 /// Regression: progress-thread blocking is detected with a wall-clock timeout
 /// on a follow-up op, rather than hanging the suite forever.
+///
+/// Also asserts the blocking `fence_nb` completion actually ran — otherwise a
+/// silent no-op callback path would still pass the hang-smoke check.
 #[test]
 #[ignore = "requires DVM-launched process (prterun) — issue #54 goal (4)"]
 fn callback_must_not_block_progress_timeout() {
@@ -426,8 +432,10 @@ fn callback_must_not_block_progress_timeout() {
     let proc = client.require_proc();
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    let ran = Arc::new(AtomicBool::new(false));
     let cb = Box::new(BlockingFenceCb {
         pair: Arc::clone(&pair),
+        ran: Arc::clone(&ran),
     });
 
     fence_nb(std::slice::from_ref(&proc), None, cb)
@@ -445,6 +453,10 @@ fn callback_must_not_block_progress_timeout() {
     match rx.recv_timeout(Duration::from_secs(8)) {
         Ok(fence_result) => {
             // Completed (in-place nb, or block finished). Must not hang.
+            eprintln!(
+                "callback_must_not_block_progress_timeout: secondary fence completed \
+                 (branch=Ok, result={fence_result:?})"
+            );
             match fence_result {
                 Ok(()) => {}
                 Err(e) => {
@@ -459,4 +471,15 @@ fn callback_must_not_block_progress_timeout() {
             );
         }
     }
+
+    // Allow the blocking callback to finish its 3s wait if it is still parked.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ran.load(Ordering::Acquire) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        ran.load(Ordering::Acquire),
+        "BlockingFenceCb::on_complete must have run (regression guard against \
+         silent callback drop / never-submitted fence_nb)"
+    );
 }
