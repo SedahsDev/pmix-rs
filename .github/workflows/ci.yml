@@ -256,8 +256,10 @@ jobs:
           echo "=== Running tool_tool_init daemon tests ==="
           cargo test --test tool_tool_init -- --ignored --test-threads=1
 
-          echo "=== Running lib_core_api daemon tests ==="
-          cargo test --test lib_core_api -- --ignored --test-threads=1
+          echo "=== Running lib_core_api daemon tests (tool_init only — DVM-only tests excluded) ==="
+          # Only run the tool_init tests; the PMIx_Init tests in this binary are DVM-only
+          # (require prterun-launched process) and cannot pass as external tool.
+          cargo test --test lib_core_api -- --ignored test_tool_ --test-threads=1
 
           echo "=== Running fabric_fabric_comprehensive daemon tests ==="
           cargo test --test fabric_fabric_comprehensive -- --ignored --test-threads=1

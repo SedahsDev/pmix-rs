@@ -29,7 +29,7 @@ use std::thread;
 use std::time::Duration;
 
 use pmix::info_with_string_key;
-use pmix::tool::{tool_init, PmixTool, PmixToolHandle};
+use pmix::tool::{tool_init, PmixTool};
 use pmix::Info;
 
 /// Default timeout for `tool_init` FFI calls (in seconds).
@@ -246,11 +246,6 @@ pub fn get_tool_handle() -> Result<&'static PmixTool, String> {
     }
 }
 
-/// Check if a PRTE daemon is available (URI file exists and is readable).
-pub fn daemon_available() -> bool {
-    read_uri().is_ok()
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Legacy API (kept for backward compatibility, but prefer get_tool_handle)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -294,173 +289,37 @@ pub fn connect_to_daemon() -> Result<DaemonGuard, String> {
     Ok(DaemonGuard { previous })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test utilities
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Assert that a `PmixStatus` is success.
-pub fn assert_success(status: pmix::PmixStatus) {
-    assert_eq!(
-        status,
-        pmix::PmixStatus::Known(pmix::PmixError::Success),
-        "Expected PMIX_SUCCESS, got {:?}",
-        status
-    );
-}
-
-/// Assert that a `PmixStatus` is an error (not success).
-pub fn assert_error(status: pmix::PmixStatus) {
-    assert_ne!(
-        status,
-        pmix::PmixStatus::Known(pmix::PmixError::Success),
-        "Expected error, got success"
-    );
-}
-
 /// Ensures the process-wide [`pmix::PmixClient`] is connected once per test binary (DVM/prterun).
 ///
 /// Prefer this over calling `PmixClient::connect_new` in every test — PMIx allows one logical
 /// client init per process. `PmixClient::Drop` does **not** finalize (clones share the session),
-/// so we register a `thread_local` Drop guard whose destructor calls `pmix::finalize(None)` at
-/// main-thread exit (= process exit). Without this, prterun reports "exited without calling
-/// finalize" and returns a non-zero exit code even when all tests pass.
+/// so we register a process-exit finalizer via `libc::atexit` that calls `pmix::finalize(None)`.
+/// Without this, prterun reports "exited without calling finalize" and returns a non-zero exit
+/// code even when all tests pass.
 pub fn ensure_pmix_init() -> &'static pmix::PmixClient {
     use std::sync::OnceLock;
     static PMIX_CTX: OnceLock<pmix::PmixClient> = OnceLock::new();
     let ctx = PMIX_CTX.get_or_init(|| {
         pmix::PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun")
     });
-    // Install the at-exit finalizer exactly once. Thread-local destructors run when
-    // the main thread exits (process exit), which is the point where prterun checks
-    // that all ranks called PMIx_Finalize. Static destructors are not guaranteed to
-    // run, so we cannot rely on `OnceLock<PmixClient>::Drop` (which is a no-op anyway).
-    FINALIZE_GUARD.with(|_| {});
+    // Register the at-exit finalizer exactly once. `libc::atexit` callbacks fire at
+    // process exit (after all threads finish), which is when prterun checks that every
+    // rank called PMIx_Finalize. We must NOT use `thread_local` here: `libtest` spawns a
+    // separate thread per test even with `--test-threads=1`, so a `thread_local` Drop
+    // guard would finalize the session mid-suite when the first test's thread exits.
+    REGISTER_FINALIZE.call_once(|| {
+        extern "C" fn finalize_at_exit() {
+            // finalize is a no-op if the session is not Live, so this is safe even if
+            // the test binary never called ensure_pmix_init.
+            let _ = pmix::finalize(None);
+        }
+        // SAFETY: `atexit` is safe to call; the callback is a simple C function that
+        // calls pmix::finalize, which is safe to call multiple times (no-op if not Live).
+        unsafe {
+            libc::atexit(finalize_at_exit);
+        }
+    });
     ctx
 }
 
-// Thread-local guard whose destructor calls `pmix::finalize(None)` at process exit.
-// `thread_local!` destructors for the *main* thread run at program exit, which is
-// when prterun expects every rank to have finalized. The guard holds no data — its
-// mere existence on the main thread ensures the destructor fires.
-thread_local! {
-    static FINALIZE_GUARD: FinalizeOnExit = FinalizeOnExit;
-}
-
-struct FinalizeOnExit;
-
-impl Drop for FinalizeOnExit {
-    fn drop(&mut self) {
-        // finalize is a no-op if the session is not Live, so this is safe even if
-        // the test binary never called ensure_pmix_init.
-        let _ = pmix::finalize(None);
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Timeout wrappers for blocking tool FFI operations
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Default timeout for blocking tool API calls (in seconds).
-///
-/// `PMIx_tool_get_servers`, `PMIx_tool_set_server`, and `PMIx_tool_attach_to_server`
-/// can block indefinitely if the PRTE daemon is running in `--system-server` mode
-/// and doesn't support these operations. This timeout prevents test hangs.
-const TOOL_OP_TIMEOUT_SECS: u64 = 2;
-
-/// Runs a blocking tool API operation with a timeout.
-///
-/// Spawns the operation in a background thread and waits up to
-/// `TOOL_OP_TIMEOUT_SECS` seconds. Returns `Ok(result)` if the operation
-/// completes within the timeout, or `Err(String)` if it times out.
-///
-/// The timed-out thread is left running and will be cleaned up when the
-/// test process exits. This is acceptable for test code.
-fn tool_op_with_timeout<T: Send + 'static>(
-    op_name: &str,
-    f: impl FnOnce() -> T + Send + 'static,
-) -> Result<T, String> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let handle = thread::spawn(move || {
-        let result = f();
-        let _ = tx.send(result);
-    });
-
-    match rx.recv_timeout(Duration::from_secs(TOOL_OP_TIMEOUT_SECS)) {
-        Ok(result) => {
-            let _ = handle.join();
-            Ok(result)
-        }
-        Err(_timeout) => {
-            eprintln!(
-                "[daemon_helper] {} timed out after {} seconds — \
-                 daemon may not support this operation",
-                op_name, TOOL_OP_TIMEOUT_SECS
-            );
-            Err(format!(
-                "{} timed out after {} seconds (daemon may not support this operation)",
-                op_name, TOOL_OP_TIMEOUT_SECS
-            ))
-        }
-    }
-}
-
-/// Call `PMIx_tool_get_servers` with a timeout.
-///
-/// Returns `Ok(Ok(servers))` on success, `Ok(Err(status))` on FFI error,
-/// or `Err(String)` on timeout.
-pub fn tool_get_servers_with_timeout() -> Result<Result<Vec<pmix::Proc>, pmix::PmixStatus>, String>
-{
-    tool_op_with_timeout("tool_get_servers", || pmix::tool::tool_get_servers())
-}
-
-/// Call `PMIx_tool_set_server` with a timeout.
-///
-/// Returns `Ok(Ok(()))` on success, `Ok(Err(status))` on FFI error,
-/// or `Err(String)` on timeout.
-///
-/// The `info` parameter is passed as raw key/value pairs (empty by default)
-/// so it can be constructed inside the spawned thread.
-pub fn tool_set_server_with_timeout(
-    server: &pmix::Proc,
-) -> Result<Result<(), pmix::PmixStatus>, String> {
-    let server_nspace = server.nspace().unwrap_or_default();
-    let server_rank = server.rank();
-    tool_op_with_timeout("tool_set_server", move || {
-        let proc = pmix::Proc::new(&server_nspace, server_rank).unwrap();
-        let info = pmix::info::InfoBuilder::new().build();
-        pmix::tool::tool_set_server(&proc, &info)
-    })
-}
-
-/// Call `PMIx_tool_attach_to_server` with a timeout.
-///
-/// Returns `Ok(Ok((tool, server)))` on success, `Ok(Err(status))` on FFI error,
-/// or `Err(String)` on timeout.
-///
-/// The `info` is constructed inside the spawned thread (empty by default).
-pub fn tool_attach_to_server_with_timeout(
-    myproc: Option<pmix::Proc>,
-    want_server: bool,
-) -> Result<
-    Result<
-        (
-            Option<pmix::tool::PmixToolHandle>,
-            Option<pmix::tool::PmixServerHandle>,
-        ),
-        pmix::PmixStatus,
-    >,
-    String,
-> {
-    let myproc_nspace = myproc.as_ref().and_then(|p| p.nspace()).unwrap_or_default();
-    let myproc_rank = myproc.as_ref().map(|p| p.rank()).unwrap_or(0);
-    tool_op_with_timeout("tool_attach_to_server", move || {
-        let proc = if !myproc_nspace.is_empty() {
-            Some(pmix::Proc::new(&myproc_nspace, myproc_rank).unwrap())
-        } else {
-            None
-        };
-        let proc_ref = proc.as_ref();
-        let info = pmix::info::InfoBuilder::new().build();
-        pmix::tool::tool_attach_to_server(proc_ref, want_server, &info)
-    })
-}
+static REGISTER_FINALIZE: std::sync::Once = std::sync::Once::new();

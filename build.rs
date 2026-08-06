@@ -57,7 +57,7 @@ fn discover_pmix() -> (PathBuf, PathBuf) {
         // from /usr) leads to undefined symbols at link/runtime — the version
         // gate reads the header, and the sentinel check validates bindgen
         // output (also header-derived), but neither can verify the linked
-        // library. See review comment on build.rs:56.
+        // library. Skipping a prefix without its own libpmix prevents this.
         let lib = match first_existing_lib_dir(p) {
             Some(lib) => lib,
             None => continue,
