@@ -3022,11 +3022,24 @@ struct InfoEntryString {
     data_type: pmix_data_type_t,
 }
 
+/// String-key `PMIX_BOOL` entry with owned storage (`uint8_t` 0/1).
+///
+/// OpenPMIx loads `PMIX_BOOL` from a pointer to a byte, not a C string. Using
+/// `add_string_key(..., "1", PMIX_BOOL)` mis-encodes the value and attributes
+/// such as `PMIX_EXTERNAL_PROGRESS` are ignored (internal progress still runs).
+struct InfoEntryBool {
+    key: CString,
+    /// `1` = true, `0` = false — matches PMIx `PMIX_BOOL` packing.
+    value: u8,
+}
+
 #[derive(Default)]
 pub struct InfoBuilder {
     infos: Vec<InfoEntry>,
     /// String-key entries for keys that exceed the 13-byte limit.
     string_infos: Vec<InfoEntryString>,
+    /// String-key boolean attributes (`pmix.evext`, `pmix.bind.reqd`, …).
+    bool_infos: Vec<InfoEntryBool>,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -3069,6 +3082,16 @@ impl InfoBuilder {
         });
     }
 
+    /// Append a string-key `PMIX_BOOL` attribute with correct scalar encoding.
+    fn add_bool_key(&mut self, key: &str, value: bool) -> &mut Self {
+        let key_cstr = CString::new(key).expect("key must not contain null bytes");
+        self.bool_infos.push(InfoEntryBool {
+            key: key_cstr,
+            value: u8::from(value),
+        });
+        self
+    }
+
     /// Set `PMIX_EXTERNAL_PROGRESS` attribute.
     ///
     /// When `true`, tells PMIx that the host provides its own event
@@ -3080,12 +3103,7 @@ impl InfoBuilder {
     /// # C API
     /// `PMIX_EXTERNAL_PROGRESS` (`pmix.evext`) — `PMIX_BOOL`
     pub fn external_progress(&mut self, external: bool) -> &mut Self {
-        self.add_string_key(
-            "pmix.evext",
-            if external { "1" } else { "0" },
-            PMIX_BOOL as pmix_data_type_t,
-        );
-        self
+        self.add_bool_key("pmix.evext", external)
     }
 
     /// Set `PMIX_BIND_PROGRESS_THREAD` attribute.
@@ -3117,12 +3135,7 @@ impl InfoBuilder {
     /// # C API
     /// `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`) — `PMIX_BOOL`
     pub fn bind_required(&mut self, required: bool) -> &mut Self {
-        self.add_string_key(
-            "pmix.bind.reqd",
-            if required { "1" } else { "0" },
-            PMIX_BOOL as pmix_data_type_t,
-        );
-        self
+        self.add_bool_key("pmix.bind.reqd", required)
     }
 
     /// Set `PMIX_PROGRESS_THREAD_FLUSH` attribute.
@@ -3134,12 +3147,7 @@ impl InfoBuilder {
     /// # C API
     /// `PMIX_PROGRESS_THREAD_FLUSH` (`pmix.evflush`) — `PMIX_BOOL`
     pub fn progress_thread_flush(&mut self, flush: bool) -> &mut Self {
-        self.add_string_key(
-            "pmix.evflush",
-            if flush { "1" } else { "0" },
-            PMIX_BOOL as pmix_data_type_t,
-        );
-        self
+        self.add_bool_key("pmix.evflush", flush)
     }
 
     /// Set `PMIX_PROGRESS_THREAD_NAME` attribute.
@@ -3156,16 +3164,12 @@ impl InfoBuilder {
     }
 
     pub fn collect_data(&mut self) -> &mut InfoBuilder {
-        let collect = true;
-        self.add(
-            PMIX_COLLECT_DATA,
-            &collect as *const bool as *const c_void,
-            PMIX_BOOL as pmix_data_type_t,
-        );
-        self
+        // Owned storage: `add` only stores a raw pointer, so a stack bool
+        // would dangle by `build()`. Use bool_infos for correct lifetime.
+        self.add_bool_key("pmix.collect", true)
     }
     pub fn build(self) -> Info {
-        let n = self.infos.len() + self.string_infos.len();
+        let n = self.infos.len() + self.string_infos.len() + self.bool_infos.len();
         let info_ptr = unsafe { PMIx_Info_create(n) };
         if info_ptr.is_null() && n > 0 {
             panic!("PMIx_Info_create({n}) returned null");
@@ -3210,10 +3214,29 @@ impl InfoBuilder {
             idx += 1;
         }
 
+        // Process string-key boolean attributes with owned u8 storage.
+        for info in &self.bool_infos {
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr(),
+                    (&info.value as *const u8).cast(),
+                    PMIX_BOOL as pmix_data_type_t,
+                )
+            };
+            if status != PMIX_SUCCESS as i32 {
+                unsafe {
+                    PMIx_Info_free(info_ptr, n);
+                }
+                panic!("Error loading bool-key info: {}", status);
+            }
+            idx += 1;
+        }
+
         Info {
             handle: info_ptr,
             len: idx,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         }
     }
 }

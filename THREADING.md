@@ -151,6 +151,31 @@ work on an application thread. Full policy: `src/threading.rs`.
 callback hop-off via `threading` helpers), `server_upcall_hop.rs`
 (server module fence/modex upcall hop + delayed `cbfunc`).
 
+### 7.1 Multi-thread + external-progress integration tests (#54)
+
+| Goal | Test (`tests/threading_mt_via_prterun.rs`) |
+|------|---------------------------------------------|
+| (1) N threads: clone `PmixClient`, concurrent put + fence | `mt_concurrent_put_and_fence` |
+| (2) Concurrent `_nb` completions | `mt_concurrent_fence_nb_completions` |
+| (3) `external_progress` + host `progress()` | `mt_external_progress_host_thread` (own process) |
+| (4) Callback must-not-block timeout | `callback_must_not_block_progress_timeout` |
+
+Run under PRTE ≥ 4.1 / OpenPMIx ≥ 6.1:
+
+```bash
+export PMIX_PREFIX=${PMIX_PREFIX:-$HOME/.local/openpmix-6.1.0}
+export LD_LIBRARY_PATH=$PMIX_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export PATH=/path/to/prte-4.1/bin:$PATH
+
+cargo test --test threading_mt_via_prterun -- --test-threads=1
+./scripts/run_daemon_tests.sh THREADING
+```
+
+All DVM cases use the **process-wide** `PmixClient` (no bare `Context`, no
+per-thread init). Goal (3) applies `InitOptions::external_progress(true)` on
+the first connect; the harness runs each ignored test under its own `prterun`
+process. Companion example: `examples/external_progress_mt.rs`.
+
 ---
 
 ## 8. Roadmap
@@ -166,5 +191,5 @@ callback hop-off via `threading` helpers), `server_upcall_hop.rs`
 | Callback hop / audit | #51, #67 | #51 Done (`threading` module + events registry); #67 Open |
 | Server upcall example | #52 | Done (`PmixServerModule` docs + `server_upcall_hop` example) |
 | Global FFI mutex | #53 | Deferred |
-| MT integration tests | #54 | Open |
+| MT integration tests | #54 | Done (`tests/threading_mt_via_prterun.rs` + `run_daemon_tests.sh THREADING`) |
 | Extra static_assertions | #66 | Mostly superseded by #50 |
