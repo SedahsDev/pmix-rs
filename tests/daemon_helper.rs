@@ -38,6 +38,11 @@ use pmix::Info;
 /// not accepting tool connections (e.g., stale URI file, port mismatch after
 /// daemon restart, or the daemon being in a broken state). This timeout
 /// prevents the test runner from hanging forever.
+///
+/// Not every test binary uses this — `#[allow(dead_code)]` suppresses the
+/// cross-binary dead-code warning for test binaries that don't call
+/// `tool_init_with_timeout`.
+#[allow(dead_code)]
 const TOOL_INIT_TIMEOUT_SECS: u64 = 10;
 
 /// Default path where the systemd PRTE service writes its URI.
@@ -58,10 +63,15 @@ fn global_daemon_mutex() -> &'static Mutex<()> {
 }
 
 /// Acquire the global daemon lock. Returns a guard that releases on drop.
+///
+/// Recovers from poison: if a previous test panicked while holding the lock,
+/// the remaining tests can still acquire it instead of cascading failures.
+/// Without this, one test's panic mid-lock would cause every subsequent test
+/// to fail with "poisoned lock" without ever executing their bodies.
 pub fn daemon_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
-    global_daemon_mutex()
+    Ok(global_daemon_mutex()
         .lock()
-        .map_err(|e| format!("Failed to acquire daemon lock: {}", e))
+        .unwrap_or_else(|e| e.into_inner()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +131,10 @@ pub fn read_uri() -> Result<String, String> {
 /// by using `info_with_string_key()` which accepts arbitrary-length string keys.
 ///
 /// Use this for `tool_init()` calls that need to connect to the running daemon.
+///
+/// Not every test binary uses this — `#[allow(dead_code)]` suppresses the
+/// cross-binary dead-code warning.
+#[allow(dead_code)]
 pub fn get_tool_init_info() -> Info {
     let uri = read_uri().unwrap_or_else(|e| {
         panic!("Cannot read PRTE URI for tool_init: {}", e);
@@ -137,9 +151,6 @@ pub fn get_tool_init_info() -> Info {
 /// the handle, since PMIx C APIs access global state.
 static SHARED_TOOL: std::sync::OnceLock<PmixTool> = std::sync::OnceLock::new();
 
-/// Whether initialization was attempted but failed.
-static INIT_FAILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-
 /// Call `tool_init` in a background thread with a timeout.
 ///
 /// `PMIx_tool_init` can block indefinitely if the PRTE daemon is running
@@ -153,6 +164,7 @@ static INIT_FAILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 /// Info's internal pointer not being Send.
 ///
 /// Returns `Ok(PmixTool)` on success, `Err(String)` on timeout or FFI error.
+#[allow(dead_code)]
 fn tool_init_with_timeout(uri: &str) -> Result<PmixTool, String> {
     let uri = uri.to_string();
 
@@ -203,6 +215,10 @@ fn tool_init_with_timeout(uri: &str) -> Result<PmixTool, String> {
 ///
 /// Uses a timeout wrapper around `tool_init` to prevent indefinite hangs
 /// when the PRTE daemon is running but not accepting tool connections.
+///
+/// Not every test binary uses this — `#[allow(dead_code)]` suppresses the
+/// cross-binary dead-code warning.
+#[allow(dead_code)]
 pub fn get_tool_handle() -> Result<&'static PmixTool, String> {
     // Fast path: already initialized (lock-free)
     if let Some(handle) = SHARED_TOOL.get() {
@@ -221,7 +237,6 @@ pub fn get_tool_handle() -> Result<&'static PmixTool, String> {
     let uri = match read_uri() {
         Ok(u) => u,
         Err(e) => {
-            INIT_FAILED.set(true).ok();
             return Err(format!("Cannot read PRTE URI: {}", e));
         }
     };
@@ -239,10 +254,7 @@ pub fn get_tool_handle() -> Result<&'static PmixTool, String> {
                 .get()
                 .ok_or_else(|| "tool_init did not store handle".to_string())
         }
-        Err(e) => {
-            INIT_FAILED.set(true).ok();
-            Err(format!("tool_init failed: {}", e))
-        }
+        Err(e) => Err(format!("tool_init failed: {}", e)),
     }
 }
 
@@ -254,6 +266,7 @@ pub fn get_tool_handle() -> Result<&'static PmixTool, String> {
 ///
 /// Deprecated: use `get_tool_handle()` instead, which manages the URI
 /// internally.
+#[allow(dead_code)]
 pub struct DaemonGuard {
     previous: Option<String>,
 }
@@ -277,6 +290,7 @@ impl Drop for DaemonGuard {
 /// `PMIX_SERVER_URI` is NOT checked by the library.
 ///
 /// Deprecated: use `get_tool_handle()` instead.
+#[allow(dead_code)]
 pub fn connect_to_daemon() -> Result<DaemonGuard, String> {
     let uri = read_uri()?;
 
@@ -296,6 +310,10 @@ pub fn connect_to_daemon() -> Result<DaemonGuard, String> {
 /// so we register a process-exit finalizer via `libc::atexit` that calls `pmix::finalize(None)`.
 /// Without this, prterun reports "exited without calling finalize" and returns a non-zero exit
 /// code even when all tests pass.
+///
+/// Not every test binary uses this — `#[allow(dead_code)]` suppresses the
+/// cross-binary dead-code warning.
+#[allow(dead_code)]
 pub fn ensure_pmix_init() -> &'static pmix::PmixClient {
     use std::sync::OnceLock;
     static PMIX_CTX: OnceLock<pmix::PmixClient> = OnceLock::new();
@@ -322,4 +340,5 @@ pub fn ensure_pmix_init() -> &'static pmix::PmixClient {
     ctx
 }
 
+#[allow(dead_code)]
 static REGISTER_FINALIZE: std::sync::Once = std::sync::Once::new();
