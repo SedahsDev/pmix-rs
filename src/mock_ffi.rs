@@ -256,8 +256,11 @@ pub fn mock_get(
             .to_string_lossy()
             .into_owned()
     };
-    let mut boxed = Box::new(unsafe { std::mem::MaybeUninit::<crate::ffi::pmix_value_t>::zeroed().assume_init() });
-    if let Some((bytes, dtype)) = KEY_VALUE_STORE.with(|cell| cell.borrow().get(&key_str).cloned()) {
+    let mut boxed = Box::new(unsafe {
+        std::mem::MaybeUninit::<crate::ffi::pmix_value_t>::zeroed().assume_init()
+    });
+    if let Some((bytes, dtype)) = KEY_VALUE_STORE.with(|cell| cell.borrow().get(&key_str).cloned())
+    {
         boxed.type_ = dtype as u16;
         // PMIX_INT = 1, PMIX_STRING = 2 (numeric to avoid order deps)
         boxed.type_ = 1u16; // PMIX_INT
@@ -307,12 +310,7 @@ pub fn mock_lookup_nb(
     _info: *const std::ffi::c_void,
     _ninfo: usize,
     _cbfunc: Option<
-        unsafe extern "C" fn(
-            i32,
-            *mut crate::ffi::pmix_pdata_t,
-            usize,
-            *mut std::ffi::c_void,
-        ),
+        unsafe extern "C" fn(i32, *mut crate::ffi::pmix_pdata_t, usize, *mut std::ffi::c_void),
     >,
     _cbdata: *mut std::ffi::c_void,
 ) -> i32 {
@@ -1345,7 +1343,9 @@ pub fn mock_iof_pull(
             }
             // If a registration callback is provided, invoke it with the handle
             if let Some(cb) = regcbfunc {
-                unsafe { cb(status, handle, regcbdata); }
+                unsafe {
+                    cb(status, handle, regcbdata);
+                }
             }
             // In blocking mode (no regcbfunc), return the handle as status
             // (matching real PMIx behavior where blocking returns the handle)
@@ -1378,7 +1378,9 @@ pub fn mock_iof_deregister(
         });
         // Invoke the callback if provided (async mode)
         if let Some(cb) = cbfunc {
-            unsafe { cb(status, cbdata); }
+            unsafe {
+                cb(status, cbdata);
+            }
         }
         status
     } else {
@@ -1403,7 +1405,9 @@ pub fn mock_iof_push(
         let status = get_mock_status("PMIx_IOF_push");
         // Invoke the callback if provided (async mode)
         if let Some(cb) = cbfunc {
-            unsafe { cb(status, cbdata); }
+            unsafe {
+                cb(status, cbdata);
+            }
         }
         status
     } else {
@@ -1636,10 +1640,13 @@ pub fn mock_compute_distances(
                 let layout = std::alloc::Layout::from_size_align(
                     std::mem::size_of::<crate::ffi::pmix_device_distance_t>() * count,
                     std::mem::align_of::<crate::ffi::pmix_device_distance_t>(),
-                ).unwrap();
-                let ptr = unsafe { std::alloc::alloc(layout) as *mut crate::ffi::pmix_device_distance_t };
+                )
+                .unwrap();
+                let ptr =
+                    unsafe { std::alloc::alloc(layout) as *mut crate::ffi::pmix_device_distance_t };
                 if !ptr.is_null() {
-                    for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate() {
+                    for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate()
+                    {
                         let entry = unsafe { &mut *ptr.add(i) };
                         entry.uuid = std::ffi::CString::new(uuid.as_str()).unwrap().into_raw();
                         entry.osname = std::ffi::CString::new(osname.as_str()).unwrap().into_raw();
@@ -1666,14 +1673,16 @@ pub fn mock_compute_distances_nb(
     _cpuset: *mut crate::ffi::pmix_cpuset_t,
     _info: *mut crate::ffi::pmix_info_t,
     _ninfo: usize,
-    _cbfunc: Option<unsafe extern "C" fn(
-        i32,
-        *mut crate::ffi::pmix_device_distance_t,
-        usize,
-        *mut std::os::raw::c_void,
-        Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
-        *mut std::os::raw::c_void,
-    )>,
+    _cbfunc: Option<
+        unsafe extern "C" fn(
+            i32,
+            *mut crate::ffi::pmix_device_distance_t,
+            usize,
+            *mut std::os::raw::c_void,
+            Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+            *mut std::os::raw::c_void,
+        ),
+    >,
     _cbdata: *mut std::os::raw::c_void,
 ) -> i32 {
     if is_mock_enabled() {
@@ -1698,6 +1707,17 @@ pub fn mock_cpuset_construct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
 /// Mock implementation of `PMIx_Cpuset_destruct()`.
 pub fn mock_cpuset_destruct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
     // No-op in mock
+}
+
+/// Mock implementation of `PMIx_Geometry_construct()`.
+pub fn mock_geometry_construct(geometry: *mut crate::ffi::pmix_geometry_t) {
+    // SAFETY: callers provide valid writable storage for the C struct.
+    unsafe { std::ptr::write_bytes(geometry, 0, 1) };
+}
+
+/// Mock implementation of `PMIx_Geometry_destruct()`.
+pub fn mock_geometry_destruct(_geometry: *mut crate::ffi::pmix_geometry_t) {
+    // No-op in mock; the zeroed mock has no C-owned allocations.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1770,14 +1790,16 @@ pub fn mock_query_info(
 pub fn mock_query_info_nb(
     _queries: *mut crate::ffi::pmix_query_t,
     _nqueries: usize,
-    _cbfunc: Option<unsafe extern "C" fn(
-        crate::ffi::pmix_status_t,
-        *mut crate::ffi::pmix_info_t,
-        usize,
-        *mut std::ffi::c_void,
-        crate::ffi::pmix_release_cbfunc_t,
-        *mut std::ffi::c_void,
-    )>,
+    _cbfunc: Option<
+        unsafe extern "C" fn(
+            crate::ffi::pmix_status_t,
+            *mut crate::ffi::pmix_info_t,
+            usize,
+            *mut std::ffi::c_void,
+            crate::ffi::pmix_release_cbfunc_t,
+            *mut std::ffi::c_void,
+        ),
+    >,
     _cbdata: *mut std::ffi::c_void,
 ) -> i32 {
     if is_mock_enabled() {
