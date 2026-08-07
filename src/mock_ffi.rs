@@ -3451,3 +3451,29 @@ fn mock_argv_one() -> *mut *mut std::ffi::c_char {
 }
 
 // END PMIx_Argv_* mocks
+
+// PMIx_Proc_*, PMIx_Check_*, PMIx_Proc_info_*, and PMIx_Node_pid_* mocks.
+pub unsafe fn mock_proc_create(n: usize) -> *mut crate::ffi::pmix_proc_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_proc_t>()) as *mut _ } }
+pub unsafe fn mock_proc_free(_p: *mut crate::ffi::pmix_proc_t, _n: usize) {}
+pub unsafe fn mock_proc_destruct(_p: *mut crate::ffi::pmix_proc_t) {}
+pub unsafe fn mock_proc_string(_p: *const crate::ffi::pmix_proc_t) -> *mut std::ffi::c_char { unsafe { libc::strdup(b"mock-proc\\0".as_ptr().cast()) } }
+pub unsafe fn mock_proc_load(_p: *mut crate::ffi::pmix_proc_t, _ns: *const std::ffi::c_char, _rank: crate::ffi::pmix_rank_t) {}
+pub unsafe fn mock_xfer_procid(_dst: *mut crate::ffi::pmix_proc_t, _src: *const crate::ffi::pmix_proc_t) {}
+pub unsafe fn mock_check_procid(_a: *const crate::ffi::pmix_proc_t, _b: *const crate::ffi::pmix_proc_t) -> bool { false }
+pub unsafe fn mock_check_rank(_a: crate::ffi::pmix_rank_t, _b: crate::ffi::pmix_rank_t) -> bool { false }
+pub unsafe fn mock_check_nspace(_a: *const std::ffi::c_char, _b: *const std::ffi::c_char) -> bool { false }
+pub unsafe fn mock_check_key(_key: *const std::ffi::c_char, _s: *const std::ffi::c_char) -> bool { false }
+pub unsafe fn mock_check_reserved_key(_key: *const std::ffi::c_char) -> bool { false }
+pub unsafe fn mock_load_key(_key: *mut std::ffi::c_char, _src: *const std::ffi::c_char) {}
+pub unsafe fn mock_load_procid(_p: *mut crate::ffi::pmix_proc_t, _ns: *const std::ffi::c_char, _rank: crate::ffi::pmix_rank_t) {}
+pub unsafe fn mock_rank_valid(_a: crate::ffi::pmix_rank_t) -> bool { false }
+pub unsafe fn mock_procid_invalid(_p: *const crate::ffi::pmix_proc_t) -> bool { false }
+pub unsafe fn mock_nspace_invalid(_ns: *const std::ffi::c_char) -> bool { false }
+pub unsafe fn mock_proc_info_construct(p: *mut crate::ffi::pmix_proc_info_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
+pub unsafe fn mock_proc_info_destruct(_p: *mut crate::ffi::pmix_proc_info_t) {}
+pub unsafe fn mock_proc_info_create(n: usize) -> *mut crate::ffi::pmix_proc_info_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_proc_info_t>()) as *mut _ } }
+pub unsafe fn mock_proc_info_free(_p: *mut crate::ffi::pmix_proc_info_t, _n: usize) {}
+pub unsafe fn mock_node_pid_construct(p: *mut crate::ffi::pmix_node_pid_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
+pub unsafe fn mock_node_pid_destruct(_p: *mut crate::ffi::pmix_node_pid_t) {}
+pub unsafe fn mock_node_pid_create(n: usize) -> *mut crate::ffi::pmix_node_pid_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_node_pid_t>()) as *mut _ } }
+pub unsafe fn mock_node_pid_free(_p: *mut crate::ffi::pmix_node_pid_t, _n: usize) {}

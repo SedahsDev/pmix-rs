@@ -2294,6 +2294,65 @@ impl Proc {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Safe wrappers for PMIx process, validation, process-info, and node-pid APIs.
+
+impl Proc {
+    /// Explicitly destruct this process object; `Proc` intentionally has no `Drop`.
+    pub fn destruct(&mut self) {
+        pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_destruct(&mut self.handle) }, real = unsafe { ffi::PMIx_Proc_destruct(&mut self.handle) });
+    }
+    pub fn proc_load(&mut self, nspace: &str, rank: u32) -> Result<(), NulError> {
+        let ns = CString::new(nspace)?;
+        pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_load(&mut self.handle, ns.as_ptr(), rank) }, real = unsafe { ffi::PMIx_Proc_load(&mut self.handle, ns.as_ptr(), rank) });
+        Ok(())
+    }
+    pub fn proc_string(&self) -> Result<String, PmixStatus> {
+        let ptr = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_string(&self.handle) }, real = unsafe { ffi::PMIx_Proc_string(&self.handle) });
+        if ptr.is_null() { return Err(PmixStatus::from_raw(-2)); }
+        // SAFETY: PMIx returns an allocated NUL-terminated string; it is freed exactly once.
+        let value = unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() };
+        // SAFETY: the pointer was allocated by PMIx/libc and is owned by this method.
+        unsafe { libc::free(ptr.cast()) };
+        Ok(value)
+    }
+    pub fn xfer_procid(&mut self, src: &Proc) { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_xfer_procid(&mut self.handle, &src.handle) }, real = unsafe { ffi::PMIx_Xfer_procid(&mut self.handle, &src.handle) }); }
+    pub fn check_procid(&self, other: &Proc) -> bool { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_check_procid(&self.handle, &other.handle) }, real = unsafe { ffi::PMIx_Check_procid(&self.handle, &other.handle) }) }
+    pub fn procid_invalid(&self) -> bool { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_procid_invalid(&self.handle) }, real = unsafe { ffi::PMIx_Procid_invalid(&self.handle) }) }
+}
+
+fn cstring_pair(a: &str, b: &str) -> Option<(CString, CString)> { Some((CString::new(a).ok()?, CString::new(b).ok()?)) }
+pub fn check_rank(a: u32, b: u32) -> bool { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_check_rank(a, b) }, real = unsafe { ffi::PMIx_Check_rank(a, b) }) }
+pub fn check_nspace(a: &str, b: &str) -> bool { let Some((a,b)) = cstring_pair(a,b) else { return false }; pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_check_nspace(a.as_ptr(), b.as_ptr()) }, real = unsafe { ffi::PMIx_Check_nspace(a.as_ptr(), b.as_ptr()) }) }
+pub fn check_key(key: &str, s: &str) -> bool { let Some((key,s)) = cstring_pair(key,s) else { return false }; pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_check_key(key.as_ptr(), s.as_ptr()) }, real = unsafe { ffi::PMIx_Check_key(key.as_ptr(), s.as_ptr()) }) }
+pub fn check_reserved_key(key: &str) -> bool { let Ok(key) = CString::new(key) else { return false }; pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_check_reserved_key(key.as_ptr()) }, real = unsafe { ffi::PMIx_Check_reserved_key(key.as_ptr()) }) }
+pub fn load_procid(dst: &mut pmix_proc_t, nspace: &str, rank: u32) -> Result<(), NulError> { let ns = CString::new(nspace)?; pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_load_procid(dst, ns.as_ptr(), rank) }, real = unsafe { ffi::PMIx_Load_procid(dst, ns.as_ptr(), rank) }); Ok(()) }
+pub fn rank_valid(rank: u32) -> bool { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_rank_valid(rank) }, real = unsafe { ffi::PMIx_Rank_valid(rank) }) }
+pub fn nspace_invalid(ns: &str) -> bool { let Ok(ns) = CString::new(ns) else { return true }; pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_nspace_invalid(ns.as_ptr()) }, real = unsafe { ffi::PMIx_Nspace_invalid(ns.as_ptr()) }) }
+pub fn load_key(dst: &mut [c_char], src: &str) { let Ok(src) = CString::new(src) else { return }; if dst.is_empty() { return }; let n = src.as_bytes().len().min(dst.len() - 1); dst[..n].copy_from_slice(unsafe { std::slice::from_raw_parts(src.as_ptr(), n) }); dst[n] = 0; pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_load_key(dst.as_mut_ptr(), src.as_ptr()) }, real = unsafe { ffi::PMIx_Load_key(dst.as_mut_ptr(), src.as_ptr()) }); }
+
+pub struct PmixProcArray { ptr: *mut pmix_proc_t, len: usize, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+impl PmixProcArray { pub fn new(len: usize) -> Option<Self> { if len == 0 { return Some(Self { ptr: std::ptr::null_mut(), len, _not_thread_safe: std::marker::PhantomData }); } let ptr = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_create(len) }, real = unsafe { ffi::PMIx_Proc_create(len) }); (!ptr.is_null()).then_some(Self { ptr, len, _not_thread_safe: std::marker::PhantomData }) } pub fn as_mut_ptr(&mut self) -> *mut pmix_proc_t { self.ptr } pub fn len(&self) -> usize { self.len } pub fn is_empty(&self) -> bool { self.len == 0 } }
+impl Drop for PmixProcArray { fn drop(&mut self) { if !self.ptr.is_null() { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_free(self.ptr, self.len) }, real = unsafe { ffi::PMIx_Proc_free(self.ptr, self.len) }); } } }
+
+pub struct PmixProcInfo { raw: mem::MaybeUninit<pmix_proc_info_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+impl PmixProcInfo { pub fn new() -> Self { let mut x = Self { raw: mem::MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData }; pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_info_construct(x.raw.as_mut_ptr()) }, real = unsafe { ffi::PMIx_Proc_info_construct(x.raw.as_mut_ptr()) }); x.constructed = true; x } pub fn test_new() -> Self { Self { raw: mem::MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData } } fn raw(&self) -> &pmix_proc_info_t { unsafe { self.raw.assume_init_ref() } } pub fn proc_ptr(&self) -> *const pmix_proc_t { &self.raw().proc_ } pub fn hostname(&self) -> Option<&str> { cstr_ref(self.raw().hostname) } pub fn executable_name(&self) -> Option<&str> { cstr_ref(self.raw().executable_name) } pub fn pid(&self) -> i32 { self.raw().pid } pub fn exit_code(&self) -> i32 { self.raw().exit_code } pub fn state(&self) -> pmix_proc_state_t { self.raw().state } }
+impl Default for PmixProcInfo { fn default() -> Self { Self::new() } }
+impl Drop for PmixProcInfo { fn drop(&mut self) { if self.constructed { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_info_destruct(self.raw.as_mut_ptr()) }, real = unsafe { ffi::PMIx_Proc_info_destruct(self.raw.as_mut_ptr()) }); self.constructed = false; } } }
+fn cstr_ref(ptr: *const c_char) -> Option<&'static str> { if ptr.is_null() { return None }; unsafe { CStr::from_ptr(ptr).to_str().ok() } }
+
+pub struct PmixProcInfoArray { ptr: *mut pmix_proc_info_t, len: usize }
+impl PmixProcInfoArray { pub fn new(len: usize) -> Option<Self> { let ptr = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_info_create(len) }, real = unsafe { ffi::PMIx_Proc_info_create(len) }); (!ptr.is_null()).then_some(Self { ptr, len }) } pub fn as_mut_ptr(&mut self) -> *mut pmix_proc_info_t { self.ptr } }
+impl Drop for PmixProcInfoArray { fn drop(&mut self) { if !self.ptr.is_null() { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_info_free(self.ptr, self.len) }, real = unsafe { ffi::PMIx_Proc_info_free(self.ptr, self.len) }); } } }
+
+pub struct PmixNodePid { raw: mem::MaybeUninit<pmix_node_pid_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+impl PmixNodePid { pub fn new() -> Self { let mut x = Self { raw: mem::MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData }; pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_node_pid_construct(x.raw.as_mut_ptr()) }, real = unsafe { ffi::PMIx_Node_pid_construct(x.raw.as_mut_ptr()) }); x.constructed = true; x } pub fn test_new() -> Self { Self { raw: mem::MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData } } fn raw(&self) -> &pmix_node_pid_t { unsafe { self.raw.assume_init_ref() } } pub fn hostname(&self) -> Option<&str> { cstr_ref(self.raw().hostname) } pub fn nodeid(&self) -> u32 { self.raw().nodeid } pub fn pid(&self) -> i32 { self.raw().pid } }
+impl Default for PmixNodePid { fn default() -> Self { Self::new() } }
+impl Drop for PmixNodePid { fn drop(&mut self) { if self.constructed { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_node_pid_destruct(self.raw.as_mut_ptr()) }, real = unsafe { ffi::PMIx_Node_pid_destruct(self.raw.as_mut_ptr()) }); self.constructed = false; } } }
+pub struct PmixNodePidArray { ptr: *mut pmix_node_pid_t, len: usize }
+impl PmixNodePidArray { pub fn new(len: usize) -> Option<Self> { let ptr = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_node_pid_create(len) }, real = unsafe { ffi::PMIx_Node_pid_create(len) }); (!ptr.is_null()).then_some(Self { ptr, len }) } pub fn as_mut_ptr(&mut self) -> *mut pmix_node_pid_t { self.ptr } }
+impl Drop for PmixNodePidArray { fn drop(&mut self) { if !self.ptr.is_null() { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_node_pid_free(self.ptr, self.len) }, real = unsafe { ffi::PMIx_Node_pid_free(self.ptr, self.len) }); } } }
+
+// ─────────────────────────────────────────────────────────────────────────────
 // InfoFlags — type-safe bitmask over pmix_info_directives_t
 // ─────────────────────────────────────────────────────────────────────────────
 
