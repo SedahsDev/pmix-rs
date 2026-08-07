@@ -27,7 +27,14 @@
 //!    dropped. (Regression-tested in `events`.)
 //! 4. **cbdata** is an opaque request ID encoded with
 //!    [`crate::cbdata::encode_req_id`] / [`crate::cbdata::decode_req_id`],
-//!    never a raw pointer to a callback.
+//!    never a raw pointer to a Rust callback/`Box` (one-shot completions use a
+//!    registry keyed by that ID; long-lived IOF pull contexts are a documented
+//!    exception because the handle is the C-side key).
+//! 5. **User-callback panics are contained at the bridge.** An `extern "C"`
+//!    entry must not unwind into OpenPMIx. Use [`invoke_user_callback`] (or an
+//!    equivalent `catch_unwind`) so a panicking handler is logged and the
+//!    panic is **not** resumed across the FFI boundary. (Event-chain bridges
+//!    must still complete OpenPMIx's `cbfunc` — see `events::notification_bridge`.)
 //!
 //! # Hop-off template
 //!
@@ -167,6 +174,37 @@ where
                 std::panic::resume_unwind(payload);
             }
         })
+}
+
+/// Invoke a user callback from an `extern "C"` bridge **without** letting a
+/// panic unwind into OpenPMIx / C.
+///
+/// Bridges are called from C on the progress thread. Unwinding across that
+/// FFI boundary is undefined behaviour. This helper runs `f` under
+/// [`catch_unwind`](std::panic::catch_unwind), logs a branded diagnostic on
+/// panic, and **contains** the panic (does not `resume_unwind`).
+///
+/// Prefer this for one-shot completion bridges (`_nb` ops). Event-notification
+/// bridges that must also complete an OpenPMIx event chain should catch
+/// panics themselves so they can call `cbfunc` on the failure path (see
+/// `events::notification_bridge`).
+///
+/// Returns `true` if `f` completed normally, `false` if it panicked.
+#[inline]
+pub fn invoke_user_callback<F>(bridge: &str, f: F) -> bool
+where
+    F: FnOnce(),
+{
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(()) => true,
+        Err(_) => {
+            eprintln!(
+                "pmix::{bridge}: user callback panicked on the progress thread; \
+                 containing the panic (must not unwind across FFI)"
+            );
+            false
+        }
+    }
 }
 
 /// Channel pair for hopping callback payloads off the progress thread.
@@ -311,6 +349,14 @@ mod tests {
             msg.contains("hop-work boom"),
             "unexpected panic payload: {msg}"
         );
+    }
+
+    #[test]
+    fn invoke_user_callback_contains_panic() {
+        let ok = invoke_user_callback("test", || {});
+        assert!(ok);
+        let panicked = invoke_user_callback("test", || panic!("bridge-boom"));
+        assert!(!panicked, "panic must be contained, not resumed");
     }
 
     #[test]

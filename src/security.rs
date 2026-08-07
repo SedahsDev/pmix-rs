@@ -35,6 +35,7 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,7 +458,9 @@ extern "C" fn credential_callback_bridge(
         CredentialResults::default()
     };
 
-    cb.on_complete(pmix_status, cred, results);
+    let _ = invoke_user_callback("security", move || {
+            cb.on_complete(pmix_status, cred, results);
+    });
 }
 
 /// Non-blocking request for a credential from the PMIx server.
@@ -775,7 +778,9 @@ extern "C" fn validation_callback_bridge(
         }
     };
 
-    cb.on_complete(pmix_status, results);
+    let _ = invoke_user_callback("security", move || {
+            cb.on_complete(pmix_status, results);
+    });
 }
 
 /// Non-blocking validation of a credential obtained from [`get_credential`].

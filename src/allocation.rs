@@ -54,6 +54,7 @@ use std::sync::Mutex;
 use std::sync::LazyLock;
 
 use crate::ffi;
+use crate::threading::invoke_user_callback;
 use crate::cbdata::{decode_req_id, encode_req_id};
 use crate::{Info, PmixStatus, Proc};
 
@@ -344,7 +345,9 @@ extern "C" fn allocation_callback_bridge(
     
             _not_thread_safe: std::marker::PhantomData,
         };
-    cb.on_complete(pmix_status, results);
+    let _ = invoke_user_callback("allocation", move || {
+            cb.on_complete(pmix_status, results);
+    });
     // release_fn is unused — we manage our own memory via AllocationResults Drop.
     let _ = release_fn;
 }
@@ -718,7 +721,9 @@ extern "C" fn job_control_callback_bridge(
     
             _not_thread_safe: std::marker::PhantomData,
         };
-    cb.on_complete(pmix_status, results);
+    let _ = invoke_user_callback("allocation", move || {
+            cb.on_complete(pmix_status, results);
+    });
     // release_fn is unused — we manage our own memory via JobControlResults Drop.
     let _ = release_fn;
 }
@@ -910,7 +915,9 @@ extern "C" fn session_control_callback_bridge(
     
             _not_thread_safe: std::marker::PhantomData,
         };
-    cb.on_complete(pmix_status, results);
+    let _ = invoke_user_callback("allocation", move || {
+            cb.on_complete(pmix_status, results);
+    });
     let _ = release_fn;
 }
 

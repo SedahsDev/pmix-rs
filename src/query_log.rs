@@ -41,6 +41,7 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
 
 #[cfg(any(test, feature = "mock_ffi"))]
@@ -457,7 +458,9 @@ extern "C" fn query_callback_bridge(
     
             _not_thread_safe: std::marker::PhantomData,
         };
-    cb.on_complete(pmix_status, results);
+    let _ = invoke_user_callback("query_log", move || {
+            cb.on_complete(pmix_status, results);
+    });
     // release_fn is unused — we manage our own memory via QueryResults Drop.
     let _ = release_fn;
 }
@@ -668,7 +671,9 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
     };
 
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("query_log", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Non-blocking log of data to the host environment's logging service.

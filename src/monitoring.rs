@@ -49,6 +49,7 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
+use crate::threading::invoke_user_callback;
 use crate::cbdata::{decode_req_id_u64, encode_req_id_u64};
 use crate::{Info, PmixError, PmixStatus};
 
@@ -166,7 +167,9 @@ unsafe extern "C" fn monitor_callback_bridge(
             } else {
                 None
             };
-            cb.on_complete(PmixStatus::from_raw(status), results);
+            let _ = invoke_user_callback("monitoring", move || {
+                    cb.on_complete(PmixStatus::from_raw(status), results);
+            });
         }
         None => {
             // Callback already consumed or never registered — free the info
