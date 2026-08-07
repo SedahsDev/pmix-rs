@@ -1849,6 +1849,68 @@ pub fn mock_info_free(_info: *mut crate::ffi::pmix_info_t, _ninfo: usize) {
 // Tests for the mock FFI framework itself
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+/// Mock PMIx_Value_construct: initialize the destination to zero.
+pub unsafe fn mock_value_construct(value: *mut crate::ffi::pmix_value_t) {
+    // SAFETY: callers pass writable storage for one pmix_value_t.
+    unsafe { std::ptr::write_bytes(value, 0, 1) };
+}
+
+/// Mock PMIx_Value_destruct: mock values own no C allocations.
+pub unsafe fn mock_value_destruct(_value: *mut crate::ffi::pmix_value_t) {}
+
+/// Mock PMIx_Value_create: allocate zeroed value storage for tests.
+pub unsafe fn mock_value_create(n: usize) -> *mut crate::ffi::pmix_value_t {
+    if n == 0 { return std::ptr::null_mut(); }
+    let layout = std::alloc::Layout::array::<crate::ffi::pmix_value_t>(n).ok();
+    match layout {
+        Some(layout) => unsafe { std::alloc::alloc_zeroed(layout) as *mut crate::ffi::pmix_value_t },
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Mock PMIx_Value_free: release storage allocated by mock_value_create.
+pub unsafe fn mock_value_free(value: *mut crate::ffi::pmix_value_t, n: usize) {
+    if value.is_null() || n == 0 { return; }
+    if let Ok(layout) = std::alloc::Layout::array::<crate::ffi::pmix_value_t>(n) {
+        // SAFETY: pointer and layout match mock_value_create.
+        unsafe { std::alloc::dealloc(value as *mut u8, layout) };
+    }
+}
+
+pub unsafe fn mock_value_load(value: *mut crate::ffi::pmix_value_t, _data: *const std::ffi::c_void, ty: crate::ffi::pmix_data_type_t) -> i32 {
+    let status = get_mock_status("PMIx_Value_load");
+    if status == PMIX_SUCCESS && !value.is_null() {
+        // SAFETY: value is writable storage supplied by the wrapper.
+        unsafe { (*value).type_ = ty; }
+    }
+    status
+}
+
+pub unsafe fn mock_value_unload(_value: *mut crate::ffi::pmix_value_t, data: *mut *mut std::ffi::c_void, size: *mut usize) -> i32 {
+    let status = get_mock_status("PMIx_Value_unload");
+    if status == PMIX_SUCCESS {
+        let bytes = b"mock";
+        let ptr = unsafe { libc::malloc(bytes.len()) } as *mut u8;
+        if ptr.is_null() { return -2; }
+        // SAFETY: malloc returned bytes.len() writable bytes.
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len()); *data = ptr.cast(); *size = bytes.len(); }
+    }
+    status
+}
+
+pub unsafe fn mock_value_xfer(_dest: *mut crate::ffi::pmix_value_t, _src: *const crate::ffi::pmix_value_t) -> i32 { get_mock_status("PMIx_Value_xfer") }
+pub unsafe fn mock_value_get_number(_value: *const crate::ffi::pmix_value_t, _dest: *mut std::ffi::c_void, _ty: crate::ffi::pmix_data_type_t) -> i32 { get_mock_status("PMIx_Value_get_number") }
+pub unsafe fn mock_value_get_size(_value: *const crate::ffi::pmix_value_t, size: *mut usize) -> i32 {
+    let status = get_mock_status("PMIx_Value_get_size");
+    if status == PMIX_SUCCESS && !size.is_null() { unsafe { *size = 4; } }
+    status
+}
+pub unsafe fn mock_value_compare(_v1: *mut crate::ffi::pmix_value_t, _v2: *mut crate::ffi::pmix_value_t) -> crate::ffi::pmix_value_cmp_t { crate::ffi::pmix_value_cmp_t::PMIX_EQUAL }
+pub unsafe fn mock_value_comparison_string(_cmp: crate::ffi::pmix_value_cmp_t) -> *const std::os::raw::c_char { b"equal\0".as_ptr().cast() }
+pub unsafe fn mock_value_string(_value: *const crate::ffi::pmix_value_t) -> *mut std::os::raw::c_char { std::ffi::CString::new("mock").unwrap().into_raw() }
+pub unsafe fn mock_value_true(_value: *const crate::ffi::pmix_value_t) -> crate::ffi::pmix_boolean_t { crate::ffi::pmix_boolean_t::PMIX_BOOL_TRUE }
+
 #[cfg(test)]
 mod tests {
     use super::*;
