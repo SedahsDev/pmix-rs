@@ -34,7 +34,6 @@ pub fn len(info: &Info) -> usize {
 /// RAII wrapper for one individually constructed `pmix_info_t`.
 pub struct PmixInfo {
     raw: crate::ffi::pmix_info_t,
-    constructed: bool,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
@@ -49,13 +48,14 @@ impl PmixInfo {
         );
         Self {
             raw,
-            constructed: true,
             _not_thread_safe: std::marker::PhantomData,
         }
     }
+    /// Return an immutable pointer to the underlying PMIx info value.
     pub fn as_ptr(&self) -> *const crate::ffi::pmix_info_t {
         &self.raw
     }
+    /// Return a mutable pointer to the underlying PMIx info value.
     pub fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_info_t {
         &mut self.raw
     }
@@ -67,13 +67,10 @@ impl Default for PmixInfo {
 }
 impl Drop for PmixInfo {
     fn drop(&mut self) {
-        if self.constructed {
-            crate::pmix_ffi_or_mock!(
-                mock = unsafe { crate::mock_ffi::mock_info_destruct(&mut self.raw) },
-                real = unsafe { crate::ffi::PMIx_Info_destruct(&mut self.raw) },
-            );
-            self.constructed = false;
-        }
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_info_destruct(&mut self.raw) },
+            real = unsafe { crate::ffi::PMIx_Info_destruct(&mut self.raw) },
+        );
     }
 }
 
@@ -81,6 +78,7 @@ impl Info {
     fn first_ptr(&self) -> Option<*mut crate::ffi::pmix_info_t> {
         (!self.handle.is_null() && self.len > 0).then_some(self.handle)
     }
+    /// Copy one PMIx info entry from `src` into this list's first entry.
     pub fn xfer_from(&mut self, src: &Info) -> Result<(), PmixStatus> {
         let dest = self.first_ptr().ok_or_else(|| PmixStatus::from_raw(-2))?;
         let source = src.first_ptr().ok_or_else(|| PmixStatus::from_raw(-2))?;
@@ -92,6 +90,7 @@ impl Info {
             .then_some(())
             .ok_or_else(|| PmixStatus::from_raw(status))
     }
+    /// Return the serialized size of this list's first entry.
     pub fn get_size(&self) -> Result<usize, PmixStatus> {
         let ptr = self.first_ptr().ok_or_else(|| PmixStatus::from_raw(-2))?;
         let mut size = 0;
@@ -105,14 +104,15 @@ impl Info {
             Err(PmixStatus::from_raw(status))
         }
     }
-    pub fn info_string(&self) -> Result<String, crate::PmixError> {
-        let ptr = self.first_ptr().ok_or(crate::PmixError::ErrBadParam)?;
+    /// Render this list's first entry as an owned string.
+    pub fn info_string(&self) -> Result<String, PmixStatus> {
+        let ptr = self.first_ptr().ok_or_else(|| PmixStatus::from_raw(-2))?;
         let c_ptr = crate::pmix_ffi_or_mock!(
             mock = unsafe { crate::mock_ffi::mock_info_string(ptr) },
             real = unsafe { crate::ffi::PMIx_Info_string(ptr) },
         );
         if c_ptr.is_null() {
-            return Err(crate::PmixError::Error);
+            return Err(PmixStatus::from_raw(-2));
         }
         // SAFETY: PMIx returns an allocated NUL-terminated string; copy then free it.
         let result = unsafe {
@@ -124,6 +124,7 @@ impl Info {
         };
         Ok(result)
     }
+    /// Return whether the first entry is marked required.
     pub fn is_required(&self) -> bool {
         self.first_ptr().is_some_and(|p| {
             crate::pmix_ffi_or_mock!(
@@ -132,6 +133,7 @@ impl Info {
             )
         })
     }
+    /// Return whether the first entry is marked optional.
     pub fn is_optional(&self) -> bool {
         self.first_ptr().is_some_and(|p| {
             crate::pmix_ffi_or_mock!(
@@ -140,6 +142,7 @@ impl Info {
             )
         })
     }
+    /// Return whether the first entry is marked persistent.
     pub fn is_persistent(&self) -> bool {
         self.first_ptr().is_some_and(|p| {
             crate::pmix_ffi_or_mock!(
@@ -148,6 +151,7 @@ impl Info {
             )
         })
     }
+    /// Return whether the first entry is a qualifier.
     pub fn is_qualifier(&self) -> bool {
         self.first_ptr().is_some_and(|p| {
             crate::pmix_ffi_or_mock!(
@@ -156,6 +160,7 @@ impl Info {
             )
         })
     }
+    /// Return whether the first entry is the end marker.
     pub fn is_end(&self) -> bool {
         self.first_ptr().is_some_and(|p| {
             crate::pmix_ffi_or_mock!(
@@ -164,6 +169,7 @@ impl Info {
             )
         })
     }
+    /// Return whether the first entry was processed.
     pub fn was_processed(&self) -> bool {
         self.first_ptr().is_some_and(|p| {
             crate::pmix_ffi_or_mock!(
@@ -172,12 +178,13 @@ impl Info {
             )
         })
     }
+    /// Return whether the first entry has PMIX_BOOL_TRUE state.
     pub fn is_true(&self) -> bool {
         self.first_ptr().is_some_and(|p| {
             crate::pmix_ffi_or_mock!(
                 mock = unsafe { crate::mock_ffi::mock_info_true(p) },
                 real = unsafe { crate::ffi::PMIx_Info_true(p) }
-            ) != crate::ffi::pmix_boolean_t::PMIX_BOOL_FALSE
+            ) == crate::ffi::pmix_boolean_t::PMIX_BOOL_TRUE
         })
     }
     fn set_with(&mut self, f: impl FnOnce(*mut crate::ffi::pmix_info_t)) {
@@ -185,6 +192,7 @@ impl Info {
             f(p);
         }
     }
+    /// Mark the first entry required.
     pub fn set_required(&mut self) {
         self.set_with(|p| {
             crate::pmix_ffi_or_mock!(
@@ -193,6 +201,7 @@ impl Info {
             )
         });
     }
+    /// Mark the first entry optional.
     pub fn set_optional(&mut self) {
         self.set_with(|p| {
             crate::pmix_ffi_or_mock!(
@@ -201,6 +210,7 @@ impl Info {
             )
         });
     }
+    /// Mark the first entry persistent.
     pub fn set_persistent(&mut self) {
         self.set_with(|p| {
             crate::pmix_ffi_or_mock!(
@@ -209,6 +219,7 @@ impl Info {
             )
         });
     }
+    /// Mark the first entry a qualifier.
     pub fn set_qualifier(&mut self) {
         self.set_with(|p| {
             crate::pmix_ffi_or_mock!(
@@ -217,6 +228,7 @@ impl Info {
             )
         });
     }
+    /// Mark the first entry processed.
     pub fn set_processed(&mut self) {
         self.set_with(|p| {
             crate::pmix_ffi_or_mock!(
@@ -225,6 +237,7 @@ impl Info {
             )
         });
     }
+    /// Mark the first entry as the end marker.
     pub fn set_end(&mut self) {
         self.set_with(|p| {
             crate::pmix_ffi_or_mock!(
@@ -283,5 +296,39 @@ mod tests {
     #[test]
     fn test_info_is_empty_false_for_string_kv() {
         assert!(!string_kv("k", "v").is_empty());
+    }
+
+    #[test]
+    fn mock_pmix_info_constructs_and_drops() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let info = PmixInfo::new();
+        assert!(!info.as_ptr().is_null());
+    }
+
+    #[test]
+    fn mock_info_helpers_cover_success_paths() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let mut dest = string_kv("k", "v");
+        let src = string_kv("k2", "v2");
+        assert!(dest.xfer_from(&src).is_ok());
+        assert_eq!(dest.get_size().unwrap(), 0);
+        assert_eq!(dest.info_string().unwrap(), "mock info");
+        assert!(!dest.is_required());
+        assert!(!dest.is_optional());
+        assert!(!dest.is_persistent());
+        assert!(!dest.is_qualifier());
+        assert!(!dest.is_end());
+        assert!(!dest.was_processed());
+        assert!(!dest.is_true());
+        dest.set_required(); dest.set_optional(); dest.set_persistent();
+        dest.set_qualifier(); dest.set_processed(); dest.set_end();
+    }
+
+    #[test]
+    fn mock_info_status_override_is_returned_as_error() {
+        let config = crate::mock_ffi::MockConfig::new().with_function_status("PMIx_Info_get_size", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
+        let _guard = crate::mock_ffi::MockGuard::with_config(config);
+        let info = string_kv("k", "v");
+        assert!(info.get_size().is_err());
     }
 }
