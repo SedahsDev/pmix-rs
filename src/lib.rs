@@ -5606,3 +5606,6 @@ mod value_utils_tests {
     #[test]
     fn mock_value_unload_propagates_error_status() { let _guard = mock_ffi::MockGuard::new(); mock_ffi::MockConfig::new().with_function_status("PMIx_Value_unload", mock_ffi::PMIX_ERR_BAD_PARAM).apply(); let mut value = PmixValue::new(); assert!(value.value_unload().is_err()); }
 }
+
+/// Safe wrapper around an opaque PMIx info linked list.
+pub use info::PmixInfoList;

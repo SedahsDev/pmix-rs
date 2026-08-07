@@ -332,3 +332,316 @@ mod tests {
         assert!(info.get_size().is_err());
     }
 }
+
+/// Safe wrapper around a PMIx info linked list (`PMIx_Info_list_start`/Release).
+///
+/// The list is owned by this value and is deliberately not transferable between
+/// threads. `iter` copies the raw entries returned by PMIx; it is intended for
+/// inspection and does not create owned `Info` values.
+#[derive(Debug)]
+pub struct PmixInfoList {
+    handle: std::ptr::NonNull<std::ffi::c_void>,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixInfoList {
+    /// Start an empty PMIx info list.
+    pub fn new() -> Result<Self, crate::PmixError> {
+        let handle = crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_info_list_start() },
+            real = unsafe { crate::ffi::PMIx_Info_list_start() },
+        );
+        std::ptr::NonNull::new(handle)
+            .map(|handle| Self {
+                handle,
+                _not_thread_safe: std::marker::PhantomData,
+            })
+            .ok_or(crate::PmixError::ErrNomem)
+    }
+
+    /// Return the opaque PMIx list handle for FFI escape hatches.
+    pub fn as_ptr(&self) -> *mut std::ffi::c_void {
+        self.handle.as_ptr()
+    }
+
+    /// Number of entries in the list.
+    pub fn len(&self) -> usize {
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_info_list_get_size(self.as_ptr()) },
+            real = unsafe { crate::ffi::PMIx_Info_list_get_size(self.as_ptr()) },
+        )
+    }
+
+    /// Return whether the list has no entries.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Copy the current entries into raw snapshots. PMIx remains responsible
+    /// for any nested allocations in the copied C structs.
+    pub fn iter(&self) -> Vec<crate::ffi::pmix_info_t> {
+        let mut result = Vec::new();
+        let mut previous = std::ptr::null_mut();
+        loop {
+            let mut next = std::ptr::null_mut();
+            let info = crate::pmix_ffi_or_mock!(
+                mock = unsafe {
+                    crate::mock_ffi::mock_info_list_get_info(self.as_ptr(), previous, &mut next)
+                },
+                real = unsafe {
+                    crate::ffi::PMIx_Info_list_get_info(self.as_ptr(), previous, &mut next)
+                },
+            );
+            if info.is_null() {
+                break;
+            }
+            result.push(unsafe { info.read() });
+            if next.is_null() || next == previous {
+                break;
+            }
+            previous = next;
+        }
+        result
+    }
+
+    fn status(status: crate::ffi::pmix_status_t) -> Result<(), crate::PmixStatus> {
+        let raw = status;
+        if raw == crate::ffi::PMIX_SUCCESS as i32 {
+            Ok(())
+        } else {
+            Err(crate::PmixStatus::from_raw(raw))
+        }
+    }
+
+    fn key(key: &str) -> Result<std::ffi::CString, crate::PmixStatus> {
+        std::ffi::CString::new(key).map_err(|_| crate::PmixStatus::from_raw(-27))
+    }
+
+    /// Add a value represented by bytes and a PMIx data type.
+    pub fn add<V: AsRef<[u8]>>(
+        &mut self,
+        key: &str,
+        value: V,
+        ty: crate::ffi::pmix_data_type_t,
+    ) -> Result<(), crate::PmixStatus> {
+        let key = Self::key(key)?;
+        let value = value.as_ref();
+        let status = crate::pmix_ffi_or_mock!(
+            mock = unsafe {
+                crate::mock_ffi::mock_info_list_add(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_ptr().cast(),
+                    ty,
+                )
+            },
+            real = unsafe {
+                crate::ffi::PMIx_Info_list_add(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_ptr().cast(),
+                    ty,
+                )
+            },
+        );
+        Self::status(status)
+    }
+
+    /// Add a value, optionally overwriting an existing key.
+    pub fn add_unique<V: AsRef<[u8]>>(
+        &mut self,
+        key: &str,
+        value: V,
+        ty: crate::ffi::pmix_data_type_t,
+        overwrite: bool,
+    ) -> Result<(), crate::PmixStatus> {
+        let key = Self::key(key)?;
+        let value = value.as_ref();
+        let status = crate::pmix_ffi_or_mock!(
+            mock = unsafe {
+                crate::mock_ffi::mock_info_list_add_unique(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_ptr().cast(),
+                    ty,
+                    overwrite,
+                )
+            },
+            real = unsafe {
+                crate::ffi::PMIx_Info_list_add_unique(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_ptr().cast(),
+                    ty,
+                    overwrite,
+                )
+            },
+        );
+        Self::status(status)
+    }
+
+    /// Add an owned PMIx value.
+    pub fn add_value(
+        &mut self,
+        key: &str,
+        value: &crate::PmixOwnedValue,
+    ) -> Result<(), crate::PmixStatus> {
+        let key = Self::key(key)?;
+        let status = crate::pmix_ffi_or_mock!(
+            mock = unsafe {
+                crate::mock_ffi::mock_info_list_add_value(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_raw(),
+                )
+            },
+            real = unsafe {
+                crate::ffi::PMIx_Info_list_add_value(self.as_ptr(), key.as_ptr(), value.as_raw())
+            },
+        );
+        Self::status(status)
+    }
+
+    /// Add an owned PMIx value, optionally overwriting an existing key.
+    pub fn add_value_unique(
+        &mut self,
+        key: &str,
+        value: &crate::PmixOwnedValue,
+        overwrite: bool,
+    ) -> Result<(), crate::PmixStatus> {
+        let key = Self::key(key)?;
+        let status = crate::pmix_ffi_or_mock!(
+            mock = unsafe {
+                crate::mock_ffi::mock_info_list_add_value_unique(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_raw(),
+                    overwrite,
+                )
+            },
+            real = unsafe {
+                crate::ffi::PMIx_Info_list_add_value_unique(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_raw(),
+                    overwrite,
+                )
+            },
+        );
+        Self::status(status)
+    }
+
+    /// Add a value at the front of the list.
+    pub fn prepend<V: AsRef<[u8]>>(
+        &mut self,
+        key: &str,
+        value: V,
+        ty: crate::ffi::pmix_data_type_t,
+    ) -> Result<(), crate::PmixStatus> {
+        let key = Self::key(key)?;
+        let value = value.as_ref();
+        let status = crate::pmix_ffi_or_mock!(
+            mock = unsafe {
+                crate::mock_ffi::mock_info_list_prepend(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_ptr().cast(),
+                    ty,
+                )
+            },
+            real = unsafe {
+                crate::ffi::PMIx_Info_list_prepend(
+                    self.as_ptr(),
+                    key.as_ptr(),
+                    value.as_ptr().cast(),
+                    ty,
+                )
+            },
+        );
+        Self::status(status)
+    }
+
+    /// Insert an individually constructed info entry.
+    pub fn insert(&mut self, info: &mut PmixInfo) -> Result<(), crate::PmixStatus> {
+        Self::status(crate::pmix_ffi_or_mock!(
+            mock =
+                unsafe { crate::mock_ffi::mock_info_list_insert(self.as_ptr(), info.as_mut_ptr()) },
+            real = unsafe { crate::ffi::PMIx_Info_list_insert(self.as_ptr(), info.as_mut_ptr()) },
+        ))
+    }
+
+    /// Transfer an info array into the list.
+    pub fn xfer(&mut self, info: &Info) -> Result<(), crate::PmixStatus> {
+        Self::status(crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_info_list_xfer(self.as_ptr(), info.as_ptr()) },
+            real = unsafe { crate::ffi::PMIx_Info_list_xfer(self.as_ptr(), info.as_ptr()) },
+        ))
+    }
+
+    /// Transfer an info array, optionally overwriting duplicate keys.
+    pub fn xfer_unique(&mut self, info: &Info, overwrite: bool) -> Result<(), crate::PmixStatus> {
+        Self::status(crate::pmix_ffi_or_mock!(
+            mock = unsafe {
+                crate::mock_ffi::mock_info_list_xfer_unique(self.as_ptr(), info.as_ptr(), overwrite)
+            },
+            real = unsafe {
+                crate::ffi::PMIx_Info_list_xfer_unique(self.as_ptr(), info.as_ptr(), overwrite)
+            },
+        ))
+    }
+
+    /// Convert the list to a PMIx data array. The returned raw array is owned
+    /// by the caller according to PMIx's `pmix_data_array_t` ownership rules.
+    pub fn convert(&mut self) -> Result<crate::ffi::pmix_data_array_t, crate::PmixStatus> {
+        let mut array = unsafe { std::mem::zeroed() };
+        Self::status(crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_info_list_convert(self.as_ptr(), &mut array) },
+            real = unsafe { crate::ffi::PMIx_Info_list_convert(self.as_ptr(), &mut array) },
+        ))
+        .map(|()| array)
+    }
+}
+
+impl Drop for PmixInfoList {
+    fn drop(&mut self) {
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_info_list_release(self.as_ptr()) },
+            real = unsafe { crate::ffi::PMIx_Info_list_release(self.as_ptr()) },
+        );
+    }
+}
+
+
+
+#[cfg(test)]
+mod info_list_tests {
+    use super::*;
+
+    #[test]
+    fn mock_info_list_lifecycle_and_success_paths() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let mut list = PmixInfoList::new().expect("mock list");
+        assert!(!list.as_ptr().is_null());
+        assert_eq!(list.len(), 0);
+        assert!(
+            list.add("key", [1_u8, 2], crate::ffi::PMIX_BYTE as _)
+                .is_ok()
+        );
+        assert!(
+            list.add_unique("key", [1_u8], crate::ffi::PMIX_BYTE as _, true)
+                .is_ok()
+        );
+        assert!(
+            list.prepend("key", [1_u8], crate::ffi::PMIX_BYTE as _)
+                .is_ok()
+        );
+        let value = crate::PmixValueBuilder::new().uint32(7).build().unwrap();
+        assert!(list.add_value("key", &value).is_ok());
+        assert!(list.add_value_unique("key", &value, true).is_ok());
+        assert!(list.xfer(&empty()).is_ok());
+        assert!(list.xfer_unique(&empty(), true).is_ok());
+        assert!(list.insert(&mut PmixInfo::new()).is_ok());
+        assert!(list.iter().is_empty());
+        assert!(list.convert().is_ok());
+    }
+}

@@ -3221,3 +3221,84 @@ mod tests {
         );
     }
 }
+
+/// Mock implementations for PMIx_Info_list_* functions.
+pub unsafe fn mock_info_list_start() -> *mut std::ffi::c_void {
+    1usize as *mut std::ffi::c_void
+}
+pub unsafe fn mock_info_list_release(_ptr: *mut std::ffi::c_void) {}
+pub unsafe fn mock_info_list_get_size(_ptr: *mut std::ffi::c_void) -> usize {
+    0
+}
+pub unsafe fn mock_info_list_get_info(
+    _ptr: *mut std::ffi::c_void,
+    _prev: *mut std::ffi::c_void,
+    _next: *mut *mut std::ffi::c_void,
+) -> *mut crate::ffi::pmix_info_t {
+    std::ptr::null_mut()
+}
+pub unsafe fn mock_info_list_add(
+    _ptr: *mut std::ffi::c_void,
+    _key: *const std::ffi::c_char,
+    _value: *const std::ffi::c_void,
+    _type: crate::ffi::pmix_data_type_t,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_add")
+}
+pub unsafe fn mock_info_list_add_unique(
+    _ptr: *mut std::ffi::c_void,
+    _key: *const std::ffi::c_char,
+    _value: *const std::ffi::c_void,
+    _type: crate::ffi::pmix_data_type_t,
+    _overwrite: bool,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_add_unique")
+}
+pub unsafe fn mock_info_list_add_value(
+    _ptr: *mut std::ffi::c_void,
+    _key: *const std::ffi::c_char,
+    _value: *const crate::ffi::pmix_value_t,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_add_value")
+}
+pub unsafe fn mock_info_list_add_value_unique(
+    _ptr: *mut std::ffi::c_void,
+    _key: *const std::ffi::c_char,
+    _value: *const crate::ffi::pmix_value_t,
+    _overwrite: bool,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_add_value_unique")
+}
+pub unsafe fn mock_info_list_prepend(
+    _ptr: *mut std::ffi::c_void,
+    _key: *const std::ffi::c_char,
+    _value: *const std::ffi::c_void,
+    _type: crate::ffi::pmix_data_type_t,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_prepend")
+}
+pub unsafe fn mock_info_list_insert(
+    _ptr: *mut std::ffi::c_void,
+    _info: *mut crate::ffi::pmix_info_t,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_insert")
+}
+pub unsafe fn mock_info_list_xfer(
+    _ptr: *mut std::ffi::c_void,
+    _info: *const crate::ffi::pmix_info_t,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_xfer")
+}
+pub unsafe fn mock_info_list_xfer_unique(
+    _ptr: *mut std::ffi::c_void,
+    _info: *const crate::ffi::pmix_info_t,
+    _overwrite: bool,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_xfer_unique")
+}
+pub unsafe fn mock_info_list_convert(
+    _ptr: *mut std::ffi::c_void,
+    _par: *mut crate::ffi::pmix_data_array_t,
+) -> i32 {
+    get_mock_status("PMIx_Info_list_convert")
+}
