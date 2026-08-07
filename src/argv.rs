@@ -24,6 +24,8 @@ fn invalid_argument(_: NulError) -> PmixError {
 }
 
 fn to_c_argv(argv: &[String]) -> Result<CArgv, PmixError> {
+    // SAFETY: calloc returns aligned storage for the pointers plus a zeroed
+    // NULL terminator; ownership is released by free_c_argv on every path.
     let array = unsafe {
         libc::calloc(
             argv.len().saturating_add(1),
@@ -38,15 +40,19 @@ fn to_c_argv(argv: &[String]) -> Result<CArgv, PmixError> {
         let cvalue = match CString::new(value.as_str()) {
             Ok(value) => value,
             Err(error) => {
-                unsafe { ffi::PMIx_Argv_free(array) };
+                free_c_argv(array);
                 return Err(invalid_argument(error));
             }
         };
+        // SAFETY: cvalue is a live NUL-terminated CString and strdup creates
+        // an independently allocated entry owned by the argv array.
         let duplicate = unsafe { libc::strdup(cvalue.as_ptr()) };
         if duplicate.is_null() {
-            unsafe { ffi::PMIx_Argv_free(array) };
+            free_c_argv(array);
             return Err(PmixError::ErrNomem);
         }
+        // SAFETY: index is within the calloc'd array and each slot is written
+        // once while constructing the NULL-terminated argv.
         unsafe { *array.add(index) = duplicate };
     }
     Ok(CArgv { ptr: array })
@@ -68,10 +74,13 @@ fn read_c_argv(argv: *mut *mut c_char) -> Result<Vec<String>, PmixError> {
     let mut result = Vec::new();
     let mut index = 0;
     loop {
+        // SAFETY: argv is a valid NULL-terminated array and index advances only
+        // over entries read before the terminator.
         let entry = unsafe { *argv.add(index) };
         if entry.is_null() {
             break;
         }
+        // SAFETY: entry is a non-NULL pointer to a valid NUL-terminated string.
         let value = unsafe { CStr::from_ptr(entry) }
             .to_str()
             .map_err(|_| PmixError::Error)?
@@ -122,16 +131,25 @@ enum SplitKind {
 }
 
 /// Split a string using PMIx's argv parser.
+///
+/// Only single-byte (ASCII/Latin-1) delimiters are supported. Splitting an
+/// empty string returns `Err(PmixError::Error)`, matching PMIx's NULL result.
 pub fn split(src: &str, delimiter: char) -> Result<Vec<String>, PmixError> {
     split_impl(src, delimiter, SplitKind::Normal)
 }
 
 /// Split a string while retaining empty fields.
+///
+/// Only single-byte (ASCII/Latin-1) delimiters are supported. An empty source
+/// returns `Err(PmixError::Error)`, matching PMIx's NULL result.
 pub fn split_with_empty(src: &str, delimiter: char) -> Result<Vec<String>, PmixError> {
     split_impl(src, delimiter, SplitKind::WithEmpty)
 }
 
 /// Split a string, optionally retaining empty fields.
+///
+/// Only single-byte (ASCII/Latin-1) delimiters are supported. An empty source
+/// returns `Err(PmixError::Error)`, matching PMIx's NULL result.
 pub fn split_inter(
     src: &str,
     delimiter: char,
@@ -187,7 +205,7 @@ where
     F: FnOnce(*mut *mut *mut c_char, *const c_char) -> i32,
 {
     let mut cargv = to_c_argv(argv).map_err(PmixStatus::from)?;
-    let carg = CString::new(arg).map_err(|_| PmixStatus::from_raw(-27))?;
+    let carg = CString::new(arg).map_err(|_| PmixStatus::from(PmixError::ErrBadParam))?;
     let mut raw = cargv.ptr;
     let status = call(&mut raw, carg.as_ptr());
     cargv.ptr = raw;
@@ -246,7 +264,7 @@ mod tests {
         assert_eq!(split_inter("one,two", ',', true).unwrap(), vec!["a"]);
         assert_eq!(copy(&values).unwrap(), values);
         assert_eq!(join(&values, ',').unwrap(), "joined");
-        assert_eq!(count(&values), 0);
+        assert_eq!(count(&values), 2);
     }
 
     #[test]
@@ -256,7 +274,7 @@ mod tests {
         append(&mut values, "two").unwrap();
         append_unique(&mut values, "two").unwrap();
         prepend(&mut values, "zero").unwrap();
-        assert_eq!(values, vec!["one"]);
+        assert_eq!(values, vec!["zero", "one", "two"]);
         free(&values);
     }
 }
