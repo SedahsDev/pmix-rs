@@ -1916,6 +1916,57 @@ pub unsafe fn mock_value_string(_value: *const crate::ffi::pmix_value_t) -> *mut
 pub unsafe fn mock_value_true(_value: *const crate::ffi::pmix_value_t) -> crate::ffi::pmix_boolean_t { crate::ffi::pmix_boolean_t::PMIX_BOOL_TRUE }
 
 #[cfg(test)]
+/// Mock implementations for PMIx_Info helper functions.
+pub unsafe fn mock_info_construct(p: *mut crate::ffi::pmix_info_t) {
+    if !p.is_null() {
+        // SAFETY: caller supplies a valid writable pmix_info_t.
+        unsafe { std::ptr::write_bytes(p, 0, 1) };
+    }
+}
+pub unsafe fn mock_info_destruct(_p: *mut crate::ffi::pmix_info_t) {}
+pub unsafe fn mock_info_xfer(
+    _d: *mut crate::ffi::pmix_info_t,
+    _s: *const crate::ffi::pmix_info_t,
+) -> i32 {
+    PMIX_SUCCESS
+}
+pub unsafe fn mock_info_get_size(_p: *const crate::ffi::pmix_info_t, size: *mut usize) -> i32 {
+    if !size.is_null() {
+        // SAFETY: caller supplies a valid writable size pointer.
+        unsafe { *size = 0 };
+    }
+    PMIX_SUCCESS
+}
+pub unsafe fn mock_info_is_required(_p: *const crate::ffi::pmix_info_t) -> bool {
+    false
+}
+pub unsafe fn mock_info_is_optional(_p: *const crate::ffi::pmix_info_t) -> bool {
+    false
+}
+pub unsafe fn mock_info_is_persistent(_p: *const crate::ffi::pmix_info_t) -> bool {
+    false
+}
+pub unsafe fn mock_info_is_qualifier(_p: *const crate::ffi::pmix_info_t) -> bool {
+    false
+}
+pub unsafe fn mock_info_is_end(_p: *const crate::ffi::pmix_info_t) -> bool {
+    false
+}
+pub unsafe fn mock_info_was_processed(_p: *const crate::ffi::pmix_info_t) -> bool {
+    false
+}
+pub unsafe fn mock_info_true(_p: *const crate::ffi::pmix_info_t) -> crate::ffi::pmix_boolean_t {
+    crate::ffi::pmix_boolean_t::PMIX_BOOL_FALSE
+}
+pub unsafe fn mock_info_required(_p: *mut crate::ffi::pmix_info_t) {}
+pub unsafe fn mock_info_optional(_p: *mut crate::ffi::pmix_info_t) {}
+pub unsafe fn mock_info_persistent(_p: *mut crate::ffi::pmix_info_t) {}
+pub unsafe fn mock_info_qualifier(_p: *mut crate::ffi::pmix_info_t) {}
+pub unsafe fn mock_info_processed(_p: *mut crate::ffi::pmix_info_t) {}
+pub unsafe fn mock_info_set_end(_p: *mut crate::ffi::pmix_info_t) {}
+pub unsafe fn mock_info_string(_p: *const crate::ffi::pmix_info_t) -> *mut std::os::raw::c_char {
+    std::ffi::CString::new("mock info").unwrap().into_raw()
+}
 mod tests {
     use super::*;
 
