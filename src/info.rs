@@ -541,10 +541,16 @@ mod info_list_tests {
         let mut info = PmixInfo::new();
         assert!(list.insert(&mut info).is_ok());
         assert!(list.iter().is_empty());
+        struct MockInfoListSizeGuard;
+        impl Drop for MockInfoListSizeGuard {
+            fn drop(&mut self) {
+                crate::mock_ffi::set_mock_info_list_size(0);
+            }
+        }
+        let _size_guard = MockInfoListSizeGuard;
         crate::mock_ffi::set_mock_info_list_size(1);
         assert_eq!(list.len(), 1);
         assert_eq!(list.iter().len(), 1);
-        crate::mock_ffi::set_mock_info_list_size(0);
     }
 
     #[test]
