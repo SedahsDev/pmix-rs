@@ -39,6 +39,7 @@
 //!
 use std::fmt::Debug;
 pub mod allocation;
+pub mod argv;
 pub mod cpu_locality;
 pub mod cbdata;
 pub mod data_ops;
