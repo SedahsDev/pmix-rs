@@ -1,7 +1,7 @@
 //! Server submodule: data
 
 use super::*;
-use crate::cbdata::{decode_req_id, encode_req_id};
+use crate::cbdata::{decode_req_id, encode_req_id, next_req_id};
 use crate::threading::invoke_user_callback;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -341,12 +341,6 @@ static SERVER_CONNECT_NB_REGISTRY: LazyLock<Mutex<HashMap<usize, FenceNbCallback
 static SERVER_DISCONNECT_NB_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 static SERVER_DISCONNECT_NB_REGISTRY: LazyLock<Mutex<HashMap<usize, FenceNbCallbackWrapper>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn next_req_id(seq: &Mutex<usize>) -> usize {
-    let mut g = seq.lock().unwrap_or_else(|e| e.into_inner());
-    *g = g.saturating_add(1).max(1);
-    *g
-}
 
 pub(crate) extern "C" fn fence_nb_callback_bridge(status: i32, cbdata: *mut c_void) {
     if cbdata.is_null() {

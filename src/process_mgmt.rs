@@ -51,7 +51,7 @@
 //! let result = disconnect(&[target], &[disconnect_info]);
 //! ```
 
-use crate::cbdata::{decode_req_id, encode_req_id};
+use crate::cbdata::{decode_req_id, encode_req_id, next_req_id};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
@@ -489,12 +489,6 @@ static DISCONNECT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 static DISCONNECT_REGISTRY: LazyLock<Mutex<HashMap<usize, DisconnectCallbackWrapper>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn next_req_id(seq: &Mutex<usize>) -> usize {
-    let mut g = seq.lock().unwrap_or_else(|e| e.into_inner());
-    *g = g.saturating_add(1).max(1);
-    *g
-}
-
 /// Non-blocking spawn callback wrapper.
 ///
 /// Wraps a Rust closure so it can be called from the C FFI callback.
@@ -834,7 +828,27 @@ extern "C" fn connect_callback_bridge(status: i32, cbdata: *mut c_void) {
     });
 }
 
-/// C bridge for `pmix_spawn_cbfunc_t` — registry lookup, then user invoke.
+/// Non-blocking connect with a Rust closure callback.
+///
+/// Records a set of processes as "connected" without blocking. The
+/// provided callback is invoked when the operation completes.
+///
+/// * The callback receives `PmixStatus`:
+///   - `PMIX_SUCCESS` — all participating processes have connected.
+///   - Error code — the connect operation failed.
+/// * The `callback` closure must be `Send + 'static` because it may
+///   be invoked from a different thread by the PMIx library.
+///
+/// # Returns
+/// * `Ok(())` — the connect request was accepted (async, result in callback).
+/// * `Err(PmixStatus)` — the connect request itself failed synchronously.
+///
+/// # C API
+/// ```c
+/// pmix_status_t PMIx_Connect_nb(const pmix_proc_t procs[], size_t nprocs,
+///                               const pmix_info_t info[], size_t ninfo,
+///                               pmix_op_cbfunc_t cbfunc, void *cbdata);
+/// ```
 pub fn connect_nb(
     procs: &[Proc],
     info: &[Info],
@@ -1025,6 +1039,24 @@ impl DisconnectCallbackWrapper {
 // PMIx_Disconnect_nb
 // ─────────────────────────────────────────────────────────────────────────────
 
+extern "C" fn disconnect_callback_bridge(status: i32, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+    let req_id = decode_req_id(cbdata);
+    let cb = {
+        let mut registry = DISCONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&req_id)
+    };
+    let Some(cb_wrapper) = cb else {
+        return;
+    };
+    let pmix_status = PmixStatus::from_raw(status);
+    let _ = invoke_user_callback("process_mgmt", move || {
+        (cb_wrapper.callback)(pmix_status);
+    });
+}
+
 /// Non-blocking disconnect with a Rust closure callback.
 ///
 /// Disconnects a previously connected set of processes without blocking.
@@ -1045,45 +1077,6 @@ impl DisconnectCallbackWrapper {
 /// pmix_status_t PMIx_Disconnect_nb(const pmix_proc_t procs[], size_t nprocs,
 ///                                  const pmix_info_t info[], size_t ninfo,
 ///                                  pmix_op_cbfunc_t cbfunc, void *cbdata);
-/// ```
-extern "C" fn disconnect_callback_bridge(status: i32, cbdata: *mut c_void) {
-    if cbdata.is_null() {
-        return;
-    }
-    let req_id = decode_req_id(cbdata);
-    let cb = {
-        let mut registry = DISCONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.remove(&req_id)
-    };
-    let Some(cb_wrapper) = cb else {
-        return;
-    };
-    let pmix_status = PmixStatus::from_raw(status);
-    let _ = invoke_user_callback("process_mgmt", move || {
-        (cb_wrapper.callback)(pmix_status);
-    });
-}
-
-/// Non-blocking connect with a Rust closure callback.
-///
-/// Records a set of processes as "connected" without blocking. The
-/// provided callback is invoked when the operation completes.
-///
-/// * The callback receives `PmixStatus`:
-///   - `PMIX_SUCCESS` — all participating processes have connected.
-///   - Error code — the connect operation failed.
-/// * The `callback` closure must be `Send + 'static` because it may
-///   be invoked from a different thread by the PMIx library.
-///
-/// # Returns
-/// * `Ok(())` — the connect request was accepted (async, result in callback).
-/// * `Err(PmixStatus)` — the connect request itself failed synchronously.
-///
-/// # C API
-/// ```c
-/// pmix_status_t PMIx_Connect_nb(const pmix_proc_t procs[], size_t nprocs,
-///                               const pmix_info_t info[], size_t ninfo,
-///                               pmix_op_cbfunc_t cbfunc, void *cbdata);
 /// ```
 pub fn disconnect_nb(
     procs: &[Proc],

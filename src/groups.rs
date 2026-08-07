@@ -6,7 +6,7 @@
 //! This module provides safe Rust wrappers around the PMIx group
 //! management APIs.
 
-use crate::cbdata::{decode_req_id, encode_req_id};
+use crate::cbdata::{decode_req_id, encode_req_id, next_req_id};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
@@ -48,12 +48,6 @@ static GROUP_LEAVE_REGISTRY: LazyLock<Mutex<HashMap<usize, GroupLeaveCallbackWra
 static GROUP_DESTRUCT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 static GROUP_DESTRUCT_REGISTRY: LazyLock<Mutex<HashMap<usize, GroupDestructCallbackWrapper>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn next_req_id(seq: &Mutex<usize>) -> usize {
-    let mut g = seq.lock().unwrap_or_else(|e| e.into_inner());
-    *g = g.saturating_add(1).max(1);
-    *g
-}
 
 fn info_results_from_c(status: PmixStatus, info: *mut ffi::pmix_info_t, ninfo: usize) -> Vec<Info> {
     if !status.is_success() || info.is_null() || ninfo == 0 {

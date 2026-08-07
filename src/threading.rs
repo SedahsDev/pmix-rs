@@ -176,7 +176,6 @@ where
         })
 }
 
-
 /// Invoke a user callback from an `extern "C"` bridge **without** letting a
 /// panic unwind into OpenPMIx / C.
 ///
@@ -200,7 +199,8 @@ where
         Ok(()) => true,
         Err(_) => {
             eprintln!(
-                "pmix::{bridge}: user callback panicked on the progress thread;                  containing the panic (must not unwind across FFI)"
+                "pmix::{bridge}: user callback panicked on the progress thread; \
+                 containing the panic (must not unwind across FFI)"
             );
             false
         }
@@ -350,7 +350,6 @@ mod tests {
             "unexpected panic payload: {msg}"
         );
     }
-
 
     #[test]
     fn invoke_user_callback_contains_panic() {

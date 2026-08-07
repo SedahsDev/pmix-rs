@@ -232,7 +232,7 @@ panics are **contained** at the `extern "C"` boundary via
 
 **Regression tests:**
 
-- `events::test_notification_bridge_no_lock_across_user_code`
+- `events::test_event_handler_lock_not_held_during_user_callback`
 - `events::test_notification_bridge_user_panic_completes_chain_and_is_contained`
 - `groups::test_group_leave_bridge_no_lock_across_user_code`
 - `groups::test_group_leave_bridge_contains_user_panic`
