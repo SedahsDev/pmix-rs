@@ -3464,7 +3464,14 @@ pub unsafe fn mock_check_rank(_a: crate::ffi::pmix_rank_t, _b: crate::ffi::pmix_
 pub unsafe fn mock_check_nspace(_a: *const std::ffi::c_char, _b: *const std::ffi::c_char) -> bool { false }
 pub unsafe fn mock_check_key(_key: *const std::ffi::c_char, _s: *const std::ffi::c_char) -> bool { false }
 pub unsafe fn mock_check_reserved_key(_key: *const std::ffi::c_char) -> bool { false }
-pub unsafe fn mock_load_key(_key: *mut std::ffi::c_char, _src: *const std::ffi::c_char) {}
+pub unsafe fn mock_load_key(key: *mut std::ffi::c_char, src: *const std::ffi::c_char) {
+    if key.is_null() || src.is_null() { return; }
+    // SAFETY: callers provide valid C strings and a destination sized for PMIx's key limit.
+    let bytes = unsafe { std::ffi::CStr::from_ptr(src).to_bytes() };
+    let n = bytes.len().min(crate::ffi::PMIX_MAX_KEYLEN as usize - 1);
+    // SAFETY: the wrapper bounds the destination to the copied source length.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), key, n); *key.add(n) = 0; }
+}
 pub unsafe fn mock_load_procid(_p: *mut crate::ffi::pmix_proc_t, _ns: *const std::ffi::c_char, _rank: crate::ffi::pmix_rank_t) {}
 pub unsafe fn mock_rank_valid(_a: crate::ffi::pmix_rank_t) -> bool { false }
 pub unsafe fn mock_procid_invalid(_p: *const crate::ffi::pmix_proc_t) -> bool { false }
