@@ -880,22 +880,32 @@ impl PmixEndpoint {
     }
 
     /// Return the endpoint UUID, if present and valid UTF-8.
-    pub fn uuid(&self) -> Option<&str> { self.c_string(|raw| raw.uuid) }
+    pub fn uuid(&self) -> Option<&str> {
+        self.c_string(|raw| raw.uuid)
+    }
     /// Return the operating-system endpoint name, if present and valid UTF-8.
-    pub fn osname(&self) -> Option<&str> { self.c_string(|raw| raw.osname) }
+    pub fn osname(&self) -> Option<&str> {
+        self.c_string(|raw| raw.osname)
+    }
     /// Return the endpoint byte object, when PMIx supplied one.
     pub fn endpt(&self) -> Option<&[u8]> {
         // SAFETY: raw is initialized; the slice borrows self and cannot outlive the PMIx-owned buffer.
         unsafe {
             let raw = self.raw.assume_init_ref();
-            (!raw.endpt.bytes.is_null()).then(|| std::slice::from_raw_parts(raw.endpt.bytes as *const u8, raw.endpt.size))
+            (!raw.endpt.bytes.is_null())
+                .then(|| std::slice::from_raw_parts(raw.endpt.bytes as *const u8, raw.endpt.size))
         }
     }
-    fn c_string(&self, get: impl FnOnce(&ffi::pmix_endpoint_t) -> *mut libc::c_char) -> Option<&str> {
+    fn c_string(
+        &self,
+        get: impl FnOnce(&ffi::pmix_endpoint_t) -> *mut libc::c_char,
+    ) -> Option<&str> {
         // SAFETY: raw is initialized; the returned string borrows self and cannot outlive the PMIx-owned string.
         unsafe {
             let ptr = get(self.raw.assume_init_ref());
-            (!ptr.is_null()).then(|| std::ffi::CStr::from_ptr(ptr).to_str().ok()).flatten()
+            (!ptr.is_null())
+                .then(|| std::ffi::CStr::from_ptr(ptr).to_str().ok())
+                .flatten()
         }
     }
 }
