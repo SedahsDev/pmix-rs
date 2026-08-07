@@ -83,9 +83,9 @@ Worked example: `examples/server_upcall_hop.rs` (issue #52).
 
 ### 5.1 Sessions, identities, POD, and Rust-owned values — `Send + Sync`
 
-The following types contain process-safe session state, copied process identity,
-scalar/POD data, or data copied into Rust-owned allocations. They are enforced
-in `src/threading_assert.rs`:
+The following concrete public values and handles contain process-safe session
+state, copied process identity, scalar/POD data, or data copied into Rust-owned
+allocations. They are enforced in `src/threading_assert.rs`:
 
 - Sessions and lifecycle state: `PmixClient`, `PmixClientState`, `PmixServer`,
   `PmixServerState`, `server::PmixServerHandle` (an alias for `PmixServer`),
@@ -111,7 +111,8 @@ in `src/threading_assert.rs`:
 
 These values either own PMIx allocations, release C memory in `Drop`, retain an
 opaque C pointer, or contain a raw `pmix_value_t` union whose active arm controls
-ownership. The complete matrix is centralized in `src/threading_assert.rs`.
+ownership. The complete concrete value/handle matrix is centralized in
+`src/threading_assert.rs`.
 
 | Type | Module | Why |
 |------|--------|-----|
@@ -145,6 +146,12 @@ objects require `Send`, but they are not concurrently shareable (`!Sync`) unless
 the API explicitly adds a `Sync` bound. Function-pointer aliases are
 `Send + Sync`. `threading::CallbackChannel<T>` is movable when `T: Send`, but
 its `Receiver` makes the channel itself `!Sync`.
+
+Callback trait definitions are contracts rather than concrete values in this
+matrix: each public callback trait declares its required `Send` bound at its
+definition site. The concrete wrapper carriers are asserted above. A callback
+trait object can be moved only when its object type is `Send`, and it is not
+concurrently shareable unless `Sync` is also part of the bound.
 
 Callback results must be converted to Rust-owned data before hopping off the
 PMIx progress thread; do not send a C-owned result wrapper through a callback

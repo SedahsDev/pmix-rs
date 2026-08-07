@@ -1,10 +1,15 @@
-//! Compile-time `Send`/`Sync` matrix for the public PMIx API.
+//! Compile-time `Send`/`Sync` matrix for concrete public PMIx handles and values.
 //!
 //! This is intentionally centralized: when a public wrapper is added or its
 //! ownership model changes, add its intended auto-traits here.  The negative
 //! assertions are as important as the positive ones.  In particular, they
 //! prevent a raw-pointer-bearing wrapper from silently becoming movable or
 //! shareable after a representation change.
+//!
+//! The matrix covers concrete public values, handles, and callback carrier
+//! structs. Public callback traits declare their required `Send` bounds at
+//! their definitions; trait objects inherit those bounds and are governed by
+//! their explicit object-type bounds.
 //!
 //! See [THREADING.md](../THREADING.md), issue #50, and issue #66.
 
