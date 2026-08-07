@@ -1,6 +1,7 @@
 //! Server submodule: pset
 
 use super::*;
+use crate::threading::invoke_user_callback;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 
@@ -285,7 +286,9 @@ pub(crate) extern "C" fn register_resources_callback_bridge(status: ffi::pmix_st
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server::pset", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Register non-namespace related resource information with the PMIx server.
@@ -486,7 +489,9 @@ pub(crate) extern "C" fn deregister_resources_callback_bridge(
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server::pset", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deregister non-namespace related resource information from the PMIx server.
