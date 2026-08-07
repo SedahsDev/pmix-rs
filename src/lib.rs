@@ -5496,3 +5496,113 @@ mod tests {
         assert!(!PmixClient::new().is_live());
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PMIx_Value_* safe utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A constructed PMIx value whose C-owned state is released on drop.
+pub struct PmixValue {
+    raw: std::mem::MaybeUninit<pmix_value_t>,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixValue {
+    pub fn new() -> Self {
+        let mut value = Self { raw: std::mem::MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData };
+        let ptr = value.raw.as_mut_ptr();
+        pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_construct(ptr) }, real = unsafe { ffi::PMIx_Value_construct(ptr) });
+        value.constructed = true;
+        value
+    }
+
+    pub fn test_new() -> Self {
+        Self { raw: std::mem::MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData }
+    }
+
+    pub fn as_raw(&self) -> *const pmix_value_t { self.raw.as_ptr() }
+    pub fn as_mut_ptr(&mut self) -> *mut pmix_value_t { self.raw.as_mut_ptr() }
+
+    /// Loads a serialized payload into this value. `data.len()` is the payload
+    /// length in bytes passed to the C API.
+    pub fn value_load(&mut self, data: &[u8], ty: pmix_data_type_t) -> Result<(), PmixStatus> {
+        let status = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_load(self.as_mut_ptr(), data.as_ptr().cast(), ty) }, real = unsafe { ffi::PMIx_Value_load(self.as_mut_ptr(), data.as_ptr().cast(), ty) });
+        (status == PMIX_SUCCESS as i32).then_some(()).ok_or_else(|| PmixStatus::from_raw(status))
+    }
+
+    /// Unloads the value into an owned copy. The returned `Vec` owns its bytes;
+    /// the buffer allocated by the C API is freed before this method returns.
+    pub fn value_unload(&mut self) -> Result<(Vec<u8>, usize), PmixStatus> {
+        let mut data = std::ptr::null_mut(); let mut size = 0;
+        let status = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_unload(self.as_mut_ptr(), &mut data, &mut size) }, real = unsafe { ffi::PMIx_Value_unload(self.as_mut_ptr(), &mut data, &mut size) });
+        if status != PMIX_SUCCESS as i32 { return Err(PmixStatus::from_raw(status)); }
+        if data.is_null() && size != 0 { return Err(PmixStatus::from_raw(-2)); }
+        let bytes = if size == 0 { Vec::new() } else { unsafe { std::slice::from_raw_parts(data.cast::<u8>(), size).to_vec() } };
+        if !data.is_null() { unsafe { libc::free(data) }; }
+        Ok((bytes, size))
+    }
+
+    pub fn value_xfer(dest: &mut Self, src: &Self) -> Result<(), PmixStatus> {
+        let status = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_xfer(dest.as_mut_ptr(), src.as_raw()) }, real = unsafe { ffi::PMIx_Value_xfer(dest.as_mut_ptr(), src.as_raw()) });
+        (status == PMIX_SUCCESS as i32).then_some(()).ok_or_else(|| PmixStatus::from_raw(status))
+    }
+    /// Writes the requested numeric representation into `dest`. The buffer
+    /// must be large enough for the requested PMIx type.
+    pub fn value_get_number(&self, dest: &mut [u8], ty: pmix_data_type_t) -> Result<(), PmixStatus> {
+        let status = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_get_number(self.as_raw(), dest.as_mut_ptr().cast(), ty) }, real = unsafe { ffi::PMIx_Value_get_number(self.as_raw(), dest.as_mut_ptr().cast(), ty) });
+        (status == PMIX_SUCCESS as i32).then_some(()).ok_or_else(|| PmixStatus::from_raw(status))
+    }
+    pub fn value_get_size(&self) -> Result<usize, PmixStatus> {
+        let mut size = 0; let status = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_get_size(self.as_raw(), &mut size) }, real = unsafe { ffi::PMIx_Value_get_size(self.as_raw(), &mut size) });
+        if status == PMIX_SUCCESS as i32 { Ok(size) } else { Err(PmixStatus::from_raw(status)) }
+    }
+    /// Compares two values. PMIx declares this C API as taking mutable
+    /// pointers, although it does not mutate either value; the const-casts
+    /// therefore only adapt the inaccurate C signature.
+    pub fn value_compare(a: &Self, b: &Self) -> pmix_value_cmp_t { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_compare(a.as_raw() as *mut _, b.as_raw() as *mut _) }, real = unsafe { ffi::PMIx_Value_compare(a.as_raw() as *mut _, b.as_raw() as *mut _) }) }
+    pub fn value_string(&self) -> Result<String, PmixStatus> {
+        let ptr = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_string(self.as_raw()) }, real = unsafe { ffi::PMIx_Value_string(self.as_raw()) });
+        if ptr.is_null() { return Err(PmixStatus::from_raw(-2)); }
+        let result = unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() }; unsafe { libc::free(ptr.cast()) }; Ok(result)
+    }
+    pub fn value_true(&self) -> bool { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_true(self.as_raw()) }, real = unsafe { ffi::PMIx_Value_true(self.as_raw()) }) == pmix_boolean_t::PMIX_BOOL_TRUE }
+}
+
+impl Default for PmixValue { fn default() -> Self { Self::new() } }
+impl Drop for PmixValue {
+    fn drop(&mut self) { if self.constructed { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_destruct(self.raw.as_mut_ptr()) }, real = unsafe { ffi::PMIx_Value_destruct(self.raw.as_mut_ptr()) }); self.constructed = false; } }
+}
+
+pub fn value_comparison_string(cmp: pmix_value_cmp_t) -> &'static str {
+    let ptr = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_comparison_string(cmp) }, real = unsafe { ffi::PMIx_Value_comparison_string(cmp) });
+    if ptr.is_null() { "" } else { unsafe { CStr::from_ptr(ptr).to_str().unwrap_or("") } }
+}
+
+/// Owns an array allocated by PMIx with [`PMIx_Value_create`]. The allocation
+/// is released by [`PMIx_Value_free`] when this wrapper is dropped.
+pub struct PmixValueArray { ptr: *mut pmix_value_t, len: usize, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+impl PmixValueArray {
+    pub fn new(len: usize) -> Option<Self> { if len == 0 { return Some(Self { ptr: std::ptr::null_mut(), len, _not_thread_safe: std::marker::PhantomData }); } let ptr = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_create(len) }, real = unsafe { ffi::PMIx_Value_create(len) }); (!ptr.is_null()).then_some(Self { ptr, len, _not_thread_safe: std::marker::PhantomData }) }
+    pub fn as_mut_ptr(&mut self) -> *mut pmix_value_t { self.ptr }
+    pub fn len(&self) -> usize { self.len }
+    pub fn is_empty(&self) -> bool { self.len == 0 }
+}
+impl Drop for PmixValueArray { fn drop(&mut self) { if !self.ptr.is_null() { pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_free(self.ptr, self.len) }, real = unsafe { ffi::PMIx_Value_free(self.ptr, self.len) }); self.ptr = std::ptr::null_mut(); } } }
+
+#[cfg(test)]
+mod value_utils_tests {
+    use super::*;
+    #[test]
+    fn mock_value_utilities() { let _guard = mock_ffi::MockGuard::new(); let value = PmixValue::new(); assert_eq!(value.value_string().unwrap(), "mock"); assert!(value.value_true()); assert_eq!(value.value_get_size().unwrap(), 4); assert_eq!(value_comparison_string(pmix_value_cmp_t::PMIX_EQUAL), "equal"); }
+    #[test]
+    fn mock_value_array_and_unload() { let _guard = mock_ffi::MockGuard::new(); let mut array = PmixValueArray::new(2).unwrap(); assert_eq!(array.len(), 2); assert!(!array.as_mut_ptr().is_null()); let mut value = PmixValue::new(); assert_eq!(value.value_unload().unwrap().0, b"mock"); }
+    #[test]
+    fn mock_value_test_new_has_zeroed_accessors() { let _guard = mock_ffi::MockGuard::new(); let value = PmixValue::test_new(); assert_eq!(value.value_get_size().unwrap(), 4); assert_eq!(value.value_string().unwrap(), "mock"); assert!(value.value_true()); }
+    #[test]
+    fn mock_value_xfer_succeeds() { let _guard = mock_ffi::MockGuard::new(); let mut dest = PmixValue::new(); let src = PmixValue::new(); assert!(PmixValue::value_xfer(&mut dest, &src).is_ok()); }
+    #[test]
+    fn mock_value_compare_returns_equal() { let _guard = mock_ffi::MockGuard::new(); let a = PmixValue::new(); let b = PmixValue::new(); assert_eq!(PmixValue::value_compare(&a, &b), pmix_value_cmp_t::PMIX_EQUAL); }
+    #[test]
+    fn mock_value_unload_propagates_error_status() { let _guard = mock_ffi::MockGuard::new(); mock_ffi::MockConfig::new().with_function_status("PMIx_Value_unload", mock_ffi::PMIX_ERR_BAD_PARAM).apply(); let mut value = PmixValue::new(); assert!(value.value_unload().is_err()); }
+}
