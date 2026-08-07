@@ -3352,6 +3352,7 @@ pub unsafe fn mock_argv_split_inter(
 }
 pub unsafe fn mock_argv_count(argv: *mut *mut std::ffi::c_char) -> std::ffi::c_int {
     if argv.is_null() { return 0; }
+    // SAFETY: argv is non-null and points to a valid NULL-terminated argv array.
     unsafe {
         let mut count = 0;
         while !(*argv.add(count as usize)).is_null() { count += 1; }
@@ -3375,7 +3376,7 @@ pub unsafe fn mock_argv_join(
     _argv: *mut *mut std::ffi::c_char,
     _delimiter: std::ffi::c_int,
 ) -> *mut std::ffi::c_char {
-    unsafe { libc::strdup(b"joined\0".as_ptr().cast()) }
+    unsafe { libc::strdup(c"joined".as_ptr()) }
 }
 pub unsafe fn mock_argv_copy(argv: *mut *mut std::ffi::c_char) -> *mut *mut std::ffi::c_char {
     let count = unsafe { mock_argv_count(argv) } as usize;
@@ -3393,6 +3394,7 @@ pub unsafe fn mock_argv_append_nosize(
     argv: *mut *mut *mut std::ffi::c_char,
     arg: *const std::ffi::c_char,
 ) -> crate::ffi::pmix_status_t {
+    // SAFETY: the caller provides PMIx-compatible argv and argument pointers.
     unsafe {
         if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
         let old = *argv; let count = mock_argv_count(old) as usize;
@@ -3408,6 +3410,7 @@ pub unsafe fn mock_argv_append_unique_nosize(
     argv: *mut *mut *mut std::ffi::c_char,
     arg: *const std::ffi::c_char,
 ) -> crate::ffi::pmix_status_t {
+    // SAFETY: the caller provides PMIx-compatible argv and argument pointers.
     unsafe {
         if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
         let old = *argv; let count = mock_argv_count(old) as usize;
@@ -3419,6 +3422,7 @@ pub unsafe fn mock_argv_prepend_nosize(
     argv: *mut *mut *mut std::ffi::c_char,
     arg: *const std::ffi::c_char,
 ) -> crate::ffi::pmix_status_t {
+    // SAFETY: the caller provides PMIx-compatible argv and argument pointers.
     unsafe {
         if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
         let old = *argv; let count = mock_argv_count(old) as usize;
@@ -3431,9 +3435,19 @@ pub unsafe fn mock_argv_prepend_nosize(
 }
 
 fn mock_argv_one() -> *mut *mut std::ffi::c_char {
-    let entry = unsafe { libc::strdup(b"a\0".as_ptr().cast()) };
-    let argv: Box<[*mut std::ffi::c_char; 2]> = Box::new([entry, std::ptr::null_mut()]);
-    Box::into_raw(argv).cast()
+    let entry = unsafe { libc::strdup(c"a".as_ptr()) };
+    // SAFETY: calloc allocates space for two pointer slots, which are initialized
+    // before returning; the allocation is released by libc::free in mock_argv_free.
+    let argv = unsafe {
+        libc::calloc(2, std::mem::size_of::<*mut std::ffi::c_char>())
+            as *mut *mut std::ffi::c_char
+    };
+    if argv.is_null() {
+        unsafe { libc::free(entry.cast()) };
+        return std::ptr::null_mut();
+    }
+    unsafe { *argv = entry };
+    argv
 }
 
 // END PMIx_Argv_* mocks
