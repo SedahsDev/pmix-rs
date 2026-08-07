@@ -17,7 +17,10 @@
 //! - Data ops stay as free functions ([`put_value`], [`get_value`], [`commit`],
 //!   [`fence`], …). Pass [`Proc`] from the client; build [`Info`] per call.
 //! - [`Info`] and other C-owned handles are **`!Send` + `!Sync`**
-//!   (`PhantomData<*mut u8>`). Share only behind your own `Mutex` if you must.
+//!   (`PhantomData<*mut u8>`). Keep them on their owner thread, or convert
+//!   them to Rust-owned snapshots before sending data to another thread.
+//!   `Arc<Mutex<T>>` does not make a `!Send` wrapper transferable: `T` must
+//!   still be `Send` for the mutex to cross threads.
 //! - One logical connect/disconnect per process. **Drop does not finalize**
 //!   (clones must not each run `PMIx_Finalize`). Call [`disconnect`](PmixClient::disconnect)
 //!   or [`finalize`].
