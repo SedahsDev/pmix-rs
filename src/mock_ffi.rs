@@ -193,6 +193,7 @@ pub fn get_mock_status(func_name: &str) -> i32 {
 pub const PMIX_SUCCESS: i32 = 0;
 /// PMIX_ERR_INIT (-31) — not initialized
 pub const PMIX_ERR_INIT: i32 = -31;
+pub const PMIX_ERR_EMPTY: i32 = -60;
 /// PMIX_ERR_NOT_FOUND (-46)
 pub const PMIX_ERR_NOT_FOUND: i32 = -46;
 /// PMIX_ERR_TIMEOUT (-24)
@@ -3227,15 +3228,41 @@ pub unsafe fn mock_info_list_start() -> *mut std::ffi::c_void {
     1usize as *mut std::ffi::c_void
 }
 pub unsafe fn mock_info_list_release(_ptr: *mut std::ffi::c_void) {}
+
+thread_local! {
+    static MOCK_INFO_LIST_SIZE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static MOCK_INFO_LIST_ENTRY: std::cell::RefCell<crate::ffi::pmix_info_t> =
+        std::cell::RefCell::new(unsafe { std::mem::zeroed() });
+}
+
+/// Configure the number of entries exposed by the next info-list traversal.
+/// A size greater than zero exposes one initialized mock entry for traversal.
+pub fn set_mock_info_list_size(size: usize) {
+    MOCK_INFO_LIST_SIZE.with(|value| value.set(size));
+}
+
 pub unsafe fn mock_info_list_get_size(_ptr: *mut std::ffi::c_void) -> usize {
-    0
+    MOCK_INFO_LIST_SIZE.with(std::cell::Cell::get)
 }
 pub unsafe fn mock_info_list_get_info(
     _ptr: *mut std::ffi::c_void,
-    _prev: *mut std::ffi::c_void,
-    _next: *mut *mut std::ffi::c_void,
+    prev: *mut std::ffi::c_void,
+    next: *mut *mut std::ffi::c_void,
 ) -> *mut crate::ffi::pmix_info_t {
-    std::ptr::null_mut()
+    if !prev.is_null() {
+        return std::ptr::null_mut();
+    }
+    MOCK_INFO_LIST_SIZE.with(|size| {
+        if size.get() == 0 {
+            return std::ptr::null_mut();
+        }
+        MOCK_INFO_LIST_ENTRY.with(|entry| {
+            let ptr = entry.as_ptr() as *mut crate::ffi::pmix_info_t;
+            // SAFETY: `next` is supplied by the wrapper for PMIx traversal.
+            unsafe { *next = ptr.cast(); }
+            ptr
+        })
+    })
 }
 pub unsafe fn mock_info_list_add(
     _ptr: *mut std::ffi::c_void,
