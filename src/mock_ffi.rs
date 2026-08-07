@@ -3331,37 +3331,45 @@ pub unsafe fn mock_info_list_convert(
 }
 
 // PMIx_Argv_* mocks used by the safe argv wrappers.
-#[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn mock_argv_split(
     _src: *const std::ffi::c_char,
     _delimiter: std::ffi::c_int,
 ) -> *mut *mut std::ffi::c_char {
-    unsafe { mock_argv_one() }
+    mock_argv_one()
 }
 pub unsafe fn mock_argv_split_with_empty(
     _src: *const std::ffi::c_char,
     _delimiter: std::ffi::c_int,
 ) -> *mut *mut std::ffi::c_char {
-    unsafe { mock_argv_one() }
+    mock_argv_one()
 }
 pub unsafe fn mock_argv_split_inter(
     _src: *const std::ffi::c_char,
     _delimiter: std::ffi::c_int,
     _include_empty: bool,
 ) -> *mut *mut std::ffi::c_char {
-    unsafe { mock_argv_one() }
+    mock_argv_one()
 }
 pub unsafe fn mock_argv_count(argv: *mut *mut std::ffi::c_char) -> std::ffi::c_int {
-    let mut count = 0;
     if argv.is_null() { return 0; }
-    while !(*argv.add(count as usize)).is_null() { count += 1; }
-    count
+    unsafe {
+        let mut count = 0;
+        while !(*argv.add(count as usize)).is_null() { count += 1; }
+        count
+    }
 }
 pub unsafe fn mock_argv_free(argv: *mut *mut std::ffi::c_char) {
     if argv.is_null() { return; }
-    let mut index = 0;
-    while !(*argv.add(index)).is_null() { libc::free((*argv.add(index)).cast()); index += 1; }
-    libc::free(argv.cast());
+    unsafe {
+        let mut index = 0;
+        while !(*argv.add(index)).is_null() {
+            // SAFETY: each entry is a strdup allocation owned by argv.
+            libc::free((*argv.add(index)).cast());
+            index += 1;
+        }
+        // SAFETY: argv is the calloc/Box allocation owning the entry pointers.
+        libc::free(argv.cast());
+    }
 }
 pub unsafe fn mock_argv_join(
     _argv: *mut *mut std::ffi::c_char,
@@ -3370,44 +3378,56 @@ pub unsafe fn mock_argv_join(
     unsafe { libc::strdup(b"joined\0".as_ptr().cast()) }
 }
 pub unsafe fn mock_argv_copy(argv: *mut *mut std::ffi::c_char) -> *mut *mut std::ffi::c_char {
-    // SAFETY: PMIx_Argv_copy returns a new deep copy; the mock mirrors that contract.
-    let count = mock_argv_count(argv) as usize;
-    let out = libc::calloc(count + 1, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
-    if out.is_null() { return std::ptr::null_mut(); }
-    for i in 0..count { *out.add(i) = libc::strdup(*argv.add(i)); }
-    out
+    let count = unsafe { mock_argv_count(argv) } as usize;
+    unsafe {
+        let out = libc::calloc(count + 1, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
+        if out.is_null() { return std::ptr::null_mut(); }
+        for i in 0..count {
+            // SAFETY: argv is a valid NULL-terminated array and each entry is a valid C string.
+            *out.add(i) = libc::strdup(*argv.add(i));
+        }
+        out
+    }
 }
 pub unsafe fn mock_argv_append_nosize(
     argv: *mut *mut *mut std::ffi::c_char,
     arg: *const std::ffi::c_char,
 ) -> crate::ffi::pmix_status_t {
-    if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
-    let old = *argv; let count = mock_argv_count(old) as usize;
-    let out = libc::calloc(count + 2, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
-    if out.is_null() { return -32; }
-    for i in 0..count { *out.add(i) = libc::strdup(*old.add(i)); }
-    *out.add(count) = libc::strdup(arg);
-    libc::free(old.cast()); *argv = out; 0
+    unsafe {
+        if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
+        let old = *argv; let count = mock_argv_count(old) as usize;
+        let out = libc::calloc(count + 2, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
+        if out.is_null() { return -32; }
+        for i in 0..count { *out.add(i) = libc::strdup(*old.add(i)); }
+        *out.add(count) = libc::strdup(arg);
+        for i in 0..count { libc::free((*old.add(i)).cast()); }
+        libc::free(old.cast()); *argv = out; 0
+    }
 }
 pub unsafe fn mock_argv_append_unique_nosize(
     argv: *mut *mut *mut std::ffi::c_char,
     arg: *const std::ffi::c_char,
 ) -> crate::ffi::pmix_status_t {
-    if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
-    let old = *argv; let count = mock_argv_count(old) as usize;
-    for i in 0..count { if libc::strcmp(*old.add(i), arg) == 0 { return 0; } }
-    mock_argv_append_nosize(argv, arg)
+    unsafe {
+        if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
+        let old = *argv; let count = mock_argv_count(old) as usize;
+        for i in 0..count { if libc::strcmp(*old.add(i), arg) == 0 { return 0; } }
+        mock_argv_append_nosize(argv, arg)
+    }
 }
 pub unsafe fn mock_argv_prepend_nosize(
     argv: *mut *mut *mut std::ffi::c_char,
     arg: *const std::ffi::c_char,
 ) -> crate::ffi::pmix_status_t {
-    if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
-    let old = *argv; let count = mock_argv_count(old) as usize;
-    let out = libc::calloc(count + 2, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
-    if out.is_null() { return -32; }
-    *out = libc::strdup(arg); for i in 0..count { *out.add(i + 1) = libc::strdup(*old.add(i)); }
-    libc::free(old.cast()); *argv = out; 0
+    unsafe {
+        if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
+        let old = *argv; let count = mock_argv_count(old) as usize;
+        let out = libc::calloc(count + 2, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
+        if out.is_null() { return -32; }
+        *out = libc::strdup(arg); for i in 0..count { *out.add(i + 1) = libc::strdup(*old.add(i)); }
+        for i in 0..count { libc::free((*old.add(i)).cast()); }
+        libc::free(old.cast()); *argv = out; 0
+    }
 }
 
 fn mock_argv_one() -> *mut *mut std::ffi::c_char {

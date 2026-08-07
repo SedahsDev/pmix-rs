@@ -61,7 +61,9 @@ fn to_c_argv(argv: &[String]) -> Result<CArgv, PmixError> {
 fn free_c_argv(argv: *mut *mut c_char) {
     if !argv.is_null() {
         crate::pmix_ffi_or_mock!(
+            // SAFETY: argv is non-null and points to a PMIx-compatible NULL-terminated array.
             mock = unsafe { mock_ffi::mock_argv_free(argv) },
+            // SAFETY: argv is non-null and points to a PMIx-compatible NULL-terminated array.
             real = unsafe { ffi::PMIx_Argv_free(argv) },
         );
     }
@@ -94,6 +96,7 @@ fn read_c_argv(argv: *mut *mut c_char) -> Result<Vec<String>, PmixError> {
 fn split_impl(src: &str, delimiter: char, kind: SplitKind) -> Result<Vec<String>, PmixError> {
     let source = CString::new(src).map_err(invalid_argument)?;
     let raw = crate::pmix_ffi_or_mock!(
+        // SAFETY: source is a live NUL-terminated CString and the delimiter is a valid C int.
         mock = unsafe {
             match kind {
                 SplitKind::Normal => mock_ffi::mock_argv_split(source.as_ptr(), delimiter as c_int),
@@ -107,6 +110,7 @@ fn split_impl(src: &str, delimiter: char, kind: SplitKind) -> Result<Vec<String>
                 ),
             }
         },
+        // SAFETY: source is a live NUL-terminated CString and the delimiter is a valid C int.
         real = unsafe {
             match kind {
                 SplitKind::Normal => ffi::PMIx_Argv_split(source.as_ptr(), delimiter as c_int),
@@ -162,16 +166,20 @@ pub fn split_inter(
 pub fn join(argv: &[String], delimiter: char) -> Result<String, PmixError> {
     let cargv = to_c_argv(argv)?;
     let joined = crate::pmix_ffi_or_mock!(
+        // SAFETY: cargv.ptr is a valid NULL-terminated array owned by cargv.
         mock = unsafe { mock_ffi::mock_argv_join(cargv.ptr, delimiter as c_int) },
+        // SAFETY: cargv.ptr is a valid NULL-terminated array owned by cargv.
         real = unsafe { ffi::PMIx_Argv_join(cargv.ptr, delimiter as c_int) },
     );
     if joined.is_null() {
         return Err(PmixError::Error);
     }
+    // SAFETY: joined was checked non-null and is the NUL-terminated allocation returned by PMIx.
     let result = unsafe { CStr::from_ptr(joined) }
         .to_str()
         .map(str::to_owned)
         .map_err(|_| PmixError::Error);
+    // SAFETY: joined is the allocation returned by PMIx_Argv_join and is freed exactly once.
     unsafe { libc::free(joined.cast()) };
     result
 }
@@ -180,7 +188,9 @@ pub fn join(argv: &[String], delimiter: char) -> Result<String, PmixError> {
 pub fn copy(argv: &[String]) -> Result<Vec<String>, PmixError> {
     let cargv = to_c_argv(argv)?;
     let copied = crate::pmix_ffi_or_mock!(
+        // SAFETY: cargv.ptr is a valid NULL-terminated array owned by cargv.
         mock = unsafe { mock_ffi::mock_argv_copy(cargv.ptr) },
+        // SAFETY: cargv.ptr is a valid NULL-terminated array owned by cargv.
         real = unsafe { ffi::PMIx_Argv_copy(cargv.ptr) },
     );
     let result = read_c_argv(copied);
@@ -194,7 +204,9 @@ pub fn count(argv: &[String]) -> usize {
         return 0;
     };
     let count = crate::pmix_ffi_or_mock!(
+        // SAFETY: cargv.ptr is a valid NULL-terminated array owned by cargv.
         mock = unsafe { mock_ffi::mock_argv_count(cargv.ptr) },
+        // SAFETY: cargv.ptr is a valid NULL-terminated array owned by cargv.
         real = unsafe { ffi::PMIx_Argv_count(cargv.ptr) },
     );
     usize::try_from(count).unwrap_or(0)
@@ -221,7 +233,9 @@ where
 pub fn append(argv: &mut Vec<String>, arg: &str) -> Result<(), PmixStatus> {
     update_with(argv, arg, |ptr, value| {
         crate::pmix_ffi_or_mock!(
+            // SAFETY: ptr references the live owned argv pointer and value is a live CString.
             mock = unsafe { mock_ffi::mock_argv_append_nosize(ptr, value) },
+            // SAFETY: ptr references the live owned argv pointer and value is a live CString.
             real = unsafe { ffi::PMIx_Argv_append_nosize(ptr, value) },
         )
     })
@@ -231,7 +245,9 @@ pub fn append(argv: &mut Vec<String>, arg: &str) -> Result<(), PmixStatus> {
 pub fn append_unique(argv: &mut Vec<String>, arg: &str) -> Result<(), PmixStatus> {
     update_with(argv, arg, |ptr, value| {
         crate::pmix_ffi_or_mock!(
+            // SAFETY: ptr references the live owned argv pointer and value is a live CString.
             mock = unsafe { mock_ffi::mock_argv_append_unique_nosize(ptr, value) },
+            // SAFETY: ptr references the live owned argv pointer and value is a live CString.
             real = unsafe { ffi::PMIx_Argv_append_unique_nosize(ptr, value) },
         )
     })
@@ -241,7 +257,9 @@ pub fn append_unique(argv: &mut Vec<String>, arg: &str) -> Result<(), PmixStatus
 pub fn prepend(argv: &mut Vec<String>, arg: &str) -> Result<(), PmixStatus> {
     update_with(argv, arg, |ptr, value| {
         crate::pmix_ffi_or_mock!(
+            // SAFETY: ptr references the live owned argv pointer and value is a live CString.
             mock = unsafe { mock_ffi::mock_argv_prepend_nosize(ptr, value) },
+            // SAFETY: ptr references the live owned argv pointer and value is a live CString.
             real = unsafe { ffi::PMIx_Argv_prepend_nosize(ptr, value) },
         )
     })
