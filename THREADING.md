@@ -81,28 +81,81 @@ Worked example: `examples/server_upcall_hop.rs` (issue #52).
 
 ## 5. Type inventory
 
-### 5.1 Sessions / POD — `Send + Sync` (enforced in `threading_assert.rs`)
+### 5.1 Sessions, identities, POD, and Rust-owned values — `Send + Sync`
 
-`PmixClient`, `PmixClientState`, `PmixServer`, `PmixServerState`, `PmixTool`, `PmixToolState`, `Proc`
+The following concrete public values and handles contain process-safe session
+state, copied process identity, scalar/POD data, or data copied into Rust-owned
+allocations. They are enforced in `src/threading_assert.rs`:
 
-### 5.2 C-owned — `!Send + !Sync` (enforced)
+- Sessions and lifecycle state: `PmixClient`, `PmixClientState`, `PmixServer`,
+  `PmixServerState`, `server::PmixServerHandle` (an alias for `PmixServer`),
+  `PmixTool`, and `PmixToolState`.
+- Identity tokens: `Proc`, `PmixToolHandle`, and `tool::PmixServerHandle`.
+  The two `PmixServerHandle` names are intentionally different: the server
+  module's name is a session alias, while the tool module's name is an attached
+  server identity (`nspace + rank`).
+- Scalar/POD values: status/error enums, PMIx enum mirrors, `IOFChannelFlags`,
+  `InfoFlags`, `PmixTimeval`, `PmixEnvar`, `PmixBindEnvelope`, and
+  `PmixLocality`.
+- Rust-owned wrappers/builders: `InitOptions`, `PmixCredential`,
+  `utility::PmixByteObject`, `data_serialization::PmixPrintOutput`,
+  `fabric::PmixDeviceDistance`, `process_mgmt::PmixApp`,
+  `process_mgmt::PmixAppBuilder`, `PmixProcRef`, and the zero-sized
+  `threading::ProgressContext` marker.
+- Function-pointer aliases are `Send + Sync`; `PmixServerModule` is deliberately
+  not included in this matrix because its `as_c_ptr()` method currently casts
+  the Rust struct directly to the generated C struct. That ABI representation
+  must be made explicit before its threading contract is frozen.
 
-| Type | Module |
-|------|--------|
-| `Info`, `InfoBuilder`, `PmixOwnedValue` | `lib` |
-| `PmixDataBuffer`, `PmixByteObject` | `data_serialization` |
-| `PmixFabric`, `PmixTopology`, `PmixCpuset`, `DeviceDistances` | `fabric` |
-| `QueryResults`, `PmixQuery` | `query_log` |
-| `AllocationResults`, `JobControlResults`, `SessionControlResults` | `allocation` |
-| `MonitorResults` | `monitoring` |
-| `ValidationResults` | `security` |
-| `CollectInventoryResults` | `server` |
+### 5.2 C-owned or raw-pointer-bearing values — `!Send + !Sync`
 
-**Share model:** build ephemeral handles **per call** on the calling thread. Optional app-side `Arc<Mutex<T>>` if you must share (no library `into_shared` helper — YAGNI).
+These values either own PMIx allocations, release C memory in `Drop`, retain an
+opaque C pointer, or contain a raw `pmix_value_t` union whose active arm controls
+ownership. The complete concrete value/handle matrix is centralized in
+`src/threading_assert.rs`.
 
-### 5.3 Pure Rust / remaining
+| Type | Module | Why |
+|------|--------|-----|
+| `Info`, `InfoBuilder`, `PmixOwnedValue` | `lib` | PMIx allocation / raw value union |
+| `PmixPayload`, `PmixValueBuilder` | `lib` | Deliberate raw-pointer payload variant and raw C values |
+| `PmixPdata` | `data_ops` | Contains `PmixOwnedValue` |
+| `PmixDataBuffer`, `data_serialization::PmixByteObject` | `data_serialization` | PMIx-managed buffer/byte-object lifetime |
+| `PmixFabric`, `PmixTopology`, `PmixCpuset`, `DeviceDistances` | `fabric` | PMIx/C-owned state and cleanup pointers |
+| `PmixQuery`, `QueryResults` | `query_log` | Query/result allocations released through PMIx |
+| `AllocationResults`, `JobControlResults`, `SessionControlResults` | `allocation` | Returned `pmix_info_t` arrays |
+| `MonitorResults` | `monitoring` | Returned `pmix_info_t` array |
+| `CredentialResults`, `ValidationResults` | `security` | Results contain PMIx info allocations |
+| `CollectInventoryResults` | `server` | Returned `pmix_info_t` array |
 
-`PmixCredential` holds a Rust `Vec<u8>` (opaque bytes) — stays `Send + Sync`. Enums and pure builders are `Send + Sync`.
+The `utility::PmixByteObject` type is intentionally different: it owns a
+`Vec<u8>` and is `Send + Sync`; do not confuse it with the PMIx-backed
+`data_serialization::PmixByteObject`.
+
+**Share model:** build ephemeral handles **per call** on the calling thread.
+`Arc<Mutex<T>>` does not make a `!Send` PMIx wrapper transferable: Rust still
+requires `T: Send` for the mutex to cross threads. If work must leave the
+creating thread, send a Rust-owned snapshot (for example, copied bytes or
+materialized fields) through a channel, or keep the C-owned wrapper and all
+operations on its owner thread. A library `into_shared` helper is intentionally
+not provided (YAGNI).
+
+### 5.3 Callback carriers
+
+The public callback wrapper structs are movable (`Send`) because their trait
+objects require `Send`, but they are not concurrently shareable (`!Sync`) unless
+the API explicitly adds a `Sync` bound. Function-pointer aliases are
+`Send + Sync`. `threading::CallbackChannel<T>` is movable when `T: Send`, but
+its `Receiver` makes the channel itself `!Sync`.
+
+Callback trait definitions are contracts rather than concrete values in this
+matrix: each public callback trait declares its required `Send` bound at its
+definition site. The concrete wrapper carriers are asserted above. A callback
+trait object can be moved only when its object type is `Send`, and it is not
+concurrently shareable unless `Sync` is also part of the bound.
+
+Callback results must be converted to Rust-owned data before hopping off the
+PMIx progress thread; do not send a C-owned result wrapper through a callback
+channel.
 
 ---
 
@@ -194,9 +247,7 @@ process. Companion example: `examples/external_progress_mt.rs`.
 | Server upcall example | #52 | Done (`PmixServerModule` docs + `server_upcall_hop` example) |
 | Global FFI mutex | #53 | Deferred |
 | MT integration tests | #54 | Done (`tests/threading_mt_via_prterun.rs` + `run_daemon_tests.sh THREADING`) |
-| Extra static_assertions | #66 | Mostly superseded by #50 |
-
----
+| Extra public Send/Sync matrix | #66 | Done (centralized matrix + inventory) |
 
 ## 9. Callback registry audit checklist (#67)
 
@@ -239,4 +290,3 @@ panics are **contained** at the `extern "C"` boundary via
 - `threading::invoke_user_callback_contains_panic`
 
 No known hold-across-user-code sites remain after this audit.
-
