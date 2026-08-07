@@ -3484,3 +3484,19 @@ pub unsafe fn mock_node_pid_construct(p: *mut crate::ffi::pmix_node_pid_t) { if 
 pub unsafe fn mock_node_pid_destruct(_p: *mut crate::ffi::pmix_node_pid_t) {}
 pub unsafe fn mock_node_pid_create(n: usize) -> *mut crate::ffi::pmix_node_pid_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_node_pid_t>()) as *mut _ } }
 pub unsafe fn mock_node_pid_free(_p: *mut crate::ffi::pmix_node_pid_t, _n: usize) {}
+
+
+// Safe-wrapper support for PMIx data utility constructors and array APIs.
+pub unsafe fn mock_data_buffer_construct(b: *mut crate::ffi::pmix_data_buffer_t) { if !b.is_null() { unsafe { std::ptr::write_bytes(b, 0, 1) }; } }
+pub unsafe fn mock_data_buffer_destruct(_b: *mut crate::ffi::pmix_data_buffer_t) {}
+pub unsafe fn mock_data_buffer_load(_b: *mut crate::ffi::pmix_data_buffer_t, bytes: *mut std::os::raw::c_char, _sz: usize) { if !bytes.is_null() { unsafe { libc::free(bytes as *mut libc::c_void); } } }
+pub unsafe fn mock_data_buffer_unload(_b: *mut crate::ffi::pmix_data_buffer_t, bytes: *mut *mut std::os::raw::c_char, sz: *mut usize) { if !bytes.is_null() && !sz.is_null() { unsafe { let p = libc::malloc(3) as *mut std::os::raw::c_char; if !p.is_null() { std::ptr::copy_nonoverlapping(b"abc".as_ptr() as *const std::os::raw::c_char, p, 3); *bytes = p; *sz = 3; } } } }
+pub unsafe fn mock_data_array_construct(p: *mut crate::ffi::pmix_data_array_t, num: usize, ty: crate::ffi::pmix_data_type_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); (*p).size = num; (*p).type_ = ty; } } }
+pub unsafe fn mock_data_array_init(p: *mut crate::ffi::pmix_data_array_t, ty: crate::ffi::pmix_data_type_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); (*p).type_ = ty; } } }
+pub unsafe fn mock_data_array_destruct(_p: *mut crate::ffi::pmix_data_array_t) {}
+pub unsafe fn mock_data_array_create(n: usize, ty: crate::ffi::pmix_data_type_t) -> *mut crate::ffi::pmix_data_array_t { let p = (unsafe { libc::calloc(1, std::mem::size_of::<crate::ffi::pmix_data_array_t>()) }) as *mut crate::ffi::pmix_data_array_t; if !p.is_null() { unsafe { (*p).size = n; (*p).type_ = ty; } } p }
+pub unsafe fn mock_data_array_free(_p: *mut crate::ffi::pmix_data_array_t) {}
+pub unsafe fn mock_byte_object_construct_stack(b: *mut crate::ffi::pmix_byte_object_t) { if !b.is_null() { unsafe { std::ptr::write_bytes(b, 0, 1) }; } }
+pub unsafe fn mock_byte_object_create(n: usize) -> *mut crate::ffi::pmix_byte_object_t { (unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_byte_object_t>()) }) as *mut crate::ffi::pmix_byte_object_t }
+pub unsafe fn mock_byte_object_free(_g: *mut crate::ffi::pmix_byte_object_t, _n: usize) {}
+pub unsafe fn mock_byte_object_load(_b: *mut crate::ffi::pmix_byte_object_t, d: *mut std::os::raw::c_char, _sz: usize) { if !d.is_null() { unsafe { libc::free(d as *mut libc::c_void); } } }
