@@ -2358,33 +2358,44 @@ pub fn data_buffer_unload(buf: &mut PmixDataBuffer) -> Result<(Vec<u8>, usize), 
 /// RAII wrapper for a stack-style pmix_data_array_t.
 pub struct PmixDataArray { inner: std::mem::MaybeUninit<ffi::pmix_data_array_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
 impl PmixDataArray {
-    pub fn new(num: usize, ty: ffi::pmix_data_type_t) -> Self { let mut v = Self::uninit(); unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_construct(v.inner.as_mut_ptr(), num, ty), real = ffi::PMIx_Data_array_construct(v.inner.as_mut_ptr(), num, ty)) }; v.constructed = true; v }
-    pub fn init(ty: ffi::pmix_data_type_t) -> Self { let mut v = Self::uninit(); unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_init(v.inner.as_mut_ptr(), ty), real = ffi::PMIx_Data_array_init(v.inner.as_mut_ptr(), ty)) }; v.constructed = true; v }
+    pub fn new(num: usize, ty: ffi::pmix_data_type_t) -> Self { let mut v = Self::uninit(); // SAFETY: inner is exclusive, aligned storage reserved for the constructor.
+        unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_construct(v.inner.as_mut_ptr(), num, ty), real = ffi::PMIx_Data_array_construct(v.inner.as_mut_ptr(), num, ty)) }; v.constructed = true; v }
+    pub fn init(ty: ffi::pmix_data_type_t) -> Self { let mut v = Self::uninit(); // SAFETY: inner is exclusive, aligned storage reserved for the initializer.
+        unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_init(v.inner.as_mut_ptr(), ty), real = ffi::PMIx_Data_array_init(v.inner.as_mut_ptr(), ty)) }; v.constructed = true; v }
     pub fn test_new() -> Self { Self { inner: std::mem::MaybeUninit::zeroed(), constructed: false, _not_thread_safe: std::marker::PhantomData } }
     fn uninit() -> Self { Self { inner: std::mem::MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData } }
-    pub fn type_(&self) -> ffi::pmix_data_type_t { unsafe { self.inner.assume_init_ref().type_ } }
-    pub fn size(&self) -> usize { unsafe { self.inner.assume_init_ref().size } }
-    pub fn array(&self) -> Option<*mut std::ffi::c_void> { let p = unsafe { self.inner.assume_init_ref().array }; (!p.is_null()).then_some(p) }
+    pub fn type_(&self) -> ffi::pmix_data_type_t { // SAFETY: constructed instances are initialized; test_new supplies zeroed storage.
+        unsafe { self.inner.assume_init_ref().type_ } }
+    pub fn size(&self) -> usize { // SAFETY: constructed instances are initialized; test_new supplies zeroed storage.
+        unsafe { self.inner.assume_init_ref().size } }
+    pub fn array(&self) -> Option<*mut std::ffi::c_void> { // SAFETY: constructed instances are initialized; test_new supplies zeroed storage.
+        let p = unsafe { self.inner.assume_init_ref().array }; (!p.is_null()).then_some(p) }
 }
 impl Default for PmixDataArray { fn default() -> Self { Self::test_new() } }
-impl Drop for PmixDataArray { fn drop(&mut self) { if self.constructed { unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_destruct(self.inner.as_mut_ptr()), real = ffi::PMIx_Data_array_destruct(self.inner.as_mut_ptr())) }; } } }
+impl Drop for PmixDataArray { fn drop(&mut self) { if self.constructed { // SAFETY: matching constructor initialized inner; constructed prevents double destruction.
+        unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_destruct(self.inner.as_mut_ptr()), real = ffi::PMIx_Data_array_destruct(self.inner.as_mut_ptr())) }; } } }
 
 /// RAII wrapper for PMIx_Data_array_create/free allocations.
 pub struct PmixDataArrayArray { ptr: *mut ffi::pmix_data_array_t, len: usize, _not_thread_safe: std::marker::PhantomData<*mut u8> }
 impl PmixDataArrayArray { pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_data_array_t { self.ptr } pub fn len(&self) -> usize { self.len }
     pub fn is_empty(&self) -> bool { self.len == 0 }
 }
-impl Drop for PmixDataArrayArray { fn drop(&mut self) { if !self.ptr.is_null() { unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_free(self.ptr), real = ffi::PMIx_Data_array_free(self.ptr)) }; } } }
-pub fn data_array_create(n: usize, ty: ffi::pmix_data_type_t) -> Result<PmixDataArrayArray, PmixStatus> { let p = unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_create(n, ty), real = ffi::PMIx_Data_array_create(n, ty)) }; if p.is_null() { Err(PmixStatus::from_raw(-1)) } else { Ok(PmixDataArrayArray { ptr: p, len: n, _not_thread_safe: std::marker::PhantomData }) } }
+impl Drop for PmixDataArrayArray { fn drop(&mut self) { if !self.ptr.is_null() { // SAFETY: non-null ptr came from PMIx_Data_array_create and is freed exactly once.
+        unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_free(self.ptr), real = ffi::PMIx_Data_array_free(self.ptr)) }; } } }
+pub fn data_array_create(n: usize, ty: ffi::pmix_data_type_t) -> Result<PmixDataArrayArray, PmixStatus> { // SAFETY: PMIx receives the requested count/type and returns a valid allocation or null.
+    let p = unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_data_array_create(n, ty), real = ffi::PMIx_Data_array_create(n, ty)) }; if p.is_null() { Err(PmixStatus::from_raw(-1)) } else { Ok(PmixDataArrayArray { ptr: p, len: n, _not_thread_safe: std::marker::PhantomData }) } }
 
 /// Explicitly construct an empty byte object without changing `PmixByteObject::new`.
-pub fn byte_object_construct() -> PmixByteObject { let mut b = PmixByteObject::new(); unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_byte_object_construct_stack(b.as_mut_ptr()), real = ffi::PMIx_Byte_object_construct(b.as_mut_ptr())) }; b }
+pub fn byte_object_construct() -> PmixByteObject { let mut b = PmixByteObject::new(); // SAFETY: b owns exclusive, aligned storage for the stack constructor.
+    unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_byte_object_construct_stack(b.as_mut_ptr()), real = ffi::PMIx_Byte_object_construct(b.as_mut_ptr())) }; b }
 pub struct PmixByteObjectArray { ptr: *mut ffi::pmix_byte_object_t, len: usize, _not_thread_safe: std::marker::PhantomData<*mut u8> }
 impl PmixByteObjectArray { pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t { self.ptr } pub fn len(&self) -> usize { self.len }
     pub fn is_empty(&self) -> bool { self.len == 0 }
 }
-impl Drop for PmixByteObjectArray { fn drop(&mut self) { if !self.ptr.is_null() { unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_byte_object_free(self.ptr, self.len), real = ffi::PMIx_Byte_object_free(self.ptr, self.len)) }; } } }
-pub fn byte_object_create(n: usize) -> Result<PmixByteObjectArray, PmixStatus> { let p = unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_byte_object_create(n), real = ffi::PMIx_Byte_object_create(n)) }; if p.is_null() { Err(PmixStatus::from_raw(-1)) } else { Ok(PmixByteObjectArray { ptr: p, len: n, _not_thread_safe: std::marker::PhantomData }) } }
+impl Drop for PmixByteObjectArray { fn drop(&mut self) { if !self.ptr.is_null() { // SAFETY: non-null ptr came from PMIx_Byte_object_create; len is its original element count.
+        unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_byte_object_free(self.ptr, self.len), real = ffi::PMIx_Byte_object_free(self.ptr, self.len)) }; } } }
+pub fn byte_object_create(n: usize) -> Result<PmixByteObjectArray, PmixStatus> { // SAFETY: PMIx receives the requested count and returns a valid allocation or null.
+    let p = unsafe { crate::pmix_ffi_or_mock!(mock = crate::mock_ffi::mock_byte_object_create(n), real = ffi::PMIx_Byte_object_create(n)) }; if p.is_null() { Err(PmixStatus::from_raw(-1)) } else { Ok(PmixByteObjectArray { ptr: p, len: n, _not_thread_safe: std::marker::PhantomData }) } }
 pub fn byte_object_load(b: &mut PmixByteObject, data: &[u8]) {
     let p = copy_to_c_owned(data).expect("malloc failed while loading byte object");
     // SAFETY: p is malloc storage transferred to PMIx.
