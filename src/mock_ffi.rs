@@ -3504,24 +3504,27 @@ pub unsafe fn mock_byte_object_load(_b: *mut crate::ffi::pmix_byte_object_t, d: 
 
 // Mock implementations for fabric type constructors and calloc/free families.
 pub unsafe fn mock_fabric_construct(p: *mut crate::ffi::pmix_fabric_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
-pub unsafe fn mock_geometry_create(n: usize) -> *mut crate::ffi::pmix_geometry_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_geometry_t>()) as *mut _ } }
+pub unsafe fn mock_geometry_create(n: usize) -> *mut crate::ffi::pmix_geometry_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_geometry_t>()) as *mut _ } }
 pub unsafe fn mock_geometry_free(_p: *mut crate::ffi::pmix_geometry_t, _n: usize) {}
 pub unsafe fn mock_topology_construct(p: *mut crate::ffi::pmix_topology_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
-pub unsafe fn mock_topology_create(n: usize) -> *mut crate::ffi::pmix_topology_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_topology_t>()) as *mut _ } }
+pub unsafe fn mock_topology_create(n: usize) -> *mut crate::ffi::pmix_topology_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_topology_t>()) as *mut _ } }
 pub unsafe fn mock_topology_free(_p: *mut crate::ffi::pmix_topology_t, _n: usize) {}
-pub unsafe fn mock_cpuset_create(n: usize) -> *mut crate::ffi::pmix_cpuset_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_cpuset_t>()) as *mut _ } }
+pub unsafe fn mock_cpuset_create(n: usize) -> *mut crate::ffi::pmix_cpuset_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_cpuset_t>()) as *mut _ } }
 pub unsafe fn mock_cpuset_free(_p: *mut crate::ffi::pmix_cpuset_t, _n: usize) {}
-pub unsafe fn mock_endpoint_create(n: usize) -> *mut crate::ffi::pmix_endpoint_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_endpoint_t>()) as *mut _ } }
+pub unsafe fn mock_endpoint_create(n: usize) -> *mut crate::ffi::pmix_endpoint_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_endpoint_t>()) as *mut _ } }
 pub unsafe fn mock_endpoint_free(_p: *mut crate::ffi::pmix_endpoint_t, _n: usize) {}
 pub unsafe fn mock_coord_construct(p: *mut crate::ffi::pmix_coord_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
 pub unsafe fn mock_coord_destruct(_p: *mut crate::ffi::pmix_coord_t) {}
-pub unsafe fn mock_coord_create(_dims: usize, n: usize) -> *mut crate::ffi::pmix_coord_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_coord_t>()) as *mut _ } }
+pub unsafe fn mock_coord_create(_dims: usize, n: usize) -> *mut crate::ffi::pmix_coord_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_coord_t>()) as *mut _ } }
 pub unsafe fn mock_coord_free(_p: *mut crate::ffi::pmix_coord_t, _n: usize) {}
 pub unsafe fn mock_device_construct(p: *mut crate::ffi::pmix_device_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
 pub unsafe fn mock_device_destruct(_p: *mut crate::ffi::pmix_device_t) {}
-pub unsafe fn mock_device_create(n: usize) -> *mut crate::ffi::pmix_device_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_t>()) as *mut _ } }
+pub unsafe fn mock_device_create(n: usize) -> *mut crate::ffi::pmix_device_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_t>()) as *mut _ } }
 pub unsafe fn mock_device_free(_p: *mut crate::ffi::pmix_device_t, _n: usize) {}
-pub unsafe fn mock_device_distance_construct(p: *mut crate::ffi::pmix_device_distance_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
 pub unsafe fn mock_device_distance_destruct(_p: *mut crate::ffi::pmix_device_distance_t) {}
-pub unsafe fn mock_device_distance_create(n: usize) -> *mut crate::ffi::pmix_device_distance_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_distance_t>()) as *mut _ } }
+pub unsafe fn mock_device_distance_construct(p: *mut crate::ffi::pmix_device_distance_t) {
+    // SAFETY: the caller provides writable storage for one PMIx distance object.
+    if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); (*p).type_ = 0; (*p).mindist = u16::MAX; (*p).maxdist = u16::MAX; } }
+}
+pub unsafe fn mock_device_distance_create(n: usize) -> *mut crate::ffi::pmix_device_distance_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_distance_t>()) as *mut _ } }
 pub unsafe fn mock_device_distance_free(_p: *mut crate::ffi::pmix_device_distance_t, _n: usize) {}

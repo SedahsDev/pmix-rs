@@ -2675,13 +2675,25 @@ mod tests {
 // Additional safe wrappers for PMIx fabric-related type families.
 
 /// Construct a PMIx fabric object with the C constructor.
+///
+/// The C-constructed result is valid only through the raw handle. `PmixFabric`
+/// manages its Rust-owned fields separately and does not drop this raw struct.
 pub fn fabric_construct() -> PmixFabric {
     let mut fabric = PmixFabric::new(None).expect("None cannot contain a NUL");
     let raw = fabric.raw.as_mut_ptr();
     #[cfg(any(test, feature = "mock_ffi"))]
-    if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::mock_fabric_construct(raw); } } else { unsafe { ffi::PMIx_Fabric_construct(raw); } }
+    if mock_ffi::is_mock_enabled() {
+        // SAFETY: `raw` points to the initialized storage owned by `fabric`.
+        unsafe { mock_ffi::mock_fabric_construct(raw) };
+    } else {
+        // SAFETY: `raw` points to the initialized storage owned by `fabric`.
+        unsafe { ffi::PMIx_Fabric_construct(raw) };
+    }
     #[cfg(not(any(test, feature = "mock_ffi")))]
-    unsafe { ffi::PMIx_Fabric_construct(raw); }
+    {
+        // SAFETY: `raw` points to the initialized storage owned by `fabric`.
+        unsafe { ffi::PMIx_Fabric_construct(raw) };
+    }
     fabric
 }
 
@@ -2690,28 +2702,76 @@ pub fn topology_construct() -> PmixTopology {
     let mut topology = PmixTopology::new(None).expect("None cannot contain a NUL");
     let raw = topology.raw.as_mut_ptr();
     #[cfg(any(test, feature = "mock_ffi"))]
-    if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::mock_topology_construct(raw); } } else { unsafe { ffi::PMIx_Topology_construct(raw); } }
+    if mock_ffi::is_mock_enabled() {
+        // SAFETY: `raw` points to the initialized storage owned by `topology`.
+        unsafe { mock_ffi::mock_topology_construct(raw) };
+    } else {
+        // SAFETY: `raw` points to the initialized storage owned by `topology`.
+        unsafe { ffi::PMIx_Topology_construct(raw) };
+    }
     #[cfg(not(any(test, feature = "mock_ffi")))]
-    unsafe { ffi::PMIx_Topology_construct(raw); }
+    {
+        // SAFETY: `raw` points to the initialized storage owned by `topology`.
+        unsafe { ffi::PMIx_Topology_construct(raw) };
+    }
     topology
 }
 
-/// RAII wrapper around a calloc-allocated PMIx array.
+/// RAII wrapper around a PMIx array allocated by its C API.
 macro_rules! pmix_array {
-    ($name:ident, $raw:ty, $create:ident, $free:ident, $mock_create:ident, $mock_free:ident $(, $extra:expr)*) => {
+    ($name:ident, $raw:ty, $create:ident, $free:ident, $construct:ident,
+        $mock_create:ident, $mock_free:ident, $mock_construct:ident $(, $extra:expr)*) => {
         #[derive(Debug)]
         pub struct $name { ptr: *mut $raw, len: usize }
+
         impl $name {
-            /// Allocate `len` zeroed C objects. The pointer is freed on drop.
+            /// Allocate and construct `len` C objects. A zero-length request
+            /// returns `ErrNomem`, matching PMIx 6.1's NULL result.
             pub fn create(len: usize) -> Result<Self, PmixError> {
+                Self::create_with_args(len)
+            }
+
+            fn create_with_args(len: usize) -> Result<Self, PmixError> {
                 let ptr = {
                     #[cfg(any(test, feature = "mock_ffi"))]
-                    { if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::$mock_create($($extra,)* len) } } else { unsafe { ffi::$create($($extra,)* len) } } }
+                    if mock_ffi::is_mock_enabled() {
+                        // SAFETY: the mock receives the requested count and returns
+                        // either a fresh allocation or NULL.
+                        unsafe { mock_ffi::$mock_create($($extra,)* len) }
+                    } else {
+                        // SAFETY: PMIx allocates an array of `len` raw objects.
+                        unsafe { ffi::$create($($extra,)* len) }
+                    }
                     #[cfg(not(any(test, feature = "mock_ffi")))]
-                    { unsafe { ffi::$create($($extra,)* len) } }
+                    {
+                        // SAFETY: PMIx allocates an array of `len` raw objects.
+                        unsafe { ffi::$create($($extra,)* len) }
+                    }
                 };
-                if ptr.is_null() { Err(PmixError::ErrNomem) } else { Ok(Self { ptr, len }) }
+                if ptr.is_null() {
+                    return Err(PmixError::ErrNomem);
+                }
+                for index in 0..len {
+                    // SAFETY: PMIx returned storage for `len` contiguous elements;
+                    // each element is constructed exactly once before Drop frees it.
+                    let element = unsafe { ptr.add(index) };
+                    #[cfg(any(test, feature = "mock_ffi"))]
+                    if mock_ffi::is_mock_enabled() {
+                        // SAFETY: `element` points into the PMIx allocation.
+                        unsafe { mock_ffi::$mock_construct(element) };
+                    } else {
+                        // SAFETY: `element` points into the PMIx allocation.
+                        unsafe { ffi::$construct(element) };
+                    }
+                    #[cfg(not(any(test, feature = "mock_ffi")))]
+                    {
+                        // SAFETY: `element` points into the PMIx allocation.
+                        unsafe { ffi::$construct(element) };
+                    }
+                }
+                Ok(Self { ptr, len })
             }
+
             /// Return the owned C array pointer.
             pub fn as_mut_ptr(&self) -> *mut $raw { self.ptr }
             /// Return the number of C objects in the array.
@@ -2719,74 +2779,420 @@ macro_rules! pmix_array {
             /// Return whether the C array is empty.
             pub fn is_empty(&self) -> bool { self.len == 0 }
         }
+
         impl Drop for $name {
             fn drop(&mut self) {
                 if self.ptr.is_null() { return; }
                 #[cfg(any(test, feature = "mock_ffi"))]
-                if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::$mock_free(self.ptr, self.len); } } else { unsafe { ffi::$free(self.ptr, self.len); } }
+                if mock_ffi::is_mock_enabled() {
+                    // SAFETY: pointer and length are the values returned by PMIx.
+                    unsafe { mock_ffi::$mock_free(self.ptr, self.len) };
+                } else {
+                    // SAFETY: pointer and length are the values returned by PMIx.
+                    unsafe { ffi::$free(self.ptr, self.len) };
+                }
                 #[cfg(not(any(test, feature = "mock_ffi")))]
-                unsafe { ffi::$free(self.ptr, self.len); }
+                {
+                    // SAFETY: pointer and length are the values returned by PMIx.
+                    unsafe { ffi::$free(self.ptr, self.len) };
+                }
             }
         }
     };
 }
 
-pmix_array!(PmixGeometryArray, ffi::pmix_geometry_t, PMIx_Geometry_create, PMIx_Geometry_free, mock_geometry_create, mock_geometry_free);
-pmix_array!(PmixTopologyArray, ffi::pmix_topology_t, PMIx_Topology_create, PMIx_Topology_free, mock_topology_create, mock_topology_free);
-pmix_array!(PmixCpusetArray, ffi::pmix_cpuset_t, PMIx_Cpuset_create, PMIx_Cpuset_free, mock_cpuset_create, mock_cpuset_free);
-pmix_array!(PmixEndpointArray, ffi::pmix_endpoint_t, PMIx_Endpoint_create, PMIx_Endpoint_free, mock_endpoint_create, mock_endpoint_free);
-pmix_array!(PmixDeviceArray, ffi::pmix_device_t, PMIx_Device_create, PMIx_Device_free, mock_device_create, mock_device_free);
-pmix_array!(PmixDeviceDistanceArray, ffi::pmix_device_distance_t, PMIx_Device_distance_create, PMIx_Device_distance_free, mock_device_distance_create, mock_device_distance_free);
-pmix_array!(PmixCoordArray, ffi::pmix_coord_t, PMIx_Coord_create, PMIx_Coord_free, mock_coord_create, mock_coord_free, 0);
+pmix_array!(
+    PmixGeometryArray,
+    ffi::pmix_geometry_t,
+    PMIx_Geometry_create,
+    PMIx_Geometry_free,
+    PMIx_Geometry_construct,
+    mock_geometry_create,
+    mock_geometry_free,
+    mock_geometry_construct
+);
+pmix_array!(
+    PmixTopologyArray,
+    ffi::pmix_topology_t,
+    PMIx_Topology_create,
+    PMIx_Topology_free,
+    PMIx_Topology_construct,
+    mock_topology_create,
+    mock_topology_free,
+    mock_topology_construct
+);
+pmix_array!(
+    PmixCpusetArray,
+    ffi::pmix_cpuset_t,
+    PMIx_Cpuset_create,
+    PMIx_Cpuset_free,
+    PMIx_Cpuset_construct,
+    mock_cpuset_create,
+    mock_cpuset_free,
+    mock_cpuset_construct
+);
+pmix_array!(
+    PmixEndpointArray,
+    ffi::pmix_endpoint_t,
+    PMIx_Endpoint_create,
+    PMIx_Endpoint_free,
+    PMIx_Endpoint_construct,
+    mock_endpoint_create,
+    mock_endpoint_free,
+    mock_endpoint_construct
+);
+pmix_array!(
+    PmixDeviceArray,
+    ffi::pmix_device_t,
+    PMIx_Device_create,
+    PMIx_Device_free,
+    PMIx_Device_construct,
+    mock_device_create,
+    mock_device_free,
+    mock_device_construct
+);
+pmix_array!(
+    PmixDeviceDistanceArray,
+    ffi::pmix_device_distance_t,
+    PMIx_Device_distance_create,
+    PMIx_Device_distance_free,
+    PMIx_Device_distance_construct,
+    mock_device_distance_create,
+    mock_device_distance_free,
+    mock_device_distance_construct
+);
+
+/// An array of coordinate objects; `dims` is passed to PMIx_Coord_create.
+#[derive(Debug)]
+pub struct PmixCoordArray {
+    ptr: *mut ffi::pmix_coord_t,
+    len: usize,
+}
+impl PmixCoordArray {
+    /// Allocate and construct `len` coordinate objects with `dims` dimensions.
+    pub fn create(dims: usize, len: usize) -> Result<Self, PmixError> {
+        let ptr = {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if mock_ffi::is_mock_enabled() {
+                // SAFETY: mock allocation is parameterized by dimensions and count.
+                unsafe { mock_ffi::mock_coord_create(dims, len) }
+            } else {
+                // SAFETY: PMIx allocates an array of coordinate objects.
+                unsafe { ffi::PMIx_Coord_create(dims, len) }
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            {
+                unsafe { ffi::PMIx_Coord_create(dims, len) }
+            }
+        };
+        if ptr.is_null() {
+            return Err(PmixError::ErrNomem);
+        }
+        for index in 0..len {
+            // SAFETY: PMIx returned `len` contiguous coordinate objects.
+            let element = unsafe { ptr.add(index) };
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if mock_ffi::is_mock_enabled() {
+                // SAFETY: element belongs to the mock allocation.
+                unsafe { mock_ffi::mock_coord_construct(element) };
+            } else {
+                // SAFETY: element belongs to the PMIx allocation.
+                unsafe { ffi::PMIx_Coord_construct(element) };
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            {
+                unsafe { ffi::PMIx_Coord_construct(element) };
+            }
+        }
+        Ok(Self { ptr, len })
+    }
+    /// Return the owned C array pointer.
+    pub fn as_mut_ptr(&self) -> *mut ffi::pmix_coord_t {
+        self.ptr
+    }
+    /// Return the number of coordinates.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    /// Return whether no coordinates were allocated.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+impl Drop for PmixCoordArray {
+    fn drop(&mut self) {
+        if self.ptr.is_null() {
+            return;
+        }
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            // SAFETY: pointer and length are the values returned by PMIx.
+            unsafe { mock_ffi::mock_coord_free(self.ptr, self.len) };
+        } else {
+            // SAFETY: pointer and length are the values returned by PMIx.
+            unsafe { ffi::PMIx_Coord_free(self.ptr, self.len) };
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            unsafe { ffi::PMIx_Coord_free(self.ptr, self.len) };
+        }
+    }
+}
 
 macro_rules! c_string_accessor {
     ($name:ident, $field:ident) => {
+        /// Return the C string field as UTF-8, if present.
         pub fn $name(&self) -> Option<&str> {
             // SAFETY: raw is initialized by new/test_new and the returned slice borrows self.
-            unsafe { let p = self.raw.assume_init_ref().$field; (!p.is_null()).then(|| CStr::from_ptr(p).to_str().ok()).flatten() }
+            unsafe {
+                let p = self.raw.assume_init_ref().$field;
+                (!p.is_null())
+                    .then(|| CStr::from_ptr(p).to_str().ok())
+                    .flatten()
+            }
         }
     };
 }
 
 /// Safe RAII wrapper around `pmix_coord_t`.
 #[derive(Debug)]
-pub struct PmixCoord { raw: MaybeUninit<ffi::pmix_coord_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
-impl PmixCoord {
-    pub fn new() -> Self { let mut this = Self { raw: MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData }; let p = this.raw.as_mut_ptr(); #[cfg(any(test, feature="mock_ffi"))] if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::mock_coord_construct(p); } } else { unsafe { ffi::PMIx_Coord_construct(p); } } #[cfg(not(any(test, feature="mock_ffi")))] unsafe { ffi::PMIx_Coord_construct(p); } this.constructed = true; this }
-    pub fn test_new() -> Self { Self { raw: MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData } }
-    pub fn view(&self) -> ffi::pmix_coord_view_t { unsafe { self.raw.assume_init_ref().view } }
-    pub fn coord(&self) -> Option<&[u32]> { unsafe { let r = self.raw.assume_init_ref(); (!r.coord.is_null()).then(|| std::slice::from_raw_parts(r.coord, r.dims)) } }
-    pub fn dims(&self) -> usize { unsafe { self.raw.assume_init_ref().dims } }
+pub struct PmixCoord {
+    raw: MaybeUninit<ffi::pmix_coord_t>,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
-impl Default for PmixCoord { fn default() -> Self { Self::new() } }
-impl Drop for PmixCoord { fn drop(&mut self) { if self.constructed { #[cfg(any(test, feature="mock_ffi"))] if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::mock_coord_destruct(self.raw.as_mut_ptr()); } } else { unsafe { ffi::PMIx_Coord_destruct(self.raw.as_mut_ptr()); } } #[cfg(not(any(test, feature="mock_ffi")))] unsafe { ffi::PMIx_Coord_destruct(self.raw.as_mut_ptr()); } self.constructed = false; } } }
+impl PmixCoord {
+    /// Construct a coordinate with PMIx defaults.
+    pub fn new() -> Self {
+        let mut this = Self {
+            raw: MaybeUninit::uninit(),
+            constructed: false,
+            _not_thread_safe: std::marker::PhantomData,
+        };
+        let p = this.raw.as_mut_ptr();
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            // SAFETY: p points to this object's uninitialized storage.
+            unsafe { mock_ffi::mock_coord_construct(p) };
+        } else {
+            unsafe { ffi::PMIx_Coord_construct(p) };
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            unsafe { ffi::PMIx_Coord_construct(p) };
+        }
+        this.constructed = true;
+        this
+    }
+    /// Construct a zeroed test object without C-owned allocations.
+    pub fn test_new() -> Self {
+        Self {
+            raw: MaybeUninit::zeroed(),
+            constructed: true,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+    /// Return the coordinate view value.
+    pub fn view(&self) -> ffi::pmix_coord_view_t {
+        unsafe { self.raw.assume_init_ref().view }
+    }
+    /// Return the coordinate values, if present.
+    pub fn coord(&self) -> Option<&[u32]> {
+        unsafe {
+            let r = self.raw.assume_init_ref();
+            (!r.coord.is_null()).then(|| std::slice::from_raw_parts(r.coord, r.dims))
+        }
+    }
+    /// Return the number of dimensions.
+    pub fn dims(&self) -> usize {
+        unsafe { self.raw.assume_init_ref().dims }
+    }
+}
+impl Default for PmixCoord {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Drop for PmixCoord {
+    fn drop(&mut self) {
+        if self.constructed {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if mock_ffi::is_mock_enabled() {
+                unsafe {
+                    mock_ffi::mock_coord_destruct(self.raw.as_mut_ptr());
+                }
+            } else {
+                unsafe {
+                    ffi::PMIx_Coord_destruct(self.raw.as_mut_ptr());
+                }
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            unsafe {
+                ffi::PMIx_Coord_destruct(self.raw.as_mut_ptr());
+            }
+            self.constructed = false;
+        }
+    }
+}
 
 /// Safe RAII wrapper around `pmix_device_t`.
 #[derive(Debug)]
-pub struct PmixDevice { raw: MaybeUninit<ffi::pmix_device_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+pub struct PmixDevice {
+    raw: MaybeUninit<ffi::pmix_device_t>,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
 impl PmixDevice {
-    pub fn new() -> Self { let mut this = Self { raw: MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData }; let p=this.raw.as_mut_ptr(); #[cfg(any(test, feature="mock_ffi"))] if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::mock_device_construct(p); } } else { unsafe { ffi::PMIx_Device_construct(p); } } #[cfg(not(any(test, feature="mock_ffi")))] unsafe { ffi::PMIx_Device_construct(p); } this.constructed=true; this }
-    pub fn test_new() -> Self { Self { raw: MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData } }
-    c_string_accessor!(uuid, uuid); c_string_accessor!(osname, osname);
-    pub fn device_type(&self) -> ffi::pmix_device_type_t { unsafe { self.raw.assume_init_ref().type_ } }
+    /// Construct a device with PMIx defaults.
+    pub fn new() -> Self {
+        let mut this = Self {
+            raw: MaybeUninit::uninit(),
+            constructed: false,
+            _not_thread_safe: std::marker::PhantomData,
+        };
+        let p = this.raw.as_mut_ptr();
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            unsafe {
+                mock_ffi::mock_device_construct(p);
+            }
+        } else {
+            unsafe {
+                ffi::PMIx_Device_construct(p);
+            }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        unsafe {
+            ffi::PMIx_Device_construct(p);
+        }
+        this.constructed = true;
+        this
+    }
+    /// Construct a zeroed test object without C-owned allocations.
+    pub fn test_new() -> Self {
+        Self {
+            raw: MaybeUninit::zeroed(),
+            constructed: true,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+    c_string_accessor!(uuid, uuid);
+    c_string_accessor!(osname, osname);
+    /// Return the PMIx device type.
+    pub fn device_type(&self) -> ffi::pmix_device_type_t {
+        unsafe { self.raw.assume_init_ref().type_ }
+    }
 }
-impl Default for PmixDevice { fn default() -> Self { Self::new() } }
-impl Drop for PmixDevice { fn drop(&mut self) { if self.constructed { #[cfg(any(test, feature="mock_ffi"))] if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::mock_device_destruct(self.raw.as_mut_ptr()); } } else { unsafe { ffi::PMIx_Device_destruct(self.raw.as_mut_ptr()); } } #[cfg(not(any(test, feature="mock_ffi")))] unsafe { ffi::PMIx_Device_destruct(self.raw.as_mut_ptr()); } self.constructed=false; } } }
+impl Default for PmixDevice {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Drop for PmixDevice {
+    fn drop(&mut self) {
+        if self.constructed {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if mock_ffi::is_mock_enabled() {
+                unsafe {
+                    mock_ffi::mock_device_destruct(self.raw.as_mut_ptr());
+                }
+            } else {
+                unsafe {
+                    ffi::PMIx_Device_destruct(self.raw.as_mut_ptr());
+                }
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            unsafe {
+                ffi::PMIx_Device_destruct(self.raw.as_mut_ptr());
+            }
+            self.constructed = false;
+        }
+    }
+}
 
-/// Safe RAII wrapper around `pmix_device_distance_t`.
+/// RAII wrapper for a PMIx device-distance object. This is distinct from the
+/// pure-Rust `PmixDeviceDistance` parsed snapshot type.
 #[derive(Debug)]
-pub struct PmixDeviceDistanceObject { raw: MaybeUninit<ffi::pmix_device_distance_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
-impl PmixDeviceDistanceObject {
-    pub fn new() -> Self { let mut this=Self { raw:MaybeUninit::uninit(), constructed:false, _not_thread_safe:std::marker::PhantomData }; let p=this.raw.as_mut_ptr(); #[cfg(any(test, feature="mock_ffi"))] if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::mock_device_distance_construct(p); } } else { unsafe { ffi::PMIx_Device_distance_construct(p); } } #[cfg(not(any(test, feature="mock_ffi")))] unsafe { ffi::PMIx_Device_distance_construct(p); } this.constructed=true; this }
-    pub fn test_new() -> Self { Self { raw:MaybeUninit::zeroed(), constructed:true, _not_thread_safe:std::marker::PhantomData } }
-    c_string_accessor!(uuid, uuid); c_string_accessor!(osname, osname);
-    pub fn device_type(&self) -> ffi::pmix_device_type_t { unsafe { self.raw.assume_init_ref().type_ } }
-    pub fn min_distance(&self) -> u16 { unsafe { self.raw.assume_init_ref().mindist } }
-    pub fn max_distance(&self) -> u16 { unsafe { self.raw.assume_init_ref().maxdist } }
+pub struct PmixDeviceDistanceObject {
+    raw: MaybeUninit<ffi::pmix_device_distance_t>,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
-impl Default for PmixDeviceDistanceObject { fn default()->Self { Self::new() } }
-impl Drop for PmixDeviceDistanceObject { fn drop(&mut self) { if self.constructed { #[cfg(any(test, feature="mock_ffi"))] if mock_ffi::is_mock_enabled() { unsafe { mock_ffi::mock_device_distance_destruct(self.raw.as_mut_ptr()); } } else { unsafe { ffi::PMIx_Device_distance_destruct(self.raw.as_mut_ptr()); } } #[cfg(not(any(test, feature="mock_ffi")))] unsafe { ffi::PMIx_Device_distance_destruct(self.raw.as_mut_ptr()); } self.constructed=false; } } }
-
+impl PmixDeviceDistanceObject {
+    /// Construct a device-distance object with PMIx defaults.
+    pub fn new() -> Self {
+        let mut this = Self {
+            raw: MaybeUninit::uninit(),
+            constructed: false,
+            _not_thread_safe: std::marker::PhantomData,
+        };
+        let p = this.raw.as_mut_ptr();
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            unsafe {
+                mock_ffi::mock_device_distance_construct(p);
+            }
+        } else {
+            unsafe {
+                ffi::PMIx_Device_distance_construct(p);
+            }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        unsafe {
+            ffi::PMIx_Device_distance_construct(p);
+        }
+        this.constructed = true;
+        this
+    }
+    /// Construct a zeroed test object without C-owned allocations.
+    pub fn test_new() -> Self {
+        Self {
+            raw: MaybeUninit::zeroed(),
+            constructed: true,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+    c_string_accessor!(uuid, uuid);
+    c_string_accessor!(osname, osname);
+    /// Return the PMIx device type.
+    pub fn device_type(&self) -> ffi::pmix_device_type_t {
+        unsafe { self.raw.assume_init_ref().type_ }
+    }
+    /// Return the minimum distance.
+    pub fn min_distance(&self) -> u16 {
+        unsafe { self.raw.assume_init_ref().mindist }
+    }
+    /// Return the maximum distance.
+    pub fn max_distance(&self) -> u16 {
+        unsafe { self.raw.assume_init_ref().maxdist }
+    }
+}
+impl Default for PmixDeviceDistanceObject {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Drop for PmixDeviceDistanceObject {
+    fn drop(&mut self) {
+        if self.constructed {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if mock_ffi::is_mock_enabled() {
+                unsafe {
+                    mock_ffi::mock_device_distance_destruct(self.raw.as_mut_ptr());
+                }
+            } else {
+                unsafe {
+                    ffi::PMIx_Device_distance_destruct(self.raw.as_mut_ptr());
+                }
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            unsafe {
+                ffi::PMIx_Device_distance_destruct(self.raw.as_mut_ptr());
+            }
+            self.constructed = false;
+        }
+    }
+}
 
 #[cfg(test)]
 mod added_type_tests {
@@ -2804,9 +3210,46 @@ mod added_type_tests {
         assert_eq!(PmixTopologyArray::create(2).unwrap().len(), 2);
         assert_eq!(PmixCpusetArray::create(2).unwrap().len(), 2);
         assert_eq!(PmixEndpointArray::create(2).unwrap().len(), 2);
-        assert_eq!(PmixCoordArray::create(2).unwrap().len(), 2);
+        assert_eq!(PmixCoordArray::create(2, 2).unwrap().len(), 2);
         assert_eq!(PmixDeviceArray::create(2).unwrap().len(), 2);
         assert_eq!(PmixDeviceDistanceArray::create(2).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn zero_length_arrays_match_real_pmix_null_semantics() {
+        let _guard = mock_ffi::MockGuard::new();
+        assert!(PmixCoordArray::create(2, 0).is_err());
+        assert!(PmixGeometryArray::create(0).is_err());
+    }
+
+    #[test]
+    fn coord_array_elements_are_constructed_before_drop() {
+        let _guard = mock_ffi::MockGuard::new();
+        let array = PmixCoordArray::create(3, 2).unwrap();
+        assert_eq!(array.len(), 2);
+        unsafe {
+            assert_eq!((*array.as_mut_ptr()).dims, 0);
+            assert_eq!((*array.as_mut_ptr().add(1)).dims, 0);
+        }
+    }
+
+    #[test]
+    fn device_distance_defaults_match_pmix() {
+        let _guard = mock_ffi::MockGuard::new();
+        let distance = PmixDeviceDistanceObject::new();
+        assert_eq!(distance.min_distance(), u16::MAX);
+        assert_eq!(distance.max_distance(), u16::MAX);
+    }
+
+    #[test]
+    fn all_fabric_arrays_create_and_drop() {
+        let _guard = mock_ffi::MockGuard::new();
+        let _geometry = PmixGeometryArray::create(2).unwrap();
+        let _topology = PmixTopologyArray::create(2).unwrap();
+        let _cpuset = PmixCpusetArray::create(2).unwrap();
+        let _endpoint = PmixEndpointArray::create(2).unwrap();
+        let _device = PmixDeviceArray::create(2).unwrap();
+        let _distance = PmixDeviceDistanceArray::create(2).unwrap();
     }
 
     #[test]
