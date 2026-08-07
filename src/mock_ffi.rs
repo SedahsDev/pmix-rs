@@ -1908,7 +1908,11 @@ pub unsafe fn mock_value_get_size(_value: *const crate::ffi::pmix_value_t, size:
 }
 pub unsafe fn mock_value_compare(_v1: *mut crate::ffi::pmix_value_t, _v2: *mut crate::ffi::pmix_value_t) -> crate::ffi::pmix_value_cmp_t { crate::ffi::pmix_value_cmp_t::PMIX_EQUAL }
 pub unsafe fn mock_value_comparison_string(_cmp: crate::ffi::pmix_value_cmp_t) -> *const std::os::raw::c_char { b"equal\0".as_ptr().cast() }
-pub unsafe fn mock_value_string(_value: *const crate::ffi::pmix_value_t) -> *mut std::os::raw::c_char { std::ffi::CString::new("mock").unwrap().into_raw() }
+pub unsafe fn mock_value_string(_value: *const crate::ffi::pmix_value_t) -> *mut std::os::raw::c_char {
+    // SAFETY: strdup allocates with malloc, matching PMIx_Value_string's
+    // contract and the wrapper's libc::free call.
+    unsafe { libc::strdup(c"mock".as_ptr()) }
+}
 pub unsafe fn mock_value_true(_value: *const crate::ffi::pmix_value_t) -> crate::ffi::pmix_boolean_t { crate::ffi::pmix_boolean_t::PMIX_BOOL_TRUE }
 
 #[cfg(test)]
