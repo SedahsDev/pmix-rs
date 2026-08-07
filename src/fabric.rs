@@ -833,6 +833,86 @@ impl Drop for PmixGeometry {
     }
 }
 
+// PmixEndpoint — safe wrapper for pmix_endpoint_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A safe Rust wrapper around `pmix_endpoint_t`.
+#[derive(Debug)]
+pub struct PmixEndpoint {
+    raw: std::mem::MaybeUninit<ffi::pmix_endpoint_t>,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixEndpoint {
+    /// Construct an empty endpoint object using PMIx.
+    pub fn new() -> Self {
+        let mut this = Self {
+            raw: std::mem::MaybeUninit::uninit(),
+            constructed: false,
+            _not_thread_safe: std::marker::PhantomData,
+        };
+        let raw_ptr = this.raw.as_mut_ptr();
+        // SAFETY: raw_ptr points to storage owned by this; PMIx initializes the complete object.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        {
+            if mock_ffi::is_mock_enabled() {
+                mock_ffi::mock_endpoint_construct(raw_ptr);
+            } else {
+                unsafe { ffi::PMIx_Endpoint_construct(raw_ptr) };
+            }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        {
+            unsafe { ffi::PMIx_Endpoint_construct(raw_ptr) };
+        }
+        this.constructed = true;
+        this
+    }
+
+    /// Create an empty endpoint object without calling into PMIx.
+    pub fn test_new() -> Self {
+        Self {
+            raw: std::mem::MaybeUninit::zeroed(),
+            constructed: true,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
+    /// Return the endpoint UUID, if present and valid UTF-8.
+    pub fn uuid(&self) -> Option<&str> { self.c_string(|raw| raw.uuid) }
+    /// Return the operating-system endpoint name, if present and valid UTF-8.
+    pub fn osname(&self) -> Option<&str> { self.c_string(|raw| raw.osname) }
+    /// Return the endpoint byte object, when PMIx supplied one.
+    pub fn endpt(&self) -> Option<&[u8]> {
+        // SAFETY: raw is initialized; the slice borrows self and cannot outlive the PMIx-owned buffer.
+        unsafe {
+            let raw = self.raw.assume_init_ref();
+            (!raw.endpt.bytes.is_null()).then(|| std::slice::from_raw_parts(raw.endpt.bytes as *const u8, raw.endpt.size))
+        }
+    }
+    fn c_string(&self, get: impl FnOnce(&ffi::pmix_endpoint_t) -> *mut libc::c_char) -> Option<&str> {
+        // SAFETY: raw is initialized; the returned string borrows self and cannot outlive the PMIx-owned string.
+        unsafe {
+            let ptr = get(self.raw.assume_init_ref());
+            (!ptr.is_null()).then(|| std::ffi::CStr::from_ptr(ptr).to_str().ok()).flatten()
+        }
+    }
+}
+impl Default for PmixEndpoint { fn default() -> Self { Self::new() } }
+impl Drop for PmixEndpoint {
+    fn drop(&mut self) {
+        if self.constructed {
+            // SAFETY: the object was initialized by the matching constructor and is destroyed once.
+            #[cfg(any(test, feature = "mock_ffi"))]
+            { if mock_ffi::is_mock_enabled() { mock_ffi::mock_endpoint_destruct(self.raw.as_mut_ptr()); } else { unsafe { ffi::PMIx_Endpoint_destruct(self.raw.as_mut_ptr()) }; } }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            { unsafe { ffi::PMIx_Endpoint_destruct(self.raw.as_mut_ptr()) }; }
+            self.constructed = false;
+        }
+    }
+}
+
 // PmixCpuset — safe wrapper for pmix_cpuset_t
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2474,6 +2554,44 @@ mod tests {
         assert_eq!(geometry.fabric(), 0);
         assert_eq!(geometry.ncoords(), 0);
         drop(geometry);
+    }
+
+    #[test]
+    fn test_endpoint_construct_and_accessors_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let endpoint = PmixEndpoint::new();
+        assert!(endpoint.uuid().is_none());
+        assert!(endpoint.osname().is_none());
+        assert!(endpoint.endpt().is_none());
+    }
+
+    #[test]
+    fn test_endpoint_non_null_accessors_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut endpoint = PmixEndpoint::test_new();
+        let uuid = CString::new("endpoint-uuid").unwrap();
+        let osname = CString::new("eth0").unwrap();
+        let bytes = [1_u8, 2, 3, 4];
+        unsafe {
+            let raw = endpoint.raw.assume_init_mut();
+            raw.uuid = uuid.as_ptr() as *mut _;
+            raw.osname = osname.as_ptr() as *mut _;
+            raw.endpt.bytes = bytes.as_ptr() as *mut _;
+            raw.endpt.size = bytes.len();
+        }
+        assert_eq!(endpoint.uuid(), Some("endpoint-uuid"));
+        assert_eq!(endpoint.osname(), Some("eth0"));
+        assert_eq!(endpoint.endpt(), Some(bytes.as_slice()));
+    }
+
+    #[test]
+    fn test_endpoint_test_new_drop_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let endpoint = PmixEndpoint::test_new();
+        assert!(endpoint.uuid().is_none());
+        assert!(endpoint.osname().is_none());
+        assert!(endpoint.endpt().is_none());
+        drop(endpoint);
     }
 
     #[test]

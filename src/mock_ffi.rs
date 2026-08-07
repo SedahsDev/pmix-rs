@@ -1711,6 +1711,17 @@ pub fn mock_geometry_destruct(_geometry: *mut crate::ffi::pmix_geometry_t) {
     // No-op in mock; the zeroed mock has no C-owned allocations.
 }
 
+/// Mock implementation of `PMIx_Endpoint_construct()`.
+pub fn mock_endpoint_construct(endpoint: *mut crate::ffi::pmix_endpoint_t) {
+    // SAFETY: callers provide valid writable storage for the C struct.
+    unsafe { std::ptr::write_bytes(endpoint, 0, 1) };
+}
+
+/// Mock implementation of `PMIx_Endpoint_destruct()`.
+pub fn mock_endpoint_destruct(_endpoint: *mut crate::ffi::pmix_endpoint_t) {
+    // No-op in mock; the zeroed mock has no C-owned allocations.
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock query/log FFI implementations
 // ─────────────────────────────────────────────────────────────────────────────
