@@ -732,6 +732,64 @@ impl Drop for PmixTopology {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PmixGeometry — safe wrapper for pmix_geometry_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A safe Rust wrapper around `pmix_geometry_t`.
+#[derive(Debug)]
+pub struct PmixGeometry {
+    raw: std::mem::MaybeUninit<ffi::pmix_geometry_t>,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixGeometry {
+    /// Construct an empty geometry object using PMIx.
+    pub fn new() -> Self {
+        let mut this = Self { raw: std::mem::MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData };
+        let raw_ptr = this.raw.as_mut_ptr();
+        // SAFETY: raw_ptr points to storage owned by this; PMIx initializes the complete object.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        { if mock_ffi::is_mock_enabled() { mock_ffi::mock_geometry_construct(raw_ptr); } else { unsafe { ffi::PMIx_Geometry_construct(raw_ptr) }; } }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        { unsafe { ffi::PMIx_Geometry_construct(raw_ptr) }; }
+        this.constructed = true;
+        this
+    }
+
+    /// Create an empty geometry object without calling into PMIx.
+    pub fn test_new() -> Self { Self { raw: std::mem::MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData } }
+
+    /// Return the fabric identifier.
+    pub fn fabric(&self) -> usize { unsafe { self.raw.assume_init_ref().fabric } }
+    /// Return the geometry UUID, if present and valid UTF-8.
+    pub fn uuid(&self) -> Option<&str> { self.c_string(|raw| raw.uuid) }
+    /// Return the operating-system device name, if present and valid UTF-8.
+    pub fn osname(&self) -> Option<&str> { self.c_string(|raw| raw.osname) }
+    /// Return the number of coordinate entries.
+    pub fn ncoords(&self) -> usize { unsafe { self.raw.assume_init_ref().ncoords } }
+    /// Return the raw coordinate array, when PMIx supplied one.
+    pub fn coordinates(&self) -> Option<&[ffi::pmix_coord_t]> {
+        unsafe { let raw = self.raw.assume_init_ref(); (!raw.coordinates.is_null()).then(|| std::slice::from_raw_parts(raw.coordinates, raw.ncoords)) }
+    }
+    fn c_string(&self, get: impl FnOnce(&ffi::pmix_geometry_t) -> *mut libc::c_char) -> Option<&str> {
+        unsafe { let ptr = get(self.raw.assume_init_ref()); (!ptr.is_null()).then(|| std::ffi::CStr::from_ptr(ptr).to_str().ok()).flatten() }
+    }
+}
+impl Default for PmixGeometry { fn default() -> Self { Self::new() } }
+impl Drop for PmixGeometry {
+    fn drop(&mut self) {
+        if self.constructed {
+            // SAFETY: the object was initialized by the matching constructor and is destroyed once.
+            #[cfg(any(test, feature = "mock_ffi"))]
+            { if mock_ffi::is_mock_enabled() { mock_ffi::mock_geometry_destruct(self.raw.as_mut_ptr()); } else { unsafe { ffi::PMIx_Geometry_destruct(self.raw.as_mut_ptr()) }; } }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            { unsafe { ffi::PMIx_Geometry_destruct(self.raw.as_mut_ptr()) }; }
+            self.constructed = false;
+        }
+    }
+}
+
 // PmixCpuset — safe wrapper for pmix_cpuset_t
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2319,6 +2377,26 @@ mod tests {
         let mut cpuset = PmixCpuset::new();
         let _ptr = cpuset.as_mut_ptr();
         // Should not panic — mock construct succeeded
+    }
+
+    #[test]
+    fn test_geometry_construct_and_accessors_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let geometry = PmixGeometry::new();
+        assert_eq!(geometry.fabric(), 0);
+        assert!(geometry.uuid().is_none());
+        assert!(geometry.osname().is_none());
+        assert_eq!(geometry.ncoords(), 0);
+        assert!(geometry.coordinates().is_none());
+    }
+
+    #[test]
+    fn test_geometry_test_new_drop_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let geometry = PmixGeometry::test_new();
+        assert_eq!(geometry.fabric(), 0);
+        assert_eq!(geometry.ncoords(), 0);
+        drop(geometry);
     }
 
     #[test]

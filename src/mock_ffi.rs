@@ -1700,6 +1700,17 @@ pub fn mock_cpuset_destruct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
     // No-op in mock
 }
 
+/// Mock implementation of `PMIx_Geometry_construct()`.
+pub fn mock_geometry_construct(geometry: *mut crate::ffi::pmix_geometry_t) {
+    // SAFETY: callers provide valid writable storage for the C struct.
+    unsafe { std::ptr::write_bytes(geometry, 0, 1) };
+}
+
+/// Mock implementation of `PMIx_Geometry_destruct()`.
+pub fn mock_geometry_destruct(_geometry: *mut crate::ffi::pmix_geometry_t) {
+    // No-op in mock; the zeroed mock has no C-owned allocations.
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock query/log FFI implementations
 // ─────────────────────────────────────────────────────────────────────────────
