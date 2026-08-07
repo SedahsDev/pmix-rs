@@ -3329,3 +3329,63 @@ pub unsafe fn mock_info_list_convert(
 ) -> i32 {
     get_mock_status("PMIx_Info_list_convert")
 }
+
+// PMIx_Argv_* mocks used by the safe argv wrappers.
+pub unsafe fn mock_argv_split(
+    _src: *const std::ffi::c_char,
+    _delimiter: std::ffi::c_int,
+) -> *mut *mut std::ffi::c_char {
+    unsafe { mock_argv_one() }
+}
+pub unsafe fn mock_argv_split_with_empty(
+    _src: *const std::ffi::c_char,
+    _delimiter: std::ffi::c_int,
+) -> *mut *mut std::ffi::c_char {
+    unsafe { mock_argv_one() }
+}
+pub unsafe fn mock_argv_split_inter(
+    _src: *const std::ffi::c_char,
+    _delimiter: std::ffi::c_int,
+    _include_empty: bool,
+) -> *mut *mut std::ffi::c_char {
+    unsafe { mock_argv_one() }
+}
+pub unsafe fn mock_argv_count(_argv: *mut *mut std::ffi::c_char) -> std::ffi::c_int {
+    0
+}
+pub unsafe fn mock_argv_free(_argv: *mut *mut std::ffi::c_char) {}
+pub unsafe fn mock_argv_join(
+    _argv: *mut *mut std::ffi::c_char,
+    _delimiter: std::ffi::c_int,
+) -> *mut std::ffi::c_char {
+    unsafe { libc::strdup(b"joined\0".as_ptr().cast()) }
+}
+pub unsafe fn mock_argv_copy(argv: *mut *mut std::ffi::c_char) -> *mut *mut std::ffi::c_char {
+    argv
+}
+pub unsafe fn mock_argv_append_nosize(
+    _argv: *mut *mut *mut std::ffi::c_char,
+    _arg: *const std::ffi::c_char,
+) -> crate::ffi::pmix_status_t {
+    0
+}
+pub unsafe fn mock_argv_append_unique_nosize(
+    _argv: *mut *mut *mut std::ffi::c_char,
+    _arg: *const std::ffi::c_char,
+) -> crate::ffi::pmix_status_t {
+    0
+}
+pub unsafe fn mock_argv_prepend_nosize(
+    _argv: *mut *mut *mut std::ffi::c_char,
+    _arg: *const std::ffi::c_char,
+) -> crate::ffi::pmix_status_t {
+    0
+}
+
+fn mock_argv_one() -> *mut *mut std::ffi::c_char {
+    let entry = b"a\0".as_ptr().cast_mut().cast();
+    let argv: Box<[*mut std::ffi::c_char; 2]> = Box::new([entry, std::ptr::null_mut()]);
+    Box::into_raw(argv).cast()
+}
+
+// END PMIx_Argv_* mocks
