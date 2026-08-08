@@ -274,7 +274,9 @@ unsafe fn complete_event_chain(
 /// bridge still calls `cbfunc` as a pass-through. During blocking registration,
 /// a matching provisional handler is used while its refid is being returned by
 /// PMIx. A delivery for a refid currently being deregistered is passed through
-/// rather than matched against a provisional registration.
+/// rather than matched against a provisional registration. The provisional
+/// match is only for the registration's matching event codes; a foreign refid
+/// must not be attributed to an unrelated default handler.
 ///
 /// User-handler panics are caught: unwinding across the C→Rust FFI boundary
 /// is undefined behaviour, and a panic that skips `cbfunc` would stall the
@@ -308,15 +310,29 @@ unsafe extern "C" fn notification_bridge(
         {
             return None;
         }
-        let pending = PENDING_REGISTRATIONS
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        pending
-            .iter()
-            .find(|registration| {
-                registration.codes.is_empty() || registration.codes.contains(&status)
-            })
-            .and_then(|registration| *registration.user_fn.as_ref())
+        let pending_fn = {
+            let pending = PENDING_REGISTRATIONS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            pending
+                .iter()
+                .find(|registration| {
+                    registration.codes.is_empty() || registration.codes.contains(&status)
+                })
+                .and_then(|registration| *registration.user_fn.as_ref())
+        };
+        pending_fn.or_else(|| {
+            // The re-key holds PENDING_REGISTRATIONS while inserting into the
+            // registry before popping. If the pending consult misses, that
+            // critical section may have completed between the first registry
+            // read and this consult, so re-read the registry. Each lock is
+            // scoped and released before the next, preserving no-ABBA order;
+            // this only runs on the registry-miss plus pending-miss path.
+            let registry = HANDLER_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+            registry
+                .get(&evhdlr_registration_id)
+                .and_then(|b| *b.as_ref())
+        })
     });
 
     if let Some(user_fn) = user_fn {
@@ -459,6 +475,7 @@ pub fn register_event_handler(
     evhdlr: NotificationFn,
     cbfunc: HandlerRegCbFn,
 ) -> Result<EventHandlerRef, PmixStatus> {
+    // Serialize blocking registrations so PENDING_REGISTRATIONS has one slot.
     let _registration_guard = BLOCKING_REGISTRATION_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -516,10 +533,11 @@ pub fn register_event_handler(
     if status.is_success() {
         let handler_ref = raw_status as EventHandlerRef;
         if evhdlr.is_some() {
-            // Insert before removing the provisional entry. The bridge checks
-            // HANDLER_REGISTRY before PENDING_REGISTRATIONS, so this ordering
-            // leaves no re-key gap. The registry and pending locks are never
-            // nested in the bridge, avoiding an ABBA cycle.
+            // Insert before removing the provisional entry. Together with the
+            // bridge's post-pending registry re-read, this ensures a completed
+            // re-key is observed even if the bridge's first registry read
+            // preceded this critical section. The registry and pending locks
+            // are never nested in the bridge, avoiding an ABBA cycle.
             let mut pending = PENDING_REGISTRATIONS
                 .lock()
                 .expect("mutex poisoned (events.rs)");
@@ -1118,6 +1136,8 @@ mod tests {
                 user_fn: Box::new(Some(handler)),
             });
         let chain = 0xF_u8;
+        // SAFETY: test invokes the bridge with null FFI pointers and a live
+        // stack chain token; the completion callback is valid for this call.
         unsafe {
             notification_bridge(
                 424252,
@@ -1147,6 +1167,15 @@ mod tests {
                 .expect("mutex poisoned (events.rs)")
                 .contains_key(&424252)
         );
+        // Leave a non-matching pending entry to force the post-pending
+        // registry re-read on this delivery; the re-keyed handler must run.
+        PENDING_REGISTRATIONS
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .push(PendingRegistration {
+                codes: vec![18],
+                user_fn: Box::new(Some(handler)),
+            });
         // SAFETY: test invokes the bridge with null FFI pointers and a live
         // stack chain token; the completion callback is valid for this call.
         unsafe {
@@ -1208,6 +1237,8 @@ mod tests {
             .lock()
             .expect("mutex poisoned (events.rs)")
             .insert(ref_id);
+        // SAFETY: test invokes the bridge with null FFI pointers; the
+        // completion callback is valid for this call.
         unsafe {
             notification_bridge(
                 ref_id,
