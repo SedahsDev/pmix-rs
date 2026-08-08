@@ -3174,6 +3174,17 @@ fn regattr_load_accepts_valid_and_rejects_nul() {
 }
 
 #[test]
+fn regattr_repeated_load_replaces_previous_contents() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let mut attr = PmixRegattr::new();
+    attr.load("first", "key", 0, "one").unwrap();
+    attr.load("second", "key", 1, "two").unwrap();
+    assert_eq!(attr.name(), Some("second"));
+    assert_eq!(attr.descriptions(), vec!["two"]);
+    assert_eq!(attr.type_(), PmixDataType::Bool);
+}
+
+#[test]
 fn regattr_array_is_raii_managed() {
     let _guard = crate::mock_ffi::MockGuard::new();
     let mut array = regattr_create(2).unwrap();
