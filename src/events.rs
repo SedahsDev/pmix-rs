@@ -1167,8 +1167,8 @@ mod tests {
                 .expect("mutex poisoned (events.rs)")
                 .contains_key(&424252)
         );
-        // Leave a non-matching pending entry to force the post-pending
-        // registry re-read on this delivery; the re-keyed handler must run.
+        // Leave a non-matching pending entry to verify that the re-keyed
+        // handler is delivered; the registry-miss path is covered elsewhere.
         PENDING_REGISTRATIONS
             .lock()
             .expect("mutex poisoned (events.rs)")
