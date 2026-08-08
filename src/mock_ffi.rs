@@ -3553,3 +3553,43 @@ pub unsafe fn mock_regattr_load(p: *mut crate::ffi::pmix_regattr_t, name: *const
     unsafe { (*p).name = libc::strdup(name); let len = libc::strlen(key).min((*p).string.len() - 1); std::ptr::copy_nonoverlapping(key, (*p).string.as_mut_ptr(), len); (*p).string[len] = 0; (*p).type_ = ty; let out = libc::calloc(2, std::mem::size_of::<*mut libc::c_char>()) as *mut *mut libc::c_char; if !out.is_null() { out.write(libc::strdup(description)); out.add(1).write(std::ptr::null_mut()); (*p).description = out; } }
 }
 pub unsafe fn mock_regattr_xfer(_dest: *mut crate::ffi::pmix_regattr_t, _src: *const crate::ffi::pmix_regattr_t) {}
+
+
+/// Mock implementation of `PMIx_Query_construct`.
+pub fn mock_query_construct(p: *mut crate::ffi::pmix_query_t) {
+    if is_mock_enabled() && !p.is_null() {
+        unsafe {
+            (*p).keys = std::ptr::null_mut();
+            (*p).qualifiers = std::ptr::null_mut();
+            (*p).nqual = 0;
+        }
+    }
+}
+
+/// Mock implementation of `PMIx_Query_destruct`.
+pub fn mock_query_destruct(p: *mut crate::ffi::pmix_query_t) {
+    if !p.is_null() {
+        unsafe {
+            if !(*p).qualifiers.is_null() {
+                libc::free((*p).qualifiers.cast());
+                (*p).qualifiers = std::ptr::null_mut();
+            }
+            (*p).nqual = 0;
+        }
+    }
+}
+
+/// Mock implementation of `PMIx_Query_release`.
+pub fn mock_query_release(_p: *mut crate::ffi::pmix_query_t) {}
+
+/// Mock implementation of `PMIx_Query_qualifiers_create`.
+pub fn mock_query_qualifiers_create(p: *mut crate::ffi::pmix_query_t, n: usize) {
+    if p.is_null() {
+        return;
+    }
+    unsafe {
+        (*p).qualifiers = libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_info_t>())
+            as *mut crate::ffi::pmix_info_t;
+        (*p).nqual = n;
+    }
+}

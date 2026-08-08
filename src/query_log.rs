@@ -1822,3 +1822,169 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixQueryConstructed — safe wrapper for stack-style query helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A query initialized with `PMIx_Query_construct`.
+///
+/// This is separate from [`PmixQuery`], whose heap allocation is created with
+/// `PMIx_Query_create` and is released by its existing `Drop` implementation.
+/// Call [`PmixQueryConstructed::destruct`] (or let `Drop` do so) for this stack
+/// pairing; [`PmixQueryConstructed::release`] is provided for the explicit
+/// heap-style release API and must not be mixed with `destruct`.
+pub struct PmixQueryConstructed {
+    handle: *mut ffi::pmix_query_t,
+    destructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixQueryConstructed {
+    /// Construct a zero-initialized query with `PMIx_Query_construct`.
+    pub fn construct() -> Self {
+        // SAFETY: allocation is converted to the matching `pmix_query_t` pointer
+        // and is freed by `destruct`/`release` while owned by this wrapper.
+        let handle = unsafe {
+            libc::calloc(1, std::mem::size_of::<ffi::pmix_query_t>())
+                as *mut ffi::pmix_query_t
+        };
+        if !handle.is_null() {
+            // SAFETY: `handle` is freshly calloc'd storage with the exact
+            // `pmix_query_t` layout, and remains owned by the returned wrapper.
+            crate::pmix_ffi_or_mock!(
+                mock = mock_ffi::mock_query_construct(handle),
+                real = unsafe { ffi::PMIx_Query_construct(handle) },
+            );
+        }
+        Self {
+            handle,
+            destructed: false,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
+    /// Return the underlying query pointer for advanced PMIx integrations.
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_query_t {
+        self.handle
+    }
+
+    /// Allocate `n` qualifier entries using `PMIx_Query_qualifiers_create`.
+    pub fn qualifiers_create(&mut self, n: usize) -> Result<(), PmixError> {
+        if self.handle.is_null() || self.destructed {
+            return Err(PmixError::ErrBadParam);
+        }
+        // `PMIx_Query_qualifiers_create` returns void, so allocation failure
+        // cannot be reported by this wrapper. Destructing and reconstructing
+        // first releases any qualifiers array left by an earlier call.
+        // SAFETY: `self.handle` is a live query allocated and initialized by
+        // `construct`; destruct resets its owned qualifiers before recreation.
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_query_destruct(self.handle),
+            real = unsafe { ffi::PMIx_Query_destruct(self.handle) },
+        );
+        // SAFETY: `self.handle` remains the wrapper-owned, valid query pointer;
+        // construct initializes its qualifiers array ownership for this call.
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_query_construct(self.handle),
+            real = unsafe { ffi::PMIx_Query_construct(self.handle) },
+        );
+        // SAFETY: the pointer is valid and initialized above; the C helper owns
+        // its qualifiers allocation and updates `qualifiers`/`nqual`.
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_query_qualifiers_create(self.handle, n),
+            real = unsafe { ffi::PMIx_Query_qualifiers_create(self.handle, n) },
+        );
+        Ok(())
+    }
+
+    /// Pair this object with `PMIx_Query_destruct`.
+    pub fn destruct(&mut self) {
+        if self.handle.is_null() || self.destructed {
+            return;
+        }
+        // SAFETY: `self.handle` came from calloc and is initialized as a PMIx
+        // query; `destructed` prevents this owned allocation from being freed twice.
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_query_destruct(self.handle),
+            real = unsafe { ffi::PMIx_Query_destruct(self.handle) },
+        );
+        // SAFETY: the query storage was allocated by libc::calloc in construct.
+        unsafe {
+            libc::free(self.handle.cast());
+        }
+        self.handle = ptr::null_mut();
+        self.destructed = true;
+    }
+
+    /// Explicitly invoke `PMIx_Query_release` on this constructed query.
+    pub fn release(&mut self) {
+        if self.handle.is_null() || self.destructed {
+            return;
+        }
+        // SAFETY: `self.handle` is the live query allocated by construct;
+        // release consumes it, and `destructed` prevents a second release.
+        crate::pmix_ffi_or_mock!(
+            mock = {
+                mock_ffi::mock_query_release(self.handle);
+                // The mock release does not own the calloc'd wrapper storage.
+                unsafe { libc::free(self.handle.cast()) };
+            },
+            real = unsafe { ffi::PMIx_Query_release(self.handle) },
+        );
+        self.handle = ptr::null_mut();
+        self.destructed = true;
+    }
+}
+
+impl Drop for PmixQueryConstructed {
+    fn drop(&mut self) {
+        self.destruct();
+    }
+}
+
+/// Construct a stack-style query with `PMIx_Query_construct`.
+pub fn query_construct() -> PmixQueryConstructed {
+    PmixQueryConstructed::construct()
+}
+
+/// Explicitly release a query initialized by [`query_construct`].
+pub fn query_release(query: &mut PmixQueryConstructed) {
+    query.release();
+}
+
+/// Explicitly destruct a query initialized by [`query_construct`].
+pub fn query_destruct(query: &mut PmixQueryConstructed) {
+    query.destruct();
+}
+
+#[cfg(test)]
+mod query_extras_tests {
+    use super::*;
+
+    #[test]
+    fn construct_destruct_pairing_is_idempotent() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut query = query_construct();
+        assert!(!query.as_mut_ptr().is_null());
+        query_destruct(&mut query);
+        query_destruct(&mut query);
+    }
+
+    #[test]
+    fn release_is_no_panic() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut query = query_construct();
+        query_release(&mut query);
+    }
+
+    #[test]
+    fn qualifiers_create_mock_path_is_successful() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut query = query_construct();
+        assert!(query.qualifiers_create(2).is_ok());
+        assert_eq!(unsafe { (*query.as_mut_ptr()).nqual }, 2);
+        assert!(query.qualifiers_create(3).is_ok());
+        assert_eq!(unsafe { (*query.as_mut_ptr()).nqual }, 3);
+    }
+}
