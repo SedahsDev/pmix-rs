@@ -69,6 +69,7 @@
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::security::PmixCredential;
+use crate::cbdata::Registry;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
 use std::ffi::{CStr, CString};
@@ -525,12 +526,9 @@ pub trait RegisterNspaceCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending register_nspace callbacks.
-type RegisterNspaceRegistry = std::collections::HashMap<usize, Box<dyn RegisterNspaceCallback>>;
-static REGISTER_NS_SPACE_REGISTRY: LazyLock<Mutex<RegisterNspaceRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static REGISTER_NS_SPACE_REGISTRY: LazyLock<Registry<Box<dyn RegisterNspaceCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing register_nspace request ID counter.
-static REGISTER_NS_SPACE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (register_nspace completion).
 ///
@@ -548,7 +546,7 @@ pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_statu
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -644,13 +642,9 @@ pub fn server_register_nspace(
     };
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = REGISTER_NS_SPACE_REGISTRY.next_req_id();
     {
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -690,7 +684,7 @@ pub fn server_register_nspace(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -740,12 +734,9 @@ pub trait DeregisterNspaceCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending deregister_nspace callbacks.
-type DeregisterNspaceRegistry = std::collections::HashMap<usize, Box<dyn DeregisterNspaceCallback>>;
-static DEREGISTER_NS_SPACE_REGISTRY: LazyLock<Mutex<DeregisterNspaceRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DEREGISTER_NS_SPACE_REGISTRY: LazyLock<Registry<Box<dyn DeregisterNspaceCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing deregister_nspace request ID counter.
-static DEREGISTER_NS_SPACE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (deregister_nspace completion).
 ///
@@ -763,7 +754,7 @@ pub(crate) extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_sta
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -849,13 +840,9 @@ pub fn server_deregister_nspace(nspace: &str, callback: Option<Box<dyn Deregiste
     match callback {
         Some(cb) => {
             // Non-blocking mode: register callback and pass bridge to FFI.
-            let req_id = {
-                let mut seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
-                *seq += 1;
-                *seq
-            };
+            let req_id = DEREGISTER_NS_SPACE_REGISTRY.next_req_id();
             {
-                let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+                let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock();
                 registry.insert(req_id, cb);
             }
 
@@ -903,12 +890,9 @@ pub trait RegisterClientCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending register_client callbacks.
-type RegisterClientRegistry = std::collections::HashMap<usize, Box<dyn RegisterClientCallback>>;
-static REGISTER_CLIENT_REGISTRY: LazyLock<Mutex<RegisterClientRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static REGISTER_CLIENT_REGISTRY: LazyLock<Registry<Box<dyn RegisterClientCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing register_client request ID counter.
-static REGISTER_CLIENT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (register_client completion).
 ///
@@ -926,7 +910,7 @@ pub(crate) extern "C" fn register_client_callback_bridge(status: ffi::pmix_statu
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1009,13 +993,9 @@ pub fn server_register_client(
     callback: Box<dyn RegisterClientCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = REGISTER_CLIENT_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = REGISTER_CLIENT_REGISTRY.next_req_id();
     {
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -1058,7 +1038,7 @@ pub fn server_register_client(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1077,12 +1057,9 @@ pub trait DeregisterClientCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending deregister_client callbacks.
-type DeregisterClientRegistry = std::collections::HashMap<usize, Box<dyn DeregisterClientCallback>>;
-static DEREGISTER_CLIENT_REGISTRY: LazyLock<Mutex<DeregisterClientRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DEREGISTER_CLIENT_REGISTRY: LazyLock<Registry<Box<dyn DeregisterClientCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing deregister_client request ID counter.
-static DEREGISTER_CLIENT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (deregister_client completion).
 ///
@@ -1100,7 +1077,7 @@ pub(crate) extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_sta
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_CLIENT_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1172,13 +1149,9 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
     match callback {
         Some(cb) => {
             // Non-blocking mode: register callback and pass bridge to FFI.
-            let req_id = {
-                let mut seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
-                *seq += 1;
-                *seq
-            };
+            let req_id = DEREGISTER_CLIENT_REGISTRY.next_req_id();
             {
-                let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+                let mut registry = DEREGISTER_CLIENT_REGISTRY.lock();
                 registry.insert(req_id, cb);
             }
 
@@ -1447,12 +1420,9 @@ pub trait DmodexRequestCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending dmodex_request callbacks.
-type DmodexRequestRegistry = std::collections::HashMap<usize, Box<dyn DmodexRequestCallback>>;
-static DMODEX_REQUEST_REGISTRY: LazyLock<Mutex<DmodexRequestRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DMODEX_REQUEST_REGISTRY: LazyLock<Registry<Box<dyn DmodexRequestCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing dmodex_request ID counter.
-static DMODEX_REQUEST_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_dmodex_response_fn_t` (dmodex_request completion).
 ///
@@ -1490,7 +1460,7 @@ pub(crate) extern "C" fn dmodex_request_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1579,19 +1549,15 @@ pub fn server_dmodex_request(
     callback: Box<dyn DmodexRequestCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = DMODEX_REQUEST_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = DMODEX_REQUEST_REGISTRY.next_req_id();
     {
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the proc's internal pmix_proc_t for FFI.
@@ -1618,7 +1584,7 @@ pub fn server_dmodex_request(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1651,12 +1617,9 @@ pub trait SetupApplicationCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending setup_application callbacks.
-type SetupApplicationRegistry = std::collections::HashMap<usize, Box<dyn SetupApplicationCallback>>;
-static SETUP_APPLICATION_REGISTRY: LazyLock<Mutex<SetupApplicationRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static SETUP_APPLICATION_REGISTRY: LazyLock<Registry<Box<dyn SetupApplicationCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing setup_application request ID counter.
-static SETUP_APPLICATION_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_setup_application_cbfunc_t`.
 ///
@@ -1752,7 +1715,7 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1852,19 +1815,15 @@ pub fn server_setup_application(
     };
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = SETUP_APPLICATION_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = SETUP_APPLICATION_REGISTRY.next_req_id();
     {
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get the info array pointer and length.
@@ -1905,7 +1864,7 @@ pub fn server_setup_application(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1926,13 +1885,9 @@ pub trait SetupLocalSupportCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending setup_local_support callbacks.
-type SetupLocalSupportRegistry =
-    std::collections::HashMap<usize, Box<dyn SetupLocalSupportCallback>>;
-static SETUP_LOCAL_SUPPORT_REGISTRY: LazyLock<Mutex<SetupLocalSupportRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static SETUP_LOCAL_SUPPORT_REGISTRY: LazyLock<Registry<Box<dyn SetupLocalSupportCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing setup_local_support request ID counter.
-static SETUP_LOCAL_SUPPORT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (setup_local_support completion).
 ///
@@ -1950,7 +1905,7 @@ pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_s
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -2043,19 +1998,15 @@ pub fn server_setup_local_support(
     };
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = SETUP_LOCAL_SUPPORT_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = SETUP_LOCAL_SUPPORT_REGISTRY.next_req_id();
     {
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare info parameters.
@@ -2094,7 +2045,7 @@ pub fn server_setup_local_support(
         // callback will NOT be called.
         if pmix_status.to_raw() == -157 {
             // PMIX_OPERATION_SUCCEEDED — callback not called, so remove it.
-            let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+            let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
             registry.remove(&req_id);
             // Return success — the operation completed immediately.
             Ok(())
@@ -2105,7 +2056,7 @@ pub fn server_setup_local_support(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -2133,12 +2084,9 @@ pub trait IOFDeliverCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending IOF_deliver callbacks.
-type IOFDeliverRegistry = std::collections::HashMap<usize, Box<dyn IOFDeliverCallback>>;
-static IOF_DELIVER_REGISTRY: LazyLock<Mutex<IOFDeliverRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static IOF_DELIVER_REGISTRY: LazyLock<Registry<Box<dyn IOFDeliverCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing IOF_deliver request ID counter.
-static IOF_DELIVER_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (IOF_deliver completion).
 ///
@@ -2157,7 +2105,7 @@ pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t,
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -2262,19 +2210,15 @@ pub fn server_iof_deliver(
     callback: Box<dyn IOFDeliverCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = IOF_DELIVER_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = IOF_DELIVER_REGISTRY.next_req_id();
     {
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the source proc's internal pmix_proc_t for FFI.
@@ -2327,7 +2271,7 @@ pub fn server_iof_deliver(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -2390,15 +2334,12 @@ impl Drop for CollectInventoryResults {
     }
 }
 
-/// Monotonically increasing collect-inventory request ID counter.
-static COLLECT_INVENTORY_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// Global registry of pending collect-inventory callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static COLLECT_INVENTORY_REGISTRY: LazyLock<
-    Mutex<std::collections::HashMap<usize, Box<dyn CollectInventoryCallback>>>,
-> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static COLLECT_INVENTORY_REGISTRY: LazyLock<Registry<Box<dyn CollectInventoryCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (collect inventory completion).
 ///
@@ -2424,7 +2365,7 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -2524,18 +2465,14 @@ pub fn server_collect_inventory(
     callback: Box<dyn CollectInventoryCallback>,
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = COLLECT_INVENTORY_REGISTRY.next_req_id();
 
-    // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1, so shifted value >= 4).
+    // SAFETY: encode_req_id casts the request ID directly; Registry never
+    // returns 0, so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     {
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -2574,7 +2511,7 @@ pub fn server_collect_inventory(
         Ok(())
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -2614,15 +2551,12 @@ pub trait DeliverInventoryCallback: Send + 'static {
     fn on_complete(self: Box<Self>, status: PmixStatus);
 }
 
-/// Monotonically increasing deliver-inventory request ID counter.
-static DELIVER_INVENTORY_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// Global registry of pending deliver-inventory callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static DELIVER_INVENTORY_REGISTRY: LazyLock<
-    Mutex<std::collections::HashMap<usize, Box<dyn DeliverInventoryCallback>>>,
-> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DELIVER_INVENTORY_REGISTRY: LazyLock<Registry<Box<dyn DeliverInventoryCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_op_cbfunc_t` (deliver inventory completion).
 ///
@@ -2640,7 +2574,7 @@ pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_sta
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -2730,18 +2664,14 @@ pub fn server_deliver_inventory(
 ) -> Result<(), PmixStatus> {
     // If a callback is provided, register it for async completion.
     if let Some(cb) = callback {
-        let req_id = {
-            let mut seq = DELIVER_INVENTORY_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = DELIVER_INVENTORY_REGISTRY.next_req_id();
 
-        // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-        // is never null (req_id starts at 1, so shifted value >= 4).
+        // SAFETY: encode_req_id casts the request ID directly; Registry never
+        // returns 0, so cbdata is never null.
         let cbdata = crate::cbdata::encode_req_id(req_id);
 
         {
-            let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+            let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
 
@@ -2791,7 +2721,7 @@ pub fn server_deliver_inventory(
             Ok(())
         } else {
             // Request was rejected — remove the callback so it doesn't leak.
-            let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+            let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
             registry.remove(&req_id);
             Err(pmix_status)
         }

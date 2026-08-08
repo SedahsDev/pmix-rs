@@ -314,19 +314,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── Registry and sequence ID tests ───────────────────────────────────────
 
-    #[test]
-    fn test_register_nspace_seq_is_accessible() {
-        let _seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
-    }
 
-    #[test]
-    fn test_deregister_nspace_seq_is_accessible() {
-        let _seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
-    }
+
+
 
     #[test]
     fn test_register_nspace_registry_is_empty() {
-        let registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let registry = REGISTER_NS_SPACE_REGISTRY.lock();
         assert!(
             registry.is_empty(),
             "Register nspace registry should be empty at test start"
@@ -335,7 +329,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_deregister_nspace_registry_is_empty() {
-        let registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let registry = DEREGISTER_NS_SPACE_REGISTRY.lock();
         assert!(
             registry.is_empty(),
             "Deregister nspace registry should be empty at test start"
@@ -385,7 +379,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: std::ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
@@ -559,41 +553,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── Registry and sequence counter tests ────────────────────────────────
 
-    #[test]
-    fn test_register_nspace_seq_increments() {
-        let mut seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
 
-    #[test]
-    fn test_deregister_nspace_seq_increments() {
-        let mut seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
 
-    #[test]
-    fn test_register_client_seq_increments() {
-        let mut seq = REGISTER_CLIENT_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
 
-    #[test]
-    fn test_deregister_client_seq_increments() {
-        let mut seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
+
+
+
+
 
     // ── RegisterNspaceRegistry: insert and remove ──────────────────────────
 
@@ -605,7 +571,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         }
         let req_id = 99999;
         {
-            let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+            let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestRegCb));
             assert!(registry.contains_key(&req_id));
             let removed = registry.remove(&req_id);
@@ -624,7 +590,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         }
         let req_id = 99998;
         {
-            let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+            let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestDeregCb));
             assert!(registry.contains_key(&req_id));
             let removed = registry.remove(&req_id);
@@ -643,7 +609,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         }
         let req_id = 99997;
         {
-            let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+            let mut registry = REGISTER_CLIENT_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestRegClientCb));
             assert!(registry.contains_key(&req_id));
             let removed = registry.remove(&req_id);
@@ -662,7 +628,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         }
         let req_id = 99996;
         {
-            let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+            let mut registry = DEREGISTER_CLIENT_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestDeregClientCb));
             assert!(registry.contains_key(&req_id));
             let removed = registry.remove(&req_id);
@@ -960,7 +926,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
@@ -1087,7 +1053,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert_eq!(results.len(), 0);
@@ -1099,7 +1065,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         let debug_str = format!("{:?}", results);
@@ -1113,7 +1079,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: 0x1 as *mut ffi::pmix_info_t, // dummy non-null
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
@@ -1126,7 +1092,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         drop(results); // should be a no-op
@@ -1134,25 +1100,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── CollectInventory seq & registry tests ──────────────────────────────
 
-    #[test]
-    fn test_collect_inventory_seq_is_accessible() {
-        // Verify the sequence counter is accessible.
-        let seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
-        assert!(*seq >= 0);
-    }
 
-    #[test]
-    fn test_collect_inventory_seq_increments() {
-        let mut seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
+
+
 
     #[test]
     fn test_collect_inventory_registry_is_empty() {
-        let registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let registry = COLLECT_INVENTORY_REGISTRY.lock();
         // The registry may not be empty if other tests left entries,
         // but it should be accessible.
         let _len = registry.len();
@@ -1505,29 +1459,21 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── Registry: register_client additional tests ─────────────────────────
 
-    #[test]
-    fn test_register_client_seq_is_accessible() {
-        let seq = REGISTER_CLIENT_SEQ.lock().unwrap();
-        assert!(*seq >= 0);
-    }
+
 
     #[test]
     fn test_register_client_registry_is_empty() {
-        let registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let registry = REGISTER_CLIENT_REGISTRY.lock();
         let _len = registry.len();
     }
 
     // ── Registry: deregister_client additional tests ───────────────────────
 
-    #[test]
-    fn test_deregister_client_seq_is_accessible() {
-        let seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
-        assert!(*seq >= 0);
-    }
+
 
     #[test]
     fn test_deregister_client_registry_is_empty() {
-        let registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let registry = DEREGISTER_CLIENT_REGISTRY.lock();
         let _len = registry.len();
     }
 
@@ -1576,7 +1522,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         boxed.on_complete(PmixStatus::from_raw(0), results);

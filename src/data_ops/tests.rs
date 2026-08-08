@@ -196,80 +196,40 @@ use super::*;
         assert_eq!(*received_count.lock().unwrap().as_ref().unwrap(), 2);
     }
 
-    // ─── Registry and sequence counter tests ────────────────────────────────
+    // ─── Registry request ID tests ───────────────────────────────────────────
 
     #[test]
-    fn test_publish_seq_increments() {
-        let seq1 = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_publish_request_ids_increase() {
+        let seq1 = PUBLISH_REGISTRY.next_req_id();
+        let seq2 = PUBLISH_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
     #[test]
-    fn test_get_seq_increments() {
-        let seq1 = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_get_request_ids_increase() {
+        let seq1 = GET_REGISTRY.next_req_id();
+        let seq2 = GET_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
     #[test]
-    fn test_unpublish_seq_increments() {
-        let seq1 = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_unpublish_request_ids_increase() {
+        let seq1 = UNPUBLISH_REGISTRY.next_req_id();
+        let seq2 = UNPUBLISH_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
     #[test]
-    fn test_fence_seq_increments() {
-        let seq1 = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_fence_request_ids_increase() {
+        let seq1 = FENCE_REGISTRY.next_req_id();
+        let seq2 = FENCE_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
     #[test]
-    fn test_lookup_seq_increments() {
-        let seq1 = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_lookup_request_ids_increase() {
+        let seq1 = LOOKUP_REGISTRY.next_req_id();
+        let seq2 = LOOKUP_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
@@ -283,7 +243,7 @@ use super::*;
         }
         let req_id = 999;
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyPublish));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -299,7 +259,7 @@ use super::*;
         }
         let req_id = 888;
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyGet));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -315,7 +275,7 @@ use super::*;
         }
         let req_id = 777;
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyLookupCb));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -331,7 +291,7 @@ use super::*;
         }
         let req_id = 666;
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyUnpublishCb));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -347,7 +307,7 @@ use super::*;
         }
         let req_id = 555;
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyFenceCb));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -1234,7 +1194,7 @@ use super::*;
 
         let req_id = 77777usize;
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1264,7 +1224,7 @@ use super::*;
 
         let req_id = 66666usize;
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1294,7 +1254,7 @@ use super::*;
 
         let req_id = 55555usize;
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1328,7 +1288,7 @@ use super::*;
 
         let req_id = 44444usize;
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1360,7 +1320,7 @@ use super::*;
 
         let req_id = 33333usize;
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1980,13 +1940,9 @@ use super::*;
         }
 
         // Register callback
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestPublishCb));
         }
 
@@ -2010,13 +1966,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestPublishCb));
         }
 
@@ -2050,13 +2002,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestGetCb));
         }
 
@@ -2096,13 +2044,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestGetCb2));
         }
 
@@ -2138,7 +2082,7 @@ use super::*;
 
         assert_eq!(result, Err(PmixStatus::Known(PmixError::ErrInit)));
         assert!(QUALIFIED_GETS.lock().unwrap().is_empty());
-        assert!(GET_REGISTRY.lock().unwrap().is_empty());
+        assert!(GET_REGISTRY.lock().is_empty());
     }
 
     /// A successful qualified callback uses mock value transfer and clears its marker.
@@ -2157,14 +2101,9 @@ use super::*;
         }
 
         let _guard = MockGuard::new();
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         GET_REGISTRY
             .lock()
-            .unwrap()
             .insert(req_id, Box::new(QualifiedGet));
         QUALIFIED_GETS.lock().unwrap().insert(req_id);
 
@@ -2198,13 +2137,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestLookupCb));
         }
 
@@ -2229,13 +2164,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestLookupCb2));
         }
 
@@ -2260,13 +2191,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestFenceCb));
         }
 
@@ -2289,13 +2216,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestFenceCb2));
         }
 
@@ -2320,13 +2243,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestUnpublishCb));
         }
 
@@ -2540,13 +2459,9 @@ use super::*;
         }
 
         // Register and immediately remove
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyCb));
             assert_eq!(registry.len(), 1);
         }
@@ -2556,7 +2471,7 @@ use super::*;
             publish_callback_bridge(PMIX_SUCCESS, cbdata);
         }
         // Registry should be empty now
-        let registry = PUBLISH_REGISTRY.lock().unwrap();
+        let registry = PUBLISH_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2568,13 +2483,9 @@ use super::*;
             fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyGetCb));
         }
 
@@ -2583,7 +2494,7 @@ use super::*;
             get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), cbdata);
         }
 
-        let registry = GET_REGISTRY.lock().unwrap();
+        let registry = GET_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2595,13 +2506,9 @@ use super::*;
             fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyLookupCb));
         }
 
@@ -2610,7 +2517,7 @@ use super::*;
             lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 0, cbdata);
         }
 
-        let registry = LOOKUP_REGISTRY.lock().unwrap();
+        let registry = LOOKUP_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2622,13 +2529,9 @@ use super::*;
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyFenceCb));
         }
 
@@ -2637,7 +2540,7 @@ use super::*;
             fence_callback_bridge(PMIX_SUCCESS, cbdata);
         }
 
-        let registry = FENCE_REGISTRY.lock().unwrap();
+        let registry = FENCE_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2649,13 +2552,9 @@ use super::*;
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyUnpublishCb));
         }
 
@@ -2664,7 +2563,7 @@ use super::*;
             unpublish_callback_bridge(PMIX_SUCCESS, cbdata);
         }
 
-        let registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        let registry = UNPUBLISH_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2816,13 +2715,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(CaptureCb));
         }
 
@@ -2851,13 +2746,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(StringValueCb));
         }
 
@@ -2985,13 +2876,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(TimeoutPublishCb));
         }
 
@@ -3013,13 +2900,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(NotFoundPublishCb));
         }
 
@@ -3045,13 +2928,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(ErrorGetCb));
         }
 
@@ -3074,13 +2953,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(TimeoutGetCb));
         }
 
@@ -3136,13 +3011,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(InitErrorGetCb));
         }
 
@@ -3168,13 +3039,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(DataLookupCb));
         }
 
@@ -3196,13 +3063,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(TimeoutLookupCb));
         }
 
@@ -3252,13 +3115,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(InitErrorLookupCb));
         }
 
@@ -3294,13 +3153,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(UnpubNotFoundCb));
         }
 
@@ -3322,13 +3177,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(UnpubTimeoutCb));
         }
 
@@ -3374,13 +3225,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(FenceNotFoundCb));
         }
 
@@ -3800,13 +3647,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(UnpubInitCb));
         }
 
@@ -3828,13 +3671,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(FenceDupCb));
         }
 
@@ -3856,13 +3695,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(GetDupCb));
         }
 
@@ -3884,13 +3719,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(LookupInitCb2));
         }
 
@@ -3963,13 +3794,9 @@ use super::*;
         let handles: Vec<_> = vec![
             // Thread 1: publish callback
             thread::spawn(|| {
-                let req_id = {
-                    let mut seq = PUBLISH_SEQ.lock().unwrap();
-                    *seq += 1;
-                    *seq
-                };
+                let req_id = PUBLISH_REGISTRY.next_req_id();
                 {
-                    let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+                    let mut registry = PUBLISH_REGISTRY.lock();
                     registry.insert(req_id, Box::new(ConcPubCb));
                 }
                 let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -3977,13 +3804,9 @@ use super::*;
             }),
             // Thread 2: get callback
             thread::spawn(|| {
-                let req_id = {
-                    let mut seq = GET_SEQ.lock().unwrap();
-                    *seq += 1;
-                    *seq
-                };
+                let req_id = GET_REGISTRY.next_req_id();
                 {
-                    let mut registry = GET_REGISTRY.lock().unwrap();
+                    let mut registry = GET_REGISTRY.lock();
                     registry.insert(req_id, Box::new(ConcGetCb));
                 }
                 let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -4114,13 +3937,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(FencePartialCb));
         }
 
@@ -4142,13 +3961,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(LookupPartialCb));
         }
 
@@ -4170,13 +3985,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(GetPartialCb));
         }
 
@@ -4198,13 +4009,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(PubPartialCb));
         }
 

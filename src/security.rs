@@ -34,6 +34,7 @@ use std::os::raw::{c_uchar, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
+use crate::cbdata::Registry;
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
@@ -340,12 +341,7 @@ impl CredentialResults {
 }
 
 /// Global registry mapping request IDs to pending credential callbacks.
-type CredentialRegistry = std::collections::HashMap<usize, Box<dyn CredentialCallback>>;
-static CREDENTIAL_REGISTRY: LazyLock<Mutex<CredentialRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
-/// Monotonically increasing credential request ID counter.
-static CREDENTIAL_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static CREDENTIAL_REGISTRY: LazyLock<Registry<Box<dyn CredentialCallback>>> = LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_credential_cbfunc_t`.
 ///
@@ -392,7 +388,7 @@ extern "C" fn credential_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = CREDENTIAL_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = CREDENTIAL_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -483,15 +479,7 @@ pub fn get_credential_nb(
     callback: Box<dyn CredentialCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = CREDENTIAL_SEQ.lock().expect("mutex poisoned (security.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = CREDENTIAL_REGISTRY.lock().expect("mutex poisoned (security.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = CREDENTIAL_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -522,7 +510,7 @@ pub fn get_credential_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = CREDENTIAL_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = CREDENTIAL_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -682,9 +670,7 @@ pub trait ValidationCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending validation callbacks.
-type ValidationRegistry = std::collections::HashMap<usize, Box<dyn ValidationCallback>>;
-static VALIDATION_REGISTRY: LazyLock<Mutex<ValidationRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static VALIDATION_REGISTRY: LazyLock<Registry<Box<dyn ValidationCallback>>> = LazyLock::new(Registry::new);
 
 /// Map from request ID to the C-allocated credential pointer for async validation.
 /// We store as usize to avoid Send/Sync issues with raw pointers in a shared HashMap.
@@ -692,8 +678,6 @@ type ValidationCredMap = std::collections::HashMap<usize, usize>;
 static VALIDATION_CRED_MAP: LazyLock<Mutex<ValidationCredMap>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
-/// Monotonically increasing validation request ID counter.
-static VALIDATION_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_validation_cbfunc_t`.
 ///
@@ -726,7 +710,7 @@ extern "C" fn validation_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = VALIDATION_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = VALIDATION_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -805,11 +789,7 @@ pub fn validate_credential_nb(
     callback: Box<dyn ValidationCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = VALIDATION_SEQ.lock().expect("mutex poisoned (security.rs)");
-        *seq += 1;
-        *seq
-    };
+    let req_id = VALIDATION_REGISTRY.next_req_id();
 
     // Create a C pmix_byte_object_t for the credential.
     // It needs to stay alive until the callback fires, so we store it
@@ -819,10 +799,7 @@ pub fn validate_credential_nb(
         let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
         cred_map.insert(req_id, cred_c as usize);
     }
-    {
-        let mut registry = VALIDATION_REGISTRY.lock().expect("mutex poisoned (security.rs)");
-        registry.insert(req_id, callback);
-    }
+    VALIDATION_REGISTRY.lock().insert(req_id, callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -853,7 +830,7 @@ pub fn validate_credential_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback and free the C credential.
-        let mut registry = VALIDATION_REGISTRY.lock().expect("mutex poisoned (security.rs)");
+        let mut registry = VALIDATION_REGISTRY.lock();
         registry.remove(&req_id);
         let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
         if let Some(cred_ptr) = cred_map.remove(&req_id) {
@@ -1083,33 +1060,18 @@ mod tests {
         assert!(std::mem::size_of_val(&cb) > 0);
     }
 
-    // ── Registry and sequence counters ─────────────────────────────────────
+    // ── Registry tests ─────────────────────────────────────────────────────
 
-    #[test]
-    fn test_credential_seq_counter() {
-        let mut seq = CREDENTIAL_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        assert_eq!(*seq, before + 1);
-    }
-
-    #[test]
-    fn test_validation_seq_counter() {
-        let mut seq = VALIDATION_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        assert_eq!(*seq, before + 1);
-    }
 
     #[test]
     fn test_credential_registry_is_accessible() {
-        let registry = CREDENTIAL_REGISTRY.lock().unwrap();
+        let registry = CREDENTIAL_REGISTRY.lock();
         assert!(registry.is_empty());
     }
 
     #[test]
     fn test_validation_registry_is_accessible() {
-        let registry = VALIDATION_REGISTRY.lock().unwrap();
+        let registry = VALIDATION_REGISTRY.lock();
         assert!(registry.is_empty());
     }
 
@@ -1508,7 +1470,7 @@ mod tests {
             }
         }
         {
-            let mut registry = CREDENTIAL_REGISTRY.lock().unwrap();
+            let mut registry = CREDENTIAL_REGISTRY.lock();
             registry.insert(99999, Box::new(TestCb));
             assert_eq!(registry.len(), 1);
             registry.remove(&99999);
@@ -1524,7 +1486,7 @@ mod tests {
             fn on_complete(self: Box<Self>, _status: PmixStatus, _results: ValidationResults) {}
         }
         {
-            let mut registry = VALIDATION_REGISTRY.lock().unwrap();
+            let mut registry = VALIDATION_REGISTRY.lock();
             registry.insert(99998, Box::new(TestCb));
             assert_eq!(registry.len(), 1);
             registry.remove(&99998);
@@ -1679,7 +1641,7 @@ mod tests {
         // Register callback
         let req_id = 77777usize;
         {
-            let mut registry = CREDENTIAL_REGISTRY.lock().unwrap();
+            let mut registry = CREDENTIAL_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestCredCb));
         }
 
@@ -1739,7 +1701,7 @@ mod tests {
 
         let req_id = 66666usize;
         {
-            let mut registry = VALIDATION_REGISTRY.lock().unwrap();
+            let mut registry = VALIDATION_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestValCb));
         }
 

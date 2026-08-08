@@ -12,6 +12,7 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
+use crate::cbdata::Registry;
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, free_value};
@@ -81,12 +82,9 @@ pub trait PublishCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending publish callbacks.
-type PublishRegistry = std::collections::HashMap<usize, Box<dyn PublishCallback>>;
-static PUBLISH_REGISTRY: LazyLock<Mutex<PublishRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+type PublishRegistry = Registry<Box<dyn PublishCallback>>;
+static PUBLISH_REGISTRY: LazyLock<PublishRegistry> = LazyLock::new(PublishRegistry::new);
 
-/// Monotonically increasing publish request ID counter.
-static PUBLISH_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (publish completion).
 ///
@@ -104,7 +102,7 @@ extern "C" fn publish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = PUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = PUBLISH_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -143,19 +141,9 @@ extern "C" fn publish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c
 /// `  pmix_op_cbfunc_t cbfunc, void *cbdata)`
 pub fn publish_nb(info: &Info, callback: Box<dyn PublishCallback>) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = PUBLISH_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = PUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = PUBLISH_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is not null and
-    // remains alignable (though PMIx treats it as opaque c_void).
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare info parameters.
@@ -192,7 +180,7 @@ pub fn publish_nb(info: &Info, callback: Box<dyn PublishCallback>) -> Result<(),
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = PUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = PUBLISH_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -216,14 +204,11 @@ pub trait GetValueCallback: Send {
 ///
 /// `PMIx_Get_nb` stores only a raw `*mut c_void` as user data. Our bridge
 /// function uses this pointer to recover the Rust closure from the registry.
-type GetRegistry = std::collections::HashMap<usize, Box<dyn GetValueCallback>>;
-static GET_REGISTRY: LazyLock<Mutex<GetRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+type GetRegistry = Registry<Box<dyn GetValueCallback>>;
+static GET_REGISTRY: LazyLock<GetRegistry> = LazyLock::new(GetRegistry::new);
 static QUALIFIED_GETS: LazyLock<Mutex<std::collections::HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
 
-/// Monotonically increasing request ID counter.
-static GET_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_value_cbfunc_t`.
 ///
@@ -247,7 +232,7 @@ extern "C" fn get_value_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = GET_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -331,19 +316,9 @@ pub fn get_nb(
     callback: Box<dyn GetValueCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = GET_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = GET_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is not null and
-    // remains alignable (though PMIx treats it as opaque c_void).
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare key and info parameters.
@@ -351,7 +326,7 @@ pub fn get_nb(
         Ok(c) => c,
         Err(_) => {
             // Key contains NUL — remove callback and return error.
-            let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+            let mut registry = GET_REGISTRY.lock();
             registry.remove(&req_id);
             return Err(PmixStatus::Known(PmixError::Error));
         }
@@ -424,7 +399,7 @@ pub fn get_nb(
             .lock()
             .expect("mutex poisoned (data_ops.rs)")
             .remove(&req_id);
-        let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = GET_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -725,12 +700,9 @@ pub trait LookupCallback: Send {
 }
 
 /// Global registry for pending lookup_nb callbacks.
-type LookupRegistry = std::collections::HashMap<usize, Box<dyn LookupCallback>>;
-static LOOKUP_REGISTRY: LazyLock<Mutex<LookupRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+type LookupRegistry = Registry<Box<dyn LookupCallback>>;
+static LOOKUP_REGISTRY: LazyLock<LookupRegistry> = LazyLock::new(LookupRegistry::new);
 
-/// Monotonically increasing lookup request ID counter.
-static LOOKUP_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_lookup_cbfunc_t`.
 ///
@@ -752,7 +724,7 @@ extern "C" fn lookup_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = LOOKUP_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = LOOKUP_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -864,15 +836,7 @@ pub fn lookup_nb(
     }
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = LOOKUP_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = LOOKUP_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = LOOKUP_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -888,7 +852,7 @@ pub fn lookup_nb(
             }
             Err(_) => {
                 // Key contains NUL — clean up and return error.
-                let mut registry = LOOKUP_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+                let mut registry = LOOKUP_REGISTRY.lock();
                 registry.remove(&req_id);
                 return Err(PmixStatus::Known(PmixError::Error));
             }
@@ -940,7 +904,7 @@ pub fn lookup_nb(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = LOOKUP_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = LOOKUP_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -959,12 +923,9 @@ pub trait UnpublishCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending unpublish callbacks.
-type UnpublishRegistry = std::collections::HashMap<usize, Box<dyn UnpublishCallback>>;
-static UNPUBLISH_REGISTRY: LazyLock<Mutex<UnpublishRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+type UnpublishRegistry = Registry<Box<dyn UnpublishCallback>>;
+static UNPUBLISH_REGISTRY: LazyLock<UnpublishRegistry> = LazyLock::new(UnpublishRegistry::new);
 
-/// Monotonically increasing unpublish request ID counter.
-static UNPUBLISH_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (unpublish completion).
 ///
@@ -982,7 +943,7 @@ extern "C" fn unpublish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = UNPUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = UNPUBLISH_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1121,15 +1082,7 @@ pub fn unpublish_nb(
     callback: Box<dyn UnpublishCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = UNPUBLISH_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = UNPUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = UNPUBLISH_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1149,7 +1102,7 @@ pub fn unpublish_nb(
                     }
                     Err(_) => {
                         // Key contains NUL — clean up and return error.
-                        let mut registry = UNPUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+                        let mut registry = UNPUBLISH_REGISTRY.lock();
                         registry.remove(&req_id);
                         return Err(PmixStatus::Known(PmixError::Error));
                     }
@@ -1210,7 +1163,7 @@ pub fn unpublish_nb(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = UNPUBLISH_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = UNPUBLISH_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1304,12 +1257,9 @@ pub trait FenceCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending fence callbacks.
-type FenceRegistry = std::collections::HashMap<usize, Box<dyn FenceCallback>>;
-static FENCE_REGISTRY: LazyLock<Mutex<FenceRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+type FenceRegistry = Registry<Box<dyn FenceCallback>>;
+static FENCE_REGISTRY: LazyLock<FenceRegistry> = LazyLock::new(FenceRegistry::new);
 
-/// Monotonically increasing fence request ID counter.
-static FENCE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (fence completion).
 ///
@@ -1327,7 +1277,7 @@ extern "C" fn fence_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_v
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = FENCE_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = FENCE_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1391,19 +1341,9 @@ pub fn fence_nb(
     callback: Box<dyn FenceCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = FENCE_SEQ.lock().expect("mutex poisoned (data_ops.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = FENCE_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = FENCE_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is not null and
-    // remains alignable (though PMIx treats it as opaque c_void).
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Keep raw_procs alive for the full FFI call (do not drop at end of branch).
@@ -1457,7 +1397,7 @@ pub fn fence_nb(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = FENCE_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
+        let mut registry = FENCE_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }

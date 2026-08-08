@@ -1,6 +1,7 @@
 //! Server submodule: pset
 
 use super::*;
+use crate::cbdata::Registry;
 use crate::threading::invoke_user_callback;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
@@ -251,13 +252,9 @@ pub trait RegisterResourcesCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending register_resources callbacks.
-type RegisterResourcesRegistry =
-    std::collections::HashMap<usize, Box<dyn RegisterResourcesCallback>>;
-static REGISTER_RESOURCES_REGISTRY: LazyLock<Mutex<RegisterResourcesRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static REGISTER_RESOURCES_REGISTRY: LazyLock<Registry<Box<dyn RegisterResourcesCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing register_resources request ID counter.
-static REGISTER_RESOURCES_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (register_resources completion).
 ///
@@ -275,7 +272,7 @@ pub(crate) extern "C" fn register_resources_callback_bridge(status: ffi::pmix_st
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -349,13 +346,9 @@ pub fn server_register_resources(
     callback: Box<dyn RegisterResourcesCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = REGISTER_RESOURCES_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = REGISTER_RESOURCES_REGISTRY.next_req_id();
     {
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -432,7 +425,7 @@ pub fn server_register_resources(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -451,13 +444,9 @@ pub trait DeregisterResourcesCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending deregister_resources callbacks.
-type DeregisterResourcesRegistry =
-    std::collections::HashMap<usize, Box<dyn DeregisterResourcesCallback>>;
-static DEREGISTER_RESOURCES_REGISTRY: LazyLock<Mutex<DeregisterResourcesRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DEREGISTER_RESOURCES_REGISTRY: LazyLock<Registry<Box<dyn DeregisterResourcesCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing deregister_resources request ID counter.
-static DEREGISTER_RESOURCES_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (deregister_resources completion).
 ///
@@ -478,7 +467,7 @@ pub(crate) extern "C" fn deregister_resources_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -552,13 +541,9 @@ pub fn server_deregister_resources(
     callback: Box<dyn DeregisterResourcesCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = DEREGISTER_RESOURCES_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = DEREGISTER_RESOURCES_REGISTRY.next_req_id();
     {
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -635,7 +620,7 @@ pub fn server_deregister_resources(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }

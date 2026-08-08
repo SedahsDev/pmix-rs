@@ -41,6 +41,7 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::ffi;
+use crate::cbdata::Registry;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
 
@@ -393,12 +394,7 @@ pub trait QueryCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending query callbacks.
-type QueryRegistry = std::collections::HashMap<usize, Box<dyn QueryCallback>>;
-static QUERY_REGISTRY: LazyLock<Mutex<QueryRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
-/// Monotonically increasing query request ID counter.
-static QUERY_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static QUERY_REGISTRY: LazyLock<Registry<Box<dyn QueryCallback>>> = LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (query completion).
 ///
@@ -426,7 +422,7 @@ extern "C" fn query_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = QUERY_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -488,15 +484,7 @@ pub fn query_info_nb(
     }
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = QUERY_SEQ.lock().expect("mutex poisoned (query_log.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = QUERY_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -529,7 +517,7 @@ pub fn query_info_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = QUERY_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -637,12 +625,7 @@ pub trait LogCallback: Send {
 }
 
 /// Global registry mapping log request IDs to pending callbacks.
-type LogRegistry = std::collections::HashMap<usize, Box<dyn LogCallback>>;
-static LOG_REGISTRY: LazyLock<Mutex<LogRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
-/// Monotonically increasing log request ID counter.
-static LOG_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static LOG_REGISTRY: LazyLock<Registry<Box<dyn LogCallback>>> = LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_op_cbfunc_t` (log completion).
 ///
@@ -659,7 +642,7 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = LOG_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -700,15 +683,7 @@ pub fn log_data_nb(
     let ndirs = directives.len();
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = LOG_SEQ.lock().expect("mutex poisoned (query_log.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = LOG_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -776,7 +751,7 @@ pub fn log_data_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = LOG_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1072,10 +1047,11 @@ mod tests {
                 self.called.store(true, std::sync::atomic::Ordering::SeqCst);
             }
         }
-        // Record registry size before our call
-        let size_before = {
-            let registry = QUERY_REGISTRY.lock().unwrap();
-            registry.len()
+        // Record registry IDs before our call so cleanup can remove the exact
+        // ID inserted by query_info_nb rather than advancing the sequence.
+        let ids_before: std::collections::HashSet<usize> = {
+            let registry = QUERY_REGISTRY.lock();
+            registry.keys().copied().collect()
         };
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
         let cb = Box::new(CountingCallback {
@@ -1086,18 +1062,21 @@ mod tests {
         // If Ok, the callback was NOT removed from registry (no PMIx server to
         // invoke the bridge callback). Clean it up ourselves.
         if result.is_ok() {
-            let req_id = {
-                let seq = QUERY_SEQ.lock().unwrap();
-                *seq
-            };
-            let mut registry = QUERY_REGISTRY.lock().unwrap();
-            registry.remove(&req_id);
+            let mut registry = QUERY_REGISTRY.lock();
+            let req_id = registry
+                .keys()
+                .find(|id| !ids_before.contains(id))
+                .copied();
+            if let Some(req_id) = req_id {
+                registry.remove(&req_id);
+            }
         }
         // The registry should be back to its pre-call size — our entry was removed.
         let size_after = {
-            let registry = QUERY_REGISTRY.lock().unwrap();
+            let registry = QUERY_REGISTRY.lock();
             registry.len()
         };
+        let size_before = ids_before.len();
         assert_eq!(
             size_after, size_before,
             "Registry should have same size after NB query (entry was cleaned up)"
@@ -1118,22 +1097,6 @@ mod tests {
         let req_id: usize = 1;
         let cbdata = crate::cbdata::encode_req_id(req_id);
         assert!(!cbdata.is_null());
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // QUERY_SEQ counter tests
-    // ─────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_query_seq_monotonic() {
-        let seq1 = QUERY_SEQ.lock().unwrap();
-        let val1 = *seq1;
-        drop(seq1);
-        let mut seq2 = QUERY_SEQ.lock().unwrap();
-        *seq2 += 1;
-        let val2 = *seq2;
-        drop(seq2);
-        assert!(val2 > val1);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1213,14 +1176,14 @@ mod tests {
         }
         // Record registry size before to detect our entry post-call
         let size_before = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         let result = log_data_nb(&[], &[], Box::new(LogNbDummy));
         assert!(result.is_err());
         // Registry should be back to pre-call size — our entry was cleaned up.
         let size_after = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         assert_eq!(
@@ -1242,7 +1205,7 @@ mod tests {
             }
         }
         let size_before = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         let info = crate::info_with_string_key("test.key", "test.value");
@@ -1252,7 +1215,7 @@ mod tests {
         let result = log_data_nb(&[info], &[], cb);
         assert!(result.is_err());
         let size_after = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         assert_eq!(
@@ -1278,7 +1241,7 @@ mod tests {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
         let size_before = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         for _ in 0..5 {
@@ -1286,29 +1249,13 @@ mod tests {
             let _ = log_data_nb(&[info], &[], Box::new(LogDummy));
         }
         let size_after = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         assert_eq!(
             size_after, size_before,
             "Registry size unchanged after multiple failed NB logs"
         );
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // LOG_SEQ counter tests
-    // ─────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_log_seq_monotonic() {
-        let seq1 = LOG_SEQ.lock().unwrap();
-        let val1 = *seq1;
-        drop(seq1);
-        let mut seq2 = LOG_SEQ.lock().unwrap();
-        *seq2 += 1;
-        let val2 = *seq2;
-        drop(seq2);
-        assert!(val2 > val1);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1485,17 +1432,17 @@ mod tests {
         for i in 0..20 {
             let key = base + i;
             {
-                let mut registry = QUERY_REGISTRY.lock().unwrap();
+                let mut registry = QUERY_REGISTRY.lock();
                 registry.insert(key, Box::new(DummyQCb));
             }
             {
-                let mut registry = QUERY_REGISTRY.lock().unwrap();
+                let mut registry = QUERY_REGISTRY.lock();
                 registry.remove(&key);
             }
         }
         // Verify our keys are gone (don't assert is_empty — other tests may have entries)
         {
-            let registry = QUERY_REGISTRY.lock().unwrap();
+            let registry = QUERY_REGISTRY.lock();
             for i in 0..20 {
                 assert!(
                     registry.get(&(base + i)).is_none(),
@@ -1517,17 +1464,17 @@ mod tests {
         for i in 0..20 {
             let key = base + i;
             {
-                let mut registry = LOG_REGISTRY.lock().unwrap();
+                let mut registry = LOG_REGISTRY.lock();
                 registry.insert(key, Box::new(DummyLCb));
             }
             {
-                let mut registry = LOG_REGISTRY.lock().unwrap();
+                let mut registry = LOG_REGISTRY.lock();
                 registry.remove(&key);
             }
         }
         // Verify our keys are gone (don't assert is_empty — other tests may have entries)
         {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             for i in 0..20 {
                 assert!(
                     registry.get(&(base + i)).is_none(),
@@ -1738,16 +1685,7 @@ mod tests {
             }
         }
 
-        let req_id = {
-            let mut seq = QUERY_SEQ.lock().expect("mutex poisoned");
-            *seq += 1;
-            *seq
-        };
-
-        {
-            let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned");
-            registry.insert(req_id, Box::new(BridgeTestCallback { called: called_clone }));
-        }
+        let req_id = QUERY_REGISTRY.insert_next(Box::new(BridgeTestCallback { called: called_clone }));
 
         // Simulate the callback being invoked
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1782,16 +1720,7 @@ mod tests {
             }
         }
 
-        let req_id = {
-            let mut seq = LOG_SEQ.lock().expect("mutex poisoned");
-            *seq += 1;
-            *seq
-        };
-
-        {
-            let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned");
-            registry.insert(req_id, Box::new(BridgeLogTestCallback { called: called_clone }));
-        }
+        let req_id = LOG_REGISTRY.insert_next(Box::new(BridgeLogTestCallback { called: called_clone }));
 
         let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {

@@ -42,15 +42,15 @@
 //! #define PMIx_Heartbeat()  // sends a heartbeat via PMIx_Process_monitor_nb
 //! ```
 
-use std::collections::HashMap;
+
 use std::ffi::CString;
 use std::os::raw::c_void;
 use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 
 use crate::ffi;
 use crate::threading::invoke_user_callback;
-use crate::cbdata::{decode_req_id_u64, encode_req_id_u64};
+use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::{Info, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,10 +128,7 @@ pub trait MonitorCallback: Send {
     fn on_complete(&mut self, status: PmixStatus, results: Option<MonitorResults>);
 }
 
-type MonitorRegistry = Mutex<HashMap<u64, Box<dyn MonitorCallback>>>;
-static MONITOR_REGISTRY: LazyLock<MonitorRegistry> = LazyLock::new(Mutex::default);
-
-static MONITOR_SEQ: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
+static MONITOR_REGISTRY: LazyLock<Registry<Box<dyn MonitorCallback>>> = LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (monitor completion).
 ///
@@ -147,10 +144,10 @@ unsafe extern "C" fn monitor_callback_bridge(
     _release_cbdata: *mut c_void,
 ) {
     // Decode the request ID from the cbdata pointer.
-    let req_id = decode_req_id_u64(cbdata);
+    let req_id = decode_req_id(cbdata);
 
     // Remove the callback from the registry — it is consumed exactly once.
-    let mut registry = MONITOR_REGISTRY.lock().unwrap();
+    let mut registry = MONITOR_REGISTRY.lock();
     let callback = registry.remove(&req_id);
     drop(registry);
 
@@ -315,18 +312,10 @@ pub fn process_monitor_nb(
     callback: Box<dyn MonitorCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = *MONITOR_SEQ.lock().unwrap();
-        seq += 1;
-        seq
-    };
-    {
-        let mut registry = MONITOR_REGISTRY.lock().unwrap();
-        registry.insert(req_id, callback);
-    }
+    let req_id = MONITOR_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = encode_req_id_u64(req_id);
+    let cbdata = encode_req_id(req_id);
 
     // Build directive pointer array.
     let (dirs_ptr, ndirs) = if directives.is_empty() {
@@ -360,7 +349,7 @@ pub fn process_monitor_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = MONITOR_REGISTRY.lock().unwrap();
+        let mut registry = MONITOR_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
