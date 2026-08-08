@@ -74,7 +74,9 @@ Rules (same deadlock class as client `_nb` / events — issue #51 helpers):
    uses a process-wide bounded worker pool (available parallelism workers and
    four queue slots per worker); a full queue falls back to a detached,
    dedicated `pmix-callback-hop` thread so callback work is never dropped or
-   blocked. Pool workers are detached and require no finalize-time shutdown.
+   blocked. If pool initialization cannot create its workers, the call uses
+   the direct-thread path and a later call retries pool initialization. Pool
+   workers are detached and require no finalize-time shutdown.
 3. Invoke the provided `cbfunc` **later** when RM / network work finishes.
 4. Copy C buffers before hopping; do not join hop work in-handler.
 
