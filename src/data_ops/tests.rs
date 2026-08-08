@@ -2119,6 +2119,68 @@ use super::*;
         get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), std::ptr::null_mut());
     }
 
+    /// An immediate PMIx_Get_nb failure must reclaim the qualified marker.
+    #[test]
+    fn test_get_nb_failure_removes_qualified_marker() {
+        struct DummyGet;
+        impl GetValueCallback for DummyGet {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
+        }
+
+        let config = MockConfig::new().with_function_status("PMIx_Get_nb", PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+        let proc = Proc::new("mock.ns", 0).unwrap();
+        let mut builder = InfoBuilder::new();
+        builder.add_string_key("pmix.qual.val", "true", PMIX_STRING as _);
+        let info = builder.build();
+
+        let result = get_nb(&proc, "qualified.key", Some(&info), Box::new(DummyGet));
+
+        assert_eq!(result, Err(PmixStatus::Known(PmixError::ErrInit)));
+        assert!(QUALIFIED_GETS.lock().unwrap().is_empty());
+        assert!(GET_REGISTRY.lock().unwrap().is_empty());
+    }
+
+    /// A successful qualified callback uses mock value transfer and clears its marker.
+    #[test]
+    fn test_get_nb_qualified_success_uses_value_xfer() {
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+        static CB_STATUS: AtomicI32 = AtomicI32::new(-999);
+        static CB_HAS_VALUE: AtomicBool = AtomicBool::new(false);
+
+        struct QualifiedGet;
+        impl GetValueCallback for QualifiedGet {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                CB_STATUS.store(status.to_raw(), Ordering::SeqCst);
+                CB_HAS_VALUE.store(value.is_some(), Ordering::SeqCst);
+            }
+        }
+
+        let _guard = MockGuard::new();
+        let req_id = {
+            let mut seq = GET_SEQ.lock().unwrap();
+            *seq += 1;
+            *seq
+        };
+        GET_REGISTRY
+            .lock()
+            .unwrap()
+            .insert(req_id, Box::new(QualifiedGet));
+        QUALIFIED_GETS.lock().unwrap().insert(req_id);
+
+        let mut mock_value = Box::new(unsafe { std::mem::zeroed::<ffi::pmix_value_t>() });
+        mock_value.type_ = PMIX_STRING_U16;
+        get_value_callback_bridge(
+            PMIX_SUCCESS,
+            Box::into_raw(mock_value),
+            crate::cbdata::encode_req_id(req_id),
+        );
+
+        assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
+        assert!(CB_HAS_VALUE.load(Ordering::SeqCst));
+        assert!(!QUALIFIED_GETS.lock().unwrap().contains(&req_id));
+    }
+
     // ─── Mock-aware lookup_nb callback tests ────────────────────────────────
 
     /// Test lookup_nb callback bridge with success status.

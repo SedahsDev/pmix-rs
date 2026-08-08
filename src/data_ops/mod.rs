@@ -236,6 +236,8 @@ extern "C" fn get_value_callback_bridge(
     cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
+        // Unreachable in practice: encode_req_id always supplies non-null cbdata,
+        // and PMIx invokes the callback with that same opaque pointer.
         return;
     }
 
