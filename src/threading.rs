@@ -41,8 +41,8 @@
 //! The two primitives cover the two ways a handler can get work off the
 //! progress thread:
 //!
-//! * [`spawn_from_callback`] — fire-and-forget: start a fresh application
-//!   thread for blocking work and return immediately.
+//! * [`spawn_from_callback`] — fire-and-forget: queue blocking work on the
+//!   shared callback worker pool and return immediately.
 //! * [`CallbackChannel`] — request/response: the application thread owns the
 //!   channel (receiver side) and processes messages the handler sends.
 //!
@@ -57,7 +57,7 @@
 //! // Inside a PMIx callback (progress thread):
 //! let _ctx = ProgressContext;                 // documents: we are on progress
 //! let _ = tx.send((0, b"payload".to_vec()));  // cheap, non-blocking
-//! let _ = spawn_from_callback(move || {       // or: fresh thread for blocking work
+//! let _ = spawn_from_callback(move || {       // or: pooled thread for blocking work
 //!     // blocking PMIx calls are legal here
 //! });
 //!
@@ -75,7 +75,9 @@
 //! `examples/server_upcall_hop.rs` (server module fence/modex upcalls +
 //! delayed `cbfunc`), plus [THREADING.md](../THREADING.md).
 
+use std::any::Any;
 use std::sync::mpsc::{self, Receiver, RecvError, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Zero-sized marker for code that runs on the PMIx **progress thread**.
 ///
@@ -122,8 +124,12 @@ pub struct ProgressContext;
 ///
 /// The callback runs on the PMIx progress thread; any work that could block
 /// (including blocking PMIx calls) must be moved to an application thread.
-/// This helper spawns a fresh, named thread to run `f` and returns a
-/// [`JoinHandle`](std::thread::JoinHandle) the caller may store or detach.
+/// This helper queues `f` on a process-wide, bounded pool of named worker
+/// threads and returns a [`CallbackJoinHandle`] the caller may store or
+/// detach. If the queue is full, it falls back to a fresh named thread
+/// rather than blocking the PMIx progress thread or dropping work. If pool
+/// initialization cannot create its workers, this call falls back to the
+/// direct-thread path; a later call retries pool initialization.
 ///
 /// # Rules
 ///
@@ -140,8 +146,7 @@ pub struct ProgressContext;
 ///   (the default panic hook does not call `exit()` for non-main threads).
 ///   Under `panic = "abort"` the process aborts regardless of this helper.
 ///   This helper logs a branded diagnostic on stderr for fire-and-forget
-///   callers, then resumes unwinding so a joined handle still reports
-///   [`JoinHandle::join`](std::thread::JoinHandle::join) `Err`. Prefer not
+///   callers; a joined [`CallbackJoinHandle`] still reports `Err`. Prefer not
 ///   panicking in hop work in long-running HPC jobs — treat panics as bugs.
 ///
 /// # Example
@@ -154,26 +159,150 @@ pub struct ProgressContext;
 ///     std::thread::sleep(std::time::Duration::from_millis(10));
 /// });
 /// ```
-pub fn spawn_from_callback<F>(f: F) -> std::io::Result<std::thread::JoinHandle<()>>
+pub fn spawn_from_callback<F>(f: F) -> std::io::Result<CallbackJoinHandle>
 where
     F: FnOnce() + Send + 'static,
 {
-    std::thread::Builder::new()
+    let (completion_tx, completion_rx) = mpsc::channel();
+    let task = CallbackTask {
+        work: Box::new(f),
+        completion: completion_tx,
+    };
+    let mut pool_guard = CALLBACK_POOL
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if pool_guard.is_none() {
+        if let Ok(new_pool) = CallbackPool::new() {
+            *pool_guard = Some(Arc::new(new_pool));
+        }
+    }
+    let pool = pool_guard.as_ref().map(Arc::clone);
+    drop(pool_guard);
+
+    match pool {
+        Some(pool) => match pool.queue.try_send(task) {
+            Ok(()) => Ok(CallbackJoinHandle {
+                completion: completion_rx,
+                direct: None,
+            }),
+            Err(mpsc::TrySendError::Full(task)) | Err(mpsc::TrySendError::Disconnected(task)) => {
+                spawn_direct(task, completion_rx)
+            }
+        },
+        None => spawn_direct(task, completion_rx),
+    }
+}
+
+const CALLBACK_QUEUE_CAPACITY_MULTIPLIER: usize = 4;
+
+pub type CallbackResult = Result<(), Box<dyn Any + Send + 'static>>;
+type CallbackWork = Box<dyn FnOnce() + Send + 'static>;
+
+struct CallbackTask {
+    work: CallbackWork,
+    completion: Sender<CallbackResult>,
+}
+
+struct CallbackPool {
+    queue: mpsc::SyncSender<CallbackTask>,
+}
+
+static CALLBACK_POOL: OnceLock<Mutex<Option<Arc<CallbackPool>>>> = OnceLock::new();
+
+fn spawn_direct(
+    task: CallbackTask,
+    completion: Receiver<CallbackResult>,
+) -> std::io::Result<CallbackJoinHandle> {
+    let direct = std::thread::Builder::new()
         .name("pmix-callback-hop".to_string())
         .spawn(move || {
-            // Log a clear diagnostic for operators (fire-and-forget callers
-            // never join), then resume so `JoinHandle::join` still surfaces
-            // the payload instead of a silent `Ok(())`. This is not true
-            // isolation under `panic = "abort"`, and resume_unwind still
-            // panics the hop thread (by design, for joiners).
-            if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task.work));
+            if let Err(payload) = result {
                 eprintln!(
                     "pmix: thread 'pmix-callback-hop' panicked while running \
                      work hopped off the PMIx progress thread"
                 );
-                std::panic::resume_unwind(payload);
+                let _ = task.completion.send(Err(payload));
+                return;
             }
+            let _ = task.completion.send(Ok(()));
+        })?;
+    Ok(CallbackJoinHandle {
+        completion,
+        direct: Some(direct),
+    })
+}
+
+impl CallbackPool {
+    fn new() -> std::io::Result<Self> {
+        let workers = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(4)
+            .max(1);
+        let capacity = workers
+            .saturating_mul(CALLBACK_QUEUE_CAPACITY_MULTIPLIER)
+            .max(1);
+        let (queue, receiver) = mpsc::sync_channel(capacity);
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        for _ in 0..workers {
+            let receiver = Arc::clone(&receiver);
+            std::thread::Builder::new()
+                .name("pmix-callback-hop".to_string())
+                .spawn(move || loop {
+                    let task = {
+                        let receiver = receiver
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        receiver.recv()
+                    };
+                    match task {
+                        Ok(task) => run_callback_task(task),
+                        Err(_) => break,
+                    }
+                })?;
+        }
+        Ok(Self { queue })
+    }
+}
+
+fn run_callback_task(task: CallbackTask) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task.work));
+    if let Err(payload) = result {
+        eprintln!(
+            "pmix: thread 'pmix-callback-hop' panicked while running \
+             work hopped off the PMIx progress thread"
+        );
+        let _ = task.completion.send(Err(payload));
+    } else {
+        let _ = task.completion.send(Ok(()));
+    }
+}
+
+/// A completion handle for work submitted by [`spawn_from_callback`].
+///
+/// `join` waits for either a pooled task's completion or its direct-thread
+/// fallback. A panic is returned as `Err`, just like
+/// [`std::thread::JoinHandle::join`]. Dropping this handle detaches the work.
+pub struct CallbackJoinHandle {
+    completion: Receiver<CallbackResult>,
+    direct: Option<std::thread::JoinHandle<()>>,
+}
+
+impl CallbackJoinHandle {
+    /// Wait for the hopped work and return its panic payload, if any.
+    pub fn join(self) -> CallbackResult {
+        if let Some(direct) = self.direct {
+            direct.join()?;
+        }
+        self.completion.recv().unwrap_or_else(|_| {
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "callback worker stopped before reporting completion",
+            )))
         })
+    }
 }
 
 /// Invoke a user callback from an `extern "C"` bridge **without** letting a
@@ -318,10 +447,7 @@ mod tests {
         let spawned = rx
             .recv_timeout(Duration::from_secs(5))
             .expect("callback ran");
-        assert_ne!(
-            caller, spawned,
-            "closure must run on a fresh application thread"
-        );
+        assert_ne!(caller, spawned, "closure must run off the caller thread");
         handle.join().expect("join");
     }
 
@@ -329,7 +455,7 @@ mod tests {
     fn spawn_from_callback_failure_returns_error() {
         // Spawning with an exhausted OS limit is not reliably triggerable in
         // tests; verify only that the signature reports io::Result.
-        let _: std::io::Result<std::thread::JoinHandle<()>> = spawn_from_callback(|| {});
+        let _: std::io::Result<CallbackJoinHandle> = spawn_from_callback(|| {});
     }
 
     #[test]
@@ -450,5 +576,35 @@ mod tests {
             std::thread::yield_now();
         }
         assert_eq!(blocking_done.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn spawn_from_callback_full_queue_falls_back_without_dropping_work() {
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let completed = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::new();
+        for _ in 0..100 {
+            let release_rx = Arc::clone(&release_rx);
+            let completed = Arc::clone(&completed);
+            handles.push(
+                spawn_from_callback(move || {
+                    let _ = release_rx.lock().unwrap().recv();
+                    completed.fetch_add(1, Ordering::SeqCst);
+                })
+                .expect("submit backpressure task"),
+            );
+        }
+        for _ in 0..100 {
+            release_tx.send(()).expect("release task");
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while completed.load(Ordering::SeqCst) < 100 && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(completed.load(Ordering::SeqCst), 100);
+        for handle in handles {
+            handle.join().expect("backpressure task");
+        }
     }
 }
