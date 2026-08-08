@@ -3535,3 +3535,11 @@ pub unsafe fn mock_device_distance_construct(p: *mut crate::ffi::pmix_device_dis
 }
 pub unsafe fn mock_device_distance_create(n: usize) -> *mut crate::ffi::pmix_device_distance_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_distance_t>()) as *mut _ } }
 pub unsafe fn mock_device_distance_free(_p: *mut crate::ffi::pmix_device_distance_t, _n: usize) {}
+
+// Mock implementations for PMIx_Regattr_*.
+pub unsafe fn mock_regattr_construct(p: *mut crate::ffi::pmix_regattr_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
+pub unsafe fn mock_regattr_destruct(_p: *mut crate::ffi::pmix_regattr_t) {}
+pub unsafe fn mock_regattr_create(n: usize) -> *mut crate::ffi::pmix_regattr_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_regattr_t>()) as *mut _ } }
+pub unsafe fn mock_regattr_free(_p: *mut crate::ffi::pmix_regattr_t, _n: usize) {}
+pub unsafe fn mock_regattr_load(_p: *mut crate::ffi::pmix_regattr_t, _name: *const libc::c_char, _key: *const libc::c_char, _ty: crate::ffi::pmix_data_type_t, _description: *const libc::c_char) {}
+pub unsafe fn mock_regattr_xfer(_dest: *mut crate::ffi::pmix_regattr_t, _src: *const crate::ffi::pmix_regattr_t) {}

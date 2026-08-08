@@ -3148,3 +3148,43 @@ use super::*;
         assert!(result.is_err());
     }
 
+
+
+#[test]
+fn regattr_construct_and_drop_use_mock() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let attr = PmixRegattr::new();
+    assert!(attr.name().is_none());
+}
+
+#[test]
+fn regattr_test_new_is_zeroed() {
+    let attr = PmixRegattr::test_new();
+    assert!(attr.name().is_none());
+    assert!(attr.key().is_none());
+    assert!(attr.description().is_none());
+}
+
+#[test]
+fn regattr_load_accepts_valid_and_rejects_nul() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let mut attr = PmixRegattr::new();
+    assert!(attr.load("name", "key", 0, "description").is_ok());
+    assert!(attr.load("bad\0name", "key", 0, "description").is_err());
+}
+
+#[test]
+fn regattr_array_is_raii_managed() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let mut array = regattr_create(2).unwrap();
+    assert_eq!(array.len(), 2);
+    assert!(!array.as_mut_ptr().is_null());
+}
+
+#[test]
+fn regattr_xfer_uses_mock() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let mut dest = PmixRegattr::new();
+    let src = PmixRegattr::new();
+    assert!(dest.xfer(&src).is_ok());
+}
