@@ -2375,3 +2375,131 @@ mod tests {
         let _cb: SpawnCallback = dummy_spawn_cb;
     }
 }
+
+/// Safe wrapper around the PMIx utility API for a single `pmix_app_t`.
+#[derive(Debug)]
+pub struct PmixAppObject {
+    ptr: *mut ffi::pmix_app_t,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixAppObject {
+    pub fn new() -> Self {
+        // SAFETY: calloc provides suitably aligned, zeroed storage for the C
+        // struct. The matching free is performed by `release` or `Drop`.
+        let ptr = unsafe { libc::calloc(1, std::mem::size_of::<ffi::pmix_app_t>()) }
+            as *mut ffi::pmix_app_t;
+        if !ptr.is_null() {
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_construct(ptr) },
+                real = unsafe { ffi::PMIx_App_construct(ptr) },
+            );
+        }
+        Self { ptr, constructed: !ptr.is_null(), _not_thread_safe: std::marker::PhantomData }
+    }
+
+    pub fn test_new() -> Self {
+        let ptr = unsafe { libc::calloc(1, std::mem::size_of::<ffi::pmix_app_t>()) }
+            as *mut ffi::pmix_app_t;
+        Self { ptr, constructed: !ptr.is_null(), _not_thread_safe: std::marker::PhantomData }
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_app_t { self.ptr }
+
+    fn raw(&self) -> Option<&ffi::pmix_app_t> {
+        // SAFETY: `ptr` is either null or live calloc'd storage initialized by
+        // PMIx; callers only receive a reference for the non-null case.
+        unsafe { self.ptr.as_ref() }
+    }
+    fn c_string(&self, p: *const c_char) -> Option<&str> {
+        unsafe { (!p.is_null()).then(|| CStr::from_ptr(p).to_str().ok()).flatten() }
+    }
+    pub fn cmd(&self) -> Option<&str> { self.raw().and_then(|a| self.c_string(a.cmd)) }
+    pub fn cwd(&self) -> Option<&str> { self.raw().and_then(|a| self.c_string(a.cwd)) }
+    pub fn maxprocs(&self) -> i32 { self.raw().map_or(0, |a| a.maxprocs) }
+    pub fn ninfo(&self) -> usize { self.raw().map_or(0, |a| a.ninfo) }
+    /// Returns PMIx-owned storage; do not free it. Invalid after mutation or drop.
+    ///
+    /// # Safety
+    /// The returned pointer must not be dereferenced after this object is mutated or dropped.
+    pub unsafe fn info_ptr(&self) -> *const ffi::pmix_info_t {
+        self.raw().map_or(ptr::null(), |a| a.info)
+    }
+    fn strings(&self, p: *mut *mut c_char) -> Option<Vec<String>> {
+        if p.is_null() { return None; }
+        let mut out = Vec::new(); let mut i = 0;
+        // SAFETY: PMIx supplies a NULL-terminated array; entries are copied out.
+        unsafe { while !(*p.add(i)).is_null() { out.push(CStr::from_ptr(*p.add(i)).to_str().ok()?.to_owned()); i += 1; } }
+        Some(out)
+    }
+    pub fn argv(&self) -> Option<Vec<String>> { self.raw().and_then(|a| self.strings(a.argv)) }
+    pub fn env(&self) -> Option<Vec<String>> { self.raw().and_then(|a| self.strings(a.env)) }
+    pub fn info_create(&mut self, n: usize) {
+        let Some(app) = self.raw() else { return };
+        if !app.info.is_null() {
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_destruct(self.ptr) },
+                real = unsafe { ffi::PMIx_App_destruct(self.ptr) },
+            );
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_construct(self.ptr) },
+                real = unsafe { ffi::PMIx_App_construct(self.ptr) },
+            );
+        }
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_info_create(self.ptr, n) },
+            real = unsafe { ffi::PMIx_App_info_create(self.ptr, n) },
+        );
+    }
+    pub fn to_string(&self) -> Result<String, crate::PmixError> {
+        let Some(app) = self.raw() else { return Err(crate::PmixError::Error) };
+        let p = crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_string(app) },
+            real = unsafe { ffi::PMIx_App_string(app) },
+        );
+        if p.is_null() { return Err(crate::PmixError::Error); }
+        // SAFETY: copy before releasing PMIx's allocated string.
+        let result = unsafe { CStr::from_ptr(p).to_str().map(str::to_owned) };
+        unsafe { libc::free(p.cast()) };
+        result.map_err(|_| crate::PmixError::Error)
+    }
+    /// Consumes the C object. `PMIx_App_release` frees the struct pointer.
+    pub fn release(mut self) {
+        if self.ptr.is_null() || !self.constructed { return; }
+        crate::pmix_ffi_or_mock!(
+            mock = {
+                unsafe { crate::mock_ffi::mock_app_release(self.ptr) };
+                // The mock models contents but not ownership of wrapper storage.
+                unsafe { libc::free(self.ptr.cast()) };
+            },
+            real = unsafe { ffi::PMIx_App_release(self.ptr) },
+        );
+        self.ptr = ptr::null_mut();
+        self.constructed = false;
+    }
+}
+impl Default for PmixAppObject { fn default() -> Self { Self::new() } }
+impl Drop for PmixAppObject {
+    fn drop(&mut self) {
+        if self.ptr.is_null() || !self.constructed { return; }
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_destruct(self.ptr) },
+            real = unsafe { ffi::PMIx_App_destruct(self.ptr) },
+        );
+        // SAFETY: storage was allocated by calloc in `new`/`test_new`.
+        unsafe { libc::free(self.ptr.cast()) };
+        self.ptr = ptr::null_mut();
+        self.constructed = false;
+    }
+}
+
+#[cfg(test)]
+mod app_object_tests {
+    use super::PmixAppObject; use crate::mock_ffi::MockGuard;
+    #[test] fn construct_drop() { let _g = MockGuard::new(); drop(PmixAppObject::new()); }
+    #[test] fn zeroed_accessors() { let a = PmixAppObject::test_new(); assert_eq!(a.cmd(), None); assert_eq!(a.cwd(), None); assert_eq!(a.argv(), None); assert_eq!(a.env(), None); assert_eq!(a.maxprocs(), 0); }
+    #[test] fn info_create_ok() { let _g = MockGuard::new(); let mut a = PmixAppObject::new(); a.info_create(2); assert_eq!(a.ninfo(), 2); a.info_create(3); assert_eq!(a.ninfo(), 3); }
+    #[test] fn string_ok() { let _g = MockGuard::new(); assert_eq!(PmixAppObject::new().to_string().unwrap(), "mock_app"); }
+    #[test] fn release_no_panic() { let _g = MockGuard::new(); PmixAppObject::new().release(); }
+}

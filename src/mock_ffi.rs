@@ -3593,3 +3593,19 @@ pub fn mock_query_qualifiers_create(p: *mut crate::ffi::pmix_query_t, n: usize) 
         (*p).nqual = n;
     }
 }
+
+/// Mock implementations for PMIx_App_* utility functions.
+pub unsafe fn mock_app_construct(p: *mut crate::ffi::pmix_app_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); } } }
+pub unsafe fn mock_app_destruct(p: *mut crate::ffi::pmix_app_t) {
+    if !p.is_null() {
+        // SAFETY: info was allocated with calloc and belongs to this app.
+        unsafe { libc::free((*p).info.cast()); }
+        unsafe { std::ptr::write_bytes(p, 0, 1); }
+    }
+}
+pub unsafe fn mock_app_info_create(p: *mut crate::ffi::pmix_app_t, n: usize) { if !p.is_null() { unsafe { (*p).info = libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_info_t>()) as *mut _; (*p).ninfo = n; } } }
+pub unsafe fn mock_app_release(p: *mut crate::ffi::pmix_app_t) { unsafe { mock_app_destruct(p) } }
+pub unsafe fn mock_app_string(_p: *const crate::ffi::pmix_app_t) -> *mut libc::c_char {
+    // SAFETY: strdup allocates with malloc, matching the wrapper's libc::free.
+    unsafe { libc::strdup(c"mock_app".as_ptr()) }
+}
