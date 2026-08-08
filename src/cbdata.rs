@@ -34,7 +34,6 @@ pub fn decode_req_id(cbdata: *mut c_void) -> usize {
     cbdata.addr()
 }
 
-
 /// Process-global callback registry with a lock-free request-ID sequence.
 ///
 /// The sequence counter is an `AtomicUsize`, so allocating a request ID never
