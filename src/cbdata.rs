@@ -34,21 +34,6 @@ pub fn decode_req_id(cbdata: *mut c_void) -> usize {
     cbdata.addr()
 }
 
-/// Encode a `u64` request ID (used by some monitoring paths).
-#[inline]
-pub fn encode_req_id_u64(req_id: u64) -> *mut c_void {
-    debug_assert!(
-        req_id != 0,
-        "request id must be non-zero to avoid null cbdata"
-    );
-    std::ptr::with_exposed_provenance_mut::<c_void>(req_id as usize)
-}
-
-/// Decode opaque cbdata into a `u64` request ID.
-#[inline]
-pub fn decode_req_id_u64(cbdata: *mut c_void) -> u64 {
-    cbdata.addr() as u64
-}
 
 /// Allocate the next non-zero request ID from a per-registry sequence counter.
 ///

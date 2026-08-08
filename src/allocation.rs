@@ -55,7 +55,7 @@ use std::sync::LazyLock;
 
 use crate::ffi;
 use crate::threading::invoke_user_callback;
-use crate::cbdata::{decode_req_id, encode_req_id};
+use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::{Info, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,15 +290,11 @@ pub trait AllocationCallback: Send + 'static {
     fn on_complete(&self, status: PmixStatus, results: AllocationResults);
 }
 
-/// Monotonically increasing allocation request ID counter.
-static ALLOCATION_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// Global registry of pending allocation callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static ALLOCATION_REGISTRY: LazyLock<
-    Mutex<std::collections::HashMap<usize, Box<dyn AllocationCallback>>>,
-> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static ALLOCATION_REGISTRY: LazyLock<Registry<Box<dyn AllocationCallback>>> = LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (allocation completion).
 ///
@@ -322,7 +318,7 @@ extern "C" fn allocation_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
+        let mut registry = ALLOCATION_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -383,20 +379,13 @@ pub fn allocation_request_nb(
     callback: Box<dyn AllocationCallback>,
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = ALLOCATION_SEQ.lock().expect("mutex poisoned (allocation.rs)");
-        *seq += 1;
-        *seq
-    };
+    let req_id = ALLOCATION_REGISTRY.next_req_id();
 
     // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
     // is never null (req_id starts at 1).
     let cbdata = encode_req_id(req_id);
 
-    {
-        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
-        registry.insert(req_id, callback);
-    }
+    ALLOCATION_REGISTRY.lock().insert(req_id, callback);
 
     // Convert the Info slice to C pointers.
     let info_ptr = if info.is_empty() {
@@ -432,7 +421,7 @@ pub fn allocation_request_nb(
         Ok(())
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = ALLOCATION_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
+        let mut registry = ALLOCATION_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -666,15 +655,11 @@ pub trait JobControlCallback: Send + 'static {
     fn on_complete(&self, status: PmixStatus, results: JobControlResults);
 }
 
-/// Monotonically increasing job control request ID counter.
-static JOB_CTRL_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// Global registry of pending job control callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static JOB_CTRL_REGISTRY: LazyLock<
-    Mutex<std::collections::HashMap<usize, Box<dyn JobControlCallback>>>,
-> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static JOB_CTRL_REGISTRY: LazyLock<Registry<Box<dyn JobControlCallback>>> = LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (job control completion).
 ///
@@ -698,7 +683,7 @@ extern "C" fn job_control_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
+        let mut registry = JOB_CTRL_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -759,20 +744,13 @@ pub fn job_control_nb(
     callback: Box<dyn JobControlCallback>,
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = JOB_CTRL_SEQ.lock().expect("mutex poisoned (allocation.rs)");
-        *seq += 1;
-        *seq
-    };
+    let req_id = JOB_CTRL_REGISTRY.next_req_id();
 
     // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
     // is never null (req_id starts at 1).
     let cbdata = encode_req_id(req_id);
 
-    {
-        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
-        registry.insert(req_id, callback);
-    }
+    JOB_CTRL_REGISTRY.lock().insert(req_id, callback);
 
     // Convert targets slice to C pointer.
     let targets_ptr = if targets.is_empty() {
@@ -821,7 +799,7 @@ pub fn job_control_nb(
         Ok(())
     } else {
         // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = JOB_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
+        let mut registry = JOB_CTRL_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -872,11 +850,7 @@ pub trait SessionControlCallback: Send + 'static {
     fn on_complete(&self, status: PmixStatus, results: SessionControlResults);
 }
 
-static SESSION_CTRL_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-
-static SESSION_CTRL_REGISTRY: LazyLock<
-    Mutex<std::collections::HashMap<usize, Box<dyn SessionControlCallback>>>,
-> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static SESSION_CTRL_REGISTRY: LazyLock<Registry<Box<dyn SessionControlCallback>>> = LazyLock::new(Registry::new);
 
 extern "C" fn session_control_callback_bridge(
     status: ffi::pmix_status_t,
@@ -893,7 +867,7 @@ extern "C" fn session_control_callback_bridge(
     let req_id = decode_req_id(cbdata);
 
     let cb = {
-        let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
+        let mut registry = SESSION_CTRL_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -959,17 +933,10 @@ pub fn session_control(
     match callback {
         Some(cb) => {
             // Non-blocking mode
-            let req_id = {
-                let mut seq = SESSION_CTRL_SEQ.lock().expect("mutex poisoned (allocation.rs)");
-                *seq += 1;
-                *seq
-            };
+            let req_id = SESSION_CTRL_REGISTRY.next_req_id();
             let cbdata = encode_req_id(req_id);
 
-            {
-                let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
-                registry.insert(req_id, cb);
-            }
+            SESSION_CTRL_REGISTRY.lock().insert(req_id, cb);
 
             let status = unsafe {
                 ffi::PMIx_Session_control(
@@ -985,7 +952,7 @@ pub fn session_control(
             if pmix_status.is_success() {
                 Ok(None)
             } else {
-                let mut registry = SESSION_CTRL_REGISTRY.lock().expect("mutex poisoned (allocation.rs)");
+                let mut registry = SESSION_CTRL_REGISTRY.lock();
                 registry.remove(&req_id);
                 Err(pmix_status)
             }
