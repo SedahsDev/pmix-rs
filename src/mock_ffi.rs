@@ -3515,7 +3515,14 @@ pub unsafe fn mock_endpoint_create(n: usize) -> *mut crate::ffi::pmix_endpoint_t
 pub unsafe fn mock_endpoint_free(_p: *mut crate::ffi::pmix_endpoint_t, _n: usize) {}
 pub unsafe fn mock_coord_construct(p: *mut crate::ffi::pmix_coord_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
 pub unsafe fn mock_coord_destruct(_p: *mut crate::ffi::pmix_coord_t) {}
-pub unsafe fn mock_coord_create(_dims: usize, n: usize) -> *mut crate::ffi::pmix_coord_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_coord_t>()) as *mut _ } }
+pub unsafe fn mock_coord_create(dims: usize, n: usize) -> *mut crate::ffi::pmix_coord_t {
+    if n == 0 { return std::ptr::null_mut(); }
+    let p = unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_coord_t>()) as *mut crate::ffi::pmix_coord_t };
+    if !p.is_null() {
+        unsafe { mock_coord_construct(p); (*p).dims = dims; }
+    }
+    p
+}
 pub unsafe fn mock_coord_free(_p: *mut crate::ffi::pmix_coord_t, _n: usize) {}
 pub unsafe fn mock_device_construct(p: *mut crate::ffi::pmix_device_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
 pub unsafe fn mock_device_destruct(_p: *mut crate::ffi::pmix_device_t) {}

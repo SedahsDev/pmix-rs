@@ -960,7 +960,7 @@ impl PmixCpuset {
                 #[cfg(any(test, feature = "mock_ffi"))]
         {
             if mock_ffi::is_mock_enabled() {
-                unsafe { mock_ffi::mock_cpuset_construct(raw_ptr) };
+                mock_ffi::mock_cpuset_construct(raw_ptr);
             } else {
                 unsafe { ffi::PMIx_Cpuset_construct(raw_ptr) };
             }
@@ -2888,7 +2888,9 @@ impl PmixCoordArray {
         if ptr.is_null() {
             return Err(PmixError::ErrNomem);
         }
-        for index in 0..len {
+        // PMIx_Coord_create constructs element zero and initializes its
+        // dimension buffer; reconstructing it would leak that buffer.
+        for index in 1..len {
             // SAFETY: PMIx returned `len` contiguous coordinate objects.
             let element = unsafe { ptr.add(index) };
             #[cfg(any(test, feature = "mock_ffi"))]
@@ -2975,10 +2977,12 @@ impl PmixCoord {
             // SAFETY: p points to this object's uninitialized storage.
             unsafe { mock_ffi::mock_coord_construct(p) };
         } else {
+            // SAFETY: p points to this object's uninitialized storage.
             unsafe { ffi::PMIx_Coord_construct(p) };
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
         {
+            // SAFETY: p points to this object's uninitialized storage.
             unsafe { ffi::PMIx_Coord_construct(p) };
         }
         this.constructed = true;
@@ -2994,10 +2998,12 @@ impl PmixCoord {
     }
     /// Return the coordinate view value.
     pub fn view(&self) -> ffi::pmix_coord_view_t {
+        // SAFETY: raw is initialized by new or test_new.
         unsafe { self.raw.assume_init_ref().view }
     }
     /// Return the coordinate values, if present.
     pub fn coord(&self) -> Option<&[u32]> {
+        // SAFETY: raw is initialized by new or test_new; coord and dims are a PMIx pair.
         unsafe {
             let r = self.raw.assume_init_ref();
             (!r.coord.is_null()).then(|| std::slice::from_raw_parts(r.coord, r.dims))
@@ -3005,6 +3011,7 @@ impl PmixCoord {
     }
     /// Return the number of dimensions.
     pub fn dims(&self) -> usize {
+        // SAFETY: raw is initialized by new or test_new.
         unsafe { self.raw.assume_init_ref().dims }
     }
 }
@@ -3018,15 +3025,18 @@ impl Drop for PmixCoord {
         if self.constructed {
             #[cfg(any(test, feature = "mock_ffi"))]
             if mock_ffi::is_mock_enabled() {
+                // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
                 unsafe {
                     mock_ffi::mock_coord_destruct(self.raw.as_mut_ptr());
                 }
             } else {
+                // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
                 unsafe {
                     ffi::PMIx_Coord_destruct(self.raw.as_mut_ptr());
                 }
             }
             #[cfg(not(any(test, feature = "mock_ffi")))]
+            // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
             unsafe {
                 ffi::PMIx_Coord_destruct(self.raw.as_mut_ptr());
             }
@@ -3053,15 +3063,18 @@ impl PmixDevice {
         let p = this.raw.as_mut_ptr();
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
+            // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
             unsafe {
                 mock_ffi::mock_device_construct(p);
             }
         } else {
+            // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
             unsafe {
                 ffi::PMIx_Device_construct(p);
             }
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
+        // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
         unsafe {
             ffi::PMIx_Device_construct(p);
         }
@@ -3080,6 +3093,7 @@ impl PmixDevice {
     c_string_accessor!(osname, osname);
     /// Return the PMIx device type.
     pub fn device_type(&self) -> ffi::pmix_device_type_t {
+        // SAFETY: raw is initialized by new or test_new.
         unsafe { self.raw.assume_init_ref().type_ }
     }
 }
@@ -3093,15 +3107,18 @@ impl Drop for PmixDevice {
         if self.constructed {
             #[cfg(any(test, feature = "mock_ffi"))]
             if mock_ffi::is_mock_enabled() {
+                // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
                 unsafe {
                     mock_ffi::mock_device_destruct(self.raw.as_mut_ptr());
                 }
             } else {
+                // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
                 unsafe {
                     ffi::PMIx_Device_destruct(self.raw.as_mut_ptr());
                 }
             }
             #[cfg(not(any(test, feature = "mock_ffi")))]
+            // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
             unsafe {
                 ffi::PMIx_Device_destruct(self.raw.as_mut_ptr());
             }
@@ -3111,7 +3128,8 @@ impl Drop for PmixDevice {
 }
 
 /// RAII wrapper for a PMIx device-distance object. This is distinct from the
-/// pure-Rust `PmixDeviceDistance` parsed snapshot type.
+/// pure-Rust `PmixDeviceDistance` parsed snapshot type. PMIx initializes both
+/// `mindist` and `maxdist` to 65535 (`u16::MAX`).
 #[derive(Debug)]
 pub struct PmixDeviceDistanceObject {
     raw: MaybeUninit<ffi::pmix_device_distance_t>,
@@ -3129,15 +3147,18 @@ impl PmixDeviceDistanceObject {
         let p = this.raw.as_mut_ptr();
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
+            // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
             unsafe {
                 mock_ffi::mock_device_distance_construct(p);
             }
         } else {
+            // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
             unsafe {
                 ffi::PMIx_Device_distance_construct(p);
             }
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
+        // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
         unsafe {
             ffi::PMIx_Device_distance_construct(p);
         }
@@ -3156,14 +3177,17 @@ impl PmixDeviceDistanceObject {
     c_string_accessor!(osname, osname);
     /// Return the PMIx device type.
     pub fn device_type(&self) -> ffi::pmix_device_type_t {
+        // SAFETY: raw is initialized by new or test_new.
         unsafe { self.raw.assume_init_ref().type_ }
     }
     /// Return the minimum distance.
     pub fn min_distance(&self) -> u16 {
+        // SAFETY: raw is initialized by new or test_new.
         unsafe { self.raw.assume_init_ref().mindist }
     }
     /// Return the maximum distance.
     pub fn max_distance(&self) -> u16 {
+        // SAFETY: raw is initialized by new or test_new.
         unsafe { self.raw.assume_init_ref().maxdist }
     }
 }
@@ -3177,15 +3201,18 @@ impl Drop for PmixDeviceDistanceObject {
         if self.constructed {
             #[cfg(any(test, feature = "mock_ffi"))]
             if mock_ffi::is_mock_enabled() {
+                // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
                 unsafe {
                     mock_ffi::mock_device_distance_destruct(self.raw.as_mut_ptr());
                 }
             } else {
+                // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
                 unsafe {
                     ffi::PMIx_Device_distance_destruct(self.raw.as_mut_ptr());
                 }
             }
             #[cfg(not(any(test, feature = "mock_ffi")))]
+            // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
             unsafe {
                 ffi::PMIx_Device_distance_destruct(self.raw.as_mut_ptr());
             }
@@ -3228,7 +3255,7 @@ mod added_type_tests {
         let array = PmixCoordArray::create(3, 2).unwrap();
         assert_eq!(array.len(), 2);
         unsafe {
-            assert_eq!((*array.as_mut_ptr()).dims, 0);
+            assert_eq!((*array.as_mut_ptr()).dims, 3);
             assert_eq!((*array.as_mut_ptr().add(1)).dims, 0);
         }
     }
