@@ -7,7 +7,7 @@
 // PMIx_Publish — publish data for later lookup
 // ─────────────────────────────────────────────────────────────────────────────
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
@@ -219,6 +219,8 @@ pub trait GetValueCallback: Send {
 type GetRegistry = std::collections::HashMap<usize, Box<dyn GetValueCallback>>;
 static GET_REGISTRY: LazyLock<Mutex<GetRegistry>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static QUALIFIED_GETS: LazyLock<Mutex<std::collections::HashSet<usize>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
 
 /// Monotonically increasing request ID counter.
 static GET_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
@@ -252,20 +254,37 @@ extern "C" fn get_value_callback_bridge(
         None => return, // Callback already consumed or never registered.
     };
 
+    let qualified = QUALIFIED_GETS
+        .lock()
+        .expect("mutex poisoned (data_ops.rs)")
+        .remove(&req_id);
+
     // Convert the status.
     let pmix_status = PmixStatus::from_raw(status);
 
-    // Extract the value on success.
+    // Extract the value on success. Qualified values borrow PMIx info memory.
     let value = if pmix_status.is_success() && !kv.is_null() {
-        // SAFETY: On success, PMIx returns a valid pmix_value_t that we
-        // take ownership of. We read it and then null the pointer so
-        // PMIx doesn't try to free it.
-        let val = unsafe { ptr::read(kv) };
-        // Clear the pointer so PMIx doesn't double-free.
-        unsafe { ptr::write(kv, std::mem::zeroed()) };
-        Some(PmixOwnedValue { inner: val, 
-            _not_thread_safe: std::marker::PhantomData,
-        })
+        if qualified {
+            // SAFETY: `kv` is valid during the callback; Value_xfer does not modify it.
+            let mut copied = unsafe { std::mem::zeroed() };
+            let copy_status = crate::pmix_ffi_or_mock!(
+                mock = unsafe { mock_ffi::mock_value_xfer(&mut copied, kv) },
+                real = unsafe { ffi::PMIx_Value_xfer(&mut copied, kv) },
+            );
+            (copy_status == ffi::PMIX_SUCCESS as i32).then_some(PmixOwnedValue {
+                inner: copied,
+                _not_thread_safe: std::marker::PhantomData,
+            })
+        } else {
+            // SAFETY: The ordinary callback path returns an allocated struct.
+            let val = unsafe { ptr::read(kv) };
+            // SAFETY: `kv` is the allocation returned by PMIx_Get_nb.
+            drop(unsafe { Box::from_raw(kv) });
+            Some(PmixOwnedValue {
+                inner: val,
+                _not_thread_safe: std::marker::PhantomData,
+            })
+        }
     } else {
         None
     };
@@ -342,6 +361,21 @@ pub fn get_nb(
         }
         None => (ptr::null(), 0),
     };
+
+    if let Some(info) = info {
+        if !info.handle.is_null() && info.len > 0 {
+            // SAFETY: `handle` points to the borrowed Info array.
+            let qualified = unsafe {
+                CStr::from_ptr((*info.handle).key.as_ptr()).to_bytes() == b"pmix.qual.val"
+            };
+            if qualified {
+                QUALIFIED_GETS
+                    .lock()
+                    .expect("mutex poisoned (data_ops.rs)")
+                    .insert(req_id);
+            }
+        }
+    }
 
     // Call the FFI function.
     let status = crate::pmix_ffi_or_mock!(
