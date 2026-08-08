@@ -3635,7 +3635,7 @@ pub unsafe fn mock_setenv(name: *const libc::c_char, value: *const libc::c_char,
         for i in 0..index { *replacement.add(i) = libc::strdup(*(*env).add(i)); }
         *replacement.add(index) = libc::strdup(std::ffi::CString::new(entry).unwrap().as_ptr());
         let old = *env;
-        for i in 0..index { libc::free(*old.add(i)); }
+        for i in 0..index { libc::free((*old.add(i)).cast()); }
         libc::free(old.cast());
         *env = replacement;
     }
