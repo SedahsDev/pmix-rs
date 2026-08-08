@@ -13,7 +13,8 @@
 //!   Use [`PmixClient::connect_new`] / [`connect`](PmixClient::connect) /
 //!   [`disconnect`](PmixClient::disconnect). There is no legacy `Context` / `init`.
 //! - Do **not** lock every put/get in Rust by default — OpenPMIx ≥ 6.1 serializes entry.
-//!   Lock only Rust-owned shared state (the session caches `Proc` under a mutex).
+//!   Lock only Rust-owned shared state (session lifecycle updates use a write lock;
+//!   cached `Proc` reads use shared read locks).
 //! - Data ops stay as free functions ([`put_value`], [`get_value`], [`commit`],
 //!   [`fence`], …). Pass [`Proc`] from the client; build [`Info`] per call.
 //! - [`Info`] and other C-owned handles are **`!Send` + `!Sync`**
@@ -3515,7 +3516,7 @@ pub fn info_with_string_key(key: &str, value: &str) -> Info {
 // ─────────────────────────────────────────────────────────────────────────────
 
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 /// Lifecycle state of the process-wide PMIx client session.
 ///
@@ -3553,7 +3554,7 @@ impl PmixClientState {
 /// multi-threaded cloning.
 struct PmixClientInner {
     /// Cached proc from `PMIx_Init`; only meaningful while state is `Live`.
-    proc: Mutex<Option<Proc>>,
+    proc: RwLock<Option<Proc>>,
     state: AtomicU8,
 }
 
@@ -3561,7 +3562,7 @@ impl std::fmt::Debug for PmixClientInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PmixClientInner")
             .field("state", &self.state())
-            .field("proc", &"Mutex<Option<Proc>>")
+            .field("proc", &"RwLock<Option<Proc>>")
             .finish()
     }
 }
@@ -3579,7 +3580,7 @@ fn client_session() -> Arc<PmixClientInner> {
     CLIENT_SESSION
         .get_or_init(|| {
             Arc::new(PmixClientInner {
-                proc: Mutex::new(None),
+                proc: RwLock::new(None),
                 state: AtomicU8::new(PmixClientState::Uninitialized as u8),
             })
         })
@@ -3674,14 +3675,14 @@ impl PmixClient {
     /// Transitions `Uninitialized` → `Live`. Fails if already `Live`
     /// ([`PmixError::ErrExists`]) or after finalize ([`PmixError::ErrInit`]).
     ///
-    /// Serialized on the session mutex so concurrent `connect` calls cannot
+    /// Serialized on the session lock so concurrent `connect` calls cannot
     /// double-init.
     pub fn connect(&self, info: Option<Info>) -> Result<(), PmixError> {
         let mut proc_guard = self
             .inner
             .proc
-            .lock()
-            .expect("pmix: client proc mutex poisoned");
+            .write()
+            .expect("pmix: client proc lock poisoned");
 
         match self.inner.state() {
             PmixClientState::Uninitialized => {}
@@ -3725,8 +3726,8 @@ impl PmixClient {
         let mut proc_guard = self
             .inner
             .proc
-            .lock()
-            .expect("pmix: client proc mutex poisoned");
+            .write()
+            .expect("pmix: client proc lock poisoned");
 
         if self.inner.state() != PmixClientState::Live {
             return Ok(());
@@ -3760,10 +3761,13 @@ impl PmixClient {
 
     /// Copy of the process handle when live.
     pub fn proc(&self) -> Option<Proc> {
+        if self.inner.state() != PmixClientState::Live {
+            return None;
+        }
         self.inner
             .proc
-            .lock()
-            .expect("pmix: client proc mutex poisoned")
+            .read()
+            .expect("pmix: client proc lock poisoned")
             .clone()
     }
 
@@ -3780,10 +3784,13 @@ impl PmixClient {
 
     /// Rank from the cached process handle when live.
     pub fn rank(&self) -> Option<u32> {
+        if self.inner.state() != PmixClientState::Live {
+            return None;
+        }
         self.inner
             .proc
-            .lock()
-            .expect("pmix: client proc mutex poisoned")
+            .read()
+            .expect("pmix: client proc lock poisoned")
             .as_ref()
             .map(|p| p.get_rank())
     }
@@ -3806,8 +3813,8 @@ impl PmixClient {
         let guard = self
             .inner
             .proc
-            .lock()
-            .expect("pmix: client proc mutex poisoned");
+            .read()
+            .expect("pmix: client proc lock poisoned");
         let my = guard.as_ref().ok_or(PmixError::ErrInit)?;
         my.new_with_nspace(rank).map_err(|_| PmixError::ErrBadParam)
     }
@@ -5612,6 +5619,37 @@ mod tests {
         assert!(client.get_rank().is_none());
         assert!(client.check_live().is_err());
         assert!(client.proc_with_nspace(0).is_err());
+    }
+
+    #[test]
+    fn test_pmixclient_read_accessors_are_shared_across_threads() {
+        let proc = Proc {
+            // SAFETY: The test only reads the POD fields through `Proc`; zeroed
+            // bytes are a valid synthetic process snapshot for accessor testing.
+            handle: unsafe { std::mem::zeroed() },
+            len: 1,
+        };
+        let client = PmixClient {
+            inner: Arc::new(PmixClientInner {
+                proc: RwLock::new(Some(proc)),
+                state: AtomicU8::new(PmixClientState::Live as u8),
+            }),
+        };
+
+        let workers = (0..8)
+            .map(|_| {
+                let worker = client.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..100 {
+                        assert_eq!(worker.require_rank(), 0);
+                        assert_eq!(worker.require_proc().get_rank(), 0);
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.join().expect("accessor worker panicked");
+        }
     }
 
     #[test]
