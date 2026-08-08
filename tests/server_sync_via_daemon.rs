@@ -21,7 +21,6 @@ use pmix::server::{
 use pmix::{InfoBuilder, PmixStatus};
 
 // Dummy callbacks for testing module with callbacks set.
-extern "C" fn dummy_callback() {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Standalone tests (always run — verify compile-time type correctness)

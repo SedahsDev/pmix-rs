@@ -858,8 +858,6 @@ fn test_register_clients_with_different_server_objects() {
 
 #[test]
 fn test_server_init_with_callbacks_set() {
-    extern "C" fn dummy_connected() {}
-
     let module = PmixServerModule {
         client_connected: None,
         ..Default::default()

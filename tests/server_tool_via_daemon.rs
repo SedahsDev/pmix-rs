@@ -26,7 +26,6 @@ use pmix::tool::PmixTool;
 
 // Dummy callbacks for testing module with callbacks set.
 // PmixServerModule fields use typed OpenPMIx callback signatures.
-extern "C" fn dummy_callback() {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Standalone tests (always run — verify compile-time type correctness)

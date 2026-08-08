@@ -340,7 +340,17 @@ pub struct PmixServerModule {
     /// # C type
     /// `pmix_server_client_connected2_fn_t`
     pub client_connected2: ffi::pmix_server_client_connected2_fn_t,
+
+    /// Tool connection v2 callback.
+    ///
+    /// # C type
+    /// `pmix_server_tool_connection2_fn_t`
     pub tool_connected2: ffi::pmix_server_tool_connection2_fn_t,
+
+    /// Log v2 callback.
+    ///
+    /// # C type
+    /// `pmix_server_log2_fn_t`
     pub log2: ffi::pmix_server_log2_fn_t,
 
     /// Session control callback (PMIx 5.x).
@@ -348,6 +358,11 @@ pub struct PmixServerModule {
     /// # C type
     /// `pmix_server_session_control_fn_t`
     pub session_control: ffi::pmix_server_session_control_fn_t,
+
+    /// Resource block callback.
+    ///
+    /// # C type
+    /// `pmix_server_resource_block_fn_t`
     pub resource_block: ffi::pmix_server_resource_block_fn_t,
 }
 
