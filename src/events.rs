@@ -1147,6 +1147,8 @@ mod tests {
                 .expect("mutex poisoned (events.rs)")
                 .contains_key(&424252)
         );
+        // SAFETY: test invokes the bridge with null FFI pointers and a live
+        // stack chain token; the completion callback is valid for this call.
         unsafe {
             notification_bridge(
                 424252,
