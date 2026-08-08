@@ -1556,8 +1556,8 @@ pub fn server_dmodex_request(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the proc's internal pmix_proc_t for FFI.
@@ -1822,8 +1822,8 @@ pub fn server_setup_application(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get the info array pointer and length.
@@ -2005,8 +2005,8 @@ pub fn server_setup_local_support(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare info parameters.
@@ -2217,8 +2217,8 @@ pub fn server_iof_deliver(
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the source proc's internal pmix_proc_t for FFI.
@@ -2467,8 +2467,8 @@ pub fn server_collect_inventory(
     // Assign a unique request ID and register the callback.
     let req_id = COLLECT_INVENTORY_REGISTRY.next_req_id();
 
-    // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1, so shifted value >= 4).
+    // SAFETY: encode_req_id casts the request ID directly; Registry never
+    // returns 0, so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     {
@@ -2666,8 +2666,8 @@ pub fn server_deliver_inventory(
     if let Some(cb) = callback {
         let req_id = DELIVER_INVENTORY_REGISTRY.next_req_id();
 
-        // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-        // is never null (req_id starts at 1, so shifted value >= 4).
+        // SAFETY: encode_req_id casts the request ID directly; Registry never
+        // returns 0, so cbdata is never null.
         let cbdata = crate::cbdata::encode_req_id(req_id);
 
         {

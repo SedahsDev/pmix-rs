@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 /// Encode a non-zero request ID as opaque cbdata for a PMIx C callback.
@@ -37,7 +37,7 @@ pub fn decode_req_id(cbdata: *mut c_void) -> usize {
 
 /// Process-global callback registry with a lock-free request-ID sequence.
 ///
-/// The sequence counter is an `AtomicU64`, so allocating a request ID never
+/// The sequence counter is an `AtomicUsize`, so allocating a request ID never
 /// takes the callback-map lock; concurrent ops therefore never serialize on
 /// the counter. An op pays ONE map lock acquisition instead of the previous
 /// SEQ lock + map lock pair.
@@ -45,7 +45,7 @@ pub fn decode_req_id(cbdata: *mut c_void) -> usize {
 /// Request IDs start at 1 and saturate rather than wrap, so they can never
 /// become 0 (which would encode as a null cbdata pointer).
 pub struct Registry<T> {
-    seq: AtomicU64,
+    seq: AtomicUsize,
     map: Mutex<HashMap<usize, T>>,
 }
 
@@ -59,7 +59,7 @@ impl<T> Registry<T> {
     /// Create an empty registry with the sequence starting at zero.
     pub fn new() -> Self {
         Self {
-            seq: AtomicU64::new(0),
+            seq: AtomicUsize::new(0),
             map: Mutex::new(HashMap::new()),
         }
     }
@@ -75,7 +75,7 @@ impl<T> Registry<T> {
                 .compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
             {
-                return next as usize;
+                return next;
             }
         }
     }

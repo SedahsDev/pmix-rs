@@ -381,8 +381,8 @@ pub fn allocation_request_nb(
     // Assign a unique request ID and register the callback.
     let req_id = ALLOCATION_REGISTRY.next_req_id();
 
-    // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1).
+    // SAFETY: encode_req_id casts the request ID directly; Registry never
+    // returns 0, so cbdata is never null.
     let cbdata = encode_req_id(req_id);
 
     ALLOCATION_REGISTRY.lock().insert(req_id, callback);
@@ -746,8 +746,8 @@ pub fn job_control_nb(
     // Assign a unique request ID and register the callback.
     let req_id = JOB_CTRL_REGISTRY.next_req_id();
 
-    // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1).
+    // SAFETY: encode_req_id casts the request ID directly; Registry never
+    // returns 0, so cbdata is never null.
     let cbdata = encode_req_id(req_id);
 
     JOB_CTRL_REGISTRY.lock().insert(req_id, callback);

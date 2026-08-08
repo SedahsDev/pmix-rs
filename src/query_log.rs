@@ -1047,10 +1047,11 @@ mod tests {
                 self.called.store(true, std::sync::atomic::Ordering::SeqCst);
             }
         }
-        // Record registry size before our call
-        let size_before = {
+        // Record registry IDs before our call so cleanup can remove the exact
+        // ID inserted by query_info_nb rather than advancing the sequence.
+        let ids_before: std::collections::HashSet<usize> = {
             let registry = QUERY_REGISTRY.lock();
-            registry.len()
+            registry.keys().copied().collect()
         };
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
         let cb = Box::new(CountingCallback {
@@ -1061,15 +1062,21 @@ mod tests {
         // If Ok, the callback was NOT removed from registry (no PMIx server to
         // invoke the bridge callback). Clean it up ourselves.
         if result.is_ok() {
-            let req_id = QUERY_REGISTRY.next_req_id();
             let mut registry = QUERY_REGISTRY.lock();
-            registry.remove(&req_id);
+            let req_id = registry
+                .keys()
+                .find(|id| !ids_before.contains(id))
+                .copied();
+            if let Some(req_id) = req_id {
+                registry.remove(&req_id);
+            }
         }
         // The registry should be back to its pre-call size — our entry was removed.
         let size_after = {
             let registry = QUERY_REGISTRY.lock();
             registry.len()
         };
+        let size_before = ids_before.len();
         assert_eq!(
             size_after, size_before,
             "Registry should have same size after NB query (entry was cleaned up)"
