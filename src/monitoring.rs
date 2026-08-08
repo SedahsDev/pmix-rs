@@ -1001,3 +1001,14 @@ mod tests {
         }
     }
 }
+
+
+pub fn heartbeat_raw() { crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_heartbeat()},real=unsafe{ffi::PMIx_Heartbeat()}); }
+
+
+#[cfg(test)]
+#[test]
+fn test_misc_heartbeat_wrapper() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    heartbeat_raw();
+}

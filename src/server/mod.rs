@@ -2960,3 +2960,21 @@ pub fn server_generate_cpuset_string(
     Ok(cpuset_string)
 }
 
+
+
+pub fn server_generate_cpuset(cpuset_string:&str,cpuset:&mut crate::fabric::PmixCpuset)->Result<(),PmixStatus>{let s=CString::new(cpuset_string).map_err(|_|PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;let raw=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_server_generate_cpuset(s.as_ptr(),cpuset.as_mut_ptr())},real=unsafe{ffi::PMIx_server_generate_cpuset(s.as_ptr(),cpuset.as_mut_ptr())});if raw==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(raw))}}
+pub fn server_collect_job_info(procs:&[Proc],dbuf:&mut crate::data_serialization::PmixDataBuffer)->Result<(),PmixStatus>{let mut raw=procs.iter().map(|p|p.handle).collect::<Vec<_>>();let s=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_server_collect_job_info(raw.as_mut_ptr(),raw.len(),dbuf.as_mut_ptr())},real=unsafe{ffi::PMIx_server_collect_job_info(raw.as_mut_ptr(),raw.len(),dbuf.as_mut_ptr())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
+
+#[cfg(test)]
+mod misc_wrapper_tests {
+    use super::*;
+    #[test]
+    fn server_cpuset_and_collect_job_info_wrappers() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let mut cpuset = crate::fabric::PmixCpuset::new();
+        assert!(server_generate_cpuset("mock:0", &mut cpuset).is_ok());
+        let proc = crate::Proc::new("test", 0).unwrap();
+        let mut buffer = crate::data_serialization::data_buffer_create().unwrap();
+        assert!(server_collect_job_info(&[proc], &mut buffer).is_ok());
+    }
+}

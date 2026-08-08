@@ -4143,3 +4143,20 @@ use super::*;
         assert_eq!(PUB_CB_PARTIAL.load(Ordering::SeqCst), -52);
     }
 
+
+
+#[cfg(any(test, feature = "mock_ffi"))]
+#[test]
+fn test_misc_pdata_wrappers_construct_load_xfer_and_arrays() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let proc = crate::Proc::new("test", 0).unwrap();
+    let mut dst = super::PmixPdataHandle::new();
+    let src = super::PmixPdataHandle::new();
+    assert!(dst.load(&proc, "key", &[], crate::ffi::PMIX_BYTE as u16).is_ok());
+    assert!(dst.load(&proc, "bad\0key", &[], crate::ffi::PMIX_BYTE as u16).is_err());
+    assert!(dst.xfer(&src).is_ok());
+    let array = super::pdata_create(2).unwrap();
+    drop(array);
+    let empty = super::pdata_create(0).unwrap();
+    assert!(empty.ptr.is_null());
+}
