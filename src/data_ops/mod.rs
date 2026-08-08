@@ -265,6 +265,10 @@ extern "C" fn get_value_callback_bridge(
     // Extract the value on success. Qualified values borrow PMIx info memory.
     let value = if pmix_status.is_success() && !kv.is_null() {
         if qualified {
+            // The server round-trip route provides a fresh heap struct that
+            // OpenPMIx does not reclaim, so this xfer leaves that struct and
+            // its nested payloads leaked. We cannot reclaim it here: the
+            // local-GDS route provides a pointer into C-owned info memory.
             // SAFETY: `kv` is valid during the callback; Value_xfer does not modify it.
             let mut copied = unsafe { std::mem::zeroed() };
             let copy_status = crate::pmix_ffi_or_mock!(
@@ -364,10 +368,13 @@ pub fn get_nb(
 
     if let Some(info) = info {
         if !info.handle.is_null() && info.len > 0 {
-            // SAFETY: `handle` points to the borrowed Info array.
-            let qualified = unsafe {
-                CStr::from_ptr((*info.handle).key.as_ptr()).to_bytes() == b"pmix.qual.val"
-            };
+            // SAFETY: `handle` points to `len` entries in the borrowed Info
+            // array, which remains valid for the duration of this call.
+            let entries = unsafe { std::slice::from_raw_parts(info.handle, info.len) };
+            let qualified = entries.iter().any(|entry| {
+                // SAFETY: each entry's key is a NUL-terminated pmix_key_t.
+                unsafe { CStr::from_ptr(entry.key.as_ptr()).to_bytes() == b"pmix.qual.val" }
+            });
             if qualified {
                 QUALIFIED_GETS
                     .lock()
