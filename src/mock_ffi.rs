@@ -3567,10 +3567,29 @@ pub fn mock_query_construct(p: *mut crate::ffi::pmix_query_t) {
 }
 
 /// Mock implementation of `PMIx_Query_destruct`.
-pub fn mock_query_destruct(_p: *mut crate::ffi::pmix_query_t) {}
+pub fn mock_query_destruct(p: *mut crate::ffi::pmix_query_t) {
+    if !p.is_null() {
+        unsafe {
+            if !(*p).qualifiers.is_null() {
+                libc::free((*p).qualifiers.cast());
+                (*p).qualifiers = std::ptr::null_mut();
+            }
+            (*p).nqual = 0;
+        }
+    }
+}
 
 /// Mock implementation of `PMIx_Query_release`.
 pub fn mock_query_release(_p: *mut crate::ffi::pmix_query_t) {}
 
 /// Mock implementation of `PMIx_Query_qualifiers_create`.
-pub fn mock_query_qualifiers_create(_p: *mut crate::ffi::pmix_query_t, _n: usize) {}
+pub fn mock_query_qualifiers_create(p: *mut crate::ffi::pmix_query_t, n: usize) {
+    if p.is_null() {
+        return;
+    }
+    unsafe {
+        (*p).qualifiers = libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_info_t>())
+            as *mut crate::ffi::pmix_info_t;
+        (*p).nqual = n;
+    }
+}
