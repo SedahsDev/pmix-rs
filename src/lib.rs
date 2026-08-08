@@ -5742,3 +5742,203 @@ mod value_utils_tests {
 
 /// Safe wrapper around an opaque PMIx info linked list.
 pub use info::PmixInfoList;
+
+#[cfg(test)]
+mod envar_utils_tests {
+    use super::*;
+
+    #[test]
+    fn envar_load_round_trip() {
+        let _guard = mock_ffi::MockGuard::new();
+        let value = envar_load("PATH", "/bin", ':').unwrap();
+        assert_eq!(value.envar.as_c_str().to_str().unwrap(), "PATH");
+        assert_eq!(value.value.as_c_str().to_str().unwrap(), "/bin");
+        assert_eq!(value.separator, b':');
+    }
+
+    #[test]
+    fn envar_create_allocates_and_drops() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut array = envar_create(2).unwrap();
+        assert_eq!(array.len(), 2);
+        assert!(!array.as_mut_ptr().is_null());
+    }
+
+    #[test]
+    fn setenv_accepts_vec_environment() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut env = vec!["A=B".to_owned()];
+        setenv("C", "D", true, &mut env).unwrap();
+        assert_eq!(env, vec!["A=B"]);
+    }
+
+    #[test]
+    fn multicluster_parse_reports_mock_failure() {
+        let _guard = mock_ffi::MockGuard::new();
+        assert!(multicluster_nspace_parse("cluster:nspace").is_err());
+    }
+
+    #[test]
+    fn multicluster_construct_is_safe_with_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let result = multicluster_nspace_construct("cluster", "nspace");
+        assert_eq!(result.unwrap(), "");
+    }
+}
+
+// END TDD TESTS
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Safe wrappers for PMIx_Envar_*, PMIx_Setenv, and multicluster namespaces.
+
+/// Construct a Rust-owned environment variable using the PMIx construct contract.
+pub fn envar_construct() -> PmixEnvar {
+    let mut raw = unsafe { mem::zeroed::<pmix_envar_t>() };
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_envar_construct(&mut raw) },
+        real = unsafe { ffi::PMIx_Envar_construct(&mut raw) },
+    );
+    PmixEnvar::new("", "", '\0').expect("empty strings cannot contain NUL")
+}
+
+/// Apply the PMIx environment-variable load operation to a validated value.
+pub fn envar_load(envar: &str, value: &str, separator: char) -> Result<PmixEnvar, NulError> {
+    let result = PmixEnvar::new(envar, value, separator)?;
+    let mut raw = unsafe { mem::zeroed::<pmix_envar_t>() };
+    let var = CString::new(envar)?;
+    let val = CString::new(value)?;
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_envar_load(&mut raw, var.as_ptr().cast_mut(), val.as_ptr().cast_mut(), separator as c_char) },
+        real = unsafe { ffi::PMIx_Envar_load(&mut raw, var.as_ptr().cast_mut(), val.as_ptr().cast_mut(), separator as c_char) },
+    );
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_envar_destruct(&mut raw) },
+        real = unsafe { ffi::PMIx_Envar_destruct(&mut raw) },
+    );
+    Ok(result)
+}
+
+/// Invoke the PMIx destructor contract without exposing the raw struct.
+pub fn envar_destruct(_envar: &mut PmixEnvar) {
+    let mut raw = unsafe { mem::zeroed::<pmix_envar_t>() };
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_envar_destruct(&mut raw) },
+        real = unsafe { ffi::PMIx_Envar_destruct(&mut raw) },
+    );
+}
+
+/// Owned array allocated by PMIx_Envar_create.
+pub struct PmixEnvarArray {
+    ptr: *mut pmix_envar_t,
+    len: usize,
+}
+
+impl PmixEnvarArray {
+    pub fn as_mut_ptr(&mut self) -> *mut pmix_envar_t { self.ptr }
+    pub fn len(&self) -> usize { self.len }
+    pub fn is_empty(&self) -> bool { self.len == 0 }
+}
+
+impl Drop for PmixEnvarArray {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            pmix_ffi_or_mock!(
+                mock = unsafe { mock_ffi::mock_envar_free(self.ptr, self.len) },
+                real = unsafe { ffi::PMIx_Envar_free(self.ptr, self.len) },
+            );
+            self.ptr = ptr::null_mut();
+        }
+    }
+}
+
+pub fn envar_create(len: usize) -> Result<PmixEnvarArray, PmixError> {
+    if len == 0 {
+        return Ok(PmixEnvarArray { ptr: ptr::null_mut(), len });
+    }
+    let ptr = pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_envar_create(len) },
+        real = unsafe { ffi::PMIx_Envar_create(len) },
+    );
+    if ptr.is_null() {
+        Err(PmixError::ErrNomem)
+    } else {
+        Ok(PmixEnvarArray { ptr, len })
+    }
+}
+
+fn c_string_vector(values: &[String]) -> Result<*mut *mut c_char, PmixStatus> {
+    let slots = values.len().checked_add(1).ok_or(PmixStatus::from_raw(PmixError::ErrBadParam as i32))?;
+    let argv = unsafe { libc::calloc(slots, mem::size_of::<*mut c_char>()) as *mut *mut c_char };
+    if argv.is_null() { return Err(PmixStatus::from_raw(PmixError::ErrNomem as i32)); }
+    for (index, value) in values.iter().enumerate() {
+        let c = match CString::new(value.as_str()) {
+            Ok(c) => c,
+            Err(_) => {
+                unsafe { libc::free(argv.cast()) };
+                return Err(PmixStatus::from_raw(PmixError::ErrBadParam as i32));
+            }
+        };
+        unsafe { *argv.add(index) = c.into_raw(); }
+    }
+    Ok(argv)
+}
+
+/// Set an environment entry while preserving the caller's Vec<String> API.
+pub fn setenv(name: &str, value: &str, overwrite: bool, env: &mut Vec<String>) -> Result<(), PmixStatus> {
+    let name = CString::new(name).map_err(|_| PmixStatus::from_raw(PmixError::ErrBadParam as i32))?;
+    let value = CString::new(value).map_err(|_| PmixStatus::from_raw(PmixError::ErrBadParam as i32))?;
+    let mut argv = c_string_vector(env)?;
+    let status = pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_setenv(name.as_ptr(), value.as_ptr(), overwrite, &mut argv) },
+        real = unsafe { ffi::PMIx_Setenv(name.as_ptr(), value.as_ptr(), overwrite, &mut argv) },
+    );
+    let result = PmixStatus::from_raw(status as i32);
+    if result.is_success() {
+        let mut copied = Vec::new();
+        unsafe {
+            let mut index = 0;
+            while !(*argv.add(index)).is_null() {
+                copied.push(CStr::from_ptr(*argv.add(index)).to_string_lossy().into_owned());
+                index += 1;
+            }
+        }
+        *env = copied;
+    }
+    // PMIx_Argv_free is the matching deallocator even when PMIx_Setenv replaced argv.
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_argv_free(argv) },
+        real = unsafe { ffi::PMIx_Argv_free(argv) },
+    );
+    if result.is_success() { Ok(()) } else { Err(result) }
+}
+
+const PMIX_MAX_NSLEN: usize = 255;
+
+pub fn multicluster_nspace_construct(cluster: &str, nspace: &str) -> Result<String, PmixError> {
+    let target = [0 as c_char; PMIX_MAX_NSLEN + 1];
+    let cluster = CString::new(cluster).map_err(|_| PmixError::ErrBadParam)?;
+    let nspace = CString::new(nspace).map_err(|_| PmixError::ErrBadParam)?;
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_multicluster_nspace_construct(target.as_ptr().cast_mut(), cluster.as_ptr().cast_mut(), nspace.as_ptr().cast_mut()) },
+        real = unsafe { ffi::PMIx_Multicluster_nspace_construct(target.as_ptr().cast_mut(), cluster.as_ptr().cast_mut(), nspace.as_ptr().cast_mut()) },
+    );
+    CStr::from_bytes_until_nul(unsafe { std::slice::from_raw_parts(target.as_ptr().cast::<u8>(), target.len()) })
+        .map_err(|_| PmixError::ErrBadParam)
+        .and_then(|s| s.to_str().map(str::to_owned).map_err(|_| PmixError::ErrBadParam))
+}
+
+pub fn multicluster_nspace_parse(target: &str) -> Result<(String, String), PmixError> {
+    let target = CString::new(target).map_err(|_| PmixError::ErrBadParam)?;
+    let cluster = [0 as c_char; PMIX_MAX_NSLEN + 1];
+    let nspace = [0 as c_char; PMIX_MAX_NSLEN + 1];
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_multicluster_nspace_parse(target.as_ptr().cast_mut(), cluster.as_ptr().cast_mut(), nspace.as_ptr().cast_mut()) },
+        real = unsafe { ffi::PMIx_Multicluster_nspace_parse(target.as_ptr().cast_mut(), cluster.as_ptr().cast_mut(), nspace.as_ptr().cast_mut()) },
+    );
+    let cluster = CStr::from_bytes_until_nul(unsafe { std::slice::from_raw_parts(cluster.as_ptr().cast::<u8>(), cluster.len()) }).map_err(|_| PmixError::ErrNotFound)?;
+    let nspace = CStr::from_bytes_until_nul(unsafe { std::slice::from_raw_parts(nspace.as_ptr().cast::<u8>(), nspace.len()) }).map_err(|_| PmixError::ErrNotFound)?;
+    if cluster.to_bytes().is_empty() && nspace.to_bytes().is_empty() {
+        return Err(PmixError::ErrNotFound);
+    }
+    Ok((cluster.to_string_lossy().into_owned(), nspace.to_string_lossy().into_owned()))
+}
