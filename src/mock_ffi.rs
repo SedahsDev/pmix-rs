@@ -3535,3 +3535,21 @@ pub unsafe fn mock_device_distance_construct(p: *mut crate::ffi::pmix_device_dis
 }
 pub unsafe fn mock_device_distance_create(n: usize) -> *mut crate::ffi::pmix_device_distance_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_distance_t>()) as *mut _ } }
 pub unsafe fn mock_device_distance_free(_p: *mut crate::ffi::pmix_device_distance_t, _n: usize) {}
+
+// Mock implementations for PMIx_Regattr_*.
+pub unsafe fn mock_regattr_construct(p: *mut crate::ffi::pmix_regattr_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
+pub unsafe fn mock_regattr_destruct(p: *mut crate::ffi::pmix_regattr_t) {
+    if p.is_null() { return; }
+    unsafe {
+        if !(*p).name.is_null() { libc::free((*p).name.cast()); (*p).name = std::ptr::null_mut(); }
+        if !(*p).description.is_null() { let mut i = 0; while !(*(*p).description.add(i)).is_null() { libc::free((*(*p).description.add(i)).cast()); i += 1; } libc::free((*p).description.cast()); (*p).description = std::ptr::null_mut(); }
+        std::ptr::write_bytes((*p).string.as_mut_ptr(), 0, (*p).string.len()); (*p).type_ = 0;
+    }
+}
+pub unsafe fn mock_regattr_create(n: usize) -> *mut crate::ffi::pmix_regattr_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_regattr_t>()) as *mut _ } }
+pub unsafe fn mock_regattr_free(_p: *mut crate::ffi::pmix_regattr_t, _n: usize) {}
+pub unsafe fn mock_regattr_load(p: *mut crate::ffi::pmix_regattr_t, name: *const libc::c_char, key: *const libc::c_char, ty: crate::ffi::pmix_data_type_t, description: *const libc::c_char) {
+    if p.is_null() { return; }
+    unsafe { (*p).name = libc::strdup(name); let len = libc::strlen(key).min((*p).string.len() - 1); std::ptr::copy_nonoverlapping(key, (*p).string.as_mut_ptr(), len); (*p).string[len] = 0; (*p).type_ = ty; let out = libc::calloc(2, std::mem::size_of::<*mut libc::c_char>()) as *mut *mut libc::c_char; if !out.is_null() { out.write(libc::strdup(description)); out.add(1).write(std::ptr::null_mut()); (*p).description = out; } }
+}
+pub unsafe fn mock_regattr_xfer(_dest: *mut crate::ffi::pmix_regattr_t, _src: *const crate::ffi::pmix_regattr_t) {}
