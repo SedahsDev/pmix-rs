@@ -1,7 +1,7 @@
 //! Server submodule: data
 
 use super::*;
-use crate::cbdata::{decode_req_id, encode_req_id, next_req_id};
+use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::threading::invoke_user_callback;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -332,15 +332,12 @@ pub fn server_fence(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── One-shot completion registries (issue #67) ───────────────────────────────
-static SERVER_FENCE_NB_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static SERVER_FENCE_NB_REGISTRY: LazyLock<Mutex<HashMap<usize, FenceNbCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static SERVER_CONNECT_NB_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static SERVER_CONNECT_NB_REGISTRY: LazyLock<Mutex<HashMap<usize, FenceNbCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static SERVER_DISCONNECT_NB_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static SERVER_DISCONNECT_NB_REGISTRY: LazyLock<Mutex<HashMap<usize, FenceNbCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static SERVER_FENCE_NB_REGISTRY: LazyLock<Registry<FenceNbCallbackWrapper>> =
+    LazyLock::new(Registry::new);
+static SERVER_CONNECT_NB_REGISTRY: LazyLock<Registry<FenceNbCallbackWrapper>> =
+    LazyLock::new(Registry::new);
+static SERVER_DISCONNECT_NB_REGISTRY: LazyLock<Registry<FenceNbCallbackWrapper>> =
+    LazyLock::new(Registry::new);
 
 pub(crate) extern "C" fn fence_nb_callback_bridge(status: i32, cbdata: *mut c_void) {
     if cbdata.is_null() {
@@ -348,7 +345,7 @@ pub(crate) extern "C" fn fence_nb_callback_bridge(status: i32, cbdata: *mut c_vo
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = SERVER_FENCE_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_FENCE_NB_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -366,7 +363,7 @@ pub(crate) extern "C" fn connect_nb_callback_bridge(status: i32, cbdata: *mut c_
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = SERVER_CONNECT_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_CONNECT_NB_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -384,7 +381,7 @@ pub(crate) extern "C" fn disconnect_nb_callback_bridge(status: i32, cbdata: *mut
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = SERVER_DISCONNECT_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_DISCONNECT_NB_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -441,9 +438,9 @@ pub fn server_fence_nb(
     _info: &[Info],
     callback: FenceNbCallbackWrapper,
 ) -> Result<(), PmixStatus> {
-    let req_id = next_req_id(&SERVER_FENCE_NB_SEQ);
+    let req_id = SERVER_FENCE_NB_REGISTRY.next_req_id();
     {
-        let mut registry = SERVER_FENCE_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_FENCE_NB_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
     let cbdata = encode_req_id(req_id);
@@ -470,7 +467,7 @@ pub fn server_fence_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = SERVER_FENCE_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_FENCE_NB_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -573,9 +570,9 @@ pub fn server_connect_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let req_id = next_req_id(&SERVER_CONNECT_NB_SEQ);
+    let req_id = SERVER_CONNECT_NB_REGISTRY.next_req_id();
     {
-        let mut registry = SERVER_CONNECT_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_CONNECT_NB_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
     let cbdata = encode_req_id(req_id);
@@ -611,7 +608,7 @@ pub fn server_connect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = SERVER_CONNECT_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_CONNECT_NB_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -710,9 +707,9 @@ pub fn server_disconnect_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let req_id = next_req_id(&SERVER_DISCONNECT_NB_SEQ);
+    let req_id = SERVER_DISCONNECT_NB_REGISTRY.next_req_id();
     {
-        let mut registry = SERVER_DISCONNECT_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_DISCONNECT_NB_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
     let cbdata = encode_req_id(req_id);
@@ -748,7 +745,7 @@ pub fn server_disconnect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = SERVER_DISCONNECT_NB_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SERVER_DISCONNECT_NB_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }

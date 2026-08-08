@@ -35,17 +35,6 @@ pub fn decode_req_id(cbdata: *mut c_void) -> usize {
 }
 
 
-/// Allocate the next non-zero request ID from a per-registry sequence counter.
-///
-/// Starts at 1 (never returns 0 / null cbdata). Saturates rather than wrapping
-/// so a pathological overflow cannot produce a null id.
-#[inline]
-pub fn next_req_id(seq: &Mutex<usize>) -> usize {
-    let mut g = seq.lock().unwrap_or_else(|e| e.into_inner());
-    *g = g.saturating_add(1).max(1);
-    *g
-}
-
 /// Process-global callback registry with a lock-free request-ID sequence.
 ///
 /// The sequence counter is an `AtomicU64`, so allocating a request ID never
@@ -128,14 +117,6 @@ mod tests {
     #[test]
     fn never_null_for_nonzero() {
         assert!(!encode_req_id(1).is_null());
-    }
-
-    #[test]
-    fn next_req_id_starts_at_one_and_increments() {
-        let seq = Mutex::new(0);
-        assert_eq!(next_req_id(&seq), 1);
-        assert_eq!(next_req_id(&seq), 2);
-        assert_eq!(next_req_id(&seq), 3);
     }
 
     #[test]
