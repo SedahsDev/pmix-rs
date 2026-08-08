@@ -54,7 +54,7 @@
 //! ```
 
 use crate::{Info, PmixDataRange, PmixError, PmixStatus, Proc, ffi};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
@@ -202,6 +202,8 @@ struct PendingRegistration {
 
 static PENDING_REGISTRATIONS: LazyLock<Mutex<Vec<PendingRegistration>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
+static DEREG_IN_PROGRESS: LazyLock<Mutex<HashSet<EventHandlerRef>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 static BLOCKING_REGISTRATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 /// Drop every parked notification handler.
@@ -211,6 +213,10 @@ static BLOCKING_REGISTRATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex:
 /// for the rest of the process lifetime. Safe under the crate's no-reinit
 /// policy: after finalize, no further event deliveries are expected.
 pub(crate) fn clear_handler_registry() {
+    DEREG_IN_PROGRESS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
     PENDING_REGISTRATIONS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -264,10 +270,11 @@ unsafe fn complete_event_chain(
 /// waits on that completion, so a missed `cbfunc` is a permanent hang — not
 /// a silent drop.
 ///
-/// On registry miss (no user fn, `evhdlr = None`, deregistration race, or an
-/// unknown refid), this bridge still calls `cbfunc` as a pass-through. During
-/// blocking registration, a matching provisional handler is used while its
-/// refid is being returned by PMIx.
+/// On registry miss (no user fn, `evhdlr = None`, or an unknown refid), this
+/// bridge still calls `cbfunc` as a pass-through. During blocking registration,
+/// a matching provisional handler is used while its refid is being returned by
+/// PMIx. A delivery for a refid currently being deregistered is passed through
+/// rather than matched against a provisional registration.
 ///
 /// User-handler panics are caught: unwinding across the C→Rust FFI boundary
 /// is undefined behaviour, and a panic that skips `cbfunc` would stall the
@@ -292,8 +299,15 @@ unsafe extern "C" fn notification_bridge(
         registry
             .get(&evhdlr_registration_id)
             .and_then(|b| *b.as_ref())
-    }
-    .or_else(|| {
+    };
+    let user_fn = user_fn.or_else(|| {
+        if DEREG_IN_PROGRESS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&evhdlr_registration_id)
+        {
+            return None;
+        }
         let pending = PENDING_REGISTRATIONS
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -502,16 +516,23 @@ pub fn register_event_handler(
     if status.is_success() {
         let handler_ref = raw_status as EventHandlerRef;
         if evhdlr.is_some() {
-            let user_fn = PENDING_REGISTRATIONS
+            // Insert before removing the provisional entry. The bridge checks
+            // HANDLER_REGISTRY before PENDING_REGISTRATIONS, so this ordering
+            // leaves no re-key gap. The registry and pending locks are never
+            // nested in the bridge, avoiding an ABBA cycle.
+            let mut pending = PENDING_REGISTRATIONS
                 .lock()
-                .expect("mutex poisoned (events.rs)")
-                .pop()
+                .expect("mutex poisoned (events.rs)");
+            let user_fn = pending
+                .last()
                 .expect("pending blocking registration missing")
-                .user_fn;
+                .user_fn
+                .expect("pending blocking notification fn missing");
             HANDLER_REGISTRY
                 .lock()
                 .expect("mutex poisoned (events.rs)")
-                .insert(handler_ref, user_fn);
+                .insert(handler_ref, Box::new(Some(user_fn)));
+            pending.pop();
         }
         Ok(handler_ref)
     } else {
@@ -658,17 +679,28 @@ pub fn deregister_event_handler(
     //   registered briefly, but `notification_bridge` hits a registry miss and
     //   **pass-through-completes** the OpenPMIx event chain (no hang, no UAF).
     //   The delivery is dropped at the Rust layer rather than forwarded.
+    // Deregistration takes DEREG_IN_PROGRESS, then HANDLER_REGISTRY. The
+    // bridge releases each read lock before acquiring the next, so no cycle
+    // is possible while preserving registry-first removal for UAF safety.
+    DEREG_IN_PROGRESS
+        .lock()
+        .expect("mutex poisoned (events.rs)")
+        .insert(evhdlr_ref);
     HANDLER_REGISTRY
         .lock()
         .expect("mutex poisoned (events.rs)")
         .remove(&evhdlr_ref);
 
-    // SAFETY: FFI call into PMIx library. evhdlr_ref is an opaque usize
-    // returned by the library itself, so it is valid to pass back.
     let raw_status =
+        // SAFETY: FFI call into PMIx library. evhdlr_ref is an opaque usize
+        // returned by the library itself, so it is valid to pass back.
         unsafe { ffi::PMIx_Deregister_event_handler(evhdlr_ref, cbfunc, ptr::null_mut()) };
 
     let status = PmixStatus::from_raw(raw_status);
+    DEREG_IN_PROGRESS
+        .lock()
+        .expect("mutex poisoned (events.rs)")
+        .remove(&evhdlr_ref);
     if status.is_success() {
         Ok(())
     } else {
@@ -694,9 +726,12 @@ pub fn deregister_event_handler_nb(
     cbfunc: OpCbFn,
     cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
-    // Same registry-first ordering as the blocking path: drop the user fn
-    // before asking OpenPMIx to stop delivering events for this ref. See the
-    // comment on [`deregister_event_handler`].
+    // Same registry-first ordering as the blocking path. Marking the refid
+    // first prevents pending fallback from claiming an in-flight delivery.
+    DEREG_IN_PROGRESS
+        .lock()
+        .expect("mutex poisoned (events.rs)")
+        .insert(evhdlr_ref);
     HANDLER_REGISTRY
         .lock()
         .expect("mutex poisoned (events.rs)")
@@ -707,6 +742,10 @@ pub fn deregister_event_handler_nb(
     let raw_status = unsafe { ffi::PMIx_Deregister_event_handler(evhdlr_ref, cbfunc, cbdata) };
 
     let status = PmixStatus::from_raw(raw_status);
+    DEREG_IN_PROGRESS
+        .lock()
+        .expect("mutex poisoned (events.rs)")
+        .remove(&evhdlr_ref);
     if status.is_success() {
         Ok(())
     } else {
@@ -1108,6 +1147,79 @@ mod tests {
                 .expect("mutex poisoned (events.rs)")
                 .contains_key(&424252)
         );
+        unsafe {
+            notification_bridge(
+                424252,
+                17,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                Some(completion),
+                &chain as *const u8 as *mut c_void,
+            );
+        }
+        assert_eq!(CALLED.load(Ordering::SeqCst), 2);
+        clear_handler_registry();
+    }
+
+    #[test]
+    fn test_pending_consult_skipped_for_deregistering_ref() {
+        static CALLED: AtomicBool = AtomicBool::new(false);
+
+        unsafe fn handler(
+            _id: EventHandlerRef,
+            _status: i32,
+            _source: *const c_void,
+            _info: *mut c_void,
+            _ninfo: usize,
+            _results: *mut c_void,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbdata: *mut c_void,
+        ) {
+            CALLED.store(true, Ordering::SeqCst);
+        }
+        unsafe extern "C" fn completion(
+            _status: i32,
+            _results: *mut ffi::pmix_info_t,
+            _nresults: usize,
+            _cbfunc: ffi::pmix_op_cbfunc_t,
+            _cbdata: *mut c_void,
+            _notification_cbdata: *mut c_void,
+        ) {
+        }
+
+        let _guard = MockGuard::new();
+        clear_handler_registry();
+        CALLED.store(false, Ordering::SeqCst);
+        let ref_id = 424253;
+        PENDING_REGISTRATIONS
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .push(PendingRegistration {
+                codes: vec![17],
+                user_fn: Box::new(Some(handler)),
+            });
+        DEREG_IN_PROGRESS
+            .lock()
+            .expect("mutex poisoned (events.rs)")
+            .insert(ref_id);
+        unsafe {
+            notification_bridge(
+                ref_id,
+                17,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                Some(completion),
+                std::ptr::null_mut(),
+            );
+        }
+        assert!(!CALLED.load(Ordering::SeqCst));
         clear_handler_registry();
     }
 
