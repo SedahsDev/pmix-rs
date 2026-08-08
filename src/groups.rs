@@ -6,11 +6,11 @@
 //! This module provides safe Rust wrappers around the PMIx group
 //! management APIs.
 
-use crate::cbdata::{decode_req_id, encode_req_id, next_req_id};
+use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
-use std::collections::HashMap;
+
 use std::ffi::CString;
 use std::os::raw::c_void;
 use std::ptr;
@@ -28,26 +28,20 @@ pub use ffi::pmix_group_opt_t;
 // Bridges never pass a `Box` pointer as cbdata. Request IDs are encoded with
 // `encode_req_id`; the bridge does `lock → remove → unlock → invoke_user_callback`.
 
-static GROUP_CONSTRUCT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static GROUP_CONSTRUCT_REGISTRY: LazyLock<
-    Mutex<HashMap<usize, GroupConstructCallbackWrapper>>,
-> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static GROUP_CONSTRUCT_REGISTRY: LazyLock<Registry<GroupConstructCallbackWrapper>> =
+    LazyLock::new(Registry::new);
 
-static GROUP_INVITE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static GROUP_INVITE_REGISTRY: LazyLock<Mutex<HashMap<usize, GroupInviteCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static GROUP_INVITE_REGISTRY: LazyLock<Registry<GroupInviteCallbackWrapper>> =
+    LazyLock::new(Registry::new);
 
-static GROUP_JOIN_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static GROUP_JOIN_REGISTRY: LazyLock<Mutex<HashMap<usize, GroupJoinCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static GROUP_JOIN_REGISTRY: LazyLock<Registry<GroupJoinCallbackWrapper>> =
+    LazyLock::new(Registry::new);
 
-static GROUP_LEAVE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static GROUP_LEAVE_REGISTRY: LazyLock<Mutex<HashMap<usize, GroupLeaveCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static GROUP_LEAVE_REGISTRY: LazyLock<Registry<GroupLeaveCallbackWrapper>> =
+    LazyLock::new(Registry::new);
 
-static GROUP_DESTRUCT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static GROUP_DESTRUCT_REGISTRY: LazyLock<Mutex<HashMap<usize, GroupDestructCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static GROUP_DESTRUCT_REGISTRY: LazyLock<Registry<GroupDestructCallbackWrapper>> =
+    LazyLock::new(Registry::new);
 
 fn info_results_from_c(status: PmixStatus, info: *mut ffi::pmix_info_t, ninfo: usize) -> Vec<Info> {
     if !status.is_success() || info.is_null() || ninfo == 0 {
@@ -208,7 +202,7 @@ pub unsafe extern "C" fn group_construct_callback_bridge(
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -245,11 +239,7 @@ pub fn group_construct_nb(
 
     let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
 
-    let req_id = next_req_id(&GROUP_CONSTRUCT_SEQ);
-    {
-        let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.insert(req_id, callback);
-    }
+    let req_id = GROUP_CONSTRUCT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
 
@@ -284,7 +274,7 @@ pub fn group_construct_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -414,7 +404,7 @@ pub unsafe extern "C" fn group_invite_callback_bridge(
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = GROUP_INVITE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_INVITE_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -450,11 +440,7 @@ pub fn group_invite_nb(
     }
 
     let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
-    let req_id = next_req_id(&GROUP_INVITE_SEQ);
-    {
-        let mut registry = GROUP_INVITE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.insert(req_id, callback);
-    }
+    let req_id = GROUP_INVITE_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
 
@@ -489,7 +475,7 @@ pub fn group_invite_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = GROUP_INVITE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_INVITE_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -621,7 +607,7 @@ pub unsafe extern "C" fn group_join_callback_bridge(
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = GROUP_JOIN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_JOIN_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -656,11 +642,7 @@ pub fn group_join_nb(
     }
 
     let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
-    let req_id = next_req_id(&GROUP_JOIN_SEQ);
-    {
-        let mut registry = GROUP_JOIN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.insert(req_id, callback);
-    }
+    let req_id = GROUP_JOIN_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
     let leader_ptr = std::ptr::addr_of!(leader.handle) as *const ffi::pmix_proc_t;
@@ -692,7 +674,7 @@ pub fn group_join_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = GROUP_JOIN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_JOIN_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -767,7 +749,7 @@ pub unsafe extern "C" fn group_leave_callback_bridge(status: i32, cbdata: *mut c
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_LEAVE_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -797,11 +779,7 @@ pub fn group_leave_nb(
     }
 
     let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
-    let req_id = next_req_id(&GROUP_LEAVE_SEQ);
-    {
-        let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.insert(req_id, callback);
-    }
+    let req_id = GROUP_LEAVE_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
 
@@ -830,7 +808,7 @@ pub fn group_leave_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_LEAVE_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -905,7 +883,7 @@ pub unsafe extern "C" fn group_destruct_callback_bridge(status: i32, cbdata: *mu
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = GROUP_DESTRUCT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_DESTRUCT_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -935,11 +913,7 @@ pub fn group_destruct_nb(
     }
 
     let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
-    let req_id = next_req_id(&GROUP_DESTRUCT_SEQ);
-    {
-        let mut registry = GROUP_DESTRUCT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.insert(req_id, callback);
-    }
+    let req_id = GROUP_DESTRUCT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
 
@@ -968,7 +942,7 @@ pub fn group_destruct_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = GROUP_DESTRUCT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = GROUP_DESTRUCT_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1119,7 +1093,7 @@ mod tests {
 
         let req_id = 900001usize;
         {
-            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1159,7 +1133,7 @@ mod tests {
 
         let req_id = 900002usize;
         {
-            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1280,7 +1254,7 @@ mod tests {
 
         let req_id = 900003usize;
         {
-            let mut registry = GROUP_INVITE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_INVITE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1414,7 +1388,7 @@ mod tests {
 
         let req_id = 900004usize;
         {
-            let mut registry = GROUP_JOIN_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_JOIN_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1505,7 +1479,7 @@ mod tests {
 
         let req_id = 900005usize;
         {
-            let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_LEAVE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1532,7 +1506,7 @@ mod tests {
 
         let req_id = 900006usize;
         {
-            let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_LEAVE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1616,7 +1590,7 @@ mod tests {
 
         let req_id = 900007usize;
         {
-            let mut registry = GROUP_DESTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_DESTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1643,7 +1617,7 @@ mod tests {
 
         let req_id = 900008usize;
         {
-            let mut registry = GROUP_DESTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_DESTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1807,7 +1781,7 @@ mod tests {
 
         let req_id = 900009usize;
         {
-            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1841,7 +1815,7 @@ mod tests {
 
         let req_id = 900010usize;
         {
-            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1876,7 +1850,7 @@ mod tests {
 
         let req_id = 900011usize;
         {
-            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1923,7 +1897,7 @@ mod tests {
 
         let req_id = 900012usize;
         {
-            let mut registry = GROUP_INVITE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_INVITE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -1958,7 +1932,7 @@ mod tests {
 
         let req_id = 900013usize;
         {
-            let mut registry = GROUP_INVITE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_INVITE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2006,7 +1980,7 @@ mod tests {
 
         let req_id = 900014usize;
         {
-            let mut registry = GROUP_JOIN_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_JOIN_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2040,7 +2014,7 @@ mod tests {
 
         let req_id = 900015usize;
         {
-            let mut registry = GROUP_JOIN_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_JOIN_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2101,7 +2075,7 @@ mod tests {
 
         let req_id = 900016usize;
         {
-            let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_LEAVE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2127,7 +2101,7 @@ mod tests {
 
         let req_id = 900017usize;
         {
-            let mut registry = GROUP_DESTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_DESTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2151,7 +2125,7 @@ mod tests {
 
         let req_id = 900018usize;
         {
-            let mut registry = GROUP_DESTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_DESTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2376,7 +2350,7 @@ mod tests {
 
         let req_id = 900019usize;
         {
-            let mut registry = GROUP_INVITE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_INVITE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2406,7 +2380,7 @@ mod tests {
 
         let req_id = 900020usize;
         {
-            let mut registry = GROUP_JOIN_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_JOIN_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2436,7 +2410,7 @@ mod tests {
 
         let req_id = 900021usize;
         {
-            let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_LEAVE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2459,7 +2433,7 @@ mod tests {
 
         let req_id = 900022usize;
         {
-            let mut registry = GROUP_DESTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_DESTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2552,7 +2526,7 @@ mod tests {
         });
         let req_id = 424_267usize;
         {
-            let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_LEAVE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata_addr = encode_req_id(req_id) as usize;
@@ -2564,15 +2538,15 @@ mod tests {
         enter_rx
             .recv_timeout(Duration::from_secs(5))
             .expect("user callback should enter");
-        let guard = GROUP_LEAVE_REGISTRY
-            .try_lock()
-            .expect("registry lock must not be held across user callback code");
-        drop(guard);
+        let lock_check = std::thread::spawn(|| {
+            let _guard = GROUP_LEAVE_REGISTRY.lock();
+        });
+        lock_check.join().expect("registry lock must not be held across user callback code");
 
         let _ = release_tx.send(());
         progress.join().expect("bridge returns");
         assert!(
-            GROUP_LEAVE_REGISTRY.lock().unwrap().get(&req_id).is_none(),
+            GROUP_LEAVE_REGISTRY.lock().get(&req_id).is_none(),
             "one-shot leave callback must be removed before user invoke"
         );
     }
@@ -2584,7 +2558,7 @@ mod tests {
         });
         let req_id = 424_268usize;
         {
-            let mut registry = GROUP_LEAVE_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_LEAVE_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);
@@ -2592,7 +2566,7 @@ mod tests {
         unsafe {
             group_leave_callback_bridge(0, cbdata);
         }
-        assert!(GROUP_LEAVE_REGISTRY.lock().unwrap().get(&req_id).is_none());
+        assert!(GROUP_LEAVE_REGISTRY.lock().get(&req_id).is_none());
     }
 
     #[test]
@@ -2606,7 +2580,7 @@ mod tests {
         });
         let req_id = 424_269usize;
         {
-            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock().unwrap();
+            let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
             registry.insert(req_id, wrapper);
         }
         let cbdata = encode_req_id(req_id);

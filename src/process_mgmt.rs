@@ -51,11 +51,11 @@
 //! let result = disconnect(&[target], &[disconnect_info]);
 //! ```
 
-use crate::cbdata::{decode_req_id, encode_req_id, next_req_id};
+use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
-use std::collections::HashMap;
+
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
@@ -479,15 +479,9 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── One-shot completion registries (issue #67) ───────────────────────────────
-static SPAWN_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static SPAWN_REGISTRY: LazyLock<Mutex<HashMap<usize, SpawnCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static CONNECT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static CONNECT_REGISTRY: LazyLock<Mutex<HashMap<usize, ConnectCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static DISCONNECT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-static DISCONNECT_REGISTRY: LazyLock<Mutex<HashMap<usize, DisconnectCallbackWrapper>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static SPAWN_REGISTRY: LazyLock<Registry<SpawnCallbackWrapper>> = LazyLock::new(Registry::new);
+static CONNECT_REGISTRY: LazyLock<Registry<ConnectCallbackWrapper>> = LazyLock::new(Registry::new);
+static DISCONNECT_REGISTRY: LazyLock<Registry<DisconnectCallbackWrapper>> = LazyLock::new(Registry::new);
 
 /// Non-blocking spawn callback wrapper.
 ///
@@ -521,7 +515,7 @@ extern "C" fn spawn_callback_bridge(
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = SPAWN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SPAWN_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -571,11 +565,7 @@ pub fn spawn_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let req_id = next_req_id(&SPAWN_SEQ);
-    {
-        let mut registry = SPAWN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.insert(req_id, callback);
-    }
+    let req_id = SPAWN_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
     let napps = apps.len();
@@ -583,7 +573,7 @@ pub fn spawn_nb(
     // SAFETY: PMIx_App_create allocates and constructs napps pmix_app_t.
     let raw_apps: *mut ffi::pmix_app_t = unsafe { ffi::PMIx_App_create(napps) };
     if raw_apps.is_null() {
-        let mut registry = SPAWN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SPAWN_REGISTRY.lock();
         registry.remove(&req_id);
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_OUT_OF_RESOURCE));
     }
@@ -684,7 +674,7 @@ pub fn spawn_nb(
     } else {
         // Sync failure: OpenPMIx may still deliver the completion; if it does
         // not, drop the parked callback so the registry does not leak.
-        let mut registry = SPAWN_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = SPAWN_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -816,7 +806,7 @@ extern "C" fn connect_callback_bridge(status: i32, cbdata: *mut c_void) {
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = CONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = CONNECT_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -858,11 +848,7 @@ pub fn connect_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let req_id = next_req_id(&CONNECT_SEQ);
-    {
-        let mut registry = CONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.insert(req_id, callback);
-    }
+    let req_id = CONNECT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
     // Convert proc slice to a raw pointer.
@@ -906,7 +892,7 @@ pub fn connect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = CONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = CONNECT_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1045,7 +1031,7 @@ extern "C" fn disconnect_callback_bridge(status: i32, cbdata: *mut c_void) {
     }
     let req_id = decode_req_id(cbdata);
     let cb = {
-        let mut registry = DISCONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = DISCONNECT_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
@@ -1087,11 +1073,7 @@ pub fn disconnect_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let req_id = next_req_id(&DISCONNECT_SEQ);
-    {
-        let mut registry = DISCONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.insert(req_id, callback);
-    }
+    let req_id = DISCONNECT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
     // Convert proc slice to a raw pointer.
@@ -1135,7 +1117,7 @@ pub fn disconnect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        let mut registry = DISCONNECT_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let mut registry = DISCONNECT_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
