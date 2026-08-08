@@ -2060,15 +2060,19 @@ use super::*;
             registry.insert(req_id, Box::new(TestGetCb));
         }
 
-        // Create a mock pmix_value_t for the callback
-        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
+        // Create a heap-allocated mock pmix_value_t for the callback.
+        // SAFETY: pmix_value_t is a C representation and zero is a valid
+        // initialization state before setting the type field.
+        let mut mock_value = Box::new(unsafe { std::mem::zeroed::<ffi::pmix_value_t>() });
         mock_value.type_ = PMIX_STRING_U16;
 
         let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
+            // SAFETY: The bridge takes ownership of the heap-allocated value,
+            // mirroring the real PMIx_Get_nb callback contract.
             get_value_callback_bridge(
                 PMIX_SUCCESS,
-                &mut mock_value as *mut ffi::pmix_value_t,
+                Box::into_raw(mock_value),
                 cbdata,
             );
         }
@@ -2795,15 +2799,19 @@ use super::*;
             registry.insert(req_id, Box::new(StringValueCb));
         }
 
-        // Create a mock pmix_value_t with PMIX_STRING type
-        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
+        // Create a heap-allocated mock pmix_value_t with PMIX_STRING type.
+        // SAFETY: pmix_value_t is a C representation and zero is a valid
+        // initialization state before setting the type field.
+        let mut mock_value = Box::new(unsafe { std::mem::zeroed::<ffi::pmix_value_t>() });
         mock_value.type_ = PMIX_STRING_U16;
 
         let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
+            // SAFETY: The bridge takes ownership of the heap-allocated value,
+            // mirroring the real PMIx_Get_nb callback contract.
             get_value_callback_bridge(
                 PMIX_SUCCESS,
-                &mut mock_value as *mut ffi::pmix_value_t,
+                Box::into_raw(mock_value),
                 cbdata,
             );
         }
