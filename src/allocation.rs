@@ -1594,3 +1594,28 @@ pub fn resource_block_directive_string(d: ffi::pmix_resource_block_directive_t)-
 pub fn resource_block(d:ffi::pmix_resource_block_directive_t,block:&mut [u8],res:&[crate::fabric::PmixResourceUnit],info:&[Info])->Result<(),PmixStatus>{let rp=res.first().map_or(ptr::null(),|x|x.as_ptr());let ip=info.first().map_or(ptr::null(),|x| Info::as_ptr(x).cast_const());let s=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_resource_block(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len())},real=unsafe{ffi::PMIx_Resource_block(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn resource_block_nb(d:ffi::pmix_resource_block_directive_t,block:&mut [u8],res:&[crate::fabric::PmixResourceUnit],info:&[Info],cb:ffi::pmix_op_cbfunc_t,cbdata:*mut c_void)->Result<(),PmixStatus>{let rp=res.first().map_or(ptr::null(),|x|x.as_ptr());let ip=info.first().map_or(ptr::null(),|x| Info::as_ptr(x).cast_const());let s=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_resource_block_nb(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len(),cb,cbdata)},real=unsafe{ffi::PMIx_Resource_block_nb(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len(),cb,cbdata)});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
+
+
+#[cfg(test)]
+mod misc_wrapper_tests {
+    use super::*;
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+
+    extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
+        // SAFETY: test passes a pointer to the live AtomicUsize below.
+        unsafe { (*data.cast::<AtomicUsize>()).store(status as usize + 1, Ordering::SeqCst); }
+    }
+
+    #[test]
+    fn resource_block_sync_and_nb_callback() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let mut block = [0_u8; 8];
+        let units = [crate::fabric::PmixResourceUnit::new()];
+        assert!(resource_block(0, &mut block, &units, &[]).is_ok());
+        let called = AtomicUsize::new(0);
+        // SAFETY: callback has the PMIx ABI and called remains live through the
+        // synchronous mock invocation; a real caller must extend that lifetime.
+        assert!(unsafe { resource_block_nb(0, &mut block, &units, &[], Some(callback), (&called as *const AtomicUsize).cast_mut().cast()) }.is_ok());
+        assert_eq!(called.load(Ordering::SeqCst), 1);
+    }
+}

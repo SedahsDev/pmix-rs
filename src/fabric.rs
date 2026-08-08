@@ -3328,19 +3328,120 @@ mod added_type_tests {
 
 
 /// An owned PMIx resource unit.
-pub struct PmixResourceUnit { raw: MaybeUninit<ffi::pmix_resource_unit_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
-impl PmixResourceUnit {
-    pub fn new() -> Self { let mut s=Self{raw:MaybeUninit::uninit(),constructed:false,_not_thread_safe:std::marker::PhantomData}; crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_construct(s.raw.as_mut_ptr())},real=unsafe{ffi::PMIx_Resource_unit_construct(s.raw.as_mut_ptr())}); s.constructed=true;s }
-    #[cfg(test)] pub fn test_new() -> Self { Self{raw:MaybeUninit::zeroed(),constructed:true,_not_thread_safe:std::marker::PhantomData} }
-    pub fn unit_type(&self)->ffi::pmix_device_type_t { unsafe{self.raw.assume_init_ref().type_} }
-    pub fn count(&self)->usize { unsafe{self.raw.assume_init_ref().count} }
-    pub(crate) fn as_ptr(&self)->*const ffi::pmix_resource_unit_t { self.raw.as_ptr() }
+pub struct PmixResourceUnit {
+    raw: MaybeUninit<ffi::pmix_resource_unit_t>,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
-impl Default for PmixResourceUnit { fn default()->Self{Self::new()} }
-impl Drop for PmixResourceUnit { fn drop(&mut self){if self.constructed {crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_destruct(self.raw.as_mut_ptr())},real=unsafe{ffi::PMIx_Resource_unit_destruct(self.raw.as_mut_ptr())});self.constructed=false;}} }
 
-pub struct PmixResourceUnitArray { ptr:*mut ffi::pmix_resource_unit_t, len:usize, _not_thread_safe:std::marker::PhantomData<*mut u8> }
-impl PmixResourceUnitArray { pub fn as_ptr(&self)->*const ffi::pmix_resource_unit_t{self.ptr} pub fn len(&self)->usize{self.len} pub fn is_empty(&self)->bool{self.len==0} }
-impl Drop for PmixResourceUnitArray { fn drop(&mut self){if !self.ptr.is_null(){crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_free(self.ptr,self.len)},real=unsafe{ffi::PMIx_Resource_unit_free(self.ptr,self.len)});self.ptr=ptr::null_mut();}} }
-pub fn resource_unit_create(n:usize)->Result<PmixResourceUnitArray,PmixError>{if n==0{return Ok(PmixResourceUnitArray{ptr:ptr::null_mut(),len:0,_not_thread_safe:std::marker::PhantomData})}let ptr=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_create(n)},real=unsafe{ffi::PMIx_Resource_unit_create(n)});if ptr.is_null(){Err(PmixError::ErrNomem)}else{Ok(PmixResourceUnitArray{ptr,len:n,_not_thread_safe:std::marker::PhantomData})}}
-impl PmixResourceUnit { pub fn to_string(&self)->Result<String,PmixError>{let p=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_string(self.as_ptr())},real=unsafe{ffi::PMIx_Resource_unit_string(self.as_ptr())});if p.is_null(){return Err(PmixError::ErrNomem)}let s=unsafe{CStr::from_ptr(p).to_string_lossy().into_owned()};unsafe{libc::free(p.cast())};Ok(s)} }
+impl PmixResourceUnit {
+    pub fn new() -> Self {
+        let mut this = Self { raw: MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData };
+        // SAFETY: PMIx initializes this owned, suitably aligned output object;
+        // Drop performs the matching destruct operation once.
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { mock_ffi::mock_resource_unit_construct(this.raw.as_mut_ptr()) },
+            real = unsafe { ffi::PMIx_Resource_unit_construct(this.raw.as_mut_ptr()) },
+        );
+        this.constructed = true;
+        this
+    }
+
+    #[cfg(test)]
+    pub fn test_new() -> Self {
+        Self { raw: MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData }
+    }
+
+    pub fn unit_type(&self) -> ffi::pmix_device_type_t {
+        // SAFETY: new/test_new initialize the complete C struct before access.
+        unsafe { self.raw.assume_init_ref().type_ }
+    }
+
+    pub fn count(&self) -> usize {
+        // SAFETY: new/test_new initialize the complete C struct before access.
+        unsafe { self.raw.assume_init_ref().count }
+    }
+
+    pub(crate) fn as_ptr(&self) -> *const ffi::pmix_resource_unit_t { self.raw.as_ptr() }
+}
+
+impl Default for PmixResourceUnit { fn default() -> Self { Self::new() } }
+
+impl Drop for PmixResourceUnit {
+    fn drop(&mut self) {
+        if self.constructed {
+            // SAFETY: constructed proves this is the one matching PMIx object.
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { mock_ffi::mock_resource_unit_destruct(self.raw.as_mut_ptr()) },
+                real = unsafe { ffi::PMIx_Resource_unit_destruct(self.raw.as_mut_ptr()) },
+            );
+            self.constructed = false;
+        }
+    }
+}
+
+pub struct PmixResourceUnitArray { ptr: *mut ffi::pmix_resource_unit_t, len: usize, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+impl PmixResourceUnitArray {
+    pub fn as_ptr(&self) -> *const ffi::pmix_resource_unit_t { self.ptr }
+    pub fn len(&self) -> usize { self.len }
+    pub fn is_empty(&self) -> bool { self.len == 0 }
+}
+impl Drop for PmixResourceUnitArray {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            // SAFETY: ptr/len are the exact PMIx allocation owned by this value.
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { mock_ffi::mock_resource_unit_free(self.ptr, self.len) },
+                real = unsafe { ffi::PMIx_Resource_unit_free(self.ptr, self.len) },
+            );
+            self.ptr = ptr::null_mut();
+        }
+    }
+}
+pub fn resource_unit_create(n: usize) -> Result<PmixResourceUnitArray, PmixError> {
+    if n == 0 { return Ok(PmixResourceUnitArray { ptr: ptr::null_mut(), len: 0, _not_thread_safe: std::marker::PhantomData }); }
+    // SAFETY: PMIx allocates n initialized resource units and transfers their
+    // ownership to the returned RAII array.
+    let ptr = crate::pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_resource_unit_create(n) },
+        real = unsafe { ffi::PMIx_Resource_unit_create(n) },
+    );
+    if ptr.is_null() { Err(PmixError::ErrNomem) } else { Ok(PmixResourceUnitArray { ptr, len: n, _not_thread_safe: std::marker::PhantomData }) }
+}
+impl PmixResourceUnit {
+    pub fn to_string(&self) -> Result<String, PmixError> {
+        // SAFETY: self points to a live constructed resource unit; PMIx returns
+        // a newly allocated NUL-terminated string owned by this function.
+        let p = crate::pmix_ffi_or_mock!(
+            mock = unsafe { mock_ffi::mock_resource_unit_string(self.as_ptr()) },
+            real = unsafe { ffi::PMIx_Resource_unit_string(self.as_ptr()) },
+        );
+        if p.is_null() { return Err(PmixError::ErrNomem); }
+        // SAFETY: PMIx returned a valid NUL-terminated string on success.
+        let s = unsafe { CStr::from_ptr(p).to_string_lossy().into_owned() };
+        // SAFETY: PMIx allocates this returned string with the C allocator.
+        unsafe { libc::free(p.cast()) };
+        Ok(s)
+    }
+}
+
+
+#[cfg(test)]
+mod misc_wrapper_tests {
+    use super::*;
+
+    #[test]
+    fn resource_unit_wrappers_construct_access_string_and_arrays() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let unit = PmixResourceUnit::new();
+        assert_eq!(unit.unit_type(), 0);
+        assert_eq!(unit.count(), 0);
+        assert_eq!(unit.to_string().unwrap(), "resource-unit");
+        let array = resource_unit_create(2).unwrap();
+        assert_eq!(array.len(), 2);
+        assert!(!array.is_empty());
+        let empty = resource_unit_create(0).unwrap();
+        assert!(empty.is_empty());
+        assert!(empty.as_ptr().is_null());
+    }
+}

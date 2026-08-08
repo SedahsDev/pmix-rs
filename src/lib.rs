@@ -5995,3 +5995,12 @@ pub fn error_code(name: &str) -> Option<PmixError> {
     let raw = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_error_code(name.as_ptr()) }, real = unsafe { ffi::PMIx_Error_code(name.as_ptr()) });
     PmixError::from_raw(raw)
 }
+
+
+#[cfg(test)]
+#[test]
+fn test_misc_error_code_wrapper() {
+    let _guard = mock_ffi::MockGuard::new();
+    assert_eq!(error_code("PMIX_SUCCESS"), Some(PmixError::Success));
+    assert!(error_code("bad\0name").is_none());
+}

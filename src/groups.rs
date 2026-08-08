@@ -2633,3 +2633,11 @@ pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
     if p.is_null() { return ""; }
     unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
 }
+
+
+#[cfg(test)]
+#[test]
+fn test_misc_group_string_wrapper() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    assert_eq!(group_operation_string(crate::ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT), "unknown");
+}
