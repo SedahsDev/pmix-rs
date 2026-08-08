@@ -2894,9 +2894,9 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
 /// After this call `v` is zeroed and safe to drop or reuse.
 ///
 /// # Safety
-/// `v` must have been produced by this crate's builder (or have equivalent
-/// allocation discipline).  Calling this on a `pmix_value_t` produced by the C
-/// library (and therefore managed by `PMIX_VALUE_RELEASE`) is a double-free.
+/// `v` must have been produced by this crate's builder, or be a Rust-owned copy
+/// whose nested payloads follow the same allocation discipline. It must not be
+/// a value still owned by PMIx or a borrowed copy of a C-owned info array.
 pub fn free_value(v: &mut pmix_value_t) {
     // SAFETY: type_ was set by write_payload; we access only the matching arm.
     unsafe {
@@ -3864,10 +3864,16 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
         },
     ));
 
-    if status.is_success() {
+    if status.is_success() && !value.is_null() {
+        // SAFETY: PMIx returned a valid heap-allocated value on success. The
+        // copy owns nested payloads; reclaiming the Box reclaims only the
+        // C-allocated struct.
+        let owned = unsafe { *value };
+        // SAFETY: `value` is the allocation returned by PMIx_Get and is
+        // reclaimed exactly once after copying its contents.
+        drop(unsafe { Box::from_raw(value) });
         Ok(PmixOwnedValue {
-            inner: unsafe { *value },
-        
+            inner: owned,
             _not_thread_safe: std::marker::PhantomData,
         })
     } else {
