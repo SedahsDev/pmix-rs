@@ -1692,7 +1692,7 @@ pub fn mock_topology_destruct(_topo: *mut crate::ffi::pmix_topology_t) {
 }
 
 /// Mock implementation of `PMIx_Cpuset_construct()`.
-pub fn mock_cpuset_construct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
+pub unsafe fn mock_cpuset_construct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
     // No-op in mock
 }
 
@@ -1702,7 +1702,7 @@ pub fn mock_cpuset_destruct(_cpuset: *mut crate::ffi::pmix_cpuset_t) {
 }
 
 /// Mock implementation of `PMIx_Geometry_construct()`.
-pub fn mock_geometry_construct(geometry: *mut crate::ffi::pmix_geometry_t) {
+pub unsafe fn mock_geometry_construct(geometry: *mut crate::ffi::pmix_geometry_t) {
     // SAFETY: callers provide valid writable storage for the C struct.
     unsafe { std::ptr::write_bytes(geometry, 0, 1) };
 }
@@ -1713,7 +1713,7 @@ pub fn mock_geometry_destruct(_geometry: *mut crate::ffi::pmix_geometry_t) {
 }
 
 /// Mock implementation of `PMIx_Endpoint_construct()`.
-pub fn mock_endpoint_construct(endpoint: *mut crate::ffi::pmix_endpoint_t) {
+pub unsafe fn mock_endpoint_construct(endpoint: *mut crate::ffi::pmix_endpoint_t) {
     // SAFETY: callers provide valid writable storage for the C struct.
     unsafe { std::ptr::write_bytes(endpoint, 0, 1) };
 }

@@ -756,7 +756,7 @@ impl PmixGeometry {
         #[cfg(any(test, feature = "mock_ffi"))]
         {
             if mock_ffi::is_mock_enabled() {
-                mock_ffi::mock_geometry_construct(raw_ptr);
+                unsafe { mock_ffi::mock_geometry_construct(raw_ptr) };
             } else {
                 unsafe { ffi::PMIx_Geometry_construct(raw_ptr) };
             }
@@ -857,7 +857,7 @@ impl PmixEndpoint {
         #[cfg(any(test, feature = "mock_ffi"))]
         {
             if mock_ffi::is_mock_enabled() {
-                mock_ffi::mock_endpoint_construct(raw_ptr);
+                unsafe { mock_ffi::mock_endpoint_construct(raw_ptr) };
             } else {
                 unsafe { ffi::PMIx_Endpoint_construct(raw_ptr) };
             }
@@ -960,7 +960,7 @@ impl PmixCpuset {
                 #[cfg(any(test, feature = "mock_ffi"))]
         {
             if mock_ffi::is_mock_enabled() {
-                mock_ffi::mock_cpuset_construct(raw_ptr);
+                unsafe { mock_ffi::mock_cpuset_construct(raw_ptr) };
             } else {
                 unsafe { ffi::PMIx_Cpuset_construct(raw_ptr) };
             }
