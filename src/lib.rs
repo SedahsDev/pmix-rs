@@ -5987,3 +5987,11 @@ pub fn multicluster_nspace_parse(target: &str) -> Result<(String, String), PmixE
     }
     Ok((cluster.to_string_lossy().into_owned(), nspace.to_string_lossy().into_owned()))
 }
+
+
+/// Look up a PMIx error by its symbolic name.
+pub fn error_code(name: &str) -> Option<PmixError> {
+    let name = CString::new(name).ok()?;
+    let raw = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_error_code(name.as_ptr()) }, real = unsafe { ffi::PMIx_Error_code(name.as_ptr()) });
+    PmixError::from_raw(raw)
+}

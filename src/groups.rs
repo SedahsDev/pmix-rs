@@ -2625,3 +2625,11 @@ mod tests {
     }
 }
 
+
+
+/// Return the static PMIx spelling for a group operation.
+pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
+    let p = crate::pmix_ffi_or_mock!(mock = unsafe { crate::mock_ffi::mock_group_operation_string(op) }, real = unsafe { ffi::PMIx_Group_operation_string(op) });
+    if p.is_null() { return ""; }
+    unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
+}

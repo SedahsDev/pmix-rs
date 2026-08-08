@@ -1588,3 +1588,9 @@ mod tests {
         }
     }
 }
+
+
+pub fn resource_block_directive_string(d: ffi::pmix_resource_block_directive_t)->&'static str {let p=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_resource_block_directive_string(d)},real=unsafe{ffi::PMIx_Resource_block_directive_string(d)});if p.is_null(){""}else{unsafe{std::ffi::CStr::from_ptr(p).to_str().unwrap_or("")}}}
+pub fn resource_block(d:ffi::pmix_resource_block_directive_t,block:&mut [u8],res:&[crate::fabric::PmixResourceUnit],info:&[Info])->Result<(),PmixStatus>{let rp=res.first().map_or(ptr::null(),|x|x.as_ptr());let ip=info.first().map_or(ptr::null(),|x| Info::as_ptr(x).cast_const());let s=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_resource_block(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len())},real=unsafe{ffi::PMIx_Resource_block(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn resource_block_nb(d:ffi::pmix_resource_block_directive_t,block:&mut [u8],res:&[crate::fabric::PmixResourceUnit],info:&[Info],cb:ffi::pmix_op_cbfunc_t,cbdata:*mut c_void)->Result<(),PmixStatus>{let rp=res.first().map_or(ptr::null(),|x|x.as_ptr());let ip=info.first().map_or(ptr::null(),|x| Info::as_ptr(x).cast_const());let s=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_resource_block_nb(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len(),cb,cbdata)},real=unsafe{ffi::PMIx_Resource_block_nb(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len(),cb,cbdata)});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}

@@ -3325,3 +3325,22 @@ mod added_type_tests {
         assert_eq!(device.device_type(), 9);
     }
 }
+
+
+/// An owned PMIx resource unit.
+pub struct PmixResourceUnit { raw: MaybeUninit<ffi::pmix_resource_unit_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+impl PmixResourceUnit {
+    pub fn new() -> Self { let mut s=Self{raw:MaybeUninit::uninit(),constructed:false,_not_thread_safe:std::marker::PhantomData}; crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_construct(s.raw.as_mut_ptr())},real=unsafe{ffi::PMIx_Resource_unit_construct(s.raw.as_mut_ptr())}); s.constructed=true;s }
+    #[cfg(test)] pub fn test_new() -> Self { Self{raw:MaybeUninit::zeroed(),constructed:true,_not_thread_safe:std::marker::PhantomData} }
+    pub fn unit_type(&self)->ffi::pmix_device_type_t { unsafe{self.raw.assume_init_ref().type_} }
+    pub fn count(&self)->usize { unsafe{self.raw.assume_init_ref().count} }
+    pub(crate) fn as_ptr(&self)->*const ffi::pmix_resource_unit_t { self.raw.as_ptr() }
+}
+impl Default for PmixResourceUnit { fn default()->Self{Self::new()} }
+impl Drop for PmixResourceUnit { fn drop(&mut self){if self.constructed {crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_destruct(self.raw.as_mut_ptr())},real=unsafe{ffi::PMIx_Resource_unit_destruct(self.raw.as_mut_ptr())});self.constructed=false;}} }
+
+pub struct PmixResourceUnitArray { ptr:*mut ffi::pmix_resource_unit_t, len:usize, _not_thread_safe:std::marker::PhantomData<*mut u8> }
+impl PmixResourceUnitArray { pub fn as_ptr(&self)->*const ffi::pmix_resource_unit_t{self.ptr} pub fn len(&self)->usize{self.len} pub fn is_empty(&self)->bool{self.len==0} }
+impl Drop for PmixResourceUnitArray { fn drop(&mut self){if !self.ptr.is_null(){crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_free(self.ptr,self.len)},real=unsafe{ffi::PMIx_Resource_unit_free(self.ptr,self.len)});self.ptr=ptr::null_mut();}} }
+pub fn resource_unit_create(n:usize)->Result<PmixResourceUnitArray,PmixError>{if n==0{return Ok(PmixResourceUnitArray{ptr:ptr::null_mut(),len:0,_not_thread_safe:std::marker::PhantomData})}let ptr=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_create(n)},real=unsafe{ffi::PMIx_Resource_unit_create(n)});if ptr.is_null(){Err(PmixError::ErrNomem)}else{Ok(PmixResourceUnitArray{ptr,len:n,_not_thread_safe:std::marker::PhantomData})}}
+impl PmixResourceUnit { pub fn to_string(&self)->Result<String,PmixError>{let p=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_resource_unit_string(self.as_ptr())},real=unsafe{ffi::PMIx_Resource_unit_string(self.as_ptr())});if p.is_null(){return Err(PmixError::ErrNomem)}let s=unsafe{CStr::from_ptr(p).to_string_lossy().into_owned()};unsafe{libc::free(p.cast())};Ok(s)} }

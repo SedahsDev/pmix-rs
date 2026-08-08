@@ -1459,3 +1459,6 @@ mod tests {
         let _ = h.join().unwrap();
     }
 }
+
+
+pub fn tool_set_server_module(module:&crate::server::PmixServerModule)->Result<(),PmixStatus>{let s=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_tool_set_server_module(module.as_c_ptr().cast_mut())},real=unsafe{ffi::PMIx_tool_set_server_module(module.as_c_ptr().cast_mut())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}

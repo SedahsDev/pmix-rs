@@ -3652,3 +3652,46 @@ pub unsafe fn mock_multicluster_nspace_parse(target: *mut libc::c_char, cluster:
         if let Some(pos) = text.iter().position(|&b| b == b':') { std::ptr::copy_nonoverlapping(text.as_ptr(), cluster.cast(), pos.min(255)); *cluster.add(pos.min(255)) = 0; let rest = &text[pos + 1..]; std::ptr::copy_nonoverlapping(rest.as_ptr(), nspace.cast(), rest.len().min(255)); *nspace.add(rest.len().min(255)) = 0; }
     }
 }
+
+
+// Miscellaneous PMIx utility mocks appended for the safe-wrapper tests.
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_error_code(_name: *const std::os::raw::c_char) -> i32 { 0 }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_group_operation_string(_op: crate::ffi::pmix_group_operation_t) -> *const std::os::raw::c_char { b"unknown\0".as_ptr().cast() }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_resource_unit_construct(d: *mut crate::ffi::pmix_resource_unit_t) { if !d.is_null() { (*d).type_ = 0; (*d).count = 0; } }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_resource_unit_destruct(_d: *mut crate::ffi::pmix_resource_unit_t) {}
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_resource_unit_create(n: usize) -> *mut crate::ffi::pmix_resource_unit_t { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_resource_unit_t>()).cast() }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_resource_unit_free(d: *mut crate::ffi::pmix_resource_unit_t, _n: usize) { libc::free(d.cast()); }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_resource_unit_string(_d: *const crate::ffi::pmix_resource_unit_t) -> *mut std::os::raw::c_char { libc::strdup(b"resource-unit\0".as_ptr().cast()) }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_resource_block_directive_string(_d: crate::ffi::pmix_resource_block_directive_t) -> *const std::os::raw::c_char { b"unknown\0".as_ptr().cast() }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_resource_block(_d: crate::ffi::pmix_resource_block_directive_t, _b: *mut std::os::raw::c_char, _r: *const crate::ffi::pmix_resource_unit_t, _nr: usize, _i: *const crate::ffi::pmix_info_t, _ni: usize) -> i32 { 0 }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_resource_block_nb(_d: crate::ffi::pmix_resource_block_directive_t, _b: *mut std::os::raw::c_char, _r: *const crate::ffi::pmix_resource_unit_t, _nr: usize, _i: *const crate::ffi::pmix_info_t, _ni: usize, cb: crate::ffi::pmix_op_cbfunc_t, data: *mut std::os::raw::c_void) -> i32 { if let Some(cb) = cb { cb(0, data); } 0 }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_heartbeat() {}
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_pdata_construct(p: *mut crate::ffi::pmix_pdata_t) { if !p.is_null() { std::ptr::write_bytes(p, 0, 1); } }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_pdata_destruct(_p: *mut crate::ffi::pmix_pdata_t) {}
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_pdata_create(n: usize) -> *mut crate::ffi::pmix_pdata_t { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_pdata_t>()).cast() }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_pdata_free(p: *mut crate::ffi::pmix_pdata_t, _n: usize) { libc::free(p.cast()); }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_pdata_load(_d: *mut crate::ffi::pmix_pdata_t, _p: *const crate::ffi::pmix_proc_t, _k: *const std::os::raw::c_char, _v: *const std::os::raw::c_void, _t: crate::ffi::pmix_data_type_t) {}
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_pdata_xfer(_d: *mut crate::ffi::pmix_pdata_t, _s: *mut crate::ffi::pmix_pdata_t) {}
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_tool_set_server_module(_m: *mut crate::ffi::pmix_server_module_t) -> i32 { 0 }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_server_generate_cpuset(_s: *const std::os::raw::c_char, _c: *mut crate::ffi::pmix_cpuset_t) -> i32 { 0 }
+#[allow(unsafe_op_in_unsafe_fn)]
+pub unsafe fn mock_server_collect_job_info(_p: *mut crate::ffi::pmix_proc_t, _n: usize, _b: *mut crate::ffi::pmix_data_buffer_t) -> i32 { 0 }

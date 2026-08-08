@@ -1417,3 +1417,15 @@ pub fn fence_nb(
 
 #[cfg(test)]
 mod tests;
+
+
+
+
+/// Owned RAII wrapper for a standalone PMIx pdata object.
+pub struct PmixPdataHandle { raw: std::mem::MaybeUninit<ffi::pmix_pdata_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+impl PmixPdataHandle { pub fn new()->Self{let mut s=Self{raw:std::mem::MaybeUninit::uninit(),constructed:false,_not_thread_safe:std::marker::PhantomData};crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_pdata_construct(s.raw.as_mut_ptr())},real=unsafe{ffi::PMIx_Pdata_construct(s.raw.as_mut_ptr())});s.constructed=true;s} #[cfg(test)] pub fn test_new()->Self{Self{raw:std::mem::MaybeUninit::zeroed(),constructed:true,_not_thread_safe:std::marker::PhantomData}} pub fn load(&mut self,p:&Proc,key:&str,data:&[u8],ty:ffi::pmix_data_type_t)->Result<(),std::ffi::NulError>{let key=CString::new(key)?;crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_pdata_load(self.raw.as_mut_ptr(),&p.handle,key.as_ptr(),data.as_ptr().cast(),ty)},real=unsafe{ffi::PMIx_Pdata_load(self.raw.as_mut_ptr(),&p.handle,key.as_ptr(),data.as_ptr().cast(),ty)});Ok(())} pub fn xfer(&mut self,src:&PmixPdataHandle)->Result<(),PmixStatus>{crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_pdata_xfer(self.raw.as_mut_ptr(),src.raw.as_ptr().cast_mut())},real=unsafe{ffi::PMIx_Pdata_xfer(self.raw.as_mut_ptr(),src.raw.as_ptr().cast_mut())});Ok(())}}
+impl Default for PmixPdataHandle{fn default()->Self{Self::new()}}
+impl Drop for PmixPdataHandle{fn drop(&mut self){if self.constructed{crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_pdata_destruct(self.raw.as_mut_ptr())},real=unsafe{ffi::PMIx_Pdata_destruct(self.raw.as_mut_ptr())});self.constructed=false;}}}
+pub struct PmixPdataArray{ptr:*mut ffi::pmix_pdata_t,len:usize,_not_thread_safe:std::marker::PhantomData<*mut u8>}
+pub fn pdata_create(n:usize)->Result<PmixPdataArray,PmixError>{if n==0{return Ok(PmixPdataArray{ptr:ptr::null_mut(),len:0,_not_thread_safe:std::marker::PhantomData})}let p=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_pdata_create(n)},real=unsafe{ffi::PMIx_Pdata_create(n)});if p.is_null(){Err(PmixError::ErrNomem)}else{Ok(PmixPdataArray{ptr:p,len:n,_not_thread_safe:std::marker::PhantomData})}}
+impl Drop for PmixPdataArray{fn drop(&mut self){if !self.ptr.is_null(){crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_pdata_free(self.ptr,self.len)},real=unsafe{ffi::PMIx_Pdata_free(self.ptr,self.len)});self.ptr=ptr::null_mut();}}}
