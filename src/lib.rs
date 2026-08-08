@@ -5765,24 +5765,56 @@ mod envar_utils_tests {
     }
 
     #[test]
-    fn setenv_accepts_vec_environment() {
+    fn envar_create_zero_is_empty_and_safe() {
+        let _guard = mock_ffi::MockGuard::new();
+        let array = envar_create(0).unwrap();
+        assert!(array.is_empty());
+        assert!(array.ptr.is_null());
+    }
+
+    #[test]
+    fn envar_destruct_does_not_free_rust_owned_strings() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut value = PmixEnvar::new("NAME", "VALUE", '=').unwrap();
+        envar_destruct(&mut value);
+        assert_eq!(value.envar, CString::new("NAME").unwrap());
+        assert_eq!(value.value, CString::new("VALUE").unwrap());
+    }
+
+    #[test]
+    fn setenv_replaces_vec_environment() {
         let _guard = mock_ffi::MockGuard::new();
         let mut env = vec!["A=B".to_owned()];
         setenv("C", "D", true, &mut env).unwrap();
-        assert_eq!(env, vec!["A=B"]);
+        assert_eq!(env, vec!["A=B", "C=D"]);
     }
 
     #[test]
-    fn multicluster_parse_reports_mock_failure() {
+    fn setenv_rejects_later_interior_nul_without_panicking() {
         let _guard = mock_ffi::MockGuard::new();
-        assert!(multicluster_nspace_parse("cluster:nspace").is_err());
+        let mut env = vec!["A=B".to_owned(), "BAD\0=VALUE".to_owned()];
+        assert!(setenv("C", "D", true, &mut env).is_err());
+        assert_eq!(env, vec!["A=B", "BAD\0=VALUE"]);
     }
 
     #[test]
-    fn multicluster_construct_is_safe_with_mock() {
+    fn multicluster_parse_returns_mock_buffers() {
         let _guard = mock_ffi::MockGuard::new();
-        let result = multicluster_nspace_construct("cluster", "nspace");
-        assert_eq!(result.unwrap(), "");
+        assert_eq!(multicluster_nspace_parse("cluster:nspace").unwrap(), ("cluster".into(), "nspace".into()));
+    }
+
+    #[test]
+    fn multicluster_construct_writes_target() {
+        let _guard = mock_ffi::MockGuard::new();
+        assert_eq!(multicluster_nspace_construct("cluster", "nspace").unwrap(), "cluster:nspace");
+    }
+
+    #[test]
+    fn multicluster_rejects_oversized_components() {
+        let _guard = mock_ffi::MockGuard::new();
+        let component = "x".repeat(PMIX_MAX_NSLEN + 1);
+        assert!(multicluster_nspace_construct(&component, "nspace").is_err());
+        assert!(multicluster_nspace_parse(&format!("{}:nspace", component)).is_err());
     }
 }
 
@@ -5818,14 +5850,14 @@ pub fn envar_load(envar: &str, value: &str, separator: char) -> Result<PmixEnvar
     Ok(result)
 }
 
-/// Invoke the PMIx destructor contract without exposing the raw struct.
-pub fn envar_destruct(_envar: &mut PmixEnvar) {
-    let mut raw = unsafe { mem::zeroed::<pmix_envar_t>() };
-    pmix_ffi_or_mock!(
-        mock = unsafe { mock_ffi::mock_envar_destruct(&mut raw) },
-        real = unsafe { ffi::PMIx_Envar_destruct(&mut raw) },
-    );
-}
+/// Release hook for a [`PmixEnvar`].
+///
+/// `PmixEnvar` owns both [`CString`] fields. Calling the PMIx destructor on a
+/// temporary raw value would not affect this value, while calling it on a raw
+/// view of these fields would make PMIx free Rust-owned allocations. Therefore
+/// this function intentionally performs no FFI call; normal Rust `Drop` owns
+/// destruction of the strings.
+pub fn envar_destruct(_envar: &mut PmixEnvar) {}
 
 /// Owned array allocated by PMIx_Envar_create.
 pub struct PmixEnvarArray {
@@ -5874,7 +5906,12 @@ fn c_string_vector(values: &[String]) -> Result<*mut *mut c_char, PmixStatus> {
         let c = match CString::new(value.as_str()) {
             Ok(c) => c,
             Err(_) => {
-                unsafe { libc::free(argv.cast()) };
+                unsafe {
+                    for initialized in 0..index {
+                        libc::free((*argv.add(initialized)).cast());
+                    }
+                    libc::free(argv.cast());
+                }
                 return Err(PmixStatus::from_raw(PmixError::ErrBadParam as i32));
             }
         };
@@ -5915,6 +5952,11 @@ pub fn setenv(name: &str, value: &str, overwrite: bool, env: &mut Vec<String>) -
 const PMIX_MAX_NSLEN: usize = 255;
 
 pub fn multicluster_nspace_construct(cluster: &str, nspace: &str) -> Result<String, PmixError> {
+    if cluster.len() > PMIX_MAX_NSLEN || nspace.len() > PMIX_MAX_NSLEN
+        || cluster.len().checked_add(nspace.len()).and_then(|len| len.checked_add(1)).is_none_or(|len| len > PMIX_MAX_NSLEN)
+    {
+        return Err(PmixError::ErrBadParam);
+    }
     let target = [0 as c_char; PMIX_MAX_NSLEN + 1];
     let cluster = CString::new(cluster).map_err(|_| PmixError::ErrBadParam)?;
     let nspace = CString::new(nspace).map_err(|_| PmixError::ErrBadParam)?;
@@ -5928,6 +5970,9 @@ pub fn multicluster_nspace_construct(cluster: &str, nspace: &str) -> Result<Stri
 }
 
 pub fn multicluster_nspace_parse(target: &str) -> Result<(String, String), PmixError> {
+    if target.len() > PMIX_MAX_NSLEN {
+        return Err(PmixError::ErrBadParam);
+    }
     let target = CString::new(target).map_err(|_| PmixError::ErrBadParam)?;
     let cluster = [0 as c_char; PMIX_MAX_NSLEN + 1];
     let nspace = [0 as c_char; PMIX_MAX_NSLEN + 1];

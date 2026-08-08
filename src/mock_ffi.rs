@@ -3616,6 +3616,39 @@ pub unsafe fn mock_envar_destruct(_e: *mut crate::ffi::pmix_envar_t) {}
 pub unsafe fn mock_envar_create(n: usize) -> *mut crate::ffi::pmix_envar_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_envar_t>()) as *mut _ } }
 pub unsafe fn mock_envar_free(_e: *mut crate::ffi::pmix_envar_t, _n: usize) {}
 pub unsafe fn mock_envar_load(_e: *mut crate::ffi::pmix_envar_t, _var: *mut libc::c_char, _value: *mut libc::c_char, _separator: libc::c_char) {}
-pub unsafe fn mock_setenv(_name: *const libc::c_char, _value: *const libc::c_char, _overwrite: bool, _env: *mut *mut *mut libc::c_char) -> crate::ffi::pmix_status_t { 0 }
-pub unsafe fn mock_multicluster_nspace_construct(_target: *mut libc::c_char, _cluster: *mut libc::c_char, _nspace: *mut libc::c_char) {}
-pub unsafe fn mock_multicluster_nspace_parse(_target: *mut libc::c_char, _cluster: *mut libc::c_char, _nspace: *mut libc::c_char) {}
+pub unsafe fn mock_setenv(name: *const libc::c_char, value: *const libc::c_char, overwrite: bool, env: *mut *mut *mut libc::c_char) -> crate::ffi::pmix_status_t {
+    if name.is_null() || value.is_null() || env.is_null() { return crate::ffi::PMIX_ERR_BAD_PARAM as _; }
+    unsafe {
+        let name = std::ffi::CStr::from_ptr(name).to_string_lossy();
+        let entry = format!("{}={}", name, std::ffi::CStr::from_ptr(value).to_string_lossy());
+        let mut index = 0;
+        while !(*(*env).add(index)).is_null() {
+            let current = std::ffi::CStr::from_ptr(*(*env).add(index)).to_string_lossy();
+            if current.split_once('=').map_or(false, |(key, _)| key == name) {
+                if overwrite { libc::free(*(*env).add(index).cast()); *(*env).add(index) = libc::strdup(std::ffi::CString::new(entry).unwrap().as_ptr()); }
+                return 0;
+            }
+            index += 1;
+        }
+        let replacement = libc::calloc(index + 2, std::mem::size_of::<*mut libc::c_char>()) as *mut *mut libc::c_char;
+        if replacement.is_null() { return crate::ffi::PMIX_ERR_NOMEM as _; }
+        for i in 0..index { *replacement.add(i) = libc::strdup(*(*env).add(i)); }
+        *replacement.add(index) = libc::strdup(std::ffi::CString::new(entry).unwrap().as_ptr());
+        let old = *env;
+        for i in 0..index { libc::free(*old.add(i)); }
+        libc::free(old.cast());
+        *env = replacement;
+    }
+    0
+}
+pub unsafe fn mock_multicluster_nspace_construct(target: *mut libc::c_char, cluster: *mut libc::c_char, nspace: *mut libc::c_char) {
+    if target.is_null() || cluster.is_null() || nspace.is_null() { return; }
+    unsafe { libc::snprintf(target, 256, b"%s:%s\0".as_ptr().cast(), cluster, nspace); }
+}
+pub unsafe fn mock_multicluster_nspace_parse(target: *mut libc::c_char, cluster: *mut libc::c_char, nspace: *mut libc::c_char) {
+    if target.is_null() || cluster.is_null() || nspace.is_null() { return; }
+    unsafe {
+        let text = std::ffi::CStr::from_ptr(target).to_bytes();
+        if let Some(pos) = text.iter().position(|&b| b == b':') { std::ptr::copy_nonoverlapping(text.as_ptr(), cluster.cast(), pos.min(255)); *cluster.add(pos.min(255)) = 0; let rest = &text[pos + 1..]; std::ptr::copy_nonoverlapping(rest.as_ptr(), nspace.cast(), rest.len().min(255)); *nspace.add(rest.len().min(255)) = 0; }
+    }
+}
