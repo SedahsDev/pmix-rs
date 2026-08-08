@@ -202,6 +202,7 @@ struct PendingRegistration {
 
 static PENDING_REGISTRATIONS: LazyLock<Mutex<Vec<PendingRegistration>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
+static BLOCKING_REGISTRATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 /// Drop every parked notification handler.
 ///
@@ -444,6 +445,10 @@ pub fn register_event_handler(
     evhdlr: NotificationFn,
     cbfunc: HandlerRegCbFn,
 ) -> Result<EventHandlerRef, PmixStatus> {
+    let _registration_guard = BLOCKING_REGISTRATION_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
     // Blocking API only. A non-null cbfunc would make OpenPMIx treat this as
     // non-blocking (refid delivered only via callback) while this wrapper
     // still treats the return status as the refid — that combination is
