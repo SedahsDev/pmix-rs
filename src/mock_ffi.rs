@@ -3593,3 +3593,10 @@ pub fn mock_query_qualifiers_create(p: *mut crate::ffi::pmix_query_t, n: usize) 
         (*p).nqual = n;
     }
 }
+
+/// Mock implementations for PMIx_App_* utility functions.
+pub unsafe fn mock_app_construct(p: *mut crate::ffi::pmix_app_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); } } }
+pub unsafe fn mock_app_destruct(_p: *mut crate::ffi::pmix_app_t) {}
+pub unsafe fn mock_app_info_create(p: *mut crate::ffi::pmix_app_t, n: usize) { if !p.is_null() { unsafe { (*p).info = libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_info_t>()) as *mut _; (*p).ninfo = n; } } }
+pub unsafe fn mock_app_release(_p: *mut crate::ffi::pmix_app_t) {}
+pub unsafe fn mock_app_string(_p: *const crate::ffi::pmix_app_t) -> *mut libc::c_char { std::ffi::CString::new("mock_app").unwrap().into_raw() }
