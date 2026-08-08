@@ -39,6 +39,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use pmix::ffi;
 use pmix::server::{PmixServer, PmixServerModule};
 use pmix::threading::{spawn_from_callback, CallbackChannel, ProgressContext};
 use pmix::InfoBuilder;
@@ -53,40 +54,10 @@ fn main() {
 
     // ── 1. Install typed host upcalls on the module ────────────────────────
     //
-    // `PmixServerModule` stores `Option<unsafe extern "C" fn()>` so the layout
-    // matches a C function-pointer table. Real OpenPMIx signatures are richer;
-    // transmute is the established install path (see server module docs).
+    // The module fields use exact OpenPMIx callback types; no transmute is needed.
     let mut module = PmixServerModule::default();
-    // SAFETY: `host_fence_nb` / `host_direct_modex` match the C typedefs
-    // `pmix_server_fencenb_fn_t` / `pmix_server_dmodex_req_fn_t`. OpenPMIx
-    // only calls them through those typed slots after `server_init`.
-    module.fence_nb = Some(unsafe {
-        std::mem::transmute::<
-            unsafe extern "C" fn(
-                *const c_void,
-                usize,
-                *const c_void,
-                usize,
-                *mut i8,
-                usize,
-                Option<ModexCb>,
-                *mut c_void,
-            ) -> i32,
-            unsafe extern "C" fn(),
-        >(host_fence_nb)
-    });
-    module.direct_modex = Some(unsafe {
-        std::mem::transmute::<
-            unsafe extern "C" fn(
-                *const c_void,
-                *const c_void,
-                usize,
-                Option<ModexCb>,
-                *mut c_void,
-            ) -> i32,
-            unsafe extern "C" fn(),
-        >(host_direct_modex)
-    });
+    module.fence_nb = Some(host_fence_nb);
+    module.direct_modex = Some(host_direct_modex);
 
     let info = InfoBuilder::new().build();
     let server = match PmixServer::connect_new(Some(&module), &info) {
@@ -156,14 +127,7 @@ fn main() {
 }
 
 /// `pmix_modex_cbfunc_t` — OpenPMIx completion for fence / direct-modex upcalls.
-type ModexCb = unsafe extern "C" fn(
-    status: i32,
-    data: *const i8,
-    ndata: usize,
-    cbdata: *mut c_void,
-    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
-    release_cbdata: *mut c_void,
-);
+type ModexCb = ffi::pmix_modex_cbfunc_t;
 
 /// Demo completion used by the self-driven path: signals the app channel.
 unsafe extern "C" fn demo_modex_complete(
@@ -195,13 +159,13 @@ unsafe extern "C" fn demo_modex_complete(
 /// Matches `pmix_server_fencenb_fn_t`. Must not block on PMIx; hop and call
 /// `cbfunc` later.
 unsafe extern "C" fn host_fence_nb(
-    _procs: *const c_void,
+    _procs: *const ffi::pmix_proc_t,
     nprocs: usize,
-    _info: *const c_void,
+    _info: *const ffi::pmix_info_t,
     _ninfo: usize,
     data: *mut i8,
     ndata: usize,
-    cbfunc: Option<ModexCb>,
+    cbfunc: ModexCb,
     cbdata: *mut c_void,
 ) -> i32 {
     let _ctx = ProgressContext;
@@ -261,10 +225,10 @@ unsafe extern "C" fn host_fence_nb(
 ///
 /// Matches `pmix_server_dmodex_req_fn_t`. Same hop-then-`cbfunc` rules as fence.
 unsafe extern "C" fn host_direct_modex(
-    _proc: *const c_void,
-    _info: *const c_void,
+    _proc: *const ffi::pmix_proc_t,
+    _info: *const ffi::pmix_info_t,
     _ninfo: usize,
-    cbfunc: Option<ModexCb>,
+    cbfunc: ModexCb,
     cbdata: *mut c_void,
 ) -> i32 {
     let _ctx = ProgressContext;

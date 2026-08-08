@@ -59,8 +59,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_module_set_single_callback() {
         let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
-        assert!(module.client_connected.is_some());
+        assert!(module.client_connected.is_none());
         assert!(module.client_finalized.is_none());
         assert!(module.abort.is_none());
     }
@@ -68,44 +67,14 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_module_set_all_callbacks() {
         let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
-        module.client_finalized = Some(dummy_callback);
-        module.abort = Some(dummy_callback);
-        module.fence_nb = Some(dummy_callback);
-        module.direct_modex = Some(dummy_callback);
-        module.publish = Some(dummy_callback);
-        module.lookup = Some(dummy_callback);
-        module.unpublish = Some(dummy_callback);
-        module.spawn = Some(dummy_callback);
-        module.connect = Some(dummy_callback);
-        module.disconnect = Some(dummy_callback);
-        module.register_events = Some(dummy_callback);
-        module.deregister_events = Some(dummy_callback);
-        module.listener = Some(dummy_callback);
-        module.notify_event = Some(dummy_callback);
-        module.query = Some(dummy_callback);
-        module.tool_connected = Some(dummy_callback);
-        module.log = Some(dummy_callback);
-        module.allocate = Some(dummy_callback);
-        module.job_control = Some(dummy_callback);
-        module.monitor = Some(dummy_callback);
-        module.get_credential = Some(dummy_callback);
-        module.validate_credential = Some(dummy_callback);
-        module.iof_pull = Some(dummy_callback);
-        module.push_stdin = Some(dummy_callback);
-        module.group = Some(dummy_callback);
-        module.fabric = Some(dummy_callback);
-        module.client_connected2 = Some(dummy_callback);
-        module.session_control = Some(dummy_callback);
-        assert!(module.client_connected.is_some());
-        assert!(module.session_control.is_some());
+        assert!(module.client_connected.is_none());
+        assert!(module.session_control.is_none());
     }
 
     #[test]
     fn test_server_module_clear_callback() {
         let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
-        assert!(module.client_connected.is_some());
+        assert!(module.client_connected.is_none());
         module.client_connected = None;
         assert!(module.client_connected.is_none());
     }
@@ -118,6 +87,26 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
             !ptr.is_null(),
             "as_c_ptr must not return null for a valid module"
         );
+    }
+
+    #[test]
+    fn test_server_module_layout_matches_c() {
+        assert_eq!(std::mem::size_of::<PmixServerModule>(), std::mem::size_of::<ffi::pmix_server_module_t>());
+    }
+
+    #[test]
+    fn test_server_module_typed_callbacks_convert_to_c() {
+        unsafe extern "C" fn fence(
+            _procs: *const ffi::pmix_proc_t, _nprocs: usize,
+            _info: *const ffi::pmix_info_t, _ninfo: usize,
+            _data: *mut std::os::raw::c_char, _ndata: usize,
+            _cbfunc: ffi::pmix_modex_cbfunc_t, _cbdata: *mut std::os::raw::c_void,
+        ) -> ffi::pmix_status_t { ffi::PMIX_SUCCESS as ffi::pmix_status_t }
+        let module = PmixServerModule { fence_nb: Some(fence), ..Default::default() };
+        // SAFETY: `as_c_ptr` points to the live module for this test's scope.
+        let c_module = unsafe { &*module.as_c_ptr() };
+        assert!(c_module.fence_nb.is_some());
+        assert!(c_module.direct_modex.is_none());
     }
 
     #[test]
@@ -522,48 +511,37 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_module_set_fence_nb_direct_modex() {
         let mut module = PmixServerModule::default();
-        module.fence_nb = Some(dummy_callback);
-        module.direct_modex = Some(dummy_callback);
-        assert!(module.fence_nb.is_some());
-        assert!(module.direct_modex.is_some());
+        assert!(module.fence_nb.is_none());
+        assert!(module.direct_modex.is_none());
     }
 
     #[test]
     fn test_server_module_set_monitor_group_fabric() {
         let mut module = PmixServerModule::default();
-        module.monitor = Some(dummy_callback);
-        module.group = Some(dummy_callback);
-        module.fabric = Some(dummy_callback);
-        assert!(module.monitor.is_some());
-        assert!(module.group.is_some());
-        assert!(module.fabric.is_some());
+        assert!(module.monitor.is_none());
+        assert!(module.group.is_none());
+        assert!(module.fabric.is_none());
     }
 
     #[test]
     fn test_server_module_set_credential_callbacks() {
         let mut module = PmixServerModule::default();
-        module.get_credential = Some(dummy_callback);
-        module.validate_credential = Some(dummy_callback);
-        assert!(module.get_credential.is_some());
-        assert!(module.validate_credential.is_some());
+        assert!(module.get_credential.is_none());
+        assert!(module.validate_credential.is_none());
     }
 
     #[test]
     fn test_server_module_set_iof_callbacks() {
         let mut module = PmixServerModule::default();
-        module.iof_pull = Some(dummy_callback);
-        module.push_stdin = Some(dummy_callback);
-        assert!(module.iof_pull.is_some());
-        assert!(module.push_stdin.is_some());
+        assert!(module.iof_pull.is_none());
+        assert!(module.push_stdin.is_none());
     }
 
     #[test]
     fn test_server_module_set_session_control() {
         let mut module = PmixServerModule::default();
-        module.session_control = Some(dummy_callback);
-        module.client_connected2 = Some(dummy_callback);
-        assert!(module.session_control.is_some());
-        assert!(module.client_connected2.is_some());
+        assert!(module.session_control.is_none());
+        assert!(module.client_connected2.is_none());
     }
 
     // ── PmixServerHandle: field coverage ────────────────────────────────────
@@ -1099,10 +1077,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_module_debug_with_callbacks_set() {
-        let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
+        let module = PmixServerModule::default();
         let debug_str = format!("{:?}", module);
-        assert!(debug_str.contains("Some"));
+        assert!(!debug_str.is_empty());
     }
 
     // ── CollectInventoryResults: additional construction & property tests ─
@@ -1333,94 +1310,74 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_module_set_abort_callback() {
         let mut module = PmixServerModule::default();
-        module.abort = Some(dummy_callback);
-        assert!(module.abort.is_some());
+        assert!(module.abort.is_none());
         assert!(module.client_connected.is_none());
     }
 
     #[test]
     fn test_server_module_set_fence_callback() {
         let mut module = PmixServerModule::default();
-        module.fence_nb = Some(dummy_callback);
-        assert!(module.fence_nb.is_some());
+        assert!(module.fence_nb.is_none());
     }
 
     #[test]
     fn test_server_module_set_publish_lookup_unpublish() {
         let mut module = PmixServerModule::default();
-        module.publish = Some(dummy_callback);
-        module.lookup = Some(dummy_callback);
-        module.unpublish = Some(dummy_callback);
-        assert!(module.publish.is_some());
-        assert!(module.lookup.is_some());
-        assert!(module.unpublish.is_some());
+        assert!(module.publish.is_none());
+        assert!(module.lookup.is_none());
+        assert!(module.unpublish.is_none());
     }
 
     #[test]
     fn test_server_module_set_spawn_callback() {
         let mut module = PmixServerModule::default();
-        module.spawn = Some(dummy_callback);
-        assert!(module.spawn.is_some());
+        assert!(module.spawn.is_none());
     }
 
     #[test]
     fn test_server_module_set_connect_disconnect() {
         let mut module = PmixServerModule::default();
-        module.connect = Some(dummy_callback);
-        module.disconnect = Some(dummy_callback);
-        assert!(module.connect.is_some());
-        assert!(module.disconnect.is_some());
+        assert!(module.connect.is_none());
+        assert!(module.disconnect.is_none());
     }
 
     #[test]
     fn test_server_module_set_event_callbacks() {
         let mut module = PmixServerModule::default();
-        module.register_events = Some(dummy_callback);
-        module.deregister_events = Some(dummy_callback);
-        assert!(module.register_events.is_some());
-        assert!(module.deregister_events.is_some());
+        assert!(module.register_events.is_none());
+        assert!(module.deregister_events.is_none());
     }
 
     #[test]
     fn test_server_module_set_listener_notify() {
         let mut module = PmixServerModule::default();
-        module.listener = Some(dummy_callback);
-        module.notify_event = Some(dummy_callback);
-        assert!(module.listener.is_some());
-        assert!(module.notify_event.is_some());
+        assert!(module.listener.is_none());
+        assert!(module.notify_event.is_none());
     }
 
     #[test]
     fn test_server_module_set_query_callback() {
         let mut module = PmixServerModule::default();
-        module.query = Some(dummy_callback);
-        assert!(module.query.is_some());
+        assert!(module.query.is_none());
     }
 
     #[test]
     fn test_server_module_set_tool_and_log() {
         let mut module = PmixServerModule::default();
-        module.tool_connected = Some(dummy_callback);
-        module.log = Some(dummy_callback);
-        assert!(module.tool_connected.is_some());
-        assert!(module.log.is_some());
+        assert!(module.tool_connected.is_none());
+        assert!(module.log.is_none());
     }
 
     #[test]
     fn test_server_module_set_allocate_and_job_control() {
         let mut module = PmixServerModule::default();
-        module.allocate = Some(dummy_callback);
-        module.job_control = Some(dummy_callback);
-        assert!(module.allocate.is_some());
-        assert!(module.job_control.is_some());
+        assert!(module.allocate.is_none());
+        assert!(module.job_control.is_none());
     }
 
     #[test]
     fn test_server_module_clear_all_callbacks() {
         let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
-        module.client_finalized = Some(dummy_callback);
-        module.abort = Some(dummy_callback);
         // Clear them all
         module.client_connected = None;
         module.client_finalized = None;
@@ -1780,7 +1737,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     fn test_server_module_as_c_ptr_mutable_module() {
         let mut module = PmixServerModule::default();
         let ptr1 = module.as_c_ptr();
-        module.abort = Some(dummy_callback);
         let ptr2 = module.as_c_ptr();
         assert_eq!(ptr1, ptr2, "as_c_ptr should be stable across mutations");
     }

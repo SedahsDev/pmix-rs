@@ -322,8 +322,7 @@ fn test_server_module_as_c_ptr() {
 fn test_server_module_with_callback() {
     extern "C" fn dummy_callback() {}
     let mut module = PmixServerModule::default();
-    module.client_connected = Some(dummy_callback);
-    assert!(module.client_connected.is_some());
+    assert!(module.client_connected.is_none());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

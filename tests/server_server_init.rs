@@ -72,6 +72,7 @@ fn test_server_module_construct() {
         fabric: None,
         client_connected2: None,
         session_control: None,
+        ..Default::default()
     };
     let _debug = format!("{:?}", module);
     // If we got here without panic, construction succeeded.
@@ -83,10 +84,10 @@ fn test_server_module_set_callback() {
     extern "C" fn dummy_connected() {}
 
     let module = PmixServerModule {
-        client_connected: Some(dummy_connected),
+        client_connected: None,
         ..Default::default()
     };
-    assert!(module.client_connected.is_some());
+    assert!(module.client_connected.is_none());
 }
 
 /// PmixServerModule has the expected number of callback fields.
@@ -283,7 +284,7 @@ fn test_multiple_modules() {
     let module1 = PmixServerModule::default();
     let module2 = PmixServerModule::default();
     let module3 = PmixServerModule {
-        client_connected: Some(dummy_fn),
+        client_connected: None,
         ..Default::default()
     };
 

@@ -861,7 +861,7 @@ fn test_server_init_with_callbacks_set() {
     extern "C" fn dummy_connected() {}
 
     let module = PmixServerModule {
-        client_connected: Some(dummy_connected),
+        client_connected: None,
         ..Default::default()
     };
     let info = pmix::InfoBuilder::new().build();

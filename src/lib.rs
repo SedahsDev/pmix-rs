@@ -47,7 +47,7 @@ pub mod data_serialization;
 pub mod events;
 pub mod fabric;
 #[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
-mod ffi;
+pub mod ffi;
 pub mod groups;
 pub mod info;
 #[cfg(any(test, feature = "mock_ffi"))]

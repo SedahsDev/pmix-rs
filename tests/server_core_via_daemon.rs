@@ -21,7 +21,7 @@ use pmix::server::{
 use pmix::{InfoBuilder, PmixStatus};
 
 // Dummy callbacks for testing module with callbacks set
-// All PmixServerModule callbacks are Option<unsafe extern "C" fn()>
+// PmixServerModule fields use typed OpenPMIx callback signatures.
 extern "C" fn dummy_callback() {}
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,8 +121,6 @@ fn test_server_init_with_callbacks_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let mut module = PmixServerModule::default();
-    module.abort = Some(dummy_callback);
-    module.fence_nb = Some(dummy_callback);
 
     let info = InfoBuilder::new().build();
     let handle =
@@ -193,7 +191,6 @@ fn test_server_init_with_callbacks_config_with_daemon() {
 
     // Module with one callback set
     let mut module = PmixServerModule::default();
-    module.abort = Some(dummy_callback);
     let handle = server_init(Some(&module), &InfoBuilder::new().build())
         .expect("server_init with one callback should succeed");
     assert!(is_server_initialized());

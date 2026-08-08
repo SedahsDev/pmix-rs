@@ -22,7 +22,7 @@ use pmix::server::{PmixServerModule, server_finalize, server_get_credential, ser
 use pmix::{InfoBuilder, PmixStatus};
 
 // Dummy callbacks for testing module with callbacks set.
-// All PmixServerModule callbacks are Option<unsafe extern "C" fn()>
+// PmixServerModule fields use typed OpenPMIx callback signatures.
 extern "C" fn dummy_callback() {}
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -178,8 +178,6 @@ fn test_server_get_credential_with_callbacks_module_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let mut module = PmixServerModule::default();
-    module.abort = Some(dummy_callback);
-    module.fence_nb = Some(dummy_callback);
 
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");

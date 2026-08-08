@@ -145,13 +145,13 @@ pub use pset::*;
 ///
 /// # Field types
 ///
-/// Fields are stored as `Option<unsafe extern "C" fn()>` so the struct layout
-/// matches a table of C function pointers. Real upcalls have richer C
-/// signatures (`pmix_server_fencenb_fn_t`, …); cast with `std::mem::transmute`
-/// when installing a typed handler (as in the example).
+/// Fields use the exact typed callback signatures generated from the C API.
+/// The `repr(C)` layout matches `pmix_server_module_t`, allowing callbacks to
+/// be installed directly without function-pointer casts.
 ///
 /// # C API
 /// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct PmixServerModule {
     /// Called when a client process connects to this server.
@@ -160,7 +160,7 @@ pub struct PmixServerModule {
     ///
     /// # C type
     /// `pmix_server_client_connected_fn_t`
-    pub client_connected: Option<unsafe extern "C" fn()>,
+    pub client_connected: ffi::pmix_server_client_connected_fn_t,
 
     /// Called when a client process finalizes its connection.
     ///
@@ -168,7 +168,7 @@ pub struct PmixServerModule {
     ///
     /// # C type
     /// `pmix_server_client_finalized_fn_t`
-    pub client_finalized: Option<unsafe extern "C" fn()>,
+    pub client_finalized: ffi::pmix_server_client_finalized_fn_t,
 
     /// Called when a client requests an abort.
     ///
@@ -177,7 +177,7 @@ pub struct PmixServerModule {
     ///
     /// # C type
     /// `pmix_server_abort_fn_t`
-    pub abort: Option<unsafe extern "C" fn()>,
+    pub abort: ffi::pmix_server_abort_fn_t,
 
     /// Non-blocking fence / collective upcall (`PMIx_Fence` / `PMIx_Fence_nb`).
     ///
@@ -191,7 +191,7 @@ pub struct PmixServerModule {
     ///
     /// # C type
     /// `pmix_server_fencenb_fn_t`
-    pub fence_nb: Option<unsafe extern "C" fn()>,
+    pub fence_nb: ffi::pmix_server_fencenb_fn_t,
 
     /// Direct modex request — fetch a remote proc's modex blob via the host.
     ///
@@ -201,152 +201,157 @@ pub struct PmixServerModule {
     ///
     /// # C type
     /// `pmix_server_dmodex_req_fn_t`
-    pub direct_modex: Option<unsafe extern "C" fn()>,
+    pub direct_modex: ffi::pmix_server_dmodex_req_fn_t,
 
     /// Publish callback — client requests to publish data.
     ///
     /// # C type
     /// `pmix_server_publish_fn_t`
-    pub publish: Option<unsafe extern "C" fn()>,
+    pub publish: ffi::pmix_server_publish_fn_t,
 
     /// Lookup callback — client requests to lookup data.
     ///
     /// # C type
     /// `pmix_server_lookup_fn_t`
-    pub lookup: Option<unsafe extern "C" fn()>,
+    pub lookup: ffi::pmix_server_lookup_fn_t,
 
     /// Unpublish callback — client requests to remove published data.
     ///
     /// # C type
     /// `pmix_server_unpublish_fn_t`
-    pub unpublish: Option<unsafe extern "C" fn()>,
+    pub unpublish: ffi::pmix_server_unpublish_fn_t,
 
     /// Spawn callback — client requests to spawn new processes.
     ///
     /// # C type
     /// `pmix_server_spawn_fn_t`
-    pub spawn: Option<unsafe extern "C" fn()>,
+    pub spawn: ffi::pmix_server_spawn_fn_t,
 
     /// Connect callback — client requests to establish a connection.
     ///
     /// # C type
     /// `pmix_server_connect_fn_t`
-    pub connect: Option<unsafe extern "C" fn()>,
+    pub connect: ffi::pmix_server_connect_fn_t,
 
     /// Disconnect callback — client requests to disconnect.
     ///
     /// # C type
     /// `pmix_server_disconnect_fn_t`
-    pub disconnect: Option<unsafe extern "C" fn()>,
+    pub disconnect: ffi::pmix_server_disconnect_fn_t,
 
     /// Register events callback.
     ///
     /// # C type
     /// `pmix_server_register_events_fn_t`
-    pub register_events: Option<unsafe extern "C" fn()>,
+    pub register_events: ffi::pmix_server_register_events_fn_t,
 
     /// Deregister events callback.
     ///
     /// # C type
     /// `pmix_server_deregister_events_fn_t`
-    pub deregister_events: Option<unsafe extern "C" fn()>,
+    pub deregister_events: ffi::pmix_server_deregister_events_fn_t,
 
     /// Listener callback — for server-to-server communication.
     ///
     /// # C type
     /// `pmix_server_listener_fn_t`
-    pub listener: Option<unsafe extern "C" fn()>,
+    pub listener: ffi::pmix_server_listener_fn_t,
 
     /// Notify event callback — deliver notifications to the server.
     ///
     /// # C type
     /// `pmix_server_notify_event_fn_t`
-    pub notify_event: Option<unsafe extern "C" fn()>,
+    pub notify_event: ffi::pmix_server_notify_event_fn_t,
 
     /// Query callback — client requests server-side query.
     ///
     /// # C type
     /// `pmix_server_query_fn_t`
-    pub query: Option<unsafe extern "C" fn()>,
+    pub query: ffi::pmix_server_query_fn_t,
 
     /// Tool connection callback — accepts tool connections.
     ///
     /// # C type
     /// `pmix_server_tool_connection_fn_t`
-    pub tool_connected: Option<unsafe extern "C" fn()>,
+    pub tool_connected: ffi::pmix_server_tool_connection_fn_t,
 
     /// Log callback — client requests logging.
     ///
     /// # C type
     /// `pmix_server_log_fn_t`
-    pub log: Option<unsafe extern "C" fn()>,
+    pub log: ffi::pmix_server_log_fn_t,
 
     /// Allocation callback — client requests resource allocation.
     ///
     /// # C type
     /// `pmix_server_alloc_fn_t`
-    pub allocate: Option<unsafe extern "C" fn()>,
+    pub allocate: ffi::pmix_server_alloc_fn_t,
 
     /// Job control callback.
     ///
     /// # C type
     /// `pmix_server_job_control_fn_t`
-    pub job_control: Option<unsafe extern "C" fn()>,
+    pub job_control: ffi::pmix_server_job_control_fn_t,
 
     /// Monitoring callback — client requests monitoring.
     ///
     /// # C type
     /// `pmix_server_monitor_fn_t`
-    pub monitor: Option<unsafe extern "C" fn()>,
+    pub monitor: ffi::pmix_server_monitor_fn_t,
 
     /// Get credential callback.
     ///
     /// # C type
     /// `pmix_server_get_cred_fn_t`
-    pub get_credential: Option<unsafe extern "C" fn()>,
+    pub get_credential: ffi::pmix_server_get_cred_fn_t,
 
     /// Validate credential callback.
     ///
     /// # C type
     /// `pmix_server_validate_cred_fn_t`
-    pub validate_credential: Option<unsafe extern "C" fn()>,
+    pub validate_credential: ffi::pmix_server_validate_cred_fn_t,
 
     /// I/O forwarding pull callback.
     ///
     /// # C type
     /// `pmix_server_iof_fn_t`
-    pub iof_pull: Option<unsafe extern "C" fn()>,
+    pub iof_pull: ffi::pmix_server_iof_fn_t,
 
     /// Push stdin callback.
     ///
     /// # C type
     /// `pmix_server_stdin_fn_t`
-    pub push_stdin: Option<unsafe extern "C" fn()>,
+    pub push_stdin: ffi::pmix_server_stdin_fn_t,
 
     /// Group operations callback.
     ///
     /// # C type
     /// `pmix_server_grp_fn_t`
-    pub group: Option<unsafe extern "C" fn()>,
+    pub group: ffi::pmix_server_grp_fn_t,
 
     /// Fabric operations callback.
     ///
     /// # C type
     /// `pmix_server_fabric_fn_t`
-    pub fabric: Option<unsafe extern "C" fn()>,
+    pub fabric: ffi::pmix_server_fabric_fn_t,
 
     /// Client connected v2 callback.
     ///
     /// # C type
     /// `pmix_server_client_connected2_fn_t`
-    pub client_connected2: Option<unsafe extern "C" fn()>,
+    pub client_connected2: ffi::pmix_server_client_connected2_fn_t,
+    pub tool_connected2: ffi::pmix_server_tool_connection2_fn_t,
+    pub log2: ffi::pmix_server_log2_fn_t,
 
     /// Session control callback (PMIx 5.x).
     ///
     /// # C type
     /// `pmix_server_session_control_fn_t`
-    pub session_control: Option<unsafe extern "C" fn()>,
+    pub session_control: ffi::pmix_server_session_control_fn_t,
+    pub resource_block: ffi::pmix_server_resource_block_fn_t,
 }
+
+const _: () = assert!(std::mem::size_of::<PmixServerModule>() == std::mem::size_of::<ffi::pmix_server_module_t>());
 
 impl PmixServerModule {
     /// Convert this safe module into the raw C `pmix_server_module_t`.
