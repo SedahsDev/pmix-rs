@@ -21,7 +21,6 @@ use pmix::server::{
 use pmix::{InfoBuilder, PmixStatus};
 
 // Dummy callbacks for testing module with callbacks set.
-extern "C" fn dummy_callback() {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Standalone tests (always run — verify compile-time type correctness)
@@ -200,7 +199,6 @@ fn test_server_fence_with_callbacks_module_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let mut module = PmixServerModule::default();
-    module.fence_nb = Some(dummy_callback);
 
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init");

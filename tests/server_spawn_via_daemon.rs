@@ -23,8 +23,7 @@ use pmix::server::{PmixServerModule, server_finalize, server_init, server_spawn,
 use pmix::{Info, InfoBuilder, PmixError, PmixStatus};
 
 // Dummy callbacks for testing module with callbacks set.
-// All PmixServerModule callbacks are Option<unsafe extern "C" fn()>.
-extern "C" fn dummy_callback() {}
+// PmixServerModule fields use typed OpenPMIx callback signatures..
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Standalone tests (always run — verify compile-time type correctness)
@@ -341,7 +340,6 @@ fn test_server_spawn_with_callbacks_module_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let mut module = PmixServerModule::default();
-    module.spawn = Some(dummy_callback);
 
     let info = InfoBuilder::new().build();
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
