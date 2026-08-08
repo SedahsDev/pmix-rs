@@ -2379,35 +2379,53 @@ mod tests {
 /// Safe wrapper around the PMIx utility API for a single `pmix_app_t`.
 #[derive(Debug)]
 pub struct PmixAppObject {
-    raw: std::mem::MaybeUninit<ffi::pmix_app_t>,
+    ptr: *mut ffi::pmix_app_t,
     constructed: bool,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl PmixAppObject {
     pub fn new() -> Self {
-        let mut this = Self { raw: std::mem::MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData };
-        let p = this.raw.as_mut_ptr();
-        #[cfg(any(test, feature = "mock_ffi"))]
-        { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_construct(p) }; } else { unsafe { ffi::PMIx_App_construct(p) }; } }
-        #[cfg(not(any(test, feature = "mock_ffi")))]
-        unsafe { ffi::PMIx_App_construct(p) };
-        this.constructed = true;
-        this
+        // SAFETY: calloc provides suitably aligned, zeroed storage for the C
+        // struct. The matching free is performed by `release` or `Drop`.
+        let ptr = unsafe { libc::calloc(1, std::mem::size_of::<ffi::pmix_app_t>()) }
+            as *mut ffi::pmix_app_t;
+        if !ptr.is_null() {
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_construct(ptr) },
+                real = unsafe { ffi::PMIx_App_construct(ptr) },
+            );
+        }
+        Self { ptr, constructed: !ptr.is_null(), _not_thread_safe: std::marker::PhantomData }
     }
 
-    pub fn test_new() -> Self { Self { raw: std::mem::MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData } }
-    fn raw(&self) -> &ffi::pmix_app_t { unsafe { self.raw.assume_init_ref() } }
-    fn c_string(&self, p: *const c_char) -> Option<&str> { unsafe { (!p.is_null()).then(|| CStr::from_ptr(p).to_str().ok()).flatten() } }
-    pub fn cmd(&self) -> Option<&str> { self.c_string(self.raw().cmd) }
-    pub fn cwd(&self) -> Option<&str> { self.c_string(self.raw().cwd) }
-    pub fn maxprocs(&self) -> i32 { self.raw().maxprocs }
-    pub fn ninfo(&self) -> usize { self.raw().ninfo }
+    pub fn test_new() -> Self {
+        let ptr = unsafe { libc::calloc(1, std::mem::size_of::<ffi::pmix_app_t>()) }
+            as *mut ffi::pmix_app_t;
+        Self { ptr, constructed: !ptr.is_null(), _not_thread_safe: std::marker::PhantomData }
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_app_t { self.ptr }
+
+    fn raw(&self) -> Option<&ffi::pmix_app_t> {
+        // SAFETY: `ptr` is either null or live calloc'd storage initialized by
+        // PMIx; callers only receive a reference for the non-null case.
+        unsafe { self.ptr.as_ref() }
+    }
+    fn c_string(&self, p: *const c_char) -> Option<&str> {
+        unsafe { (!p.is_null()).then(|| CStr::from_ptr(p).to_str().ok()).flatten() }
+    }
+    pub fn cmd(&self) -> Option<&str> { self.raw().and_then(|a| self.c_string(a.cmd)) }
+    pub fn cwd(&self) -> Option<&str> { self.raw().and_then(|a| self.c_string(a.cwd)) }
+    pub fn maxprocs(&self) -> i32 { self.raw().map_or(0, |a| a.maxprocs) }
+    pub fn ninfo(&self) -> usize { self.raw().map_or(0, |a| a.ninfo) }
     /// Returns PMIx-owned storage; do not free it. Invalid after mutation or drop.
     ///
     /// # Safety
     /// The returned pointer must not be dereferenced after this object is mutated or dropped.
-    pub unsafe fn info_ptr(&self) -> *const ffi::pmix_info_t { self.raw().info }
+    pub unsafe fn info_ptr(&self) -> *const ffi::pmix_info_t {
+        self.raw().map_or(ptr::null(), |a| a.info)
+    }
     fn strings(&self, p: *mut *mut c_char) -> Option<Vec<String>> {
         if p.is_null() { return None; }
         let mut out = Vec::new(); let mut i = 0;
@@ -2415,42 +2433,65 @@ impl PmixAppObject {
         unsafe { while !(*p.add(i)).is_null() { out.push(CStr::from_ptr(*p.add(i)).to_str().ok()?.to_owned()); i += 1; } }
         Some(out)
     }
-    pub fn argv(&self) -> Option<Vec<String>> { self.strings(self.raw().argv) }
-    pub fn env(&self) -> Option<Vec<String>> { self.strings(self.raw().env) }
+    pub fn argv(&self) -> Option<Vec<String>> { self.raw().and_then(|a| self.strings(a.argv)) }
+    pub fn env(&self) -> Option<Vec<String>> { self.raw().and_then(|a| self.strings(a.env)) }
     pub fn info_create(&mut self, n: usize) {
-        if !self.raw().info.is_null() {
-            #[cfg(any(test, feature = "mock_ffi"))]
-            { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_destruct(self.raw.as_mut_ptr()) }; } else { unsafe { ffi::PMIx_App_destruct(self.raw.as_mut_ptr()) }; } }
-            #[cfg(not(any(test, feature = "mock_ffi")))]
-            unsafe { ffi::PMIx_App_destruct(self.raw.as_mut_ptr()) };
-            self.constructed = true;
-            #[cfg(any(test, feature = "mock_ffi"))]
-            { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_construct(self.raw.as_mut_ptr()) }; } else { unsafe { ffi::PMIx_App_construct(self.raw.as_mut_ptr()) }; } }
-            #[cfg(not(any(test, feature = "mock_ffi")))]
-            unsafe { ffi::PMIx_App_construct(self.raw.as_mut_ptr()) };
+        let Some(app) = self.raw() else { return };
+        if !app.info.is_null() {
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_destruct(self.ptr) },
+                real = unsafe { ffi::PMIx_App_destruct(self.ptr) },
+            );
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_construct(self.ptr) },
+                real = unsafe { ffi::PMIx_App_construct(self.ptr) },
+            );
         }
-        #[cfg(any(test, feature = "mock_ffi"))]
-        { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_info_create(self.raw.as_mut_ptr(), n) }; } else { unsafe { ffi::PMIx_App_info_create(self.raw.as_mut_ptr(), n) }; } }
-        #[cfg(not(any(test, feature = "mock_ffi")))]
-        unsafe { ffi::PMIx_App_info_create(self.raw.as_mut_ptr(), n) };
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_info_create(self.ptr, n) },
+            real = unsafe { ffi::PMIx_App_info_create(self.ptr, n) },
+        );
     }
     pub fn to_string(&self) -> Result<String, crate::PmixError> {
-        let p = { #[cfg(any(test, feature = "mock_ffi"))] { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_string(self.raw()) } } else { unsafe { ffi::PMIx_App_string(self.raw()) } } } #[cfg(not(any(test, feature = "mock_ffi")))] unsafe { ffi::PMIx_App_string(self.raw()) } };
+        let Some(app) = self.raw() else { return Err(crate::PmixError::Error) };
+        let p = crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_string(app) },
+            real = unsafe { ffi::PMIx_App_string(app) },
+        );
         if p.is_null() { return Err(crate::PmixError::Error); }
         // SAFETY: copy before releasing PMIx's allocated string.
-        let result = unsafe { CStr::from_ptr(p).to_str().map(str::to_owned) }; unsafe { libc::free(p.cast()) }; result.map_err(|_| crate::PmixError::Error)
+        let result = unsafe { CStr::from_ptr(p).to_str().map(str::to_owned) };
+        unsafe { libc::free(p.cast()) };
+        result.map_err(|_| crate::PmixError::Error)
     }
-    /// Consumes self because PMIx_App_release frees the object itself.
+    /// Consumes the C object. `PMIx_App_release` frees the struct pointer.
     pub fn release(mut self) {
-        let p = self.raw.as_mut_ptr(); self.constructed = false;
-        #[cfg(any(test, feature = "mock_ffi"))]
-        if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_release(p) }; return; }
-        std::mem::forget(self); unsafe { ffi::PMIx_App_release(p) };
+        if self.ptr.is_null() || !self.constructed { return; }
+        crate::pmix_ffi_or_mock!(
+            mock = {
+                unsafe { crate::mock_ffi::mock_app_release(self.ptr) };
+                // The mock models contents but not ownership of wrapper storage.
+                unsafe { libc::free(self.ptr.cast()) };
+            },
+            real = unsafe { ffi::PMIx_App_release(self.ptr) },
+        );
+        self.ptr = ptr::null_mut();
+        self.constructed = false;
     }
 }
 impl Default for PmixAppObject { fn default() -> Self { Self::new() } }
 impl Drop for PmixAppObject {
-    fn drop(&mut self) { if !self.constructed { return; } #[cfg(any(test, feature = "mock_ffi"))] if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_destruct(self.raw.as_mut_ptr()) }; return; } unsafe { ffi::PMIx_App_destruct(self.raw.as_mut_ptr()) }; }
+    fn drop(&mut self) {
+        if self.ptr.is_null() || !self.constructed { return; }
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_destruct(self.ptr) },
+            real = unsafe { ffi::PMIx_App_destruct(self.ptr) },
+        );
+        // SAFETY: storage was allocated by calloc in `new`/`test_new`.
+        unsafe { libc::free(self.ptr.cast()) };
+        self.ptr = ptr::null_mut();
+        self.constructed = false;
+    }
 }
 
 #[cfg(test)]
