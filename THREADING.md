@@ -70,7 +70,11 @@ progress engine (table above), not which core runs a given upcall body.
 Rules (same deadlock class as client `_nb` / events — issue #51 helpers):
 
 1. Return quickly; never call blocking PMIx from the upcall.
-2. Hop with `threading::spawn_from_callback` or `CallbackChannel`.
+2. Hop with `threading::spawn_from_callback` or `CallbackChannel`. The former
+   uses a process-wide bounded worker pool (available parallelism workers and
+   four queue slots per worker); a full queue falls back to a detached,
+   dedicated `pmix-callback-hop` thread so callback work is never dropped or
+   blocked. Pool workers are detached and require no finalize-time shutdown.
 3. Invoke the provided `cbfunc` **later** when RM / network work finishes.
 4. Copy C buffers before hopping; do not join hop work in-handler.
 
@@ -165,7 +169,8 @@ channel.
 2. Build `Info` and other C-owned handles on the calling thread.  
 3. Callbacks **and server module upcalls** = progress context — hop before
    blocking PMIx. Use `threading::spawn_from_callback` (fire-and-forget
-   thread) or `threading::CallbackChannel` (app-thread receiver) — see
+   worker pool, with a dedicated-thread fallback) or
+   `threading::CallbackChannel` (app-thread receiver) — see
    `examples/callback_hop.rs` (client `_nb` / events) and
    `examples/server_upcall_hop.rs` (fence_nb / direct_modex + delayed
    `cbfunc`). Never join/wait in-handler; convert C-owned (`!Send`) values
