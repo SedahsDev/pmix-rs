@@ -2417,12 +2417,22 @@ impl PmixAppObject {
     }
     pub fn argv(&self) -> Option<Vec<String>> { self.strings(self.raw().argv) }
     pub fn env(&self) -> Option<Vec<String>> { self.strings(self.raw().env) }
-    pub fn info_create(&mut self, n: usize) -> Result<(), crate::PmixError> {
+    pub fn info_create(&mut self, n: usize) {
+        if !self.raw().info.is_null() {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_destruct(self.raw.as_mut_ptr()) }; } else { unsafe { ffi::PMIx_App_destruct(self.raw.as_mut_ptr()) }; } }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            unsafe { ffi::PMIx_App_destruct(self.raw.as_mut_ptr()) };
+            self.constructed = true;
+            #[cfg(any(test, feature = "mock_ffi"))]
+            { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_construct(self.raw.as_mut_ptr()) }; } else { unsafe { ffi::PMIx_App_construct(self.raw.as_mut_ptr()) }; } }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            unsafe { ffi::PMIx_App_construct(self.raw.as_mut_ptr()) };
+        }
         #[cfg(any(test, feature = "mock_ffi"))]
         { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_info_create(self.raw.as_mut_ptr(), n) }; } else { unsafe { ffi::PMIx_App_info_create(self.raw.as_mut_ptr(), n) }; } }
         #[cfg(not(any(test, feature = "mock_ffi")))]
         unsafe { ffi::PMIx_App_info_create(self.raw.as_mut_ptr(), n) };
-        Ok(())
     }
     pub fn to_string(&self) -> Result<String, crate::PmixError> {
         let p = { #[cfg(any(test, feature = "mock_ffi"))] { if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_string(self.raw()) } } else { unsafe { ffi::PMIx_App_string(self.raw()) } } } #[cfg(not(any(test, feature = "mock_ffi")))] unsafe { ffi::PMIx_App_string(self.raw()) } };
@@ -2431,11 +2441,11 @@ impl PmixAppObject {
         let result = unsafe { CStr::from_ptr(p).to_str().map(str::to_owned) }; unsafe { libc::free(p.cast()) }; result.map_err(|_| crate::PmixError::Error)
     }
     /// Consumes self because PMIx_App_release frees the object itself.
-    pub fn release(mut self) -> Result<(), PmixStatus> {
+    pub fn release(mut self) {
         let p = self.raw.as_mut_ptr(); self.constructed = false;
         #[cfg(any(test, feature = "mock_ffi"))]
-        if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_release(p) }; return Ok(()); }
-        std::mem::forget(self); unsafe { ffi::PMIx_App_release(p) }; Ok(())
+        if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_app_release(p) }; return; }
+        std::mem::forget(self); unsafe { ffi::PMIx_App_release(p) };
     }
 }
 impl Default for PmixAppObject { fn default() -> Self { Self::new() } }
@@ -2448,7 +2458,7 @@ mod app_object_tests {
     use super::PmixAppObject; use crate::mock_ffi::MockGuard;
     #[test] fn construct_drop() { let _g = MockGuard::new(); drop(PmixAppObject::new()); }
     #[test] fn zeroed_accessors() { let a = PmixAppObject::test_new(); assert_eq!(a.cmd(), None); assert_eq!(a.cwd(), None); assert_eq!(a.argv(), None); assert_eq!(a.env(), None); assert_eq!(a.maxprocs(), 0); }
-    #[test] fn info_create_ok() { let _g = MockGuard::new(); let mut a = PmixAppObject::new(); assert!(a.info_create(2).is_ok()); assert_eq!(a.ninfo(), 2); }
+    #[test] fn info_create_ok() { let _g = MockGuard::new(); let mut a = PmixAppObject::new(); a.info_create(2); assert_eq!(a.ninfo(), 2); a.info_create(3); assert_eq!(a.ninfo(), 3); }
     #[test] fn string_ok() { let _g = MockGuard::new(); assert_eq!(PmixAppObject::new().to_string().unwrap(), "mock_app"); }
-    #[test] fn release_no_panic() { let _g = MockGuard::new(); PmixAppObject::new().release().unwrap(); }
+    #[test] fn release_no_panic() { let _g = MockGuard::new(); PmixAppObject::new().release(); }
 }
