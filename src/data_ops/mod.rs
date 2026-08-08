@@ -416,6 +416,12 @@ pub fn get_nb(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
+        // The completion callback never runs on this path, so drop both the
+        // callback registration and any qualified-value marker.
+        QUALIFIED_GETS
+            .lock()
+            .expect("mutex poisoned (data_ops.rs)")
+            .remove(&req_id);
         let mut registry = GET_REGISTRY.lock().expect("mutex poisoned (data_ops.rs)");
         registry.remove(&req_id);
         Err(pmix_status)
