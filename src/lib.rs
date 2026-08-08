@@ -3516,7 +3516,7 @@ pub fn info_with_string_key(key: &str, value: &str) -> Info {
 // ─────────────────────────────────────────────────────────────────────────────
 
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 /// Lifecycle state of the process-wide PMIx client session.
 ///
@@ -3675,7 +3675,7 @@ impl PmixClient {
     /// Transitions `Uninitialized` → `Live`. Fails if already `Live`
     /// ([`PmixError::ErrExists`]) or after finalize ([`PmixError::ErrInit`]).
     ///
-    /// Serialized on the session mutex so concurrent `connect` calls cannot
+    /// Serialized on the session lock so concurrent `connect` calls cannot
     /// double-init.
     pub fn connect(&self, info: Option<Info>) -> Result<(), PmixError> {
         let mut proc_guard = self
