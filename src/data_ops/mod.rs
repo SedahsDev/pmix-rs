@@ -588,6 +588,9 @@ pub fn lookup(
     for item in data.iter() {
         let mut pdata: ffi::pmix_pdata_t = unsafe { std::mem::zeroed() };
 
+        // SAFETY: construct initializes the pdata before we populate its fields.
+        unsafe { ffi::PMIx_Pdata_construct(&mut pdata) };
+
         // Copy the key into pdata.key (pmix_key_t = [c_char; 512]).
         let key_bytes = item.key.as_bytes();
         let klen = key_bytes.len().min(511);
@@ -607,9 +610,6 @@ pub fn lookup(
         unsafe {
             std::ptr::write_bytes(&mut pdata.value, 0, 1);
         }
-
-        // Construct the pdata using the PMIx constructor.
-        unsafe { ffi::PMIx_Pdata_construct(&mut pdata) };
 
         raw_pdata.push(pdata);
     }
@@ -656,11 +656,15 @@ pub fn lookup(
         // Extract the value if the type is not PMIX_UNDEF.
         let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
         let value = if pdata.value.type_ != pmix_undef {
-            // Take ownership of the value.
+            // SAFETY: take ownership of the returned value by copying it out and
+            // zeroing the source so cleanup does not free the transferred payload.
             let val = unsafe { ptr::read(&pdata.value) };
-            Some(PmixOwnedValue { inner: val, 
-            _not_thread_safe: std::marker::PhantomData,
-        })
+            unsafe { std::ptr::write_bytes(&mut pdata.value, 0, 1) };
+            pdata.value.type_ = pmix_undef;
+            Some(PmixOwnedValue {
+                inner: val,
+                _not_thread_safe: std::marker::PhantomData,
+            })
         } else {
             None
         };
@@ -671,7 +675,6 @@ pub fn lookup(
     // Clean up raw pdata — destruct each element.
     for pdata in raw_pdata.iter_mut() {
         unsafe {
-            free_value(&mut pdata.value);
             ffi::PMIx_Pdata_destruct(pdata);
         }
     }

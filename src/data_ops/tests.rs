@@ -721,6 +721,22 @@ use super::*;
         }
     }
 
+    #[test]
+    fn test_lookup_mock_success_returns_status_and_results() {
+        let _guard = MockGuard::new();
+        MockConfig::new()
+            .with_function_status("PMIx_Lookup", PMIX_SUCCESS)
+            .apply();
+
+        let mut data = vec![PmixPdata::new("test.key")];
+        let result = lookup(&mut data, None).expect("mock lookup should succeed");
+
+        assert_eq!(result.0, PmixStatus::Known(PmixError::Success));
+        assert_eq!(result.1.len(), 1);
+        assert_eq!(result.1[0].key, "test.key");
+        assert!(result.1[0].value.is_none());
+    }
+
     // ─── lookup_nb: FFI call path tests ─────────────────────────────────────
 
     #[test]
