@@ -1668,30 +1668,47 @@ mod tests {
 
     #[test]
     fn test_single_code_array() {
-        let codes: &[PmixStatus] = &[PmixStatus::Known(PmixError::ErrJobAborted)];
-        let (codes_ptr, ncodes) = if codes.is_empty() {
+        let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
+        let raw_codes: Vec<i32> = codes.iter().map(|status| status.to_raw()).collect();
+        let (codes_ptr, ncodes) = if raw_codes.is_empty() {
             (std::ptr::null_mut(), 0)
         } else {
-            (codes.as_ptr() as *mut ffi::pmix_status_t, codes.len())
+            (
+                raw_codes.as_ptr() as *mut ffi::pmix_status_t,
+                raw_codes.len(),
+            )
         };
         assert!(!codes_ptr.is_null());
         assert_eq!(ncodes, 1);
+        assert_eq!(raw_codes, vec![PmixError::ErrJobAborted as i32]);
     }
 
     #[test]
     fn test_multiple_codes_array() {
-        let codes: &[PmixStatus] = &[
+        let codes = [
             PmixStatus::Known(PmixError::ErrJobAborted),
             PmixStatus::Known(PmixError::ErrTimeout),
             PmixStatus::Known(PmixError::ErrNotSupported),
         ];
-        let (codes_ptr, ncodes) = if codes.is_empty() {
+        let raw_codes: Vec<i32> = codes.iter().map(|status| status.to_raw()).collect();
+        let (codes_ptr, ncodes) = if raw_codes.is_empty() {
             (std::ptr::null_mut(), 0)
         } else {
-            (codes.as_ptr() as *mut ffi::pmix_status_t, codes.len())
+            (
+                raw_codes.as_ptr() as *mut ffi::pmix_status_t,
+                raw_codes.len(),
+            )
         };
         assert!(!codes_ptr.is_null());
         assert_eq!(ncodes, 3);
+        assert_eq!(
+            raw_codes,
+            vec![
+                PmixError::ErrJobAborted as i32,
+                PmixError::ErrTimeout as i32,
+                PmixError::ErrNotSupported as i32,
+            ]
+        );
     }
 
     // ─── Callback type verification ─────────────────────────────────────────
