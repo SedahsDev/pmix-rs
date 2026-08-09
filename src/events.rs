@@ -488,12 +488,19 @@ pub fn register_event_handler(
         return Err(PmixStatus::Known(PmixError::ErrBadParam));
     }
 
-    let (codes_ptr, ncodes) = if codes.is_empty() {
+    // Convert PmixStatus codes to the raw pmix_status_t (i32) array C expects.
+    // PmixStatus is a tagged enum (8 bytes) — never cast its slice to
+    // *mut pmix_status_t directly.
+    let codes_raw: Vec<i32> = codes.iter().map(|status| status.to_raw()).collect();
+    let (codes_ptr, ncodes) = if codes_raw.is_empty() {
         (ptr::null_mut(), 0)
     } else {
-        // SAFETY: PmixStatus wraps i32; pmix_status_t is i32 in the C ABI.
-        // The slice lives for the duration of the FFI call.
-        (codes.as_ptr() as *mut ffi::pmix_status_t, codes.len())
+        // SAFETY: PmixStatus is converted to raw i32 codes; the Vec lives for
+        // the duration of the FFI call.
+        (
+            codes_raw.as_ptr() as *mut ffi::pmix_status_t,
+            codes_raw.len(),
+        )
     };
 
     let (info_ptr, ninfo) = if info.len > 0 {
@@ -590,10 +597,19 @@ pub fn register_event_handler_nb(
     cbfunc: HandlerRegCbFn,
     cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
-    let (codes_ptr, ncodes) = if codes.is_empty() {
+    // Convert PmixStatus codes to the raw pmix_status_t (i32) array C expects.
+    // PmixStatus is a tagged enum (8 bytes) — never cast its slice to
+    // *mut pmix_status_t directly.
+    let codes_raw: Vec<i32> = codes.iter().map(|status| status.to_raw()).collect();
+    let (codes_ptr, ncodes) = if codes_raw.is_empty() {
         (ptr::null_mut(), 0)
     } else {
-        (codes.as_ptr() as *mut ffi::pmix_status_t, codes.len())
+        // SAFETY: PmixStatus is converted to raw i32 codes; the Vec lives for
+        // the duration of the FFI call.
+        (
+            codes_raw.as_ptr() as *mut ffi::pmix_status_t,
+            codes_raw.len(),
+        )
     };
 
     let (info_ptr, ninfo) = if info.len > 0 {
@@ -889,6 +905,20 @@ mod tests {
     use super::*;
     use crate::mock_ffi::MockGuard;
     use std::sync::mpsc;
+
+    #[test]
+    fn test_codes_to_raw_conversion() {
+        // PmixStatus is a tagged enum (8 bytes); the FFI path must convert to
+        // raw i32 codes, not cast the enum slice (regression for specific-code
+        // handlers never firing).
+        let codes = [
+            PmixStatus::Known(PmixError::ErrProcRequestedAbort),
+            PmixStatus::Known(PmixError::ReadyForDebug),
+            PmixStatus::Unknown(-9999),
+        ];
+        let raw: Vec<i32> = codes.iter().map(|status| status.to_raw()).collect();
+        assert_eq!(raw, vec![-8, -58, -9999]);
+    }
 
     // ─── Type alias tests ───────────────────────────────────────────────────
 
