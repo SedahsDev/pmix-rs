@@ -20,7 +20,7 @@ use pmix::{InfoBuilder, PmixClient, PmixError, PmixStatus, finalize, get_version
 #[test]
 fn get_version_returns_non_empty() {
     assert!(
-        !get_version().is_empty(),
+        !get_version().unwrap().is_empty(),
         "get_version should return non-empty string"
     );
 }
@@ -28,7 +28,7 @@ fn get_version_returns_non_empty() {
 /// `get_version` returns a string containing digits (version numbers).
 #[test]
 fn get_version_contains_digits() {
-    let version = get_version();
+    let version = get_version().unwrap();
     assert!(
         version.chars().any(|c| c.is_ascii_digit()),
         "get_version should contain digits"
@@ -38,15 +38,15 @@ fn get_version_contains_digits() {
 /// `get_version` returns `&'static str` (compile-time type check).
 #[test]
 fn get_version_returns_static_str() {
-    let _v: &'static str = get_version();
+    let _v: &'static str = get_version().expect("version");
 }
 
 /// `get_version` is deterministic — repeated calls return the same value.
 #[test]
 fn get_version_is_deterministic() {
     assert_eq!(
-        get_version(),
-        get_version(),
+        get_version().unwrap(),
+        get_version().unwrap(),
         "get_version must be deterministic"
     );
 }
@@ -54,7 +54,7 @@ fn get_version_is_deterministic() {
 /// `get_version` returns printable ASCII and spaces only.
 #[test]
 fn get_version_is_printable_ascii() {
-    let version = get_version();
+    let version = get_version().unwrap();
     for (i, c) in version.chars().enumerate() {
         assert!(
             c.is_ascii_graphic() || c == ' ' || c == '\t',
@@ -70,7 +70,7 @@ fn get_version_is_printable_ascii() {
 #[test]
 fn get_version_starts_with_openpmix() {
     assert!(
-        get_version().starts_with("OpenPMIx"),
+        get_version().unwrap().starts_with("OpenPMIx"),
         "get_version should start with 'OpenPMIx'"
     );
 }
@@ -79,7 +79,7 @@ fn get_version_starts_with_openpmix() {
 #[test]
 fn get_version_has_space_separator() {
     assert!(
-        get_version().contains(' '),
+        get_version().unwrap().contains(' '),
         "get_version should contain a space between name and version"
     );
 }
@@ -88,7 +88,7 @@ fn get_version_has_space_separator() {
 /// The format is "OpenPMIx 5.0.7a1 ..." — split on space, then find the first numeric segment.
 #[test]
 fn get_version_can_extract_major_version() {
-    let version = get_version();
+    let version = get_version().unwrap();
     let version_part = version.split(' ').nth(1).unwrap_or("");
     let major = version_part
         .split(|c: char| !c.is_ascii_digit())
@@ -106,7 +106,7 @@ fn get_version_can_extract_major_version() {
 /// Can extract a full "major.minor" version from `get_version` output.
 #[test]
 fn get_version_can_extract_major_minor_version() {
-    let version = get_version();
+    let version = get_version().unwrap();
     let version_part = version.split(' ').nth(1).unwrap_or("");
     let mut dot_count = 0;
     let mut segment = String::new();
@@ -141,7 +141,7 @@ fn get_version_can_extract_major_minor_version() {
 /// `get_version` string length is reasonable (not absurdly long).
 #[test]
 fn get_version_reasonable_length() {
-    let version = get_version();
+    let version = get_version().unwrap();
     assert!(
         version.len() > 5 && version.len() < 256,
         "get_version has suspicious length {}",
@@ -152,7 +152,7 @@ fn get_version_reasonable_length() {
 /// `get_version` contains version metadata like "PMIx Standard" or "ABI".
 #[test]
 fn get_version_contains_metadata() {
-    let version = get_version();
+    let version = get_version().unwrap();
     // The version string from OpenPMIx includes metadata like
     // "OpenPMIx 5.0.7a1 (PMIx Standard: 5.1, Stable ABI: 5.0, ...)"
     assert!(
@@ -592,7 +592,7 @@ fn concurrent_get_version_safe() {
         handles.push(std::thread::spawn(|| {
             let mut results = Vec::new();
             for _ in 0..CALLS_PER_THREAD {
-                results.push(get_version().to_string());
+                results.push(get_version().unwrap().to_string());
             }
             results
         }));
@@ -633,7 +633,7 @@ fn mixed_concurrent_safe_calls() {
                 if id % 2 == 0 {
                     let _ = initialized();
                 } else {
-                    let _ = get_version();
+                    let _ = get_version().unwrap();
                 }
             }
         }));
@@ -648,7 +648,7 @@ fn mixed_concurrent_safe_calls() {
 #[test]
 fn safe_functions_work_before_any_lifecycle() {
     // These should work even at the very start, before any init/finalize
-    let version = get_version();
+    let version = get_version().unwrap();
     let _is_init = initialized();
 
     assert!(!version.is_empty(), "version should be non-empty");
@@ -659,7 +659,7 @@ fn safe_functions_work_before_any_lifecycle() {
 fn get_version_works_after_failed_init() {
     let _ = PmixClient::connect_new(None);
     assert!(
-        !get_version().is_empty(),
+        !get_version().unwrap().is_empty(),
         "get_version should work after failed init"
     );
 }
@@ -694,7 +694,7 @@ fn get_version_thread_consistent_under_contention() {
         let v = versions.clone();
         handles.push(std::thread::spawn(move || {
             b.wait(); // synchronize all threads
-            let ver = get_version().to_string();
+            let ver = get_version().unwrap().to_string();
             v.lock().unwrap().push(ver);
         }));
     }
