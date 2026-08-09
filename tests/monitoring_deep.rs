@@ -160,7 +160,10 @@ fn test_process_monitor_timeout_error_code() {
 fn test_process_monitor_multiple_directives() {
     daemon_helper::ensure_pmix_init();
     let monitor = InfoBuilder::new().build().expect("build info");
-    let dirs = vec![InfoBuilder::new().build().expect("build info"), InfoBuilder::new().build().expect("build info")];
+    let dirs = vec![
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+    ];
     let result = process_monitor(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),

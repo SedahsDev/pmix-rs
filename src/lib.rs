@@ -3443,7 +3443,8 @@ impl InitOptions {
 
     /// Build an [`Info`] array from the configured options.
     ///
-    /// Returns an [`Info`] suitable for passing to [`init`].
+    /// Returns `Ok([`Info`])` suitable for passing to [`init`], or
+    /// `Err(PmixStatus)` if the info array cannot be allocated or loaded.
     /// Unset options are simply omitted from the resulting array.
     pub fn build(&self) -> Result<Info, PmixStatus> {
         let mut builder = InfoBuilder::new();

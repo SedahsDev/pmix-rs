@@ -211,7 +211,10 @@ fn test_server_get_credential_multiple_attempts_with_daemon() {
     assert!(result2.is_err(), "second get_credential should return Err");
 
     // Third attempt — with multiple info directives.
-    let cred_info2 = vec![InfoBuilder::new().build().expect("build info"), InfoBuilder::new().build().expect("build info")];
+    let cred_info2 = vec![
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+    ];
     let result3 = server_get_credential(&handle, &cred_info2);
     assert!(result3.is_err(), "third get_credential should return Err");
 

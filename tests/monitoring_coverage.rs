@@ -27,7 +27,10 @@ fn test_process_monitor_without_init_returns_error() {
 #[test]
 fn test_process_monitor_with_directives_without_init() {
     let monitor = InfoBuilder::new().build().expect("build info");
-    let dirs = vec![InfoBuilder::new().build().expect("build info"), InfoBuilder::new().build().expect("build info")];
+    let dirs = vec![
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+    ];
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrTimeout), &dirs);
     assert!(
         result.is_err(),
