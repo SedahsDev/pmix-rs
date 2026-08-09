@@ -98,7 +98,10 @@ pub fn group_construct(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
 
     let procs_ptr = unsafe {
         std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
@@ -237,7 +240,10 @@ pub fn group_construct_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
 
     let req_id = GROUP_CONSTRUCT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
@@ -305,7 +311,10 @@ pub fn group_invite(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
 
     let procs_ptr = unsafe {
         std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
@@ -439,7 +448,10 @@ pub fn group_invite_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
     let req_id = GROUP_INVITE_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
@@ -510,7 +522,10 @@ pub fn group_join(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
 
     let leader_ptr = std::ptr::addr_of!(leader.handle) as *const ffi::pmix_proc_t;
 
@@ -641,7 +656,10 @@ pub fn group_join_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
     let req_id = GROUP_JOIN_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
@@ -696,7 +714,10 @@ pub fn group_leave(group_id: &str, info: &[Info]) -> Result<(), PmixStatus> {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
 
     let (info_ptr, ninfo) = if info.is_empty() {
         (ptr::null(), 0)
@@ -778,7 +799,10 @@ pub fn group_leave_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
     let req_id = GROUP_LEAVE_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
@@ -830,7 +854,10 @@ pub fn group_destruct(group_id: &str, info: &[Info]) -> Result<(), PmixStatus> {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
 
     let (info_ptr, ninfo) = if info.is_empty() {
         (ptr::null(), 0)
@@ -912,7 +939,10 @@ pub fn group_destruct_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let group_id_c = CString::new(group_id).expect("group_id must not contain interior NUL bytes");
+    let group_id_c = match CString::new(group_id) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
     let req_id = GROUP_DESTRUCT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
@@ -970,6 +1000,17 @@ mod tests {
     fn test_group_construct_empty_group_id() {
         let procs = test_procs(1);
         let result = group_construct("", &procs, &[]);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_group_construct_interior_nul_group_id() {
+        let procs = test_procs(1);
+        let result = group_construct("group\0id", &procs, &[]);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1286,6 +1327,22 @@ mod tests {
     }
 
     #[test]
+    fn test_group_join_interior_nul_group_id() {
+        let leader = test_proc(0);
+        let result = group_join(
+            "group\0id",
+            &leader,
+            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+            &[],
+        );
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
     fn test_group_join_accept_option() {
         let leader = test_proc(0);
         let result = group_join(
@@ -1337,6 +1394,24 @@ mod tests {
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
         let result = group_join_nb(
             "",
+            &leader,
+            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+            &[],
+            cb,
+        );
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_group_join_nb_interior_nul_group_id() {
+        let leader = test_proc(0);
+        let cb = GroupJoinCallbackWrapper::new(|_, _| {});
+        let result = group_join_nb(
+            "group\0id",
             &leader,
             ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
             &[],
@@ -1522,6 +1597,16 @@ mod tests {
     #[test]
     fn test_group_destruct_empty_group_id() {
         let result = group_destruct("", &[]);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_group_destruct_interior_nul_group_id() {
+        let result = group_destruct("group\0id", &[]);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
