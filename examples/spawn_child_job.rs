@@ -30,32 +30,36 @@ fn run_child() {
         }
     };
     let proc = client.require_proc();
-    let wildcard = match client.proc_with_nspace(pmix::RANK_WILDCARD) {
-        Ok(proc) => proc,
-        Err(error) => {
-            eprintln!("child could not create wildcard process: {error:?}");
-            let _ = client.disconnect(None);
-            return;
-        }
-    };
 
-    let parent = match pmix::data_ops::get(&wildcard, "pmix.parent", None) {
-        Ok(value) => format!("raw={:?}", value.bytes_copy()),
+    let parent = match pmix::data_ops::get(&proc, "pmix.parent", None) {
+        Ok(value) => {
+            // SAFETY: the value is a PMIX_PROC (type_tag() == PMIX_PROC); its
+            // union `proc_` arm points to a pmix_proc_t { nspace: [c_char; 256],
+            // rank: u32 } allocated by the PMIx library and owned by `value`.
+            // We only read it while `value` is alive (this match arm), and
+            // PmixOwnedValue's Drop frees it via free_value.
+            let raw = value.as_raw();
+            let proc = unsafe { &*(*raw).data.proc_ };
+            let nspace = unsafe { std::ffi::CStr::from_ptr(proc.nspace.as_ptr()) }
+                .to_string_lossy()
+                .into_owned();
+            format!("{nspace}:{}", proc.rank)
+        }
         Err(error) => {
             eprintln!("child PMIX_PARENT_ID get failed: {error:?}");
             "<unavailable>".to_string()
         }
     };
-    let appnum = match pmix::data_ops::get(&wildcard, "pmix.appnum", None) {
+    let appnum = match pmix::data_ops::get(&proc, "pmix.appnum", None) {
         Ok(value) => value.uint32().to_string(),
         Err(error) => {
             eprintln!("child PMIX_APPNUM get failed: {error:?}");
             "<unavailable>".to_string()
         }
     };
-    let _spawn_env = std::env::var("SPAWN_CHILD").unwrap_or_else(|_| "<unset>".to_string());
+    let spawn_env = std::env::var("SPAWN_CHILD").unwrap_or_else(|_| "<unset>".to_string());
     println!(
-        "child rank {} connected; parent={parent} appnum={appnum}",
+        "child rank {} connected; parent={parent} appnum={appnum} SPAWN_CHILD={spawn_env}",
         proc.get_rank()
     );
 
@@ -126,5 +130,5 @@ fn run_parent() {
     }
 }
 
-// The child receives PMIX_PARENT_ID as a PMIX_PROC value; `bytes_copy` keeps
-// this example safe while still exposing the returned value for inspection.
+// PMIX_PROC values are read through `as_raw()`; `bytes_copy` reads the wrong
+// union arm for a PMIX_PROC value.
