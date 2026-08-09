@@ -3025,6 +3025,14 @@ impl PmixOwnedValue {
         }
         unsafe { std::slice::from_raw_parts(ptr as *const u8, len).to_vec() }
     }
+
+    /// Read the value as an owned UTF-8 string.
+    pub fn string_copy(&self) -> Result<String, std::str::Utf8Error> {
+        // SAFETY: PMIX_STRING values contain a valid NUL-terminated pointer
+        // owned by this value for its lifetime.
+        let string = unsafe { CStr::from_ptr(self.inner.data.string) };
+        string.to_str().map(str::to_owned)
+    }
 }
 
 impl Drop for PmixOwnedValue {
@@ -4156,7 +4164,7 @@ mod tests {
         crate::mock_ffi::mock_store_value("pmix.host", b"host", PMIX_STRING);
         let result = get_value(&proc, b"pmix.host\0", None);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().uint32(), 1);
+        assert_eq!(result.unwrap().string_copy().unwrap(), "host");
     }
 
     // ──────────────────────────────────────────────────────────────────────

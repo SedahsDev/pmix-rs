@@ -259,12 +259,18 @@ pub fn mock_get(
     };
     let mut boxed = Box::new(unsafe { std::mem::MaybeUninit::<crate::ffi::pmix_value_t>::zeroed().assume_init() });
     if let Some((bytes, dtype)) = KEY_VALUE_STORE.with(|cell| cell.borrow().get(&key_str).cloned()) {
-        boxed.type_ = dtype as u16;
-        // PMIX_INT = 1, PMIX_STRING = 2 (numeric to avoid order deps)
-        boxed.type_ = 1u16; // PMIX_INT
-        let n = if dtype == 2 { bytes.len() as i32 } else { 1 };
-        unsafe {
-            *(&mut boxed.data as *mut _ as *mut i32) = n;
+        // PMIX_INT = 1, PMIX_STRING = 3 (numeric to avoid order deps).
+        if dtype == 3 {
+            boxed.type_ = 3u16;
+            let string = std::ffi::CString::new(bytes).expect("mock string");
+            boxed.data.string = string.into_raw();
+        } else {
+            boxed.type_ = 1u16; // PMIX_INT
+            // SAFETY: the mock value union is initialized and the int arm is
+            // the active arm for this PMIX_INT value.
+            unsafe {
+                *(&mut boxed.data as *mut _ as *mut i32) = 1;
+            }
         }
     } else {
         boxed.type_ = 1u16; // PMIX_INT
