@@ -259,9 +259,9 @@ pub fn mock_get(
     };
     let mut boxed = Box::new(unsafe { std::mem::MaybeUninit::<crate::ffi::pmix_value_t>::zeroed().assume_init() });
     if let Some((bytes, dtype)) = KEY_VALUE_STORE.with(|cell| cell.borrow().get(&key_str).cloned()) {
-        // PMIX_INT = 1, PMIX_STRING = 3 (numeric to avoid order deps).
-        if dtype == 3 {
-            boxed.type_ = 3u16;
+        // PMIX_INT = 1, PMIX_STRING = 3 (OpenPMIx >= 6.1 numbering).
+        if dtype == crate::ffi::PMIX_STRING as u32 {
+            boxed.type_ = crate::ffi::PMIX_STRING as u16;
             let string = std::ffi::CString::new(bytes).expect("mock string");
             boxed.data.string = string.into_raw();
         } else {
