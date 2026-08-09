@@ -721,6 +721,22 @@ use super::*;
         }
     }
 
+    #[test]
+    fn test_lookup_mock_success_returns_status_and_results() {
+        let _guard = MockGuard::new();
+        MockConfig::new()
+            .with_function_status("PMIx_Lookup", PMIX_SUCCESS)
+            .apply();
+
+        let mut data = vec![PmixPdata::new("test.key")];
+        let result = lookup(&mut data, None).expect("mock lookup should succeed");
+
+        assert_eq!(result.0, PmixStatus::Known(PmixError::Success));
+        assert_eq!(result.1.len(), 1);
+        assert_eq!(result.1[0].key, "test.key");
+        assert!(result.1[0].value.is_none());
+    }
+
     // ─── lookup_nb: FFI call path tests ─────────────────────────────────────
 
     #[test]
@@ -1691,6 +1707,17 @@ use super::*;
         PMIX_SUCCESS,
     };
     use crate::InfoBuilder;
+
+    #[test]
+    fn test_mock_unpublish_with_multiple_keys_returns_mock_status() {
+        let _guard = MockGuard::new();
+        MockConfig::new()
+            .with_function_status("PMIx_Unpublish", PMIX_SUCCESS)
+            .apply();
+
+        let keys = ["k1", "k2"];
+        assert_eq!(unpublish(Some(&keys), None), Ok(()));
+    }
 
     // ─── Mock FFI framework self-tests ──────────────────────────────────────
 
