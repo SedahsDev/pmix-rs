@@ -83,6 +83,8 @@ use std::sync::{LazyLock, Mutex};
 /// # Returns
 /// * `Ok(())` — the abort request was accepted. If the caller's own
 ///   process was included, the function will not return with success.
+/// * `Err(PmixStatus::Known(PmixError::ErrBadParam))` — `msg` contains an
+///   interior NUL byte.
 /// * `Err(PmixStatus::Known(PmixError::ErrParamValueNotSupported))` — the
 ///   host environment cannot abort the requested processes (e.g., subsets
 ///   from another namespace).
@@ -1151,6 +1153,8 @@ pub fn disconnect_nb(
 ///   initialized via `PMIx_Init`.
 /// * `Err(PmixStatus::Known(PmixError::ErrNotFound))` — `nspace` was
 ///   provided but no such namespace is known.
+/// * `Err(PmixStatus::Known(PmixError::ErrBadParam))` — `nodename` or
+///   `nspace` contains an interior NUL byte.
 /// * `Err(PmixStatus)` — another error in the request.
 ///
 /// # Thread Safety
@@ -1255,6 +1259,8 @@ pub fn resolve_peers(
 ///   initialized via `PMIx_Init`.
 /// * `Err(PmixStatus::Known(PmixError::ErrNotFound))` — the specified
 ///   namespace is not known.
+/// * `Err(PmixStatus::Known(PmixError::ErrBadParam))` — `nspace` contains an
+///   interior NUL byte.
 /// * `Err(PmixStatus)` — another error in the request.
 ///
 /// # Thread Safety
