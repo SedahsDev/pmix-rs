@@ -1123,7 +1123,7 @@ mod tests {
 
     #[test]
     fn test_log_data_with_string_info() {
-        let info = crate::info_with_string_key("test.key", "test.value");
+        let info = crate::info_with_string_key("test.key", "test.value").expect("string info");
         let data = vec![info];
         let directives = vec![];
         let result = log_data(&data, &directives);
@@ -1134,8 +1134,8 @@ mod tests {
 
     #[test]
     fn test_log_data_with_directives() {
-        let data_info = crate::info_with_string_key("log.data", "hello");
-        let dir_info = crate::info_with_string_key("PMIX_LOG_STDOUT", "1");
+        let data_info = crate::info_with_string_key("log.data", "hello").expect("string info");
+        let dir_info = crate::info_with_string_key("PMIX_LOG_STDOUT", "1").expect("string info");
         let result = log_data(&[data_info], &[dir_info]);
         assert!(result.is_ok() || result.is_err());
     }
@@ -1208,7 +1208,7 @@ mod tests {
             let registry = LOG_REGISTRY.lock();
             registry.len()
         };
-        let info = crate::info_with_string_key("test.key", "test.value");
+        let info = crate::info_with_string_key("test.key", "test.value").expect("string info");
         let cb = Box::new(LogNbCounting {
             _called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         });
@@ -1245,7 +1245,7 @@ mod tests {
             registry.len()
         };
         for _ in 0..5 {
-            let info = crate::info_with_string_key("test", "val");
+            let info = crate::info_with_string_key("test", "val").expect("string info");
             let _ = log_data_nb(&[info], &[], Box::new(LogDummy));
         }
         let size_after = {
@@ -1515,7 +1515,7 @@ mod tests {
 
     #[test]
     fn test_info_with_string_key_for_log() {
-        let info = crate::info_with_string_key("PMIX_LOG_STDOUT", "test message");
+        let info = crate::info_with_string_key("PMIX_LOG_STDOUT", "test message").expect("string info");
         assert!(!info.is_empty());
         assert_eq!(info.len(), 1);
     }
@@ -1598,7 +1598,7 @@ mod tests {
     #[test]
     fn test_log_data_success_with_mock() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let data = vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
         let result = log_data(&data, &directives);
         assert!(result.is_ok());
@@ -1610,7 +1610,7 @@ mod tests {
             mock_ffi::MockConfig::new()
                 .with_function_status("PMIx_Log", mock_ffi::PMIX_ERR_NOT_SUPPORTED)
         );
-        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let data = vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
         let result = log_data(&data, &directives);
         assert!(result.is_err());
@@ -1620,7 +1620,7 @@ mod tests {
     #[test]
     fn test_log_data_nb_success_with_mock() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let data = vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
 
         struct TestLogCallback {
@@ -1646,7 +1646,7 @@ mod tests {
             mock_ffi::MockConfig::new()
                 .with_function_status("PMIx_Log_nb", mock_ffi::PMIX_ERR_INIT)
         );
-        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let data = vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
 
         struct TestLogCallback {
@@ -1745,8 +1745,8 @@ mod tests {
     #[test]
     fn test_log_data_with_both_data_and_directives() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("log.message", "Hello, world!")];
-        let directives = vec![crate::info_with_string_key("pmix.log.stdout", "true")];
+        let data = vec![crate::info_with_string_key("log.message", "Hello, world!").expect("string info")];
+        let directives = vec![crate::info_with_string_key("pmix.log.stdout", "true").expect("string info")];
         let result = log_data(&data, &directives);
         assert!(result.is_ok());
     }

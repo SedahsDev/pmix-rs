@@ -17,7 +17,7 @@ pub fn with_collect_data() -> Info {
 }
 
 /// Single string key/value info entry (no 13-byte key limit).
-pub fn string_kv(key: &str, value: &str) -> Info {
+pub fn string_kv(key: &str, value: &str) -> Result<Info, PmixStatus> {
     info_with_string_key(key, value)
 }
 
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_string_kv() {
-        let info = string_kv("pmix.srvr.uri", "tcp://127.0.0.1:1");
+        let info = string_kv("pmix.srvr.uri", "tcp://127.0.0.1:1").expect("string info");
         assert_eq!(info.len(), 1);
     }
 
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_info_is_empty_false_for_string_kv() {
-        assert!(!string_kv("k", "v").is_empty());
+        assert!(!string_kv("k", "v").expect("string info").is_empty());
     }
 
     #[test]
@@ -308,8 +308,8 @@ mod tests {
     #[test]
     fn mock_info_helpers_cover_success_paths() {
         let _guard = crate::mock_ffi::MockGuard::new();
-        let mut dest = string_kv("k", "v");
-        let src = string_kv("k2", "v2");
+        let mut dest = string_kv("k", "v").expect("string info");
+        let src = string_kv("k2", "v2").expect("string info");
         assert!(dest.xfer_from(&src).is_ok());
         assert_eq!(dest.get_size().unwrap(), 0);
         assert_eq!(dest.info_string().unwrap(), "mock info");
@@ -328,7 +328,7 @@ mod tests {
     fn mock_info_status_override_is_returned_as_error() {
         let config = crate::mock_ffi::MockConfig::new().with_function_status("PMIx_Info_get_size", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
-        let info = string_kv("k", "v");
+        let info = string_kv("k", "v").expect("string info");
         assert!(info.get_size().is_err());
     }
 }

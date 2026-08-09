@@ -2075,7 +2075,9 @@ use super::*;
         let _guard = MockGuard::with_config(config);
         let proc = Proc::new("mock.ns", 0).unwrap();
         let mut builder = InfoBuilder::new();
-        builder.add_string_key("pmix.qual.val", "true", PMIX_STRING as _);
+        builder
+            .add_string_key("pmix.qual.val", "true", PMIX_STRING as _)
+            .expect("string info");
         let info = builder.build().expect("build info");
 
         let result = get_nb(&proc, "qualified.key", Some(&info), Box::new(DummyGet));
