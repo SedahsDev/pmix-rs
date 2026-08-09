@@ -3866,7 +3866,10 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
         }
     }
 
-    let key_ptr = CStr::from_bytes_with_nul(key).unwrap().as_ptr();
+    let key_ptr = match CStr::from_bytes_with_nul(key) {
+        Ok(c) => c.as_ptr(),
+        Err(_) => return Err(PmixError::ErrBadParam),
+    };
     let status = PmixStatus::from_raw(crate::pmix_ffi_or_mock!(
         mock = unsafe {
             crate::mock_ffi::mock_get(
@@ -4119,6 +4122,43 @@ mod tests {
     }
 
     use super::*;
+
+    // ──────────────────────────────────────────────────────────────────────
+    // get_value
+    // ──────────────────────────────────────────────────────────────────────
+
+    fn synthetic_proc() -> Proc {
+        Proc {
+            // SAFETY: get_value does not inspect the process fields before
+            // validating the key in these malformed-input tests.
+            handle: unsafe { std::mem::zeroed() },
+            len: 1,
+        }
+    }
+
+    #[test]
+    fn test_get_value_rejects_empty_key() {
+        let proc = synthetic_proc();
+        let result = get_value(&proc, b"", None);
+        assert!(matches!(result, Err(PmixError::ErrBadParam)));
+    }
+
+    #[test]
+    fn test_get_value_rejects_interior_nul_key() {
+        let proc = synthetic_proc();
+        let result = get_value(&proc, b"bad\0key\0", None);
+        assert!(matches!(result, Err(PmixError::ErrBadParam)));
+    }
+
+    #[test]
+    fn test_get_value_accepts_valid_key_with_mock() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let proc = Proc::new("ns", 0).unwrap();
+        crate::mock_ffi::mock_store_value("pmix.host", b"host", PMIX_STRING);
+        let result = get_value(&proc, b"pmix.host\0", None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().uint32(), 1);
+    }
 
     // ──────────────────────────────────────────────────────────────────────
     // get_version
