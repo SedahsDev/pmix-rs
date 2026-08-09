@@ -3153,19 +3153,21 @@ impl InfoBuilder {
     ///
     /// Use this for keys like `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`, 15 bytes)
     /// which don't fit in [`InfoBuilder::add`].
+    /// Returns `Err(NulError)` if the key or value contains a NUL byte.
     pub fn add_string_key(
         &mut self,
         key: &str,
         value: &str,
         data_type: pmix_data_type_t,
-    ) {
-        let key_cstr = CString::new(key).expect("key must not contain null bytes");
-        let value_cstr = CString::new(value).expect("value must not contain null bytes");
+    ) -> Result<&mut Self, std::ffi::NulError> {
+        let key_cstr = CString::new(key)?;
+        let value_cstr = CString::new(value)?;
         self.string_infos.push(InfoEntryString {
             key: key_cstr,
             value: value_cstr,
             data_type,
         });
+        Ok(self)
     }
 
     /// Append a string-key `PMIX_BOOL` attribute with correct scalar encoding.
@@ -3201,16 +3203,18 @@ impl InfoBuilder {
     /// thread that calls `PMIx_Get` or other APIs — work is threadshifted
     /// onto the progress/`evbase` internally.
     ///
+    /// Returns `Err(NulError)` if `cpus` contains a NUL byte.
+    ///
     /// # C API
     /// `PMIX_BIND_PROGRESS_THREAD` (`pmix.bind.pt`) — `PMIX_STRING`
-    pub fn bind_progress_thread(&mut self, cpus: &str) -> &mut Self {
-        let cpus_cstr = CString::new(cpus).expect("cpu set must not contain null bytes");
+    pub fn bind_progress_thread(&mut self, cpus: &str) -> Result<&mut Self, std::ffi::NulError> {
+        let cpus_cstr = CString::new(cpus)?;
         self.string_infos.push(InfoEntryString {
             key: CString::new("pmix.bind.pt").unwrap(),
             value: cpus_cstr,
             data_type: PMIX_STRING as pmix_data_type_t,
         });
-        self
+        Ok(self)
     }
 
     /// Set `PMIX_BIND_REQUIRED` attribute.
@@ -3242,11 +3246,12 @@ impl InfoBuilder {
     /// and profiling. The name is visible in thread listings (e.g.,
     /// `pthread_getname_np`, debuggers, `ps`).
     ///
+    /// Returns `Err(NulError)` if `name` contains a NUL byte.
+    ///
     /// # C API
     /// `PMIX_PROGRESS_THREAD_NAME` (`pmix.evname`) — `PMIX_STRING`
-    pub fn progress_thread_name(&mut self, name: &str) -> &mut Self {
-        self.add_string_key("pmix.evname", name, PMIX_STRING as pmix_data_type_t);
-        self
+    pub fn progress_thread_name(&mut self, name: &str) -> Result<&mut Self, std::ffi::NulError> {
+        self.add_string_key("pmix.evname", name, PMIX_STRING as pmix_data_type_t)
     }
 
     pub fn collect_data(&mut self) -> &mut InfoBuilder {
@@ -3454,7 +3459,9 @@ impl InitOptions {
         }
 
         if let Some(ref cpus) = self.bind_progress_thread {
-            builder.bind_progress_thread(cpus);
+            builder
+                .bind_progress_thread(cpus)
+                .map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
         }
 
         if let Some(required) = self.bind_required {
@@ -3466,7 +3473,9 @@ impl InitOptions {
         }
 
         if let Some(ref name) = self.progress_thread_name {
-            builder.progress_thread_name(name);
+            builder
+                .progress_thread_name(name)
+                .map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
         }
 
         builder.build()
@@ -3478,15 +3487,19 @@ impl InitOptions {
 ///
 /// This is useful for keys like `"pmix.srvr.uri"` (14 bytes) which don't
 /// fit in `InfoBuilder::add(key: &'static [u8; 13])`.
-pub fn info_with_string_key(key: &str, value: &str) -> Info {
+pub fn info_with_string_key(key: &str, value: &str) -> Result<Info, PmixStatus> {
+    let key_cstr = CString::new(key).map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+    let value_cstr = CString::new(value).map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+    // SAFETY: PMIx allocates one initialized info record and returns a null
+    // pointer on allocation failure.
     let info_ptr = unsafe { PMIx_Info_create(1) };
     if info_ptr.is_null() {
-        panic!("PMIx_Info_create(1) returned null");
+        return Err(PmixStatus::from_raw(ffi::PMIX_ERR_NOMEM));
     }
-    let key_cstr = CString::new(key).expect("key must not contain null bytes");
-    let value_cstr = CString::new(value).expect("value must not contain null bytes");
     // PMIx_Info_load copies key/value into the info array (PMIx 4+/5+/6+).
     // Keep CStrings alive only for the duration of the load call, then drop.
+    // SAFETY: `info_ptr` is a valid PMIx info array, and the CString pointers
+    // remain valid for the duration of the call.
     let status = unsafe {
         PMIx_Info_load(
             info_ptr,
@@ -3499,17 +3512,19 @@ pub fn info_with_string_key(key: &str, value: &str) -> Info {
     drop(key_cstr);
     drop(value_cstr);
     if status != PMIX_SUCCESS as i32 {
-        // Free the half-built array before panicking.
+        // Free the half-built array before returning the PMIx error.
+        // SAFETY: `info_ptr` was allocated by PMIx_Info_create(1) above and
+        // remains valid until it is freed here.
         unsafe {
             PMIx_Info_free(info_ptr, 1);
         }
-        panic!("PMIx_Info_load failed for key {}: {}", key, status);
+        return Err(PmixStatus::from_raw(status));
     }
-    Info {
+    Ok(Info {
         handle: info_ptr,
         len: 1,
-    _not_thread_safe: std::marker::PhantomData,
-    }
+        _not_thread_safe: std::marker::PhantomData,
+    })
 }
 
 
@@ -4085,7 +4100,7 @@ mod tests {
         let info = InfoBuilder::new().build().expect("build info");
         assert_eq!(info.len(), 0);
         drop(info);
-        let info2 = info_with_string_key("pmix.srvr.uri", "tcp://127.0.0.1:1");
+        let info2 = info_with_string_key("pmix.srvr.uri", "tcp://127.0.0.1:1").expect("string info");
         assert_eq!(info2.len(), 1);
         assert!(!info2.as_ptr().is_null());
         drop(info2);
@@ -5428,9 +5443,27 @@ mod tests {
     #[test]
     fn test_infobuilder_bind_progress_thread() {
         let mut builder = InfoBuilder::new();
-        builder.bind_progress_thread("0-3");
+        builder.bind_progress_thread("0-3").expect("bind progress thread");
         let info = builder.build().expect("build info");
         assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_string_info_helpers_reject_nul() {
+        let mut builder = InfoBuilder::new();
+        assert!(builder.add_string_key("bad\0key", "v", PMIX_STRING as _).is_err());
+        assert!(builder.add_string_key("k", "bad\0value", PMIX_STRING as _).is_err());
+        assert!(builder.bind_progress_thread("0\0-3").is_err());
+        assert!(builder.progress_thread_name("bad\0name").is_err());
+        assert!(info_with_string_key("bad\0key", "v").is_err());
+        assert!(info_with_string_key("k", "bad\0value").is_err());
+    }
+
+    #[test]
+    fn test_initoptions_rejects_nul_bind_progress_thread() {
+        let mut options = InitOptions::new();
+        options.bind_progress_thread("0\0-3");
+        assert!(options.build().is_err());
     }
 
     #[test]
@@ -5445,7 +5478,7 @@ mod tests {
     fn test_infobuilder_combined_string_keys() {
         let mut builder = InfoBuilder::new();
         builder.external_progress(true);
-        builder.bind_progress_thread("4,5,6,7");
+        builder.bind_progress_thread("4,5,6,7").expect("bind progress thread");
         builder.bind_required(false);
         let info = builder.build().expect("build info");
         assert_eq!(info.len(), 3);
@@ -5529,7 +5562,7 @@ mod tests {
     #[test]
     fn test_infobuilder_progress_thread_name() {
         let mut builder = InfoBuilder::new();
-        builder.progress_thread_name("my-progress-thread");
+        builder.progress_thread_name("my-progress-thread").expect("progress thread name");
         let info = builder.build().expect("build info");
         assert_eq!(info.len(), 1);
     }

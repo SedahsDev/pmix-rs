@@ -139,7 +139,7 @@ pub fn get_tool_init_info() -> Info {
     let uri = read_uri().unwrap_or_else(|e| {
         panic!("Cannot read PRTE URI for tool_init: {}", e);
     });
-    info_with_string_key("pmix.srvr.uri", &uri)
+    info_with_string_key("pmix.srvr.uri", &uri).expect("string info")
 }
 
 /// Singleton tool handle, initialized once for the entire test binary.
@@ -172,7 +172,7 @@ fn tool_init_with_timeout(uri: &str) -> Result<PmixTool, String> {
 
     let handle = thread::spawn(move || {
         // Construct the Info inside the thread to avoid cross-thread pointer issues
-        let info = info_with_string_key("pmix.srvr.uri", &uri);
+        let info = info_with_string_key("pmix.srvr.uri", &uri).expect("string info");
         match tool_init(None, &info) {
             Ok(h) => tx.send(Ok(h)),
             Err(e) => tx.send(Err(format!("tool_init returned error: {:?}", e))),
