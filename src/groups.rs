@@ -1090,6 +1090,18 @@ mod tests {
     }
 
     #[test]
+    fn test_group_construct_nb_interior_nul_group_id() {
+        let procs = test_procs(1);
+        let cb = GroupConstructCallbackWrapper::new(|_, _| {});
+        let result = group_construct_nb("group\0id", &procs, &[], cb);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
     fn test_group_construct_nb_empty_procs() {
         let cb = GroupConstructCallbackWrapper::new(|_, _| {});
         let result = group_construct_nb("grp", &[], &[], cb);
@@ -1210,6 +1222,17 @@ mod tests {
     }
 
     #[test]
+    fn test_group_invite_interior_nul_group_id() {
+        let procs = test_procs(1);
+        let result = group_invite("group\0id", &procs, &[]);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
     fn test_group_invite_empty_procs() {
         let result = group_invite("my_group", &[], &[]);
         let err = match result {
@@ -1243,6 +1266,18 @@ mod tests {
         let procs = test_procs(1);
         let cb = GroupInviteCallbackWrapper::new(|_, _| {});
         let result = group_invite_nb("", &procs, &[], cb);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_group_invite_nb_interior_nul_group_id() {
+        let procs = test_procs(1);
+        let cb = GroupInviteCallbackWrapper::new(|_, _| {});
+        let result = group_invite_nb("group\0id", &procs, &[], cb);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1494,6 +1529,16 @@ mod tests {
     }
 
     #[test]
+    fn test_group_leave_interior_nul_group_id() {
+        let result = group_leave("group\0id", &[]);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
     fn test_group_leave_valid_params_reaches_ffi() {
         let result = group_leave("grp", &[]);
         match result {
@@ -1515,6 +1560,17 @@ mod tests {
     fn test_group_leave_nb_empty_group_id() {
         let cb = GroupLeaveCallbackWrapper::new(|_| {});
         let result = group_leave_nb("", &[], cb);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_group_leave_nb_interior_nul_group_id() {
+        let cb = GroupLeaveCallbackWrapper::new(|_| {});
+        let result = group_leave_nb("group\0id", &[], cb);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1636,6 +1692,17 @@ mod tests {
     fn test_group_destruct_nb_empty_group_id() {
         let cb = GroupDestructCallbackWrapper::new(|_| {});
         let result = group_destruct_nb("", &[], cb);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_group_destruct_nb_interior_nul_group_id() {
+        let cb = GroupDestructCallbackWrapper::new(|_| {});
+        let result = group_destruct_nb("group\0id", &[], cb);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
