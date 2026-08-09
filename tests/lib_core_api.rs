@@ -195,7 +195,7 @@ fn test_context_proc_with_nspace() {
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_init_with_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = pmix::PmixClient::connect_new(Some(info));
     assert!(result.is_ok(), "init with info should succeed");
 }
@@ -229,7 +229,7 @@ fn test_fence_after_init() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fence_with_info() {
     let context = daemon_helper::ensure_pmix_init();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = pmix::fence(&context.require_proc(), Some(info));
     assert!(result.is_ok(), "fence with info should succeed");
 }
@@ -476,13 +476,13 @@ fn test_pmix_data_type_traits() {
 
 #[test]
 fn test_info_builder_build() {
-    let _info = InfoBuilder::new().build();
+    let _info = InfoBuilder::new().build().expect("build info");
 }
 
 #[test]
 fn test_info_builder_independent() {
-    let _info1 = InfoBuilder::new().build();
-    let _info2 = InfoBuilder::new().build();
+    let _info1 = InfoBuilder::new().build().expect("build info");
+    let _info2 = InfoBuilder::new().build().expect("build info");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

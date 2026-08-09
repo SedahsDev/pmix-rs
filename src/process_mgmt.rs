@@ -36,18 +36,18 @@
 //!     .maxprocs(4)
 //!     .build()
 //!     .expect("valid app");
-//! let job_info = vec![InfoBuilder::new().build()];
+//! let job_info = vec![InfoBuilder::new().build().expect("build info")];
 //! let result = spawn(&job_info, &[app]);
 //! // result is Ok(nspace) on success
 //!
 //! // Connect to a namespace
 //! let target = Proc::new("target_namespace", RANK_WILDCARD)
 //!     .expect("valid proc");
-//! let connect_info = InfoBuilder::new().build();
+//! let connect_info = InfoBuilder::new().build().expect("build info");
 //! let result = connect(&[target.clone()], &[connect_info]);
 //!
 //! // Disconnect from a previously connected set
-//! let disconnect_info = InfoBuilder::new().build();
+//! let disconnect_info = InfoBuilder::new().build().expect("build info");
 //! let result = disconnect(&[target], &[disconnect_info]);
 //! ```
 
@@ -1834,7 +1834,7 @@ mod tests {
     #[test]
     fn test_spawn_with_job_info_and_empty_apps() {
         // Even with job_info, empty apps should fail
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let result = spawn(&info, &[]);
         assert!(result.is_err());
         if let Err(status) = result {
@@ -1881,7 +1881,7 @@ mod tests {
 
     #[test]
     fn test_spawn_nb_with_job_info_and_empty_apps() {
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let wrapper = SpawnCallbackWrapper::new(|_, _| {});
         let result = spawn_nb(&info, &[], wrapper);
         assert!(result.is_err());
@@ -1943,7 +1943,7 @@ mod tests {
     #[test]
     fn test_connect_with_info() {
         let proc = crate::Proc::new("test_ns", 0).unwrap();
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let result = connect(&[proc], &info);
         assert!(result.is_err());
         if let Err(status) = result {
@@ -2000,7 +2000,7 @@ mod tests {
     #[test]
     fn test_disconnect_with_info() {
         let proc = crate::Proc::new("test_ns", 0).unwrap();
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let result = disconnect(&[proc], &info);
         assert!(result.is_err());
         if let Err(status) = result {
@@ -2036,7 +2036,7 @@ mod tests {
     #[test]
     fn test_connect_nb_with_info() {
         let proc = crate::Proc::new("test_ns", 0).unwrap();
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let wrapper = ConnectCallbackWrapper::new(|_| {});
         let result = connect_nb(&[proc], &info, wrapper);
         assert!(result.is_err());
@@ -2077,7 +2077,7 @@ mod tests {
     #[ignore] // Requires DVM — PMIx_Disconnect_nb segfaults without init
     fn test_disconnect_nb_with_info() {
         let proc = crate::Proc::new("test_ns", 0).unwrap();
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let wrapper = DisconnectCallbackWrapper::new(|_| {});
         let result = disconnect_nb(&[proc], &info, wrapper);
         assert!(result.is_err());

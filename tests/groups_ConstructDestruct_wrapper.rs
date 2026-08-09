@@ -56,7 +56,7 @@ fn test_group_construct_no_init() {
 #[test]
 fn test_group_construct_with_directives() {
     let proc = Proc::new("test_ns", 0).expect("create proc");
-    let directive = InfoBuilder::new().build();
+    let directive = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_construct("test_group", &[proc], &[directive]));
     assert!(!err.is_success());
 }
@@ -176,7 +176,7 @@ fn test_group_construct_nb_with_info() {
         },
     );
     let proc = Proc::new("test_ns", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_construct_nb("test_group", &[proc], &[info], cb));
     assert!(!err.is_success());
 }
@@ -238,7 +238,7 @@ fn test_group_destruct_no_init() {
 /// group_destruct with info returns error (not initialized).
 #[test]
 fn test_group_destruct_with_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_destruct("test_group", &[info]));
     assert!(!err.is_success());
 }
@@ -264,8 +264,8 @@ fn test_group_destruct_idempotent() {
 /// group_destruct with multiple info entries returns error.
 #[test]
 fn test_group_destruct_multiple_info() {
-    let i1 = InfoBuilder::new().build();
-    let i2 = InfoBuilder::new().build();
+    let i1 = InfoBuilder::new().build().expect("build info");
+    let i2 = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_destruct("test_group", &[i1, i2]));
     assert!(!err.is_success());
 }
@@ -319,7 +319,7 @@ fn test_group_destruct_nb_with_info() {
     let cb = GroupDestructCallbackWrapper::new(move |_status: PmixStatus| {
         called_clone.store(true, Ordering::SeqCst);
     });
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_destruct_nb("test_group", &[info], cb));
     assert!(!err.is_success());
 }

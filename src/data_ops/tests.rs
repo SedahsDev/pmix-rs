@@ -1811,7 +1811,7 @@ use super::*;
     fn test_publish_error_path_with_mock() {
         let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 let err = publish(&info).expect_err("publish should fail under mock ErrInit");
                 assert_eq!(err, PmixStatus::Known(PmixError::ErrInit));
     }
@@ -1822,7 +1822,7 @@ use super::*;
         let config =
                     MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 let err = publish(&info).expect_err("publish should fail under mock duplicate");
                 assert_eq!(err, PmixStatus::Known(PmixError::ErrDuplicateKey));
     }
@@ -2076,7 +2076,7 @@ use super::*;
         let proc = Proc::new("mock.ns", 0).unwrap();
         let mut builder = InfoBuilder::new();
         builder.add_string_key("pmix.qual.val", "true", PMIX_STRING as _);
-        let info = builder.build();
+        let info = builder.build().expect("build info");
 
         let result = get_nb(&proc, "qualified.key", Some(&info), Box::new(DummyGet));
 
@@ -2293,7 +2293,7 @@ use super::*;
     #[test]
     fn test_mock_publish_get_unpublish_lifecycle() {
         let _guard = MockGuard::new();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).expect("publish");
                 let proc = Proc::new("mock.ns", 0).unwrap();
                 let _ = get(&proc, "lifecycle", None).expect("get");
@@ -2309,7 +2309,7 @@ use super::*;
                     .with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT)
                     .with_function_status("PMIx_Unpublish", PMIX_ERR_INIT);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 assert!(matches!(
                     publish(&info),
                     Err(PmixStatus::Known(PmixError::ErrDuplicateKey))
@@ -2825,7 +2825,7 @@ use super::*;
     #[test]
     fn test_mock_publish_raw_success_conversion() {
         let _guard = MockGuard::new();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).expect("publish success under mock");
     }
 
@@ -2834,7 +2834,7 @@ use super::*;
     fn test_mock_publish_error_result() {
         let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERROR);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 let err = publish(&info).unwrap_err();
                 assert_eq!(err, PmixStatus::Known(PmixError::Error));
     }
@@ -2844,7 +2844,7 @@ use super::*;
     fn test_mock_publish_timeout_error() {
         let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_TIMEOUT);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 assert_eq!(
                     publish(&info).unwrap_err(),
                     PmixStatus::Known(PmixError::ErrTimeout)
@@ -2856,7 +2856,7 @@ use super::*;
     fn test_mock_publish_stores_key_in_mock_store() {
         let _guard = MockGuard::new();
                 // Wrapper path: publish success; store is separate helper used by store_internal mock.
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).expect("publish");
                 mock_ffi::mock_store_value("pub.key", b"v", PMIX_STRING);
                 assert!(mock_ffi::mock_key_exists("pub.key"));
@@ -3290,7 +3290,7 @@ use super::*;
     fn test_mock_fence_procs_and_info() {
         let _guard = MockGuard::new();
                 let proc = Proc::new("f", 0).unwrap();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 crate::fence(&proc, Some(info)).expect("fence with info");
     }
 
@@ -3523,7 +3523,7 @@ use super::*;
     #[test]
     fn test_mock_full_publish_get_unpublish_workflow() {
         let _guard = MockGuard::new();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).unwrap();
                 let proc = Proc::new("wf", 0).unwrap();
                 let _v = get(&proc, "wf.key", None).unwrap();
@@ -3535,7 +3535,7 @@ use super::*;
     fn test_mock_error_workflow_all_fail() {
         let config = MockConfig::new().with_default_status(PMIX_ERR_INIT);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 assert!(publish(&info).is_err());
                 let proc = Proc::new("wf", 0).unwrap();
                 assert!(get(&proc, "k", None).is_err());
@@ -3585,7 +3585,7 @@ use super::*;
                     .with_function_status("PMIx_Publish", PMIX_SUCCESS)
                     .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).unwrap();
                 let proc = Proc::new("m", 0).unwrap();
                 assert!(get(&proc, "x", None).is_err());
@@ -3734,7 +3734,7 @@ use super::*;
     #[test]
     fn test_mock_operation_cycle_status_checks() {
         let _guard = MockGuard::new();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).unwrap();
                 let proc = Proc::new("c", 0).unwrap();
                 let _ = get(&proc, "k", None).unwrap();
@@ -3914,12 +3914,12 @@ use super::*;
         {
                     let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
                     let _guard = MockGuard::with_config(config);
-                    let info = InfoBuilder::new().build();
+                    let info = InfoBuilder::new().build().expect("build info");
                     assert!(publish(&info).is_err());
                 }
                 {
                     let _guard = MockGuard::new();
-                    let info = InfoBuilder::new().build();
+                    let info = InfoBuilder::new().build().expect("build info");
                     publish(&info).unwrap();
                 }
     }

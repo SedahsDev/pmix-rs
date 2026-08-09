@@ -91,7 +91,7 @@ fn client_clone_is_send_across_threads() {
 fn init_options_external_progress_builds() {
     let mut opts = InitOptions::new();
     opts.external_progress(true);
-    let info = opts.build();
+    let info = opts.build().expect("build info");
     assert_eq!(info.len(), 1, "external_progress must emit one Info entry");
     unsafe {
         let ent = &*info.as_ptr();
@@ -247,7 +247,7 @@ fn mt_external_progress_host_thread() {
 
     let mut opts = InitOptions::new();
     opts.external_progress(true);
-    let info = opts.build();
+    let info = opts.build().expect("build info");
 
     let client = PmixClient::connect_new(Some(info))
         .expect("connect_new with external_progress must succeed under prterun");

@@ -142,7 +142,7 @@ fn test_pmix_query_with_qualifiers() {
     let _ = daemon_helper::get_tool_handle().expect("shared tool handle");
 
     let query = PmixQuery::new(&["pmix.version"]).expect("PmixQuery::new");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _query_with_qual = query.with_qualifiers(info);
 }
 

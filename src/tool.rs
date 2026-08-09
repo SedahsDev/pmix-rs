@@ -21,7 +21,7 @@
 //! use pmix::tool::PmixTool;
 //! use pmix::InfoBuilder;
 //!
-//! let info = InfoBuilder::new().build();
+//! let info = InfoBuilder::new().build().expect("build info");
 //! let tool = PmixTool::connect_new(None, &info).expect("tool connect");
 //! let proc = tool.require_proc();
 //! println!("Tool nspace: {:?}, rank: {:?}", proc.nspace(), proc.rank());
@@ -325,7 +325,7 @@ pub fn is_tool_initialized() -> bool {
 /// use pmix::tool::{tool_init, tool_finalize, PmixToolHandle};
 /// use pmix::InfoBuilder;
 ///
-/// let info = InfoBuilder::new().build();
+/// let info = InfoBuilder::new().build().expect("build info");
 /// let handle = tool_init(None, &info).expect("tool_init failed");
 /// println!("Tool identity: nspace={:?}, rank={:?} ",
 ///           handle.proc().as_ref().and_then(|p| p.nspace()), handle.rank().unwrap_or(0));
@@ -510,11 +510,11 @@ impl PmixServerHandle {
 /// use pmix::InfoBuilder;
 ///
 /// // Initialize the tool first
-/// let handle = tool_init(None, &InfoBuilder::new().build())
+/// let handle = tool_init(None, &InfoBuilder::new().build().expect("build info"))
 ///     .expect("tool_init failed");
 ///
 /// // Attach to a specific server (requires a PMIx server running)
-/// // let info = InfoBuilder::new().build(); // with PMIX_SERVER_URI etc.
+/// // let info = InfoBuilder::new().build().expect("build info"); // with PMIX_SERVER_URI etc.
 /// // let result = tool_attach_to_server(Some(handle.proc()), true, &info);
 ///
 /// tool_finalize(handle).expect("tool_finalize failed");
@@ -636,11 +636,11 @@ pub fn tool_attach_to_server(
 /// use pmix::InfoBuilder;
 ///
 /// // Initialize the tool
-/// let handle = tool_init(None, &InfoBuilder::new().build())
+/// let handle = tool_init(None, &InfoBuilder::new().build().expect("build info"))
 ///     .expect("tool_init failed");
 ///
 /// // Attach to a server (requires a running PMIx server)
-/// // let info = InfoBuilder::new().build();
+/// // let info = InfoBuilder::new().build().expect("build info");
 /// // let (_, server) = tool_attach_to_server(Some(handle.proc()), true, &info)?;
 /// // if let Some(s) = server {
 /// //     // Disconnect from that server
@@ -709,7 +709,7 @@ pub fn tool_disconnect(server: &Proc) -> Result<(), PmixStatus> {
 /// let handle = tool_init_minimal().expect("tool_init failed");
 ///
 /// // Connect to a server
-/// let info = InfoBuilder::new().build();
+/// let info = InfoBuilder::new().build().expect("build info");
 /// let conn = tool_connect_to_server(None, &info).expect("connect failed");
 ///
 /// tool_finalize(handle).expect("tool_finalize failed");
@@ -871,10 +871,10 @@ pub fn tool_get_servers() -> Result<Vec<Proc>, PmixStatus> {
 /// let handle = tool_init_minimal().expect("tool_init failed");
 ///
 /// // Attach to a server (requires a running PMIx server)
-/// // let info = InfoBuilder::new().build();
+/// // let info = InfoBuilder::new().build().expect("build info");
 /// // let (_, server) = tool_attach_to_server(Some(handle.proc()), true, &info)?;
 /// // if let Some(s) = server {
-/// //     tool_set_server(s.proc(), &InfoBuilder::new().build())
+/// //     tool_set_server(s.proc(), &InfoBuilder::new().build().expect("build info"))
 /// //         .expect("set_server failed");
 /// // }
 ///
@@ -1058,7 +1058,7 @@ mod tests {
 
     #[test]
     fn test_info_builder_empty_build() {
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         assert_eq!(info.len, 0);
     }
 
@@ -1257,7 +1257,7 @@ mod tests {
     #[test]
     fn test_tool_connect_to_server_with_info_builder() {
         let server = Proc::new("test_server", 0).unwrap();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = tool_connect_to_server(Some(&server), &info);
         match result {
             Ok(_) => {}
@@ -1291,7 +1291,7 @@ mod tests {
     #[test]
     fn test_tool_set_server_with_info_builder() {
         let server = Proc::new("test_server", 0).unwrap();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = tool_set_server(&server, &info);
         match result {
             Ok(_) => {}

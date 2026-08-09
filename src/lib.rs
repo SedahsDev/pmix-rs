@@ -3254,11 +3254,12 @@ impl InfoBuilder {
         // would dangle by `build()`. Use bool_infos for correct lifetime.
         self.add_bool_key("pmix.collect", true)
     }
-    pub fn build(self) -> Info {
+    pub fn build(self) -> Result<Info, PmixStatus> {
         let n = self.infos.len() + self.string_infos.len() + self.bool_infos.len();
+        // SAFETY: PMIx allocates an array of `n` initialized info records.
         let info_ptr = unsafe { PMIx_Info_create(n) };
         if info_ptr.is_null() && n > 0 {
-            panic!("PMIx_Info_create({n}) returned null");
+            return Err(PmixStatus::from_raw(ffi::PMIX_ERR_NOMEM));
         }
         let mut idx: usize = 0;
 
@@ -3276,7 +3277,7 @@ impl InfoBuilder {
                 unsafe {
                     PMIx_Info_free(info_ptr, n);
                 }
-                panic!("Error loading info: {}", status);
+                return Err(PmixStatus::from_raw(status));
             }
             idx += 1;
         }
@@ -3295,7 +3296,7 @@ impl InfoBuilder {
                 unsafe {
                     PMIx_Info_free(info_ptr, n);
                 }
-                panic!("Error loading string-key info: {}", status);
+                return Err(PmixStatus::from_raw(status));
             }
             idx += 1;
         }
@@ -3314,16 +3315,16 @@ impl InfoBuilder {
                 unsafe {
                     PMIx_Info_free(info_ptr, n);
                 }
-                panic!("Error loading bool-key info: {}", status);
+                return Err(PmixStatus::from_raw(status));
             }
             idx += 1;
         }
 
-        Info {
+        Ok(Info {
             handle: info_ptr,
             len: idx,
             _not_thread_safe: std::marker::PhantomData,
-        }
+        })
     }
 }
 
@@ -3346,7 +3347,7 @@ impl InfoBuilder {
 /// options.external_progress(true);
 /// options.bind_progress_thread("0-3");
 ///
-/// let info = options.build();
+/// let info = options.build().expect("build info");
 /// let handle = pmix::init(None, None, info)?;
 /// ```
 ///
@@ -3442,9 +3443,10 @@ impl InitOptions {
 
     /// Build an [`Info`] array from the configured options.
     ///
-    /// Returns an [`Info`] suitable for passing to [`init`].
+    /// Returns `Ok([`Info`])` suitable for passing to [`init`], or
+    /// `Err(PmixStatus)` if the info array cannot be allocated or loaded.
     /// Unset options are simply omitted from the resulting array.
-    pub fn build(&self) -> Info {
+    pub fn build(&self) -> Result<Info, PmixStatus> {
         let mut builder = InfoBuilder::new();
 
         if let Some(external) = self.external_progress {
@@ -4080,7 +4082,7 @@ mod tests {
     #[test]
     fn test_info_drop_does_not_panic() {
         // Building and dropping Info must free via PMIx_Info_free without panic.
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         assert_eq!(info.len(), 0);
         drop(info);
         let info2 = info_with_string_key("pmix.srvr.uri", "tcp://127.0.0.1:1");
@@ -4091,7 +4093,7 @@ mod tests {
 
     #[test]
     fn test_info_into_raw_skips_drop_free() {
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         let (ptr, len) = info.into_raw();
         // We own the pointer now — free explicitly so this test does not leak.
         if !ptr.is_null() {
@@ -5419,7 +5421,7 @@ mod tests {
     fn test_infobuilder_external_progress() {
         let mut builder = InfoBuilder::new();
         builder.external_progress(true);
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5427,7 +5429,7 @@ mod tests {
     fn test_infobuilder_bind_progress_thread() {
         let mut builder = InfoBuilder::new();
         builder.bind_progress_thread("0-3");
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5435,7 +5437,7 @@ mod tests {
     fn test_infobuilder_bind_required() {
         let mut builder = InfoBuilder::new();
         builder.bind_required(true);
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5445,7 +5447,7 @@ mod tests {
         builder.external_progress(true);
         builder.bind_progress_thread("4,5,6,7");
         builder.bind_required(false);
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert_eq!(info.len(), 3);
     }
 
@@ -5459,7 +5461,7 @@ mod tests {
             PMIX_BOOL as pmix_data_type_t,
         );
         builder.external_progress(true);
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert_eq!(info.len(), 2);
     }
 
@@ -5469,7 +5471,7 @@ mod tests {
 
     #[test]
     fn test_initoptions_empty() {
-        let info = InitOptions::new().build();
+        let info = InitOptions::new().build().expect("build info");
         assert_eq!(info.len(), 0);
     }
 
@@ -5477,7 +5479,7 @@ mod tests {
     fn test_initoptions_external_progress() {
         let mut opts = InitOptions::new();
         opts.external_progress(true);
-        let info = opts.build();
+        let info = opts.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5485,7 +5487,7 @@ mod tests {
     fn test_initoptions_bind_progress_thread() {
         let mut opts = InitOptions::new();
         opts.bind_progress_thread("0-7");
-        let info = opts.build();
+        let info = opts.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5493,7 +5495,7 @@ mod tests {
     fn test_initoptions_bind_required() {
         let mut opts = InitOptions::new();
         opts.bind_required(true);
-        let info = opts.build();
+        let info = opts.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5503,7 +5505,7 @@ mod tests {
         opts.external_progress(true);
         opts.bind_progress_thread("0-3");
         opts.bind_required(true);
-        let info = opts.build();
+        let info = opts.build().expect("build info");
         assert_eq!(info.len(), 3);
     }
 
@@ -5512,7 +5514,7 @@ mod tests {
         // Only set bind_required, others should be omitted
         let mut opts = InitOptions::new();
         opts.bind_required(false);
-        let info = opts.build();
+        let info = opts.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5520,7 +5522,7 @@ mod tests {
     fn test_infobuilder_progress_thread_flush() {
         let mut builder = InfoBuilder::new();
         builder.progress_thread_flush(true);
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5528,7 +5530,7 @@ mod tests {
     fn test_infobuilder_progress_thread_name() {
         let mut builder = InfoBuilder::new();
         builder.progress_thread_name("my-progress-thread");
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5536,7 +5538,7 @@ mod tests {
     fn test_initoptions_progress_thread_flush() {
         let mut opts = InitOptions::new();
         opts.progress_thread_flush(true);
-        let info = opts.build();
+        let info = opts.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5544,7 +5546,7 @@ mod tests {
     fn test_initoptions_progress_thread_name() {
         let mut opts = InitOptions::new();
         opts.progress_thread_name("test-progress");
-        let info = opts.build();
+        let info = opts.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
 
@@ -5556,7 +5558,7 @@ mod tests {
         opts.bind_required(true);
         opts.progress_thread_flush(true);
         opts.progress_thread_name("full-test");
-        let info = opts.build();
+        let info = opts.build().expect("build info");
         // 5 options set
         assert_eq!(info.len(), 5);
     }

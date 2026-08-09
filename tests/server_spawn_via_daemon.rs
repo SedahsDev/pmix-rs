@@ -126,7 +126,7 @@ fn test_server_spawn_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app = PmixApp::builder()
@@ -135,7 +135,7 @@ fn test_server_spawn_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     // Spawn — returns ErrUnreach from server context.
     let result = server_spawn(&handle, &job_info, &apps);
@@ -155,7 +155,7 @@ fn test_server_spawn_with_job_info_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app = PmixApp::builder()
@@ -165,7 +165,7 @@ fn test_server_spawn_with_job_info_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     let result = server_spawn(&handle, &job_info, &apps);
     assert!(
@@ -184,7 +184,7 @@ fn test_server_spawn_multiple_apps_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app1 = PmixApp::builder()
@@ -198,7 +198,7 @@ fn test_server_spawn_multiple_apps_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app1, app2];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     let result = server_spawn(&handle, &job_info, &apps);
     assert!(
@@ -217,7 +217,7 @@ fn test_server_spawn_err_unreach_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app = PmixApp::builder()
@@ -226,7 +226,7 @@ fn test_server_spawn_err_unreach_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     let result = server_spawn(&handle, &job_info, &apps);
     assert!(result.is_err(), "server_spawn should return Err");
@@ -248,7 +248,7 @@ fn test_server_spawn_returns_result_string_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app = PmixApp::builder()
@@ -257,7 +257,7 @@ fn test_server_spawn_returns_result_string_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     let result: Result<String, PmixStatus> = server_spawn(&handle, &job_info, &apps);
     assert!(
@@ -279,7 +279,7 @@ fn test_server_spawn_nb_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app = PmixApp::builder()
@@ -288,7 +288,7 @@ fn test_server_spawn_nb_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     let wrapper = SpawnCallbackWrapper::new(move |status: PmixStatus, nspace: Option<String>| {
         CALLBACK_INVOKED.store(true, Ordering::SeqCst);
@@ -310,7 +310,7 @@ fn test_server_spawn_nb_with_job_info_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app = PmixApp::builder()
@@ -320,7 +320,7 @@ fn test_server_spawn_nb_with_job_info_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     let wrapper = SpawnCallbackWrapper::new(move |_status: PmixStatus, _nspace: Option<String>| {
         // callback invoked on spawn completion
@@ -341,7 +341,7 @@ fn test_server_spawn_with_callbacks_module_with_daemon() {
 
     let mut module = PmixServerModule::default();
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app = PmixApp::builder()
@@ -350,7 +350,7 @@ fn test_server_spawn_with_callbacks_module_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     let result = server_spawn(&handle, &job_info, &apps);
     assert!(
@@ -369,7 +369,7 @@ fn test_server_spawn_with_full_app_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let app = PmixApp::builder()
@@ -381,7 +381,7 @@ fn test_server_spawn_with_full_app_with_daemon() {
         .build()
         .expect("valid app");
     let apps = vec![app];
-    let job_info = vec![InfoBuilder::new().build()];
+    let job_info = vec![InfoBuilder::new().build().expect("build info")];
 
     let result = server_spawn(&handle, &job_info, &apps);
     assert!(

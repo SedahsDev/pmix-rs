@@ -46,7 +46,7 @@ fn test_group_construct_with_special_group_ids() {
 #[test]
 fn test_group_construct_with_directives() {
     let procs = test_procs(2);
-    let directives = vec![InfoBuilder::new().build()];
+    let directives = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_construct("test_grp", &procs, &directives);
     match result {
         Ok(_) => {}
@@ -99,7 +99,7 @@ fn test_group_construct_nb_with_special_group_ids() {
 #[test]
 fn test_group_construct_nb_with_info_directives() {
     let procs = test_procs(1);
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let cb = GroupConstructCallbackWrapper::new(|_, _| {});
     let result = group_construct_nb("test_grp", &procs, &info, cb);
     match result {
@@ -117,7 +117,7 @@ fn test_group_construct_nb_with_info_directives() {
 #[test]
 fn test_group_invite_with_directives() {
     let procs = test_procs(1);
-    let directives = vec![InfoBuilder::new().build()];
+    let directives = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_invite("invite_grp", &procs, &directives);
     match result {
         Ok(_) => {}
@@ -146,7 +146,7 @@ fn test_group_invite_with_multiple_procs() {
 #[test]
 fn test_group_join_with_directives() {
     let leader = test_proc(0);
-    let directives = vec![InfoBuilder::new().build()];
+    let directives = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_join(
         "join_grp",
         &leader,
@@ -186,7 +186,7 @@ fn test_group_join_with_different_leaders() {
 
 #[test]
 fn test_group_leave_with_directives() {
-    let directives = vec![InfoBuilder::new().build()];
+    let directives = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_leave("leave_grp", &directives);
     match result {
         Ok(_) => {}
@@ -198,7 +198,7 @@ fn test_group_leave_with_directives() {
 
 #[test]
 fn test_group_leave_with_multiple_directives() {
-    let directives = vec![InfoBuilder::new().build(), InfoBuilder::new().build()];
+    let directives = vec![InfoBuilder::new().build().expect("build info"), InfoBuilder::new().build().expect("build info")];
     let result = group_leave("leave_grp", &directives);
     match result {
         Ok(_) => {}
@@ -214,7 +214,7 @@ fn test_group_leave_with_multiple_directives() {
 
 #[test]
 fn test_group_destruct_with_directives() {
-    let directives = vec![InfoBuilder::new().build()];
+    let directives = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_destruct("destruct_grp", &directives);
     match result {
         Ok(_) => {}
@@ -299,7 +299,7 @@ fn test_group_construct_with_infobuilder_directives() {
     let procs = test_procs(1);
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let directives = vec![builder.build()];
+    let directives = vec![builder.build().expect("build info")];
     let result = group_construct("test_grp", &procs, &directives);
     match result {
         Ok(_) => {}
@@ -314,7 +314,7 @@ fn test_group_invite_with_infobuilder_directives() {
     let procs = test_procs(1);
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let directives = vec![builder.build()];
+    let directives = vec![builder.build().expect("build info")];
     let result = group_invite("test_grp", &procs, &directives);
     match result {
         Ok(_) => {}

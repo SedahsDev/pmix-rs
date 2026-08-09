@@ -131,7 +131,7 @@ fn test_data_range_is_send_and_sync() {
 
 #[test]
 fn test_register_event_handler_empty_codes_no_handler() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&[], &info, None, None);
     match result {
         Ok(_) => {} // rare: PMIx is initialized
@@ -144,7 +144,7 @@ fn test_register_event_handler_empty_codes_no_handler() {
 #[test]
 fn test_register_event_handler_single_code_no_handler() {
     let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&codes, &info, None, None);
     match result {
         Ok(_) => {}
@@ -161,7 +161,7 @@ fn test_register_event_handler_multiple_codes() {
         PmixStatus::Known(PmixError::ErrTimeout),
         PmixStatus::Known(PmixError::ErrNotSupported),
     ];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&codes, &info, None, None);
     match result {
         Ok(_) => {}
@@ -186,7 +186,7 @@ fn test_register_event_handler_with_notification_fn() {
     ) {
     }
     let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&codes, &info, Some(dummy_handler), None);
     match result {
         Ok(_) => {}
@@ -199,7 +199,7 @@ fn test_register_event_handler_with_notification_fn() {
 #[test]
 fn test_register_event_handler_consistent_error() {
     let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let mut first: Option<PmixStatus> = None;
     for _ in 0..10 {
         let result = register_event_handler(&codes, &info, None, None);
@@ -224,7 +224,7 @@ fn test_register_event_handler_consistent_error() {
 fn test_register_event_handler_nb_reaches_ffi() {
     extern "C" fn dummy_reg_cb(_: i32, _: EventHandlerRef, _: *mut std::os::raw::c_void) {}
     let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler_nb(
         &codes,
         &info,
@@ -243,7 +243,7 @@ fn test_register_event_handler_nb_reaches_ffi() {
 #[test]
 fn test_register_event_handler_nb_empty_codes() {
     extern "C" fn dummy_reg_cb(_: i32, _: EventHandlerRef, _: *mut std::os::raw::c_void) {}
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result =
         register_event_handler_nb(&[], &info, None, Some(dummy_reg_cb), std::ptr::null_mut());
     match result {
@@ -270,7 +270,7 @@ fn test_register_event_handler_nb_with_notification_fn() {
     ) {
     }
     let codes = [PmixStatus::Known(PmixError::ErrJobAborted)];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler_nb(
         &codes,
         &info,
@@ -369,7 +369,7 @@ fn test_deregister_event_handler_nb_zero_ref() {
 #[test]
 fn test_notify_event_reaches_ffi() {
     let source = Proc::new("test_job", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrJobAborted),
         &source,
@@ -387,7 +387,7 @@ fn test_notify_event_reaches_ffi() {
 #[test]
 fn test_notify_event_with_all_ranges() {
     let source = Proc::new("test_job", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     for range in [
         PmixDataRange::Undef,
         PmixDataRange::Rm,
@@ -416,7 +416,7 @@ fn test_notify_event_with_all_ranges() {
 #[test]
 fn test_notify_event_with_wildcard_source() {
     let source = Proc::new("", u32::MAX).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrNotSupported),
         &source,
@@ -434,7 +434,7 @@ fn test_notify_event_with_wildcard_source() {
 #[test]
 fn test_notify_event_various_status_codes() {
     let source = Proc::new("test_job", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let statuses = [
         PmixStatus::Known(PmixError::Success),
         PmixStatus::Known(PmixError::Error),
@@ -467,7 +467,7 @@ fn test_notify_event_various_status_codes() {
 #[test]
 fn test_notify_event_does_not_panic() {
     let source = Proc::new("test_job", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = std::panic::catch_unwind(|| {
         notify_event(
             PmixStatus::Known(PmixError::ErrJobAborted),
@@ -482,7 +482,7 @@ fn test_notify_event_does_not_panic() {
 #[test]
 fn test_notify_event_consistent_error() {
     let source = Proc::new("test_job", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let mut first: Option<PmixStatus> = None;
     for _ in 0..10 {
         let result = notify_event(
@@ -512,7 +512,7 @@ fn test_notify_event_consistent_error() {
 fn test_notify_event_nb_reaches_ffi() {
     extern "C" fn dummy_op_cb(_: i32, _: *mut std::os::raw::c_void) {}
     let source = Proc::new("test_job", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event_nb(
         PmixStatus::Known(PmixError::ErrJobAborted),
         &source,
@@ -532,7 +532,7 @@ fn test_notify_event_nb_reaches_ffi() {
 #[test]
 fn test_notify_event_nb_with_none_cbfunc() {
     let source = Proc::new("test_job", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event_nb(
         PmixStatus::Known(PmixError::ErrTimeout),
         &source,
@@ -553,7 +553,7 @@ fn test_notify_event_nb_with_none_cbfunc() {
 fn test_notify_event_nb_various_ranges() {
     extern "C" fn dummy_op_cb(_: i32, _: *mut std::os::raw::c_void) {}
     let source = Proc::new("test_job", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     for range in [
         PmixDataRange::Undef,
         PmixDataRange::Rm,
@@ -607,7 +607,7 @@ fn test_proc_wildcard_for_events() {
 
 #[test]
 fn test_info_empty_for_register() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     assert!(info.is_empty());
     assert_eq!(info.len(), 0);
 }

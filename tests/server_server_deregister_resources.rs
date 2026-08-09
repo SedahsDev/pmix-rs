@@ -193,7 +193,7 @@ fn test_server_deregister_resources_signature() {
 /// InfoBuilder produces an Info that can be passed to server_deregister_resources.
 #[test]
 fn test_info_builder_produces_compatible_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     // Verify the info has the expected structure (handle + len).
     // We can't call the function without a server, but we can verify
@@ -205,7 +205,7 @@ fn test_info_builder_produces_compatible_info() {
 /// Empty info (no keys) is valid for deregister_resources.
 #[test]
 fn test_empty_info_for_deregister_resources() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // Empty info is valid — it means "deregister all previously registered
     // non-namespace resources".
     fn accepts_info(_: &pmix::Info) {}
@@ -396,7 +396,7 @@ fn test_request_id_distinct_pointers() {
 fn test_deregister_all_resources_empty_info() {
     // Empty info is the standard way to deregister all non-namespace
     // resources. Verify the Info type supports this.
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // The Info struct is accepted by the function — that's the important part.
     fn accepts_info(_: &pmix::Info) {}
     accepts_info(&info);
@@ -514,7 +514,7 @@ fn test_server_deregister_resources_empty_info() {
         status: Arc::clone(&status),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_deregister_resources(&info, cb);
 
     // Without a running server, this will fail with an error status.
@@ -543,7 +543,7 @@ fn test_server_deregister_resources_with_info() {
     });
 
     // Build info with keys (if InfoBuilder supports it).
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_deregister_resources(&info, cb);
 
     assert!(result.is_ok() || result.is_err(), "should return a result");
@@ -569,7 +569,7 @@ fn test_server_deregister_resources_callback_invoked() {
         status: Arc::clone(&status),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_deregister_resources(&info, cb);
 
     if result.is_ok() {
@@ -591,7 +591,7 @@ fn test_server_deregister_resources_not_initialized() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_deregister_resources(&info, Box::new(TestCb));
 
     // Without PMIx_server_init, this should return an error.
@@ -621,7 +621,7 @@ fn test_server_deregister_resources_immediate_error_no_callback() {
         invoked: Arc::clone(&invoked),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_deregister_resources(&info, cb);
 
     // If the FFI call returns an error immediately, the callback should
@@ -654,7 +654,7 @@ fn test_server_deregister_resources_callback_success_status() {
         status: Arc::clone(&status),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_deregister_resources(&info, cb);
 
     if result.is_ok() {
@@ -691,7 +691,7 @@ fn test_server_deregister_resources_multiple_calls() {
         status: Arc::clone(&status2),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result1 = server_deregister_resources(&info, cb1);
     let _result2 = server_deregister_resources(&info, cb2);
 
@@ -724,7 +724,7 @@ fn test_register_then_deregister_resources() {
     let reg_status = Arc::new(Mutex::new(None));
     let dereg_status = Arc::new(Mutex::new(None));
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _reg_result = server_register_resources(
         &info,
         Box::new(TestCb {

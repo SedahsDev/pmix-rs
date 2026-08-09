@@ -212,10 +212,10 @@ fn test_proc_ref_lifetime() {
 // InfoBuilder compatibility
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// InfoBuilder::new().build() produces a valid Info.
+/// InfoBuilder::new().build().expect("build info") produces a valid Info.
 #[test]
 fn test_info_builder_builds() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _: &Info = &info;
 }
 
@@ -248,12 +248,12 @@ fn test_disconnect_result_is_sync() {
 fn test_attach_then_disconnect() {
     use pmix::tool::{tool_finalize, tool_init};
 
-    let init_info = InfoBuilder::new().build();
+    let init_info = InfoBuilder::new().build().expect("build info");
     let init_result = tool_init(None, &init_info);
     match init_result {
         Ok(handle) => {
             // Attach to a server
-            let attach_info = InfoBuilder::new().build();
+            let attach_info = InfoBuilder::new().build().expect("build info");
             let attach_result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
             match attach_result {
                 Ok((_, Some(server))) => {
@@ -291,7 +291,7 @@ fn test_attach_then_disconnect() {
 fn test_disconnect_not_connected() {
     use pmix::tool::{tool_finalize, tool_init};
 
-    let init_info = InfoBuilder::new().build();
+    let init_info = InfoBuilder::new().build().expect("build info");
     match tool_init(None, &init_info) {
         Ok(handle) => {
             // Try to disconnect from a server we never connected to.
@@ -325,10 +325,10 @@ fn test_disconnect_not_connected() {
 fn test_disconnect_with_server_handle() {
     use pmix::tool::{tool_finalize, tool_init};
 
-    let init_info = InfoBuilder::new().build();
+    let init_info = InfoBuilder::new().build().expect("build info");
     match tool_init(None, &init_info) {
         Ok(handle) => {
-            let attach_info = InfoBuilder::new().build();
+            let attach_info = InfoBuilder::new().build().expect("build info");
             match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                 Ok((_, Some(server))) => {
                     // Clone the server handle before disconnecting
@@ -361,10 +361,10 @@ fn test_disconnect_with_server_handle() {
 fn test_attach_disconnect_cycle() {
     use pmix::tool::{tool_finalize, tool_init};
 
-    let init_info = InfoBuilder::new().build();
+    let init_info = InfoBuilder::new().build().expect("build info");
     match tool_init(None, &init_info) {
         Ok(handle) => {
-            let attach_info = InfoBuilder::new().build();
+            let attach_info = InfoBuilder::new().build().expect("build info");
             // First attach
             match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                 Ok((_, Some(server1))) => {
@@ -401,7 +401,7 @@ fn test_attach_disconnect_cycle() {
 fn test_disconnect_leaves_tool_initialized() {
     use pmix::tool::{is_tool_initialized, tool_finalize, tool_init};
 
-    let init_info = InfoBuilder::new().build();
+    let init_info = InfoBuilder::new().build().expect("build info");
     match tool_init(None, &init_info) {
         Ok(handle) => {
             assert!(
@@ -409,7 +409,7 @@ fn test_disconnect_leaves_tool_initialized() {
                 "Tool should be initialized after init"
             );
 
-            let attach_info = InfoBuilder::new().build();
+            let attach_info = InfoBuilder::new().build().expect("build info");
             match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                 Ok((_, Some(server))) => {
                     // Disconnect from server
@@ -438,7 +438,7 @@ fn test_disconnect_leaves_tool_initialized() {
 fn test_finalize_after_failed_disconnect() {
     use pmix::tool::{tool_finalize, tool_init};
 
-    let init_info = InfoBuilder::new().build();
+    let init_info = InfoBuilder::new().build().expect("build info");
     match tool_init(None, &init_info) {
         Ok(handle) => {
             // Try to disconnect from a non-connected server
@@ -465,7 +465,7 @@ fn test_disconnect_with_minimal_init() {
 
     match tool_init_minimal() {
         Ok(handle) => {
-            let attach_info = InfoBuilder::new().build();
+            let attach_info = InfoBuilder::new().build().expect("build info");
             match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
                 Ok((_, Some(server))) => {
                     let result = tool_disconnect(server.proc());

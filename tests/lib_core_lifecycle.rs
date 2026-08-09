@@ -224,7 +224,7 @@ fn init_without_dvm_returns_err() {
 /// `PmixClient::connect_new(Some(info))` without DVM returns `Err`.
 #[test]
 fn init_with_info_without_dvm_returns_err() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     assert!(
         PmixClient::connect_new(Some(info)).is_err(),
         "PmixClient::connect_new(Some(info)) without DVM should return Err"
@@ -260,7 +260,7 @@ fn init_does_not_panic_on_error() {
 /// `init` with empty InfoBuilder also returns error without DVM.
 #[test]
 fn init_with_empty_info_returns_err() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     assert!(
         PmixClient::connect_new(Some(info)).is_err(),
         "init with empty InfoBuilder should fail without DVM"
@@ -272,7 +272,7 @@ fn init_with_empty_info_returns_err() {
 fn init_with_collect_data_info_returns_err() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     assert!(
         PmixClient::connect_new(Some(info)).is_err(),
         "init with collect_data info should fail without DVM"
@@ -406,7 +406,7 @@ fn multiple_finalize_without_init_safe() {
 /// `finalize(Some(info))` without prior init completes without crashing.
 #[test]
 fn finalize_with_info_without_init_safe() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = finalize(Some(info));
 }
 
@@ -481,8 +481,8 @@ fn initialized_consistent_after_failed_lifecycle() {
 /// init with info, then finalize with info: init fails, finalize completes.
 #[test]
 fn init_with_info_then_finalize_with_info() {
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
 
     let init_result = PmixClient::connect_new(Some(info1));
     assert!(

@@ -125,7 +125,7 @@ fn test_init_finalize_type_pair() {
 fn test_init_minimal_compatible_with_finalize() {
     type InitReturn = Result<PmixTool, PmixStatus>;
     fn _check_full() -> InitReturn {
-        tool_init(None, &InfoBuilder::new().build())
+        tool_init(None, &InfoBuilder::new().build().expect("build info"))
     }
     fn _check_minimal() -> InitReturn {
         tool_init_minimal()
@@ -184,7 +184,7 @@ fn test_reference_counting_documented() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_tool_init_then_finalize() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = match tool_init(None, &info) {
         Ok(h) => h,
         Err(_) => {
@@ -218,7 +218,7 @@ fn test_tool_init_minimal_then_finalize() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_reference_counted_finalize() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let h1 = match tool_init(None, &info) {
         Ok(h) => h,
         Err(_) => return,
@@ -254,7 +254,7 @@ fn test_finalize_without_init() {
 fn test_finalize_with_custom_proc() {
     // Tool init with a specific proc identity, then finalize.
     // This tests that finalize works regardless of how the handle was obtained.
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = match tool_init(None, &info) {
         Ok(h) => h,
         Err(_) => return,
@@ -274,7 +274,7 @@ fn test_finalize_with_custom_proc() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_clone_then_finalize_original() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = match tool_init(None, &info) {
         Ok(h) => h,
         Err(_) => return,
@@ -294,7 +294,7 @@ fn test_clone_then_finalize_original() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_finalize_error_status() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = match tool_init(None, &info) {
         Ok(h) => h,
         Err(_) => return,

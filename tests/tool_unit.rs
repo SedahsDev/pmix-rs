@@ -13,7 +13,7 @@ use pmix::tool::PmixTool;
 
 #[test]
 fn test_tool_init_with_empty_info_and_none_proc() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_init(None, &info);
     match result {
         Ok(_) => {}
@@ -26,7 +26,7 @@ fn test_tool_init_with_empty_info_and_none_proc() {
 #[test]
 fn test_tool_init_with_empty_info_and_some_proc() {
     let proc = pmix::Proc::new("test_ns", 42).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_init(Some(&proc), &info);
     match result {
         Ok(_) => {}
@@ -38,7 +38,7 @@ fn test_tool_init_with_empty_info_and_some_proc() {
 
 #[test]
 fn test_tool_init_with_infobuilder_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_init(None, &info);
     match result {
         Ok(_) => {}
@@ -52,7 +52,7 @@ fn test_tool_init_with_infobuilder_info() {
 fn test_tool_init_with_collect_data_info() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let result = tool_init(None, &info);
     match result {
         Ok(_) => {}
@@ -64,7 +64,7 @@ fn test_tool_init_with_collect_data_info() {
 
 #[test]
 fn test_tool_init_multiple_calls_consistent() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // tool_init behavior depends on PMIx state — just verify it doesn't crash
     for i in 0..5 {
         let result = tool_init(None, &info);
@@ -81,7 +81,7 @@ fn test_tool_init_multiple_calls_consistent() {
 
 #[test]
 fn test_tool_init_with_various_proc_ranks() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     for rank in [0u32, 1, 100, u32::MAX] {
         let proc = pmix::Proc::new("test_ns", rank).unwrap();
         let result = tool_init(Some(&proc), &info);
@@ -156,7 +156,7 @@ fn test_tool_finalize_after_tool_init() {
 #[ignore] // SIGSEGV on process cleanup when PMIx is initialized then finalized
 fn test_tool_finalize_after_tool_init_with_proc() {
     let proc = pmix::Proc::new("test", 999).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_init(Some(&proc), &info);
     match result {
         Ok(handle) => {
@@ -175,7 +175,7 @@ fn test_tool_finalize_after_tool_init_with_proc() {
 #[test]
 fn test_attach_with_both_myproc_and_server() {
     let proc = pmix::Proc::new("my_tool", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(Some(&proc), true, &info);
     match result {
         Ok((tool, server)) => {
@@ -193,7 +193,7 @@ fn test_attach_with_both_myproc_and_server() {
 
 #[test]
 fn test_attach_with_neither_myproc_nor_server() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, false, &info);
     match result {
         Ok((tool, server)) => {
@@ -212,7 +212,7 @@ fn test_attach_with_neither_myproc_nor_server() {
 #[test]
 fn test_attach_with_myproc_only() {
     let proc = pmix::Proc::new("my_tool", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(Some(&proc), false, &info);
     match result {
         Ok((tool, server)) => {
@@ -227,7 +227,7 @@ fn test_attach_with_myproc_only() {
 
 #[test]
 fn test_attach_with_server_only() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &info);
     match result {
         Ok((tool, server)) => {
@@ -242,7 +242,7 @@ fn test_attach_with_server_only() {
 
 #[test]
 fn test_attach_with_empty_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &info);
     match result {
         Ok(_) => {}
@@ -278,7 +278,7 @@ fn test_get_servers_consecutive_calls() {
 #[test]
 fn test_set_server_with_empty_info() {
     let server = pmix::Proc::new("server_ns", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_set_server(&server, &info);
     match result {
         Ok(_) => {}
@@ -291,7 +291,7 @@ fn test_set_server_with_empty_info() {
 #[test]
 fn test_set_server_with_wildcard_server() {
     let server = pmix::Proc::new("", u32::MAX).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_set_server(&server, &info);
     match result {
         Ok(_) => {}
@@ -303,7 +303,7 @@ fn test_set_server_with_wildcard_server() {
 
 #[test]
 fn test_set_server_various_ranks() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     for rank in [0u32, 1, 42, 1000, u32::MAX] {
         let server = pmix::Proc::new("server_ns", rank).unwrap();
         let result = tool_set_server(&server, &info);
@@ -348,7 +348,7 @@ fn test_disconnect_consecutive_calls() {
 
 #[test]
 fn test_connect_to_server_with_none_proc() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_connect_to_server(None, &info);
     match result {
         Ok(_) => {}
@@ -361,7 +361,7 @@ fn test_connect_to_server_with_none_proc() {
 #[test]
 fn test_connect_to_server_with_some_proc() {
     let proc = pmix::Proc::new("my_tool", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_connect_to_server(Some(&proc), &info);
     match result {
         Ok(handle) => {
@@ -375,7 +375,7 @@ fn test_connect_to_server_with_some_proc() {
 
 #[test]
 fn test_connect_to_server_with_empty_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_connect_to_server(None, &info);
     match result {
         Ok(_) => {}
@@ -488,7 +488,7 @@ fn test_tool_error_to_raw_values() {
 #[test]
 fn test_tool_init_with_multiple_info_builders() {
     for _ in 0..5 {
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         let result = tool_init(None, &info);
         match result {
             Ok(_) => {}
@@ -503,7 +503,7 @@ fn test_tool_init_with_multiple_info_builders() {
 fn test_tool_connect_with_info_builder_collect_data() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let result = tool_connect_to_server(None, &info);
     match result {
         Ok(_) => {}

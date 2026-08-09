@@ -94,7 +94,7 @@ fn test_cpuset_debug() {
 #[test]
 fn test_fabric_register_without_init() {
     let mut fabric = PmixFabric::new(Some("test")).expect("fabric new failed");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
     assert!(
         fabric_register(&mut fabric, directives).is_err(),
@@ -136,7 +136,7 @@ fn test_fabric_register_nb_without_init() {
     // Do NOT call ensure_pmix_init() — that is the DVM/client path and would
     // invert the "without init" contract this test is named for.
     let mut fabric = PmixFabric::new(Some("test")).expect("fabric new failed");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
     struct NopFabricCb;
     impl FabricCallback for NopFabricCb {
@@ -251,7 +251,7 @@ fn test_compute_distances_callback_requires_send() {
 fn test_compute_distances_without_init() {
     let mut topo = PmixTopology::new(None).expect("topology new failed");
     let mut cpuset = PmixCpuset::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
     assert!(
         compute_distances(&mut topo, &mut cpuset, directives).is_err(),
@@ -266,7 +266,7 @@ fn test_compute_distances_nb_without_init() {
     // invert the "without init" contract this test is named for.
     let mut topo = PmixTopology::new(None).expect("topology new failed");
     let mut cpuset = PmixCpuset::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
     struct TestDistCb;
     impl ComputeDistancesCallback for TestDistCb {

@@ -203,7 +203,7 @@ fn test_server_init_minimal_with_daemon() {
 #[ignore = "requires PMIx daemon"]
 fn test_server_init_with_empty_info() {
     let module = PmixServerModule::default();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }
@@ -227,7 +227,7 @@ fn test_server_finalize_idempotent() {
 fn test_server_init_with_tool_support() {
     let module = PmixServerModule::default();
     // PMIX_SERVER_TOOL_SUPPORT is a boolean key
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }
@@ -252,7 +252,7 @@ fn test_api_signatures_compile() {
     // without a PMIx daemon).
     fn _check_server_init() {
         let module = PmixServerModule::default();
-        let info = pmix::InfoBuilder::new().build();
+        let info = pmix::InfoBuilder::new().build().expect("build info");
         let _result: Result<PmixServerHandle, PmixStatus> = server_init(Some(&module), &info);
     }
     fn _check_server_init_minimal() {

@@ -76,7 +76,7 @@ fn test_server_fence_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_fence(&handle, &[], 0);
@@ -96,7 +96,7 @@ fn test_server_fence_with_timeout_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_fence(&handle, &[], 30);
@@ -116,7 +116,7 @@ fn test_server_fence_returns_pmix_status_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result: Result<PmixStatus, PmixStatus> = server_fence(&handle, &[], 0);
@@ -136,10 +136,10 @@ fn test_server_fence_with_info_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
-    let fence_info = vec![InfoBuilder::new().build()];
+    let fence_info = vec![InfoBuilder::new().build().expect("build info")];
     let result = server_fence(&handle, &fence_info, 0);
     assert!(result.is_err(), "server_fence with info should return Err");
 
@@ -157,7 +157,7 @@ fn test_server_fence_nb_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let wrapper = FenceNbCallbackWrapper::new(move |status: PmixStatus| {
@@ -179,10 +179,10 @@ fn test_server_fence_nb_with_info_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
-    let fence_info = vec![InfoBuilder::new().build()];
+    let fence_info = vec![InfoBuilder::new().build().expect("build info")];
     let wrapper = FenceNbCallbackWrapper::new(move |_status: PmixStatus| {});
 
     let result = server_fence_nb(&handle, &fence_info, wrapper);
@@ -200,7 +200,7 @@ fn test_server_fence_with_callbacks_module_with_daemon() {
 
     let mut module = PmixServerModule::default();
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_fence(&handle, &[], 0);
@@ -217,7 +217,7 @@ fn test_server_fence_err_unreach_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_fence(&handle, &[], 0);

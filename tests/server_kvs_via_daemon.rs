@@ -106,11 +106,11 @@ fn test_server_publish_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Publish data — returns ErrUnreach from server context (no client connection).
-    let key_val = InfoBuilder::new().build();
+    let key_val = InfoBuilder::new().build().expect("build info");
     let result = server_publish(&handle, "test-nspace", &key_val);
     assert!(
         result.is_err(),
@@ -134,7 +134,7 @@ fn test_server_lookup_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Lookup — returns ErrUnreach from server context.
@@ -155,7 +155,7 @@ fn test_server_delete_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Delete — returns ErrUnreach from server context.
@@ -176,7 +176,7 @@ fn test_server_fence_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Fence — returns ErrUnreach from server context.
@@ -197,7 +197,7 @@ fn test_server_fence_with_timeout_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Fence with a non-zero timeout.
@@ -218,10 +218,10 @@ fn test_server_publish_returns_pmix_status_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let key_val = InfoBuilder::new().build();
+    let key_val = InfoBuilder::new().build().expect("build info");
     let result: Result<PmixStatus, PmixStatus> = server_publish(&handle, "test-nspace", &key_val);
     assert!(
         result.is_err(),
@@ -239,7 +239,7 @@ fn test_server_fence_returns_pmix_status_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let result: Result<PmixStatus, PmixStatus> = server_fence(&handle, &[], 0);
@@ -259,7 +259,7 @@ fn test_server_delete_returns_pmix_status_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let result: Result<PmixStatus, PmixStatus> = server_delete(&handle, "test-nspace", "some-key");
@@ -280,11 +280,11 @@ fn test_server_kvs_with_callbacks_module_with_daemon() {
 
     let mut module = PmixServerModule::default();
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Publish with callbacks module — returns ErrUnreach from server context.
-    let key_val = InfoBuilder::new().build();
+    let key_val = InfoBuilder::new().build().expect("build info");
     let publish_result = server_publish(&handle, "test-nspace", &key_val);
     assert!(
         publish_result.is_err(),
@@ -309,11 +309,11 @@ fn test_server_all_kvs_ops_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Publish — ErrUnreach from server context.
-    let key_val = InfoBuilder::new().build();
+    let key_val = InfoBuilder::new().build().expect("build info");
     let publish_result = server_publish(&handle, "test-nspace", &key_val);
     assert!(publish_result.is_err(), "publish should return Err");
 
@@ -340,7 +340,7 @@ fn test_server_lookup_not_found_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Lookup a key that was never published — returns ErrUnreach from server context.
@@ -361,11 +361,11 @@ fn test_server_publish_fence_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Publish data — ErrUnreach from server context.
-    let key_val = InfoBuilder::new().build();
+    let key_val = InfoBuilder::new().build().expect("build info");
     let publish_result = server_publish(&handle, "test-nspace", &key_val);
     assert!(publish_result.is_err(), "publish should return Err");
 
@@ -384,11 +384,11 @@ fn test_server_publish_delete_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Publish data — ErrUnreach from server context.
-    let key_val = InfoBuilder::new().build();
+    let key_val = InfoBuilder::new().build().expect("build info");
     let publish_result = server_publish(&handle, "test-nspace", &key_val);
     assert!(publish_result.is_err(), "publish should return Err");
 

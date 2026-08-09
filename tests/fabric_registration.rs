@@ -161,7 +161,7 @@ fn test_register_with_empty_directives() {
 #[test]
 fn test_register_with_single_directive() {
     let mut fabric = PmixFabric::new(Some("single_dir")).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let directives: &[Info] = std::slice::from_ref(&info);
     let result = fabric_register(&mut fabric, directives);
     assert!(result.is_err());
@@ -172,8 +172,8 @@ fn test_register_with_single_directive() {
 #[test]
 fn test_register_with_multiple_directives() {
     let mut fabric = PmixFabric::new(Some("multi_dir")).unwrap();
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let directives = vec![info1, info2];
     let result = fabric_register(&mut fabric, &directives);
     assert!(result.is_err());
@@ -215,7 +215,7 @@ fn test_register_nb_empty_directives() {
 fn test_register_nb_single_directive() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let directives: &[Info] = std::slice::from_ref(&info);
     let result = fabric_register_nb(&mut fabric, directives, Box::new(NopCallback));
     assert!(result.is_err());
@@ -227,8 +227,8 @@ fn test_register_nb_single_directive() {
 fn test_register_nb_multiple_directives() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let directives = vec![info1, info2];
     let result = fabric_register_nb(&mut fabric, &directives, Box::new(NopCallback));
     assert!(result.is_err());

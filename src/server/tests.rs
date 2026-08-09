@@ -973,7 +973,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterNspaceCallback for DummyRegCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_register_nspace("test\0nspace", 1, &info, Box::new(DummyRegCb));
         assert!(
             result.is_err(),
@@ -1194,7 +1194,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_publish_empty_info() {
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_publish(&handle, "testnspace", &info);
         let _ = result;
     }
@@ -1357,7 +1357,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_connect_rejects_empty_procs_with_info() {
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_connect(&handle, &[], &[info]);
         assert!(result.is_err());
     }
@@ -1365,7 +1365,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_disconnect_rejects_empty_procs_with_info() {
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_disconnect(&handle, &[], &[info]);
         assert!(result.is_err());
     }
@@ -1378,7 +1378,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterNspaceCallback for DummyRegCb2 {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         // Empty string is valid for CString but may fail on FFi.
         // We just verify it doesn't panic.
         let result = server_register_nspace("", 1, &info, Box::new(DummyRegCb2));
@@ -1391,7 +1391,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterNspaceCallback for DummyRegCb3 {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         // Negative nlocalprocs — FFi may reject or accept.
         // We just verify no panic.
         let result = server_register_nspace("test", -1, &info, Box::new(DummyRegCb3));
@@ -1404,7 +1404,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterNspaceCallback for DummyRegCb4 {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_register_nspace("test", 0, &info, Box::new(DummyRegCb4));
         let _ = result;
     }
@@ -2487,7 +2487,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     fn test_mock_wrapper_server_publish_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_publish(&handle, "test.nspace", &info);
         assert!(result.is_ok(), "server_publish wrapper should succeed with mocks");
     }
@@ -2498,7 +2498,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
             .with_function_status("PMIx_server_publish", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_publish(&handle, "test.nspace", &info);
         assert!(result.is_err(), "server_publish wrapper should fail with configured error");
     }
@@ -2661,7 +2661,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterResourcesCallback for TestResCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let cb = Box::new(TestResCb {});
         let result = server_register_resources(&info, cb);
         assert!(result.is_ok(), "server_register_resources wrapper should succeed with mocks");
@@ -2676,7 +2676,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterResourcesCallback for TestResCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let cb = Box::new(TestResCb {});
         let result = server_register_resources(&info, cb);
         assert!(result.is_err(), "server_register_resources should fail with configured error");
@@ -2689,7 +2689,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl DeregisterResourcesCallback for TestDeregResCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let cb = Box::new(TestDeregResCb {});
         let result = server_deregister_resources(&info, cb);
         assert!(result.is_ok(), "server_deregister_resources wrapper should succeed with mocks");
@@ -2704,7 +2704,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl DeregisterResourcesCallback for TestDeregResCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let cb = Box::new(TestDeregResCb {});
         let result = server_deregister_resources(&info, cb);
         assert!(result.is_err(), "server_deregister_resources should fail with configured error");
@@ -2714,7 +2714,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     fn test_mock_wrapper_server_tool_attach_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_tool_attach_to_server(&handle, None, false, &info);
         assert!(result.is_ok(), "server_tool_attach_to_server wrapper should succeed with mocks");
     }
@@ -2725,7 +2725,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
             .with_function_status("PMIx_server_tool_attach_to_server", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_tool_attach_to_server(&handle, None, false, &info);
         assert!(result.is_err(), "server_tool_attach_to_server should fail with configured error");
     }

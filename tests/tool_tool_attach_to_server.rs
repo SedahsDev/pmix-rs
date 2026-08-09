@@ -111,7 +111,7 @@ fn test_tool_attach_to_server_both_requested() {
 fn test_tool_attach_to_server_empty_info() {
     fn _check_empty_info() -> Result<(Option<PmixToolHandle>, Option<PmixServerHandle>), PmixStatus>
     {
-        let empty = InfoBuilder::new().build();
+        let empty = InfoBuilder::new().build().expect("build info");
         tool_attach_to_server(None, true, &empty)
     }
     let _ = _check_empty_info;
@@ -193,10 +193,10 @@ fn test_attach_result_is_send() {
 // Info interaction
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// InfoBuilder::new().build() produces a valid Info for tool_attach_to_server.
+/// InfoBuilder::new().build().expect("build info") produces a valid Info for tool_attach_to_server.
 #[test]
 fn test_info_builder_produces_attach_compatible_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // Compile-time check that Info can be passed to tool_attach_to_server.
     let _: fn(
         Option<&pmix::Proc>,
@@ -216,7 +216,7 @@ fn test_info_builder_produces_attach_compatible_info() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_tool_attach_to_server_with_server() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &info);
     match result {
         Ok((tool, server)) => {
@@ -248,7 +248,7 @@ fn test_tool_attach_to_server_with_server() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_tool_attach_to_server_no_server_identity() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, false, &info);
     match result {
         Ok((tool, server)) => {
@@ -270,7 +270,7 @@ fn test_tool_attach_to_server_no_server_identity() {
 #[test]
 #[ignore = "requires PMIx server"]
 fn test_tool_attach_to_server_no_tool_identity() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &info);
     match result {
         Ok((tool, server)) => {
@@ -294,12 +294,12 @@ fn test_tool_attach_to_server_no_tool_identity() {
 fn test_tool_attach_after_init() {
     use pmix::tool::{tool_finalize, tool_init};
 
-    let init_info = InfoBuilder::new().build();
+    let init_info = InfoBuilder::new().build().expect("build info");
     let init_result = tool_init(None, &init_info);
     match init_result {
         Ok(handle) => {
             // Now try to attach to a server
-            let attach_info = InfoBuilder::new().build();
+            let attach_info = InfoBuilder::new().build().expect("build info");
             let attach_result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
             match attach_result {
                 Ok((tool, server)) => {
@@ -337,11 +337,11 @@ fn test_tool_attach_after_init() {
 fn test_tool_attach_both_handles() {
     use pmix::tool::{tool_finalize, tool_init};
 
-    let init_info = InfoBuilder::new().build();
+    let init_info = InfoBuilder::new().build().expect("build info");
     let init_result = tool_init(None, &init_info);
     match init_result {
         Ok(handle) => {
-            let attach_info = InfoBuilder::new().build();
+            let attach_info = InfoBuilder::new().build().expect("build info");
             let attach_result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
             match attach_result {
                 Ok((tool, server)) => {

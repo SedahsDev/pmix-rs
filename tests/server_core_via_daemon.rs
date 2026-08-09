@@ -54,7 +54,7 @@ fn test_server_init_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
     assert!(is_server_initialized(), "server should be initialized");
     server_finalize(handle).expect("server_finalize should succeed");
@@ -106,7 +106,7 @@ fn test_server_finalize_ok_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed");
     let result: Result<(), PmixStatus> = server_finalize(handle);
     assert!(result.is_ok(), "server_finalize should return Ok");
@@ -121,7 +121,7 @@ fn test_server_init_with_callbacks_with_daemon() {
 
     let mut module = PmixServerModule::default();
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle =
         server_init(Some(&module), &info).expect("server_init with callbacks should succeed");
     assert!(is_server_initialized());
@@ -159,7 +159,7 @@ fn test_server_module_default_with_daemon() {
     assert!(module.spawn.is_none());
 
     // Verify it works with daemon
-    let handle = server_init(Some(&module), &InfoBuilder::new().build())
+    let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info"))
         .expect("server_init with default module should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }
@@ -176,7 +176,7 @@ fn test_server_module_as_c_ptr_with_daemon() {
     assert!(!ptr.is_null(), "as_c_ptr should not return null");
 
     // Verify it works with daemon
-    let handle = server_init(Some(&module), &InfoBuilder::new().build())
+    let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info"))
         .expect("server_init should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }
@@ -190,7 +190,7 @@ fn test_server_init_with_callbacks_config_with_daemon() {
 
     // Module with one callback set
     let mut module = PmixServerModule::default();
-    let handle = server_init(Some(&module), &InfoBuilder::new().build())
+    let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info"))
         .expect("server_init with one callback should succeed");
     assert!(is_server_initialized());
     server_finalize(handle).expect("server_finalize should succeed");

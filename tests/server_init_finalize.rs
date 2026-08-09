@@ -256,7 +256,7 @@ fn test_register_multiple_deregister_all_then_finalize() {
 
 #[ignore] // requires daemon isolation — C-level PMIx state corrupts between tests
 fn test_server_init_none_module() {
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let handle = server_init(None, &info).expect("server_init with None module should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }
@@ -266,7 +266,7 @@ fn test_server_init_none_module() {
 #[ignore] // requires daemon isolation — C-level PMIx state corrupts between tests
 fn test_server_init_with_empty_info() {
     let module = PmixServerModule::default();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }
@@ -340,7 +340,7 @@ fn test_full_lifecycle_init_register_deregister_finalize() {
 #[ignore] // requires daemon isolation — C-level PMIx state corrupts between tests
 fn test_full_lifecycle_with_server_init() {
     let module = PmixServerModule::default();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed");
 
     let proc = pmix::Proc::new("full.lifecycle.init.test", 0).expect("invalid nspace");
@@ -552,7 +552,7 @@ fn test_is_server_initialized_signature() {
 #[ignore] // requires daemon isolation — C-level PMIx state corrupts between tests
 fn test_server_init_no_panic() {
     let module = PmixServerModule::default();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let _result = std::panic::catch_unwind(|| {
         let _ = server_init(Some(&module), &info);
     });
@@ -862,7 +862,7 @@ fn test_server_init_with_callbacks_set() {
         client_connected: None,
         ..Default::default()
     };
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }

@@ -275,7 +275,7 @@ fn collect_inventory_before_init_err_init() {
     impl CollectInventoryCallback for Nop {
         fn on_complete(&self, _: PmixStatus, _: CollectInventoryResults) {}
     }
-    let directives = InfoBuilder::new().build();
+    let directives = InfoBuilder::new().build().expect("build info");
     let result = server_collect_inventory(&directives, Box::new(Nop));
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_raw(), -31);
@@ -288,7 +288,7 @@ fn collect_inventory_empty_directives() {
     impl CollectInventoryCallback for Nop {
         fn on_complete(&self, _: PmixStatus, _: CollectInventoryResults) {}
     }
-    let directives = InfoBuilder::new().build();
+    let directives = InfoBuilder::new().build().expect("build info");
     let result = server_collect_inventory(&directives, Box::new(Nop));
     assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
 }
@@ -318,7 +318,7 @@ fn collect_inventory_with_initialized_server() {
     }
     let module = PmixServerModule::default();
     let _handle = server_init_minimal(Some(&module)).expect("server_init");
-    let directives = InfoBuilder::new().build();
+    let directives = InfoBuilder::new().build().expect("build info");
     let _ = server_collect_inventory(&directives, Box::new(Cb));
 }
 
@@ -368,16 +368,16 @@ fn deliver_inventory_with_callback() {
     impl DeliverInventoryCallback for Nop {
         fn on_complete(self: Box<Self>, _: PmixStatus) {}
     }
-    let inventory = InfoBuilder::new().build();
-    let directives = InfoBuilder::new().build();
+    let inventory = InfoBuilder::new().build().expect("build info");
+    let directives = InfoBuilder::new().build().expect("build info");
     let _result = server_deliver_inventory(&inventory, &directives, Some(Box::new(Nop)));
 }
 
 /// server_deliver_inventory accepts None (blocking mode).
 #[test]
 fn deliver_inventory_blocking_mode() {
-    let inventory = InfoBuilder::new().build();
-    let directives = InfoBuilder::new().build();
+    let inventory = InfoBuilder::new().build().expect("build info");
+    let directives = InfoBuilder::new().build().expect("build info");
     let _result = server_deliver_inventory(&inventory, &directives, None);
 }
 
@@ -388,8 +388,8 @@ fn deliver_inventory_empty_params() {
     impl DeliverInventoryCallback for Nop {
         fn on_complete(self: Box<Self>, _: PmixStatus) {}
     }
-    let inventory = InfoBuilder::new().build();
-    let directives = InfoBuilder::new().build();
+    let inventory = InfoBuilder::new().build().expect("build info");
+    let directives = InfoBuilder::new().build().expect("build info");
     let _result = server_deliver_inventory(&inventory, &directives, Some(Box::new(Nop)));
 }
 
@@ -451,8 +451,8 @@ fn deliver_inventory_with_initialized_server() {
     }
     let module = PmixServerModule::default();
     let _handle = server_init_minimal(Some(&module)).expect("server_init");
-    let inventory = InfoBuilder::new().build();
-    let directives = InfoBuilder::new().build();
+    let inventory = InfoBuilder::new().build().expect("build info");
+    let directives = InfoBuilder::new().build().expect("build info");
     let _ = server_deliver_inventory(&inventory, &directives, Some(Box::new(Nop)));
 }
 
@@ -800,7 +800,7 @@ fn iof_deliver_stdout_with_data() {
     }
     let source = Proc::new("test_ns", 0).unwrap();
     let bo = PmixByteObject::from(b"hello".to_vec());
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result = server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop));
 }
 
@@ -813,7 +813,7 @@ fn iof_deliver_stderr_with_data() {
     }
     let source = Proc::new("test_ns", 0).unwrap();
     let bo = PmixByteObject::from(b"error".to_vec());
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result = server_iof_deliver(&source, IOFChannelFlags::STDERR, &bo, &info, Box::new(Nop));
 }
 
@@ -826,7 +826,7 @@ fn iof_deliver_stdin_with_data() {
     }
     let source = Proc::new("test_ns", 0).unwrap();
     let bo = PmixByteObject::from(b"input".to_vec());
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result = server_iof_deliver(&source, IOFChannelFlags::STDIN, &bo, &info, Box::new(Nop));
 }
 
@@ -839,7 +839,7 @@ fn iof_deliver_empty_byte_object() {
     }
     let source = Proc::new("test_ns", 0).unwrap();
     let bo = PmixByteObject::from(Vec::new());
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result = server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop));
 }
 
@@ -853,7 +853,7 @@ fn iof_deliver_large_byte_object() {
     let source = Proc::new("test_ns", 0).unwrap();
     let large: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
     let bo = PmixByteObject::from(large);
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result = server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop));
 }
 
@@ -867,7 +867,7 @@ fn iof_deliver_different_sources() {
     let source1 = Proc::new("job1", 0).unwrap();
     let source2 = Proc::new("job2", 42).unwrap();
     let bo = PmixByteObject::from(b"data".to_vec());
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _r1 = server_iof_deliver(&source1, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop));
     let _r2 = server_iof_deliver(&source2, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop));
 }
@@ -881,7 +881,7 @@ fn iof_deliver_consistent_result() {
     }
     let source = Proc::new("test_ns", 0).unwrap();
     let bo = PmixByteObject::from(b"data".to_vec());
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let first =
         server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop)).is_ok();
     for _ in 0..4 {
@@ -951,7 +951,7 @@ fn iof_deliver_with_initialized_server() {
     let _handle = server_init_minimal(Some(&module)).expect("server_init");
     let source = Proc::new("test_ns", 0).unwrap();
     let bo = PmixByteObject::from(b"hello".to_vec());
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = server_iof_deliver(&source, IOFChannelFlags::STDOUT, &bo, &info, Box::new(Nop));
 }
 
@@ -1014,10 +1014,10 @@ fn proc_construction_rejects_nul() {
     assert!(result.is_err());
 }
 
-/// InfoBuilder::new().build() produces a valid Info.
+/// InfoBuilder::new().build().expect("build info") produces a valid Info.
 #[test]
 fn info_builder_empty_builds() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // Info is usable as a parameter — we verify by passing it to a function.
     struct Nop;
     impl DeliverInventoryCallback for Nop {
@@ -1047,7 +1047,7 @@ fn all_eight_functions_callable_smoke() {
     impl CollectInventoryCallback for CollectNop {
         fn on_complete(&self, _: PmixStatus, _: CollectInventoryResults) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = server_collect_inventory(&info, Box::new(CollectNop));
 
     // 3. server_deliver_inventory

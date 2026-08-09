@@ -6,14 +6,14 @@ pub use crate::{Info, InfoBuilder, InfoFlags, PmixStatus, info_with_string_key};
 
 /// Create an empty `Info` list (length 0).
 pub fn empty() -> Info {
-    InfoBuilder::new().build()
+    InfoBuilder::new().build().expect("build info")
 }
 
 /// Info list with `PMIX_COLLECT_DATA` set (common fence/get pattern).
 pub fn with_collect_data() -> Info {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    builder.build()
+    builder.build().expect("build info")
 }
 
 /// Single string key/value info entry (no 13-byte key limit).

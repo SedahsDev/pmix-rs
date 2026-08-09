@@ -125,14 +125,14 @@ fn test_process_monitor_signature() {
 /// process_monitor can be called with empty directives.
 #[test]
 fn test_process_monitor_empty_directives() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let _result = process_monitor(&monitor, PmixStatus::from_raw(-109), &[]);
 }
 
 /// process_monitor accepts various error status codes.
 #[test]
 fn test_process_monitor_error_codes() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
 
     let _ = process_monitor(&monitor, PmixStatus::from_raw(-109), &[]);
     let _ = process_monitor(&monitor, PmixStatus::from_raw(-110), &[]);
@@ -142,7 +142,7 @@ fn test_process_monitor_error_codes() {
 /// process_monitor with multiple calls doesn't corrupt state.
 #[test]
 fn test_process_monitor_multiple_calls() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     for i in 0..5 {
         let _ = process_monitor(&monitor, PmixStatus::from_raw(i as i32), &[]);
     }
@@ -151,7 +151,7 @@ fn test_process_monitor_multiple_calls() {
 /// process_monitor returns error without server (PMIX_ERR_INIT expected).
 #[test]
 fn test_process_monitor_returns_error_without_server() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::from_raw(-109), &[]);
 
     match result {
@@ -185,7 +185,7 @@ fn test_process_monitor_nb_accepts_callback() {
         fn on_complete(&mut self, _s: PmixStatus, _r: Option<pmix::monitoring::MonitorResults>) {}
     }
 
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor_nb(
         &monitor,
         PmixStatus::from_raw(-109),
@@ -218,7 +218,7 @@ fn test_process_monitor_nb_stateful_callback() {
         called: Arc::clone(&called),
     });
 
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let _ = process_monitor_nb(&monitor, PmixStatus::from_raw(-109), &[], cb);
 }
 
@@ -230,7 +230,7 @@ fn test_process_monitor_nb_unique_request_ids() {
         fn on_complete(&mut self, _s: PmixStatus, _r: Option<pmix::monitoring::MonitorResults>) {}
     }
 
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     for _ in 0..20 {
         let _ = process_monitor_nb(&monitor, PmixStatus::from_raw(-109), &[], Box::new(DummyCb));
     }
@@ -244,7 +244,7 @@ fn test_process_monitor_nb_empty_directives() {
         fn on_complete(&mut self, _s: PmixStatus, _r: Option<pmix::monitoring::MonitorResults>) {}
     }
 
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let _ = process_monitor_nb(&monitor, PmixStatus::from_raw(0), &[], Box::new(DummyCb));
 }
 
@@ -340,7 +340,7 @@ fn test_monitor_alternating_calls() {
         fn on_complete(&mut self, _s: PmixStatus, _r: Option<pmix::monitoring::MonitorResults>) {}
     }
 
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
 
     for _ in 0..5 {
         let _ = process_monitor(&monitor, PmixStatus::from_raw(-109), &[]);
@@ -351,7 +351,7 @@ fn test_monitor_alternating_calls() {
 /// InfoBuilder can construct monitoring info entries.
 #[test]
 fn test_infobuilder_for_monitoring() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     assert!(info.is_empty());
     assert_eq!(info.len(), 0);
 }

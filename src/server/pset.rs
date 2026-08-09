@@ -337,7 +337,7 @@ pub(crate) extern "C" fn register_resources_callback_bridge(status: ffi::pmix_st
 /// }
 ///
 /// // Register with no info keys (e.g., to clear previous registration)
-/// let info = InfoBuilder::new().build();
+/// let info = InfoBuilder::new().build().expect("build info");
 /// server_register_resources(&info, Box::new(MyResourceCallback))
 ///     .expect("register_resources request rejected");
 /// ```
@@ -532,7 +532,7 @@ pub(crate) extern "C" fn deregister_resources_callback_bridge(
 /// }
 ///
 /// // Deregister all previously registered non-namespace resources
-/// let info = InfoBuilder::new().build();
+/// let info = InfoBuilder::new().build().expect("build info");
 /// server_deregister_resources(&info, Box::new(MyResourceCallback))
 ///     .expect("deregister_resources request rejected");
 /// ```
