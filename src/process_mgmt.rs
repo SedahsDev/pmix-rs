@@ -105,7 +105,10 @@ pub fn abort(
     // Convert the optional message to a C string pointer.
     let (msg_ptr, _msg_cstring) = match msg {
         Some(m) => {
-            let cs = CString::new(m).expect("abort message must not contain interior NUL bytes");
+            let cs = match CString::new(m) {
+                Ok(c) => c,
+                Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+            };
             (cs.as_ptr(), Some(cs))
         }
         None => (ptr::null(), None),
@@ -1167,7 +1170,10 @@ pub fn resolve_peers(
     // Convert nodename to C string if provided.
     let (nodename_ptr, _nodename_cstring) = match nodename {
         Some(n) => {
-            let cs = CString::new(n).expect("nodename must not contain interior NUL bytes");
+            let cs = match CString::new(n) {
+                Ok(c) => c,
+                Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+            };
             (cs.as_ptr(), Some(cs))
         }
         None => (ptr::null::<c_char>(), None),
@@ -1176,7 +1182,10 @@ pub fn resolve_peers(
     // Convert nspace to C string if provided.
     let (nspace_ptr, _nspace_cstring) = match nspace {
         Some(ns) => {
-            let cs = CString::new(ns).expect("nspace must not contain interior NUL bytes");
+            let cs = match CString::new(ns) {
+                Ok(c) => c,
+                Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+            };
             (cs.as_ptr(), Some(cs))
         }
         None => (ptr::null::<c_char>(), None),
@@ -1259,7 +1268,10 @@ pub fn resolve_peers(
 /// ```
 pub fn resolve_nodes(nspace: &str) -> Result<String, PmixStatus> {
     // Convert namespace to C string.
-    let nspace_cs = CString::new(nspace).expect("nspace must not contain interior NUL bytes");
+    let nspace_cs = match CString::new(nspace) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
 
     let mut nodelist: *mut c_char = ptr::null_mut();
 
@@ -2203,6 +2215,38 @@ mod tests {
     // error code varies by PMIx version and state — PMIx 5.0.7 returns
     // ErrNotFound rather than ErrInit. We assert only that an error is
     // returned, not the specific error, to avoid version-dependent failures.
+
+    #[test]
+    fn test_abort_with_nul_message_returns_bad_param() {
+        let result = abort(PmixStatus::from_raw(1), Some("boom\0"), None);
+        assert_eq!(result.unwrap_err().to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_resolve_peers_with_nul_nodename_returns_bad_param() {
+        let result = resolve_peers(Some("node\0"), None);
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("resolve_peers() should reject NUL in nodename"),
+        };
+        assert_eq!(error.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_resolve_peers_with_nul_nspace_returns_bad_param() {
+        let result = resolve_peers(None, Some("ns\0"));
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("resolve_peers() should reject NUL in nspace"),
+        };
+        assert_eq!(error.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_resolve_nodes_with_nul_nspace_returns_bad_param() {
+        let result = resolve_nodes("ns\0withnul");
+        assert_eq!(result.unwrap_err().to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
 
     #[test]
     fn test_resolve_peers_no_dvm() {
