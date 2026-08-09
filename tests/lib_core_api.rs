@@ -18,13 +18,13 @@ use std::ffi::CString;
 
 #[test]
 fn test_get_version_not_empty() {
-    let version = pmix::get_version();
+    let version = pmix::get_version().expect("version");
     assert!(!version.is_empty(), "version should not be empty");
 }
 
 #[test]
 fn test_get_version_has_digits() {
-    let version = pmix::get_version();
+    let version = pmix::get_version().expect("version");
     assert!(
         version.chars().any(|c| c.is_ascii_digit()),
         "version should contain digits: {}",

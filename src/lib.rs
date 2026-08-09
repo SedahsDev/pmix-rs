@@ -3972,12 +3972,11 @@ pub fn fence(proc: &Proc, info: Option<Info>) -> Result<(), pmix_status_t> {
     }
 }
 
-pub fn get_version() -> &'static str {
-    let version: &CStr;
-    unsafe {
-        version = CStr::from_ptr(PMIx_Get_version());
-    }
-    version.to_str().unwrap()
+pub fn get_version() -> Result<&'static str, std::str::Utf8Error> {
+    // SAFETY: PMIx_Get_version() returns a pointer to a NUL-terminated,
+    // process-lifetime static string.
+    let version = unsafe { CStr::from_ptr(PMIx_Get_version()) };
+    version.to_str()
 }
 /// Manually drive the PMIx event progress loop.
 ///
@@ -4166,7 +4165,7 @@ mod tests {
 
     #[test]
     fn test_get_version() {
-        let ver = super::get_version();
+        let ver = super::get_version().unwrap();
         assert!(!ver.is_empty(), "PMIx version string should not be empty");
     }
 
