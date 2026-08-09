@@ -43,9 +43,6 @@ fn lookup_names(job_size: u32) -> bool {
             for result in &results {
                 print_lookup_result(result);
             }
-            // The PMIx lookup wrapper transfers ownership of returned values;
-            // keep this example conservative with older DVM implementations.
-            std::mem::forget(results);
             true
         }
         Err(error) => {
@@ -155,7 +152,6 @@ fn main() {
                 for result in &results {
                     print_lookup_result(result);
                 }
-                std::mem::forget(results);
             }
             Err(error) => eprintln!("lookup name.0 after unpublish failed: {error:?}"),
         }
