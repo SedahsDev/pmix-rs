@@ -17,9 +17,9 @@
 
 use std::ffi::CString;
 
-const LOCAL_PEERS: &str = "PMIX_LOCAL_PEERS";
-const LOCAL_SIZE: &str = "PMIX_LOCAL_SIZE";
-const UNIV_SIZE: &str = "PMIX_UNIV_SIZE";
+const LOCAL_PEERS: &str = "pmix.lpeers";
+const LOCAL_SIZE: &str = "pmix.local.size";
+const UNIV_SIZE: &str = "pmix.univ.size";
 
 fn main() {
     println!("pmix-rs osss_ucx_peer_exchange");
@@ -43,7 +43,7 @@ fn main() {
         }
     };
 
-    let job_size = match pmix::data_ops::get(&wildcard, "PMIX_JOB_SIZE", None) {
+    let job_size = match pmix::data_ops::get(&wildcard, "pmix.job.size", None) {
         Ok(value) => {
             let size = value.uint64();
             println!("job size: {size}");

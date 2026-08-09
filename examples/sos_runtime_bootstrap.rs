@@ -14,9 +14,9 @@
 
 use std::ffi::CString;
 
-const LOCAL_SIZE: &[u8] = b"PMIX_LOCAL_SIZE\0";
-const LOCAL_PEERS: &[u8] = b"PMIX_LOCAL_PEERS\0";
-const UNIV_SIZE: &[u8] = b"PMIX_UNIV_SIZE\0";
+const LOCAL_SIZE: &[u8] = b"pmix.local.size\0";
+const LOCAL_PEERS: &[u8] = b"pmix.lpeers\0";
+const UNIV_SIZE: &[u8] = b"pmix.univ.size\0";
 
 fn main() {
     println!("pmix-rs sos_runtime_bootstrap");
