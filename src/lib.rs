@@ -3153,6 +3153,7 @@ impl InfoBuilder {
     ///
     /// Use this for keys like `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`, 15 bytes)
     /// which don't fit in [`InfoBuilder::add`].
+    /// Returns `Err(NulError)` if the key or value contains a NUL byte.
     pub fn add_string_key(
         &mut self,
         key: &str,
@@ -3202,6 +3203,8 @@ impl InfoBuilder {
     /// thread that calls `PMIx_Get` or other APIs — work is threadshifted
     /// onto the progress/`evbase` internally.
     ///
+    /// Returns `Err(NulError)` if `cpus` contains a NUL byte.
+    ///
     /// # C API
     /// `PMIX_BIND_PROGRESS_THREAD` (`pmix.bind.pt`) — `PMIX_STRING`
     pub fn bind_progress_thread(&mut self, cpus: &str) -> Result<&mut Self, std::ffi::NulError> {
@@ -3242,6 +3245,8 @@ impl InfoBuilder {
     /// Gives the internal PMIx progress thread a custom name for debugging
     /// and profiling. The name is visible in thread listings (e.g.,
     /// `pthread_getname_np`, debuggers, `ps`).
+    ///
+    /// Returns `Err(NulError)` if `name` contains a NUL byte.
     ///
     /// # C API
     /// `PMIX_PROGRESS_THREAD_NAME` (`pmix.evname`) — `PMIX_STRING`
@@ -3483,16 +3488,18 @@ impl InitOptions {
 /// This is useful for keys like `"pmix.srvr.uri"` (14 bytes) which don't
 /// fit in `InfoBuilder::add(key: &'static [u8; 13])`.
 pub fn info_with_string_key(key: &str, value: &str) -> Result<Info, PmixStatus> {
-    let key_cstr = CString::new(key)
-        .map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
-    let value_cstr = CString::new(value)
-        .map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+    let key_cstr = CString::new(key).map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+    let value_cstr = CString::new(value).map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+    // SAFETY: PMIx allocates one initialized info record and returns a null
+    // pointer on allocation failure.
     let info_ptr = unsafe { PMIx_Info_create(1) };
     if info_ptr.is_null() {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_NOMEM));
     }
     // PMIx_Info_load copies key/value into the info array (PMIx 4+/5+/6+).
     // Keep CStrings alive only for the duration of the load call, then drop.
+    // SAFETY: `info_ptr` is a valid PMIx info array, and the CString pointers
+    // remain valid for the duration of the call.
     let status = unsafe {
         PMIx_Info_load(
             info_ptr,
@@ -3506,6 +3513,8 @@ pub fn info_with_string_key(key: &str, value: &str) -> Result<Info, PmixStatus> 
     drop(value_cstr);
     if status != PMIX_SUCCESS as i32 {
         // Free the half-built array before returning the PMIx error.
+        // SAFETY: `info_ptr` was allocated by PMIx_Info_create(1) above and
+        // remains valid until it is freed here.
         unsafe {
             PMIx_Info_free(info_ptr, 1);
         }
