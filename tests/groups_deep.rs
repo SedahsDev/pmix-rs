@@ -96,7 +96,7 @@ fn test_destruct_callback_wrapper() {
 
 #[test]
 fn test_infobuilder_build_empty() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = info;
 }
 
@@ -104,7 +104,7 @@ fn test_infobuilder_build_empty() {
 fn test_infobuilder_collect_data() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ fn test_group_construct_multiple_procs() {
 fn test_group_construct_with_directives() {
     daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
-    let dirs = vec![InfoBuilder::new().build()];
+    let dirs = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_construct("directed_group", &[proc], &dirs);
     let _ = result;
 }
@@ -313,7 +313,7 @@ fn test_group_construct_nb_success() {
 fn test_group_construct_nb_with_info() {
     daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let cb = GroupConstructCallbackWrapper::new(|_s, _i| {});
     let result = group_construct_nb("nb_group", &[proc], &info, cb);
     assert!(result.is_ok());
@@ -345,7 +345,7 @@ fn test_group_invite_multiple_procs() {
 fn test_group_invite_with_directives() {
     daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
-    let dirs = vec![InfoBuilder::new().build()];
+    let dirs = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_invite("invite_group", &[proc], &dirs);
     let _ = result;
 }
@@ -383,7 +383,7 @@ fn test_group_join_success() {
 fn test_group_join_with_info() {
     daemon_helper::ensure_pmix_init();
     let leader = Proc::new("ns", 0).expect("leader");
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_join(
         "join_group",
         &leader,
@@ -425,7 +425,7 @@ fn test_group_leave_success() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_leave_with_info() {
     daemon_helper::ensure_pmix_init();
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_leave("leave_group", &info);
     let _ = result;
 }
@@ -455,7 +455,7 @@ fn test_group_destruct_success() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_group_destruct_with_info() {
     daemon_helper::ensure_pmix_init();
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = group_destruct("destruct_group", &info);
     let _ = result;
 }

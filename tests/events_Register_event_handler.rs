@@ -55,7 +55,7 @@ fn op_cb_fn_can_be_none() {
 /// rather than panicking or segfaulting.
 #[test]
 fn register_event_handler_without_init_fails() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&[], &info, None, None);
     assert!(
         result.is_err(),
@@ -77,7 +77,7 @@ fn register_event_handler_with_codes_without_init_fails() {
         PmixStatus::Known(PmixError::ErrJobAborted),
         PmixStatus::Known(PmixError::EventJobEnd),
     ];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&codes, &info, None, None);
     assert!(
         result.is_err(),
@@ -106,7 +106,7 @@ fn register_event_handler_with_callback_without_init_fails() {
         // Should never be called without PMIx_Init.
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&[], &info, Some(dummy_notification_handler), None);
     assert!(
         result.is_err(),
@@ -151,7 +151,7 @@ fn deregister_event_handler_nb_without_init_fails() {
 #[test]
 fn notify_event_without_init_fails() {
     let proc = pmix::Proc::new("", 0).expect("create wildcard proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrJobAborted),
         &proc,
@@ -171,7 +171,7 @@ fn notify_event_nb_without_init_fails() {
     extern "C" fn dummy_op_cb(_status: i32, _cbdata: *mut c_void) {}
 
     let proc = pmix::Proc::new("", 0).expect("create wildcard proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event_nb(
         PmixStatus::Known(PmixError::EventJobEnd),
         &proc,
@@ -235,7 +235,7 @@ fn register_multiple_event_codes_without_init_fails() {
         PmixStatus::Known(PmixError::EventJobEnd),
         PmixStatus::Known(PmixError::EventJobStart),
     ];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&codes, &info, None, None);
     assert!(
         result.is_err(),
@@ -247,7 +247,7 @@ fn register_multiple_event_codes_without_init_fails() {
 /// Registering with empty codes (match all) without init should fail.
 #[test]
 fn register_all_events_without_init_fails() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&[], &info, None, None);
     assert!(
         result.is_err(),
@@ -264,7 +264,7 @@ fn register_all_events_without_init_fails() {
 fn register_event_handler_nb_without_init_fails() {
     extern "C" fn dummy_reg_cb(_status: i32, _refid: EventHandlerRef, _cbdata: *mut c_void) {}
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler_nb(&[], &info, None, Some(dummy_reg_cb), ptr::null_mut());
     assert!(
         result.is_err(),
@@ -310,7 +310,7 @@ fn register_deregister_lifecycle() {
     // as a template for when PMIx_Init is available.
     //
     // let _ = pmix::lifecycle::init(None, &[]);
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     // let handler_ref = register_event_handler(&[], &info, None, None)
     //     .expect("register should succeed after PMIx_Init");
     // assert!(handler_ref > 0, "handler ref should be positive");
@@ -329,7 +329,7 @@ fn register_with_codes_deregister_lifecycle() {
     // Same as above but with specific event codes.
     // let _ = pmix::lifecycle::init(None, &[]);
     // let codes = vec![PmixStatus::Known(PmixError::ErrJobAborted)];
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     // let handler_ref = register_event_handler(&codes, &info, None, None)
     //     .expect("register should succeed");
     // deregister_event_handler(handler_ref, None)
@@ -346,7 +346,7 @@ fn notify_event_lifecycle() {
     daemon_helper::ensure_pmix_init();
     // let _ = pmix::lifecycle::init(None, &[]);
     // let proc = pmix::Proc::new("", 0).unwrap();
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     // notify_event(
     //     PmixStatus::Known(PmixError::EventJobEnd),
     //     &proc,

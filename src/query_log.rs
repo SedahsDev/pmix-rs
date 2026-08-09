@@ -820,7 +820,7 @@ mod tests {
     #[test]
     fn test_pmix_query_with_qualifiers() {
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
-        let query = query.with_qualifiers(crate::InfoBuilder::new().build());
+        let query = query.with_qualifiers(crate::InfoBuilder::new().build().expect("build info"));
         assert!(!query._keys.is_empty());
     }
 
@@ -829,7 +829,7 @@ mod tests {
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
         let mut builder = crate::InfoBuilder::new();
         builder.collect_data();
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         let query = query.with_qualifiers(info);
         assert!(!query._keys.is_empty());
     }
@@ -844,7 +844,7 @@ mod tests {
     #[test]
     fn test_pmix_query_drop_after_with_qualifiers() {
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let _query = query.with_qualifiers(info);
     }
 
@@ -1115,7 +1115,7 @@ mod tests {
 
     #[test]
     fn test_log_data_with_empty_info() {
-        let data = vec![crate::InfoBuilder::new().build()];
+        let data = vec![crate::InfoBuilder::new().build().expect("build info")];
         let directives = vec![];
         let result = log_data(&data, &directives);
         assert!(result.is_ok() || result.is_err());
@@ -1413,7 +1413,7 @@ mod tests {
     #[test]
     fn test_pmix_query_with_multiple_qualifier_calls() {
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let _query = query.with_qualifiers(info);
     }
 
@@ -1508,7 +1508,7 @@ mod tests {
 
     #[test]
     fn test_info_builder_empty_for_log() {
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         assert!(info.is_empty());
         assert_eq!(info.len(), 0);
     }

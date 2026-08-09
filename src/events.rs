@@ -41,7 +41,7 @@
 //!
 //! // Register a handler for job-abort events
 //! let codes = [pmix::PmixStatus::Known(pmix::PmixError::ErrJobAborted)];
-//! let info = InfoBuilder::new().build();
+//! let info = InfoBuilder::new().build().expect("build info");
 //! let handler_ref = register_event_handler(
 //!     &codes,
 //!     &info,

@@ -148,7 +148,7 @@ fn test_server_register_nspace_signature() {
         impl RegisterNspaceCallback for DummyCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = pmix::InfoBuilder::new().build();
+        let info = pmix::InfoBuilder::new().build().expect("build info");
         let _f: fn(
             &str,
             i32,
@@ -167,7 +167,7 @@ fn test_register_nspace_nul_in_nspace() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_register_nspace(
         "job\0name", // Contains NUL byte
         4,
@@ -195,7 +195,7 @@ fn test_register_nspace_valid_nspace_signature() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> =
         server_register_nspace("myjob.12345", 4, &info, Box::new(DummyCb));
     // We don't assert the result because it depends on PMIx server state.
@@ -209,7 +209,7 @@ fn test_register_nspace_zero_local_procs() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> =
         server_register_nspace("myjob.67890", 0, &info, Box::new(DummyCb));
 }
@@ -222,7 +222,7 @@ fn test_register_nspace_large_nlocalprocs() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> =
         server_register_nspace("bigjob.99999", 1024, &info, Box::new(DummyCb));
 }
@@ -235,7 +235,7 @@ fn test_register_nspace_empty_info() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> =
         server_register_nspace("test_nspace", 2, &info, Box::new(DummyCb));
 }
@@ -269,7 +269,7 @@ fn test_register_nspace_with_server() {
         status: Arc::clone(&status),
     });
 
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_register_nspace("test_nspace", 4, &info, cb);
 
     // The initial call should succeed (request accepted).
@@ -297,7 +297,7 @@ fn test_register_nspace_multiple_nspaces() {
     }
 
     let count = Arc::new(Mutex::new(0usize));
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
 
     for i in 0..3 {
         let cb = Box::new(CountCb {
@@ -322,7 +322,7 @@ fn test_register_nspace_empty_nspace() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_register_nspace("", 4, &info, Box::new(DummyCb));
 
     // Empty nspace should be rejected by the PMIx library.
@@ -348,7 +348,7 @@ fn test_callback_registry_unique_ids() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     // Create multiple callbacks — each should get a unique ID internally.
     for _ in 0..10 {
         let _result = server_register_nspace("test", 1, &info, Box::new(DummyCb));

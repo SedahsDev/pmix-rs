@@ -107,7 +107,7 @@ fn test_groups_all_ffi_operations() {
 
     // Initialize as server — do NOT use shared tool handle first
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let member = Proc::new("test-nspace", 0).expect("proc");

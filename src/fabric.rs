@@ -2223,7 +2223,7 @@ mod tests {
         // Create a dummy Info directive using InfoBuilder.
         let mut builder = crate::InfoBuilder::new();
         builder.collect_data();
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         let result = fabric_register(&mut fabric, &[info]);
         // Without PMIx server, expect error — but no crash.
         if let Ok(()) = result {
@@ -2322,7 +2322,7 @@ mod tests {
         let mut fabric = PmixFabric::new(Some("test_fabric")).unwrap();
         let mut builder = crate::InfoBuilder::new();
         builder.collect_data();
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         let result = fabric_register(&mut fabric, &[info]);
         assert!(result.is_ok());
         assert!(fabric.is_registered());

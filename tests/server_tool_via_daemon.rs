@@ -73,7 +73,7 @@ fn test_proc_constructible_for_tool_attach() {
 /// InfoBuilder produces Info usable with tool_attach.
 #[test]
 fn test_info_builder_for_tool_attach() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _: &pmix::Info = &info;
 }
 
@@ -96,11 +96,11 @@ fn test_server_tool_attach_to_server_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Tool attach from server context — returns error (no tool connection).
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = server_tool_attach_to_server(&handle, None, false, &attach_info);
     assert!(
         result.is_err(),
@@ -118,11 +118,11 @@ fn test_server_tool_attach_with_myproc_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let myproc = Proc::new("test_nspace", 0).expect("invalid nspace");
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = server_tool_attach_to_server(&handle, Some(&myproc), false, &attach_info);
     assert!(
         result.is_err(),
@@ -140,10 +140,10 @@ fn test_server_tool_attach_want_server_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = server_tool_attach_to_server(&handle, None, true, &attach_info);
     assert!(
         result.is_err(),
@@ -161,11 +161,11 @@ fn test_server_tool_attach_full_params_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let myproc = Proc::new("full_params_nspace", 0).expect("invalid nspace");
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = server_tool_attach_to_server(&handle, Some(&myproc), true, &attach_info);
     assert!(
         result.is_err(),
@@ -183,10 +183,10 @@ fn test_server_tool_attach_err_unreach_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = server_tool_attach_to_server(&handle, None, false, &attach_info);
     assert!(
         result.is_err(),
@@ -210,10 +210,10 @@ fn test_server_tool_attach_returns_tuple_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result: Result<
         (
             Option<pmix::tool::PmixToolHandle>,
@@ -238,10 +238,10 @@ fn test_server_tool_attach_with_callbacks_module_with_daemon() {
 
     let mut module = PmixServerModule::default();
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = server_tool_attach_to_server(&handle, None, false, &attach_info);
     assert!(
         result.is_err(),
@@ -259,11 +259,11 @@ fn test_server_tool_attach_multiple_attempts_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // First attempt — no myproc, no want_server.
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result1 = server_tool_attach_to_server(&handle, None, false, &attach_info);
     assert!(result1.is_err(), "first tool_attach should return Err");
 

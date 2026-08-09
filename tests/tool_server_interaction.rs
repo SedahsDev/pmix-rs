@@ -25,7 +25,7 @@ use pmix::{Info, InfoBuilder, PmixStatus, Proc};
 /// tool_attach_to_server returns Err when called without tool_init.
 #[test]
 fn test_attach_to_server_without_init_returns_err() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &info);
     assert!(
         result.is_err(),
@@ -36,7 +36,7 @@ fn test_attach_to_server_without_init_returns_err() {
 /// tool_attach_to_server error is not PMIX_SUCCESS.
 #[test]
 fn test_attach_to_server_without_init_error_not_success() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &info);
     match result {
         Err(status) => {
@@ -53,7 +53,7 @@ fn test_attach_to_server_without_init_error_not_success() {
 /// tool_attach_to_server without init does not panic.
 #[test]
 fn test_attach_to_server_without_init_no_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // If we reach here, no panic occurred.
     let _result = tool_attach_to_server(None, true, &info);
 }
@@ -61,7 +61,7 @@ fn test_attach_to_server_without_init_no_panic() {
 /// tool_attach_to_server with want_server=false also errors without init.
 #[test]
 fn test_attach_to_server_without_init_no_server_flag() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, false, &info);
     assert!(
         result.is_err(),
@@ -72,7 +72,7 @@ fn test_attach_to_server_without_init_no_server_flag() {
 /// tool_attach_to_server with myproc=Some also errors without init.
 #[test]
 fn test_attach_to_server_without_init_with_myproc() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let proc = Proc::new("test-nspace", 0).unwrap();
     let result = tool_attach_to_server(Some(&proc), true, &info);
     assert!(
@@ -84,7 +84,7 @@ fn test_attach_to_server_without_init_with_myproc() {
 /// tool_attach_to_server with empty info errors without init.
 #[test]
 fn test_attach_to_server_without_init_empty_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &info);
     assert!(
         result.is_err(),
@@ -137,7 +137,7 @@ fn test_server_handle_traits_for_attach() {
 fn test_attach_to_server_with_init_no_panic() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     // This may succeed or fail depending on server config, but must not panic.
     let _result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
 }
@@ -149,7 +149,7 @@ fn test_attach_to_server_with_init_no_panic() {
 fn test_attach_to_server_want_server_returns_option() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(handle.proc().as_ref(), true, &attach_info);
     match result {
         Ok((tool_handle, server_handle)) => {
@@ -176,7 +176,7 @@ fn test_attach_to_server_want_server_returns_option() {
 fn test_attach_to_server_no_server_flag_returns_none() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(handle.proc().as_ref(), false, &attach_info);
     match result {
         Ok((_, server_handle)) => {
@@ -198,7 +198,7 @@ fn test_attach_to_server_no_server_flag_returns_none() {
 fn test_attach_to_server_no_myproc_returns_none_tool() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon not available");
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &attach_info);
     match result {
         Ok((tool_handle, _)) => {
@@ -376,7 +376,7 @@ fn test_get_servers_result_is_send() {
 #[test]
 fn test_set_server_without_init_returns_err() {
     let proc = Proc::new("test-nspace", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_set_server(&proc, &info);
     assert!(
         result.is_err(),
@@ -388,7 +388,7 @@ fn test_set_server_without_init_returns_err() {
 #[test]
 fn test_set_server_without_init_error_not_success() {
     let proc = Proc::new("test-nspace", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_set_server(&proc, &info);
     match result {
         Err(status) => {
@@ -406,7 +406,7 @@ fn test_set_server_without_init_error_not_success() {
 #[test]
 fn test_set_server_without_init_no_panic() {
     let proc = Proc::new("test-nspace", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // If we reach here, no panic occurred.
     let _result = tool_set_server(&proc, &info);
 }
@@ -415,7 +415,7 @@ fn test_set_server_without_init_no_panic() {
 #[test]
 fn test_set_server_without_init_empty_info() {
     let proc = Proc::new("test-nspace", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_set_server(&proc, &info);
     assert!(
         result.is_err(),
@@ -430,7 +430,7 @@ fn test_set_server_without_init_various_procs() {
         Proc::new("other-nspace", 1).unwrap(),
         Proc::new("prte-beast-1519", 0).unwrap(),
     ];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     for proc in procs {
         let result = tool_set_server(&proc, &info);
         assert!(
@@ -522,7 +522,7 @@ fn test_set_server_with_init_no_panic() {
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
 
     // Use the tool's own proc as the server proc — may or may not work
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_set_server(&handle.require_proc(), &info);
     // We accept either success or error — the key is no panic
     let _ = result;
@@ -539,7 +539,7 @@ fn test_set_server_with_server_from_get_servers() {
     let servers = tool_get_servers().expect("tool_get_servers failed");
     if let Some(server) = servers.first() {
         // Try to set the first server as primary
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         let result = tool_set_server(server, &info);
         // May succeed or fail depending on server config
         let _ = result;
@@ -560,7 +560,7 @@ fn test_lifecycle_init_attach_disconnect_finalize() {
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
 
     // Step 1: attach (may succeed or fail)
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
         Ok((_, Some(server))) => {
             // Step 2: disconnect from the server we attached to
@@ -609,7 +609,7 @@ fn test_lifecycle_init_set_server_finalize() {
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
 
     // Step 1: set_server (using tool's own proc as target)
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _set_result = tool_set_server(&handle.require_proc(), &info);
 
     // Step 2: finalize — singleton handle, Drop handles it at process exit
@@ -628,12 +628,12 @@ fn test_lifecycle_full_combined() {
 
     // Step 2: set_server (if we have servers)
     if let Some(server) = servers.first() {
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         let _ = tool_set_server(server, &info);
     }
 
     // Step 3: attach (may succeed or fail)
-    let attach_info = InfoBuilder::new().build();
+    let attach_info = InfoBuilder::new().build().expect("build info");
     match tool_attach_to_server(handle.proc().as_ref(), true, &attach_info) {
         Ok((_, Some(server))) => {
             // Step 4: disconnect
@@ -685,7 +685,7 @@ fn test_finalize_after_failed_attach() {
     let handle = daemon_helper::get_tool_handle().expect("daemon not available");
 
     // Try attach with empty info (likely to fail)
-    let empty_info = InfoBuilder::new().build();
+    let empty_info = InfoBuilder::new().build().expect("build info");
     let _ = tool_attach_to_server(handle.proc().as_ref(), true, &empty_info);
 
     // Finalize should still work — this test specifically tests finalize behavior
@@ -728,7 +728,7 @@ fn test_finalize_after_failed_set_server() {
 
     // Try set_server with a fake server proc
     let fake_server = Proc::new("nonexistent-server", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = tool_set_server(&fake_server, &info);
 
     // Finalize should still work
@@ -778,7 +778,7 @@ fn test_concurrent_get_servers_safe() {
 /// Error from tool_attach_to_server without init is a known PMIx error.
 #[test]
 fn test_attach_without_init_error_code() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_attach_to_server(None, true, &info);
     match result {
         Err(status) => {
@@ -810,7 +810,7 @@ fn test_get_servers_without_init_error_code() {
 #[test]
 fn test_set_server_without_init_error_code() {
     let proc = Proc::new("test-nspace", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_set_server(&proc, &info);
     match result {
         Err(status) => {
@@ -883,7 +883,7 @@ fn test_proc_new_various() {
 /// InfoBuilder produces Info compatible with all server interaction functions.
 #[test]
 fn test_info_compatible_with_all_server_funcs() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let proc = Proc::new("test", 0).unwrap();
 
     // All these compile — proving Info is compatible
@@ -911,7 +911,7 @@ fn test_get_servers_then_set_each_as_primary() {
     let servers = tool_get_servers().expect("tool_get_servers failed");
     for server in &servers {
         // Try to set each server as primary
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         let result = tool_set_server(server, &info);
         // May succeed or fail — the key is no panic
         let _ = result;

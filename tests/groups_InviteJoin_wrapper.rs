@@ -56,7 +56,7 @@ fn test_group_invite_no_init() {
 #[test]
 fn test_group_invite_with_info() {
     let proc = Proc::new("test_ns", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_invite("test_group", &[proc], &[info]));
     assert!(!err.is_success());
 }
@@ -164,7 +164,7 @@ fn test_group_invite_nb_with_info() {
             called_clone.store(true, Ordering::SeqCst);
         });
     let proc = Proc::new("test_ns", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_invite_nb("test_group", &[proc], &[info], cb));
     assert!(!err.is_success());
 }
@@ -236,7 +236,7 @@ fn test_group_join_no_init() {
 #[test]
 fn test_group_join_with_info() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_join(
         "test_group",
         &leader,
@@ -308,8 +308,8 @@ fn test_group_join_idempotent() {
 #[test]
 fn test_group_join_multiple_info() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
-    let i1 = InfoBuilder::new().build();
-    let i2 = InfoBuilder::new().build();
+    let i1 = InfoBuilder::new().build().expect("build info");
+    let i2 = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_join(
         "test_group",
         &leader,
@@ -386,7 +386,7 @@ fn test_group_join_nb_with_info() {
         GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: Vec<pmix::Info>| {
             called_clone.store(true, Ordering::SeqCst);
         });
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,

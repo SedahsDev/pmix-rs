@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn test_process_monitor_with_success_error_code() {
         use crate::InfoBuilder;
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
     }
 
@@ -639,7 +639,7 @@ mod tests {
     fn test_heartbeat_and_process_monitor_coexist() {
         use crate::InfoBuilder;
         let _ = heartbeat();
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let _ = process_monitor(&monitor, PmixStatus::from_raw(-109), &[]);
         let _ = heartbeat();
     }
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn test_infobuilder_for_monitoring() {
         use crate::InfoBuilder;
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         assert!(info.is_empty());
         assert_eq!(info.len(), 0);
     }
@@ -800,7 +800,7 @@ mod tests {
     #[test]
     fn test_process_monitor_fails_without_init() {
         use crate::InfoBuilder;
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
         assert!(
             result.is_err(),
@@ -815,7 +815,7 @@ mod tests {
     #[test]
     fn test_process_monitor_with_partial_success() {
         use crate::{InfoBuilder, PmixError};
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         // Partial success is treated as success by the wrapper — but without init,
         // the FFI call itself will fail, so we get an error.
         let result = process_monitor(
@@ -835,7 +835,7 @@ mod tests {
         use crate::InfoBuilder;
         let mut builder = InfoBuilder::new();
         builder.collect_data();
-        let monitor = builder.build();
+        let monitor = builder.build().expect("build info");
         assert!(!monitor.is_empty(), "collect_data should add an entry");
         let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
         assert!(result.is_err(), "should fail without PMIx_Init");
@@ -847,7 +847,7 @@ mod tests {
         use crate::InfoBuilder;
         let mut builder = InfoBuilder::new();
         builder.collect_data();
-        let monitor = builder.build();
+        let monitor = builder.build().expect("build info");
         assert_eq!(monitor.len(), 1);
         let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
     }
@@ -856,7 +856,7 @@ mod tests {
     #[test]
     fn test_process_monitor_empty_monitor_zero_directives() {
         use crate::InfoBuilder;
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         assert!(monitor.is_empty());
         let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
         assert!(result.is_err());
@@ -870,10 +870,10 @@ mod tests {
         impl MonitorCallback for NoopCb {
             fn on_complete(&mut self, _: PmixStatus, _: Option<MonitorResults>) {}
         }
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let mut dir_builder = InfoBuilder::new();
         dir_builder.collect_data();
-        let dirs = vec![dir_builder.build()];
+        let dirs = vec![dir_builder.build().expect("build info")];
         let result = process_monitor_nb(&monitor, PmixStatus::from_raw(0), &dirs, Box::new(NoopCb));
         assert!(result.is_err(), "should fail without PMIx_Init");
     }
@@ -886,7 +886,7 @@ mod tests {
             fn on_complete(&mut self, _: PmixStatus, _: Option<MonitorResults>) {}
         }
         use crate::InfoBuilder;
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let result = process_monitor_nb(
             &monitor,
             PmixStatus::Unknown(-109), // PMIX_MONITOR_HEARTBEAT_ALERT
@@ -936,7 +936,7 @@ mod tests {
         use crate::InfoBuilder;
         let mut builder = InfoBuilder::new();
         builder.collect_data();
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert!(!info.is_empty());
         assert_eq!(info.len(), 1);
     }
@@ -984,7 +984,7 @@ mod tests {
         use crate::InfoBuilder;
         for _ in 0..5 {
             let _ = heartbeat();
-            let monitor = InfoBuilder::new().build();
+            let monitor = InfoBuilder::new().build().expect("build info");
             let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
             let _ = heartbeat();
         }

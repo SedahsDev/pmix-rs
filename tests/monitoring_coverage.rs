@@ -19,15 +19,15 @@ use pmix::{InfoBuilder, PmixError, PmixStatus};
 #[test]
 fn test_process_monitor_without_init_returns_error() {
     // Without PMIx_Init, process_monitor should return an error, not panic.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
     assert!(result.is_err(), "process_monitor without init should fail");
 }
 
 #[test]
 fn test_process_monitor_with_directives_without_init() {
-    let monitor = InfoBuilder::new().build();
-    let dirs = vec![InfoBuilder::new().build(), InfoBuilder::new().build()];
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let dirs = vec![InfoBuilder::new().build().expect("build info"), InfoBuilder::new().build().expect("build info")];
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrTimeout), &dirs);
     assert!(
         result.is_err(),
@@ -37,7 +37,7 @@ fn test_process_monitor_with_directives_without_init() {
 
 #[test]
 fn test_process_monitor_success_error_code_without_init() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[]);
     // Without init, even a "success" error code will fail at the FFI layer
     assert!(result.is_err());
@@ -45,7 +45,7 @@ fn test_process_monitor_success_error_code_without_init() {
 
 #[test]
 fn test_process_monitor_multiple_calls_without_init() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     for i in 0..5 {
         let result = process_monitor(&monitor, PmixStatus::from_raw(-100 - i as i32), &[]);
         assert!(result.is_err(), "iteration {} should fail", i);
@@ -67,7 +67,7 @@ impl MonitorCallback for CountingMonitorCb {
 
 #[test]
 fn test_process_monitor_nb_without_init_returns_error() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let cb = Box::new(CountingMonitorCb {
         count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     });
@@ -80,8 +80,8 @@ fn test_process_monitor_nb_without_init_returns_error() {
 
 #[test]
 fn test_process_monitor_nb_with_directives_without_init() {
-    let monitor = InfoBuilder::new().build();
-    let dirs = vec![InfoBuilder::new().build()];
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let dirs = vec![InfoBuilder::new().build().expect("build info")];
     struct NoopCb;
     impl MonitorCallback for NoopCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
@@ -99,7 +99,7 @@ fn test_process_monitor_nb_with_directives_without_init() {
 fn test_process_monitor_nb_callback_not_invoked_on_error() {
     // When process_monitor_nb fails immediately (no init), the callback
     // should NOT be registered — it's cleaned up in the error path.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     struct NoopCb;
     impl MonitorCallback for NoopCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
@@ -117,7 +117,7 @@ fn test_process_monitor_nb_callback_not_invoked_on_error() {
 
 #[test]
 fn test_process_monitor_nb_multiple_fails_are_consistent() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     struct NoopCb;
     impl MonitorCallback for NoopCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
@@ -273,7 +273,7 @@ fn test_monitor_callback_send_bound() {
 fn test_monitor_with_collect_data_info() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let monitor = builder.build();
+    let monitor = builder.build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
     // Without init, still fails — but the Info construction path is exercised
     assert!(result.is_err());
@@ -281,11 +281,11 @@ fn test_monitor_with_collect_data_info() {
 
 #[test]
 fn test_monitor_directives_multiple_info_objects() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let dirs = vec![
-        InfoBuilder::new().build(),
-        InfoBuilder::new().build(),
-        InfoBuilder::new().build(),
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
     ];
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &dirs);
     assert!(result.is_err());

@@ -95,7 +95,7 @@ fn test_tool_all_ffi_operations() {
     // Ensure shared handle is initialized — this gives us the daemon connection
     let _shared = daemon_helper::get_tool_handle().expect("shared tool handle");
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     // ── is_tool_initialized ──
     let initialized = is_tool_initialized();

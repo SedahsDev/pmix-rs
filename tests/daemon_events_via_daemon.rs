@@ -88,7 +88,7 @@ fn test_events_all_ffi_operations() {
 
     // Initialize as server
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     // Use None for callbacks — they are Option<extern "C" fn ...>
@@ -99,7 +99,7 @@ fn test_events_all_ffi_operations() {
 
     // ── Blocking register event handler ──
     let codes = vec![PmixStatus::Known(pmix::PmixError::Error)];
-    let reg_info = InfoBuilder::new().build();
+    let reg_info = InfoBuilder::new().build().expect("build info");
     let reg_result = register_event_handler(&codes, &reg_info, notification_fn, reg_cb);
 
     // If registration succeeded, try to deregister

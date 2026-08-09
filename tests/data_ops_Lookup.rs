@@ -212,7 +212,7 @@ fn lookup_nb_returns_result_type() {
 fn lookup_with_info_builder() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
 
     let mut data = vec![PmixPdata::new("test_key")];
     let result = lookup(&mut data, Some(&info));
@@ -438,7 +438,7 @@ fn publish_fence_lookup_pattern() {
     let ctx = daemon_helper::ensure_pmix_init();
 
     // Publish data.
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let publish_result = pmix::data_ops::publish(&info);
     assert!(publish_result.is_ok(), "publish should succeed");
 

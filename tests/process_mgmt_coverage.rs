@@ -29,7 +29,7 @@ fn test_spawn_empty_apps_rejected() {
 
 #[test]
 fn test_spawn_empty_apps_with_info_rejected() {
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = spawn(&info, &[]);
     assert!(result.is_err());
 }
@@ -60,7 +60,7 @@ fn test_connect_empty_procs_rejected() {
 
 #[test]
 fn test_connect_empty_procs_with_info_rejected() {
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = connect(&[], &info);
     assert!(result.is_err());
 }
@@ -80,7 +80,7 @@ fn test_disconnect_empty_procs_rejected() {
 
 #[test]
 fn test_disconnect_empty_procs_with_info_rejected() {
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = disconnect(&[], &info);
     assert!(result.is_err());
 }

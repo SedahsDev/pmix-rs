@@ -70,7 +70,7 @@ fn setup_application_before_init_returns_err_init() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("test.nspace", &info, Box::new(TestCallback));
 
     assert!(
@@ -99,7 +99,7 @@ fn setup_application_valid_params_err_init_not_bad_param() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("another.job.99999", &info, Box::new(TestCallback));
 
     assert!(result.is_err());
@@ -126,7 +126,7 @@ fn setup_application_multiple_namespaces_consistent_error() {
 
     let namespaces = ["job.12345", "myapp", "a", "test.nspace"];
     for ns in namespaces {
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         let result = server_setup_application(ns, &info, Box::new(TestCallback));
         assert!(
             result.is_err(),
@@ -150,7 +150,7 @@ fn setup_application_empty_info_before_init() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("test.nspace", &info, Box::new(TestCallback));
 
     assert!(result.is_err());
@@ -168,7 +168,7 @@ fn setup_application_returns_result_not_panic() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     // This should not panic — it should return Err(PmixStatus).
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -187,7 +187,7 @@ fn setup_application_single_char_namespace() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("x", &info, Box::new(TestCallback));
 
     assert!(result.is_err());
@@ -203,7 +203,7 @@ fn setup_application_long_namespace() {
     }
 
     let long_ns = "a".repeat(200);
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application(&long_ns, &info, Box::new(TestCallback));
 
     assert!(result.is_err());
@@ -310,7 +310,7 @@ fn setup_application_accepts_empty_info() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // Info created from empty builder has length 0.
 
     let result = server_setup_application("test.nspace", &info, Box::new(TestCallback));
@@ -331,7 +331,7 @@ fn setup_application_error_is_pmix_err_init() {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("test.nspace", &info, Box::new(TestCallback));
 
     let err = result.unwrap_err();
@@ -380,7 +380,7 @@ fn setup_application_multiple_calls_consistent() {
 
     let mut last_err: Option<i32> = None;
     for i in 0..5 {
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         let result = server_setup_application(&format!("job.{}", i), &info, Box::new(TestCallback));
         let err = result.unwrap_err().to_raw();
         assert_eq!(err, -31, "call {} should return PMIX_ERR_INIT", i);

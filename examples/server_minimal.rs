@@ -14,7 +14,7 @@ fn main() {
     println!("pmix-rs server_minimal");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     let server = match PmixServer::connect_new(Some(&module), &info) {
         Ok(s) => s,

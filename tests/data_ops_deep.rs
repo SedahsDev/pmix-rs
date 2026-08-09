@@ -215,7 +215,7 @@ fn test_proc_drop_loop() {
 
 #[test]
 fn test_infobuilder_build_empty() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = info;
 }
 
@@ -223,7 +223,7 @@ fn test_infobuilder_build_empty() {
 fn test_infobuilder_collect_data() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,7 +236,7 @@ fn test_infobuilder_collect_data() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_publish_empty_info() {
     daemon_helper::ensure_pmix_init();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = publish(&info);
     assert!(result.is_ok(), "publish should succeed");
 }
@@ -247,7 +247,7 @@ fn test_publish_with_collect_info() {
     daemon_helper::ensure_pmix_init();
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let result = publish(&info);
     assert!(result.is_ok());
 }
@@ -256,7 +256,7 @@ fn test_publish_with_collect_info() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_publish_multiple_times() {
     daemon_helper::ensure_pmix_init();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     for _ in 0..3 {
         let result = publish(&info);
         assert!(result.is_ok());
@@ -273,7 +273,7 @@ fn test_publish_nb_success() {
     impl PublishCallback for NoopPublishCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = publish_nb(&info, Box::new(NoopPublishCb));
     assert!(result.is_ok());
 }
@@ -304,7 +304,7 @@ fn test_get_empty_key() {
 fn test_get_with_info() {
     daemon_helper::ensure_pmix_init();
     let proc = Proc::new("test_ns", 0).expect("create");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = get(&proc, "key", Some(&info));
     let _ = result;
 }
@@ -316,7 +316,7 @@ fn test_get_with_collect_info() {
     let proc = Proc::new("test_ns", 0).expect("create");
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let result = get(&proc, "key", Some(&info));
     let _ = result;
 }
@@ -356,7 +356,7 @@ fn test_get_nb_with_info() {
         fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<pmix::PmixOwnedValue>) {}
     }
     let proc = Proc::new("test_ns", 0).expect("create");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = get_nb(&proc, "key", Some(&info), Box::new(NoopGetCb));
     assert!(result.is_ok());
 }
@@ -420,7 +420,7 @@ fn test_lookup_single_key() {
 fn test_lookup_with_info() {
     daemon_helper::ensure_pmix_init();
     let mut pdata = vec![PmixPdata::new("info_key")];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = lookup(&mut pdata, Some(&info));
     assert!(result.is_ok());
 }
@@ -447,7 +447,7 @@ fn test_lookup_nb_with_info() {
     impl LookupCallback for NoopLookupCb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = lookup_nb(&["nb_info_key"], Some(&info), Box::new(NoopLookupCb));
     assert!(result.is_ok());
 }
@@ -506,7 +506,7 @@ fn test_unpublish_multiple_keys() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_unpublish_with_info() {
     daemon_helper::ensure_pmix_init();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = unpublish(Some(&["test_key"]), Some(&info));
     assert!(result.is_ok());
 }
@@ -533,7 +533,7 @@ fn test_unpublish_nb_with_info() {
     impl UnpublishCallback for NoopUnpublishCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = unpublish_nb(Some(&["test_key"]), Some(&info), Box::new(NoopUnpublishCb));
     assert!(result.is_ok());
 }
@@ -637,7 +637,7 @@ fn test_fence_nb_with_info() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
     let proc = Proc::new("test_ns", 0).expect("create");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = fence_nb(&[proc], Some(&info), Box::new(NoopFenceCb));
     assert!(result.is_ok());
 }
@@ -648,7 +648,7 @@ fn test_fence_nb_with_info() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_publish_then_unpublish() {
     daemon_helper::ensure_pmix_init();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     publish(&info).expect("publish");
     unpublish(Some(&["test_key"]), None).expect("unpublish");
 }

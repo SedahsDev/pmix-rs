@@ -5,7 +5,7 @@ use pmix::{InfoBuilder, PmixDataRange, PmixError, PmixStatus, Proc};
 
 #[test]
 fn notify_event_nb_compiles() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let proc = Proc::new("test_ns", 0).unwrap();
     let result = notify_event_nb(
         PmixStatus::Known(PmixError::Success),

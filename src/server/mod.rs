@@ -19,7 +19,7 @@
 //! use pmix::InfoBuilder;
 //!
 //! let module = PmixServerModule::default();
-//! let server = PmixServer::connect_new(Some(&module), &InfoBuilder::new().build())
+//! let server = PmixServer::connect_new(Some(&module), &InfoBuilder::new().build().expect("build info"))
 //!     .expect("server connect");
 //! // Clone is cheap (Arc); Drop does **not** finalize.
 //! let worker = server.clone();
@@ -437,7 +437,7 @@ pub use session::PmixServerHandle;
 /// use pmix::InfoBuilder;;
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
 pub fn server_init(
@@ -505,7 +505,7 @@ pub fn server_init_minimal(
 /// use pmix::InfoBuilder;;
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
 pub fn server_finalize(handle: PmixServerHandle) -> Result<(), PmixStatus> {
@@ -624,9 +624,9 @@ pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_statu
 /// }
 ///
 /// let module = PmixServerModule::default();
-/// let _handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let _handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 ///
-/// server_register_nspace("myjob.12345", 4, &InfoBuilder::new().build(), Box::new(MyNspaceCallback))
+/// server_register_nspace("myjob.12345", 4, &InfoBuilder::new().build().expect("build info"), Box::new(MyNspaceCallback))
 ///     .expect("register_nspace request rejected");
 /// ```
 pub fn server_register_nspace(
@@ -713,7 +713,7 @@ pub fn server_register_nspace(
 /// assert!(!is_server_initialized());
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 /// assert!(is_server_initialized());
 ///
 /// server_finalize(handle).expect("server_finalize failed");
@@ -1244,7 +1244,7 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
 /// use pmix::Proc;
 ///
 /// let module = PmixServerModule::default();
-/// let _handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let _handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 ///
 /// let proc = Proc::new("myjob.12345", 0).expect("proc creation failed");
 /// let env = server_setup_fork(&proc, None).expect("setup_fork failed");
@@ -1795,7 +1795,7 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
 /// }
 ///
 /// // After registering the namespace...
-/// server_setup_application("myapp.ns", &InfoBuilder::new().build(), Box::new(MySetupCallback))
+/// server_setup_application("myapp.ns", &InfoBuilder::new().build().expect("build info"), Box::new(MySetupCallback))
 ///     .expect("setup_application rejected");
 /// ```
 pub fn server_setup_application(
@@ -1977,7 +1977,7 @@ pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_s
 /// // Setup local support for a namespace
 /// server_setup_local_support(
 ///     "myapp.12345",
-///     &InfoBuilder::new().build(),
+///     &InfoBuilder::new().build().expect("build info"),
 ///     Box::new(MySetupLocalCallback),
 /// )
 /// .expect("setup_local_support rejected");
@@ -2198,7 +2198,7 @@ pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t,
 ///     &source,
 ///     channel,
 ///     &data,
-///     &InfoBuilder::new().build(),
+///     &InfoBuilder::new().build().expect("build info"),
 ///     Box::new(MyIOFCallback),
 /// ).expect("IOF_deliver rejected");
 /// ```
@@ -2454,7 +2454,7 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
 ///     }
 /// }
 ///
-/// let directives = InfoBuilder::new().build();
+/// let directives = InfoBuilder::new().build().expect("build info");
 /// server_collect_inventory(
 ///     &directives,
 ///     Box::new(MyInventoryCallback),
@@ -2649,8 +2649,8 @@ pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_sta
 ///     }
 /// }
 ///
-/// let inventory = InfoBuilder::new().build();
-/// let directives = InfoBuilder::new().build();
+/// let inventory = InfoBuilder::new().build().expect("build info");
+/// let directives = InfoBuilder::new().build().expect("build info");
 /// server_deliver_inventory(
 ///     &inventory,
 ///     &directives,

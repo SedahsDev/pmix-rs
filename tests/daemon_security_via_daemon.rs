@@ -188,7 +188,7 @@ fn test_security_all_ffi_via_daemon() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("daemon handle");
 
-    let directives = vec![InfoBuilder::new().build()];
+    let directives = vec![InfoBuilder::new().build().expect("build info")];
 
     // ── 1. PmixCredential lifecycle ──
     let empty = PmixCredential::empty();

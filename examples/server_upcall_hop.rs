@@ -59,7 +59,7 @@ fn main() {
     module.fence_nb = Some(host_fence_nb);
     module.direct_modex = Some(host_direct_modex);
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let server = match PmixServer::connect_new(Some(&module), &info) {
         Ok(s) => s,
         Err(e) => {

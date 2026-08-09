@@ -1561,12 +1561,12 @@ fn test_pmix_owned_value_into_raw() {
 fn test_info_builder_collect_data() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 #[test]
 fn test_info_builder_build_empty() {
-    let _info = InfoBuilder::new().build();
+    let _info = InfoBuilder::new().build().expect("build info");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

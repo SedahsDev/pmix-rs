@@ -58,7 +58,7 @@ fn publish_callback_trait_object() {
 #[test]
 fn publish_before_init_returns_err_init() {
     // Build an empty info array.
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     let result = publish(&info);
     assert!(result.is_err(), "publish should fail without PMIx_Init");
@@ -77,7 +77,7 @@ fn publish_before_init_returns_err_init() {
 /// The non-blocking variant also requires initialization.
 #[test]
 fn publish_nb_before_init_returns_err_init() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     struct InitCheckCallback;
     impl PublishCallback for InitCheckCallback {
@@ -101,7 +101,7 @@ fn publish_nb_before_init_returns_err_init() {
 /// `publish` returns a `Result` type with proper error handling.
 #[test]
 fn publish_returns_result_type() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result: Result<(), PmixStatus> = publish(&info);
 
     // Verify the error is a known PMIx error code.
@@ -126,7 +126,7 @@ fn publish_returns_result_type() {
 /// `publish_nb` returns a `Result` type with proper error handling.
 #[test]
 fn publish_nb_returns_result_type() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     struct ResultTypeCallback;
     impl PublishCallback for ResultTypeCallback {
@@ -167,7 +167,7 @@ fn publish_with_info_builder() {
     // verify the builder constructs a valid Info that publish accepts.
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
 
     let result = publish(&info);
     assert!(result.is_err(), "should fail without PMIx_Init");
@@ -187,7 +187,7 @@ fn publish_callback_receives_pmix_status() {
         }
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = publish_nb(&info, Box::new(StatusCallback));
     assert!(result.is_err(), "should fail without PMIx_Init");
 }
@@ -207,7 +207,7 @@ fn publish_after_init() {
     // Build info with a simple key-value to publish.
     // The InfoBuilder requires static key bytes matching PMIx key format.
     // For now, just test with an empty info (publish metadata only).
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     let result = publish(&info);
     assert!(
@@ -236,7 +236,7 @@ fn publish_nb_after_init() {
         }
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = publish_nb(&info, Box::new(NbCallback));
     assert!(result.is_ok(), "publish_nb should accept the request");
 
@@ -257,7 +257,7 @@ fn publish_nb_after_init() {
 #[ignore = "requires PMIx daemon"]
 fn publish_duplicate_key_returns_error() {
     daemon_helper::ensure_pmix_init();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     // First publish should succeed.
     let result1 = publish(&info);
@@ -284,7 +284,7 @@ fn publish_fence_pattern() {
     let ctx = daemon_helper::ensure_pmix_init();
 
     // Publish data.
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = publish(&info);
     assert!(result.is_ok(), "publish should succeed");
 
@@ -311,7 +311,7 @@ fn publish_nb_callback_not_invoked_on_failure() {
         }
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = publish_nb(&info, Box::new(NoInvokeCallback));
 
     // Should fail immediately without invoking callback.
@@ -325,8 +325,8 @@ fn publish_nb_callback_not_invoked_on_failure() {
 /// `publish` with empty info array is a valid call (returns error from PMIx).
 #[test]
 fn publish_empty_info_array() {
-    let info = InfoBuilder::new().build();
-    // Empty info array — InfoBuilder::new().build() produces zero-length info.
+    let info = InfoBuilder::new().build().expect("build info");
+    // Empty info array — InfoBuilder::new().build().expect("build info") produces zero-length info.
     // (info.len is private, so we just verify the call behavior.)
 
     let result = publish(&info);
@@ -337,7 +337,7 @@ fn publish_empty_info_array() {
 /// `publish` is callable multiple times (idempotent error behavior).
 #[test]
 fn publish_multiple_calls_consistent_error() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     // Call publish multiple times — each should return the same error.
     for i in 0..5 {
@@ -359,7 +359,7 @@ fn publish_multiple_calls_consistent_error() {
 /// `publish_nb` is callable multiple times (idempotent error behavior).
 #[test]
 fn publish_nb_multiple_calls_consistent_error() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     for i in 0..5 {
         struct MultiCallback;

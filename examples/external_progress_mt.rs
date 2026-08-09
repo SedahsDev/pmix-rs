@@ -23,7 +23,7 @@ fn main() {
 
     let mut opts = pmix::InitOptions::new();
     opts.external_progress(true);
-    let info = opts.build();
+    let info = opts.build().expect("build info");
     eprintln!("connecting...");
     let client = pmix::PmixClient::connect_new(Some(info)).expect("connect");
     eprintln!("connected rank={:?}", client.rank());
