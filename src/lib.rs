@@ -4154,8 +4154,10 @@ mod tests {
     fn test_get_value_accepts_valid_key_with_mock() {
         let _guard = crate::mock_ffi::MockGuard::new();
         let proc = Proc::new("ns", 0).unwrap();
-        crate::mock_ffi::mock_store_value("pmix.host", b"host", PMIX_STRING as u32);
-        assert!(get_value(&proc, b"pmix.host\0", None).is_ok());
+        crate::mock_ffi::mock_store_value("pmix.host", b"host", PMIX_STRING);
+        let result = get_value(&proc, b"pmix.host\0", None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().uint32(), 1);
     }
 
     // ──────────────────────────────────────────────────────────────────────
