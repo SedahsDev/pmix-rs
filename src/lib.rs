@@ -3134,6 +3134,12 @@ struct InfoEntryBool {
     value: u8,
 }
 
+/// String-key `PMIX_INT` entry with owned storage for long-key integer attributes.
+struct InfoEntryInt {
+    key: CString,
+    value: i32,
+}
+
 #[derive(Default)]
 pub struct InfoBuilder {
     infos: Vec<InfoEntry>,
@@ -3141,6 +3147,8 @@ pub struct InfoBuilder {
     string_infos: Vec<InfoEntryString>,
     /// String-key boolean attributes (`pmix.evext`, `pmix.bind.reqd`, …).
     bool_infos: Vec<InfoEntryBool>,
+    /// String-key integer attributes such as `pmix.exit.code`.
+    int_infos: Vec<InfoEntryInt>,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -3193,6 +3201,21 @@ impl InfoBuilder {
             value: u8::from(value),
         });
         self
+    }
+
+    /// Append a string-key `PMIX_INT` attribute with correct scalar encoding.
+    ///
+    /// Use this for integer-valued keys that exceed the 13-byte limit (e.g.
+    /// `PMIX_EXIT_CODE` = `"pmix.exit.code"`) which don't fit in
+    /// [`InfoBuilder::add`] and can't be expressed as a string value.
+    /// Returns `Err(NulError)` if the key contains a NUL byte.
+    pub fn add_int_key(&mut self, key: &str, value: i32) -> Result<&mut Self, std::ffi::NulError> {
+        let key_cstr = CString::new(key)?;
+        self.int_infos.push(InfoEntryInt {
+            key: key_cstr,
+            value,
+        });
+        Ok(self)
     }
 
     /// Set `PMIX_EXTERNAL_PROGRESS` attribute.
@@ -3275,7 +3298,10 @@ impl InfoBuilder {
         self.add_bool_key("pmix.collect", true)
     }
     pub fn build(self) -> Result<Info, PmixStatus> {
-        let n = self.infos.len() + self.string_infos.len() + self.bool_infos.len();
+        let n = self.infos.len()
+            + self.string_infos.len()
+            + self.bool_infos.len()
+            + self.int_infos.len();
         // SAFETY: PMIx allocates an array of `n` initialized info records.
         let info_ptr = unsafe { PMIx_Info_create(n) };
         if info_ptr.is_null() && n > 0 {
@@ -3329,6 +3355,25 @@ impl InfoBuilder {
                     info.key.as_ptr(),
                     (&info.value as *const u8).cast(),
                     PMIX_BOOL as pmix_data_type_t,
+                )
+            };
+            if status != PMIX_SUCCESS as i32 {
+                unsafe {
+                    PMIx_Info_free(info_ptr, n);
+                }
+                return Err(PmixStatus::from_raw(status));
+            }
+            idx += 1;
+        }
+
+        // Process string-key integer attributes with owned i32 storage.
+        for info in &self.int_infos {
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr(),
+                    (&info.value as *const i32).cast(),
+                    PMIX_INT as pmix_data_type_t,
                 )
             };
             if status != PMIX_SUCCESS as i32 {
@@ -4121,6 +4166,16 @@ mod tests {
         assert_eq!(info2.len(), 1);
         assert!(!info2.as_ptr().is_null());
         drop(info2);
+    }
+
+    #[test]
+    fn test_info_builder_add_int_key() {
+        let mut builder = InfoBuilder::new();
+        builder
+            .add_int_key("pmix.exit.code", 17)
+            .expect("add int key");
+        let info = builder.build().expect("build info");
+        assert_eq!(info.len(), 1);
     }
 
     #[test]
