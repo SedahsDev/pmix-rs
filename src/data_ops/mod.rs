@@ -989,13 +989,16 @@ extern "C" fn unpublish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut
 /// # C API
 /// `pmix_status_t PMIx_Unpublish(char **keys, const pmix_info_t info[], size_t ninfo)`
 pub fn unpublish(keys: Option<&[&str]>, info: Option<&Info>) -> Result<(), PmixStatus> {
+    // Keep the owned key strings and pointer array alive through the FFI call.
+    let mut cstrings: Vec<CString> = Vec::new();
+    let mut key_ptrs: Vec<*mut std::os::raw::c_char> = Vec::new();
+
     // Handle the None case — unpublish all data for this process.
     let keys_ptr = match keys {
         Some(keys_slice) if !keys_slice.is_empty() => {
             // Convert keys to NULL-terminated C string array.
-            let mut key_ptrs: Vec<*mut std::os::raw::c_char> =
-                Vec::with_capacity(keys_slice.len() + 1);
-            let mut cstrings: Vec<CString> = Vec::with_capacity(keys_slice.len());
+            key_ptrs.reserve(keys_slice.len() + 1);
+            cstrings.reserve(keys_slice.len());
 
             for &key in keys_slice {
                 match CString::new(key) {
@@ -1014,9 +1017,9 @@ pub fn unpublish(keys: Option<&[&str]>, info: Option<&Info>) -> Result<(), PmixS
             // NULL terminator.
             key_ptrs.push(ptr::null_mut());
 
-            // SAFETY: key_ptrs and cstrings stay alive for the duration
-            // of the FFI call below. We cast to get the right type
-            // for the FFI signature (*mut *mut c_char).
+            // SAFETY: key_ptrs and cstrings are function-scoped and stay
+            // alive through the synchronous FFI call below. We cast to get
+            // the right type for the FFI signature (*mut *mut c_char).
             key_ptrs.as_mut_ptr()
         }
         _ => ptr::null_mut(),

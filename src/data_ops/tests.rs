@@ -1708,6 +1708,17 @@ use super::*;
     };
     use crate::InfoBuilder;
 
+    #[test]
+    fn test_mock_unpublish_with_multiple_keys_returns_mock_status() {
+        let _guard = MockGuard::new();
+        MockConfig::new()
+            .with_function_status("PMIx_Unpublish", PMIX_SUCCESS)
+            .apply();
+
+        let keys = ["k1", "k2"];
+        assert_eq!(unpublish(Some(&keys), None), Ok(()));
+    }
+
     // ─── Mock FFI framework self-tests ──────────────────────────────────────
 
     #[test]
