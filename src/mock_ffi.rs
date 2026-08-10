@@ -1610,6 +1610,7 @@ pub fn mock_load_topology(topo: *mut crate::ffi::pmix_topology_t) -> i32 {
         if status == PMIX_SUCCESS && !topo.is_null() {
             unsafe {
                 (*topo).topology = std::ptr::null_mut();
+                (*topo).source = libc::strdup(b"hwloc:2.11.2\0".as_ptr() as *const i8);
             }
             MOCK_TOPOLOGY_LOADED.with(|cell| {
                 *cell.borrow_mut() = true;

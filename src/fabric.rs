@@ -689,11 +689,28 @@ impl PmixTopology {
         }
     }
 
-    /// Sync the raw struct's topology field back into managed Rust state
-    /// after an FFI call that may have modified it.
+    /// Sync the raw struct's topology and source fields back into managed Rust
+    /// state after an FFI call that may have modified them.
     fn sync_from_raw(&mut self) {
         unsafe {
-            self.topology = (*self.raw.as_ptr()).topology;
+            let raw = self.raw.as_ptr();
+            self.topology = (*raw).topology;
+            let src = (*raw).source;
+            if !src.is_null() {
+                // PMIx may have replaced raw->source with its own C-allocated
+                // string, or kept our hint pointer. If it kept our hint, the
+                // existing Rust CString already owns the right bytes.
+                let aliases_hint = self
+                    .source
+                    .as_ref()
+                    .is_some_and(|s| ptr::eq(s.as_ptr(), src));
+                if !aliases_hint {
+                    let owned = CStr::from_ptr(src).to_string_lossy().into_owned();
+                    if let Ok(cs) = CString::new(owned) {
+                        self.source = Some(cs);
+                    }
+                }
+            }
         }
     }
 
@@ -709,10 +726,30 @@ impl PmixTopology {
 impl Drop for PmixTopology {
     fn drop(&mut self) {
         if self.loaded {
-            let raw_ptr = self.as_mut_ptr();
+            // SAFETY: raw was initialized by as_mut_ptr during load_topology.
+            let raw_ptr = self.raw.as_mut_ptr();
+            unsafe {
+                // PMIx_Load_topology may return the PMIx process-global hwloc
+                // topology. PMIx_Finalize owns destruction of that shared
+                // topology, so leave it null here and let the designated
+                // destructor release only this object's source string.
+                (*raw_ptr).topology = ptr::null_mut();
+                // Do not replace the PMIx-owned source with the Rust hint.
+                // If PMIx kept the hint, duplicate it so its destructor never
+                // attempts to free a Rust allocation.
+                let src = (*raw_ptr).source;
+                if !src.is_null()
+                    && self
+                        .source
+                        .as_ref()
+                        .is_some_and(|s| ptr::eq(s.as_ptr(), src))
+                {
+                    (*raw_ptr).source = libc::strdup(src);
+                }
+            }
             // SAFETY: PMIx_Topology_destruct is the designated destructor
             // for pmix_topology_t objects that have been loaded.
-                        #[cfg(any(test, feature = "mock_ffi"))]
+            #[cfg(any(test, feature = "mock_ffi"))]
             {
                 if mock_ffi::is_mock_enabled() {
                     unsafe { mock_ffi::mock_topology_destruct(raw_ptr) };
@@ -1990,6 +2027,14 @@ mod tests {
         let topo = PmixTopology::new(None).unwrap();
         assert!(!topo.is_loaded());
         assert_eq!(topo.source(), None);
+    }
+
+    #[test]
+    fn test_topology_load_syncs_source_from_raw() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut topo = PmixTopology::unamed();
+        assert!(load_topology(&mut topo).is_ok());
+        assert_eq!(topo.source(), Some("hwloc:2.11.2"));
     }
 
     /// Test that PmixTopology::new rejects source with interior NUL bytes.
