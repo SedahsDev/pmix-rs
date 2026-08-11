@@ -904,8 +904,19 @@ pub trait SessionControlCallback: Send + 'static {
     fn on_complete(&self, status: PmixStatus, results: SessionControlResults);
 }
 
-static SESSION_CTRL_REGISTRY: LazyLock<Registry<Box<dyn SessionControlCallback>>> =
-    LazyLock::new(Registry::new);
+struct SessionControlDirectives {
+    _flat_infos: Vec<ffi::pmix_info_t>,
+}
+
+// OpenPMIx consumes the directive array on its progress thread before it
+// invokes the completion callback. The entries are moved, not concurrently
+// accessed, while held in the registry; the wrapper makes that ownership
+// transfer explicit because bindgen cannot infer this C API guarantee.
+unsafe impl Send for SessionControlDirectives {}
+
+static SESSION_CTRL_REGISTRY: LazyLock<
+    Registry<(Box<dyn SessionControlCallback>, SessionControlDirectives)>,
+> = LazyLock::new(Registry::new);
 
 extern "C" fn session_control_callback_bridge(
     status: ffi::pmix_status_t,
@@ -921,12 +932,12 @@ extern "C" fn session_control_callback_bridge(
 
     let req_id = decode_req_id(cbdata);
 
-    let cb = {
+    let entry = {
         let mut registry = SESSION_CTRL_REGISTRY.lock();
         registry.remove(&req_id)
     };
-    let cb = match cb {
-        Some(cb) => cb,
+    let (cb, _flat_infos) = match entry {
+        Some(entry) => entry,
         None => {
             if !info.is_null() && ninfo > 0 {
                 unsafe {
@@ -1007,7 +1018,13 @@ pub fn session_control(
             let req_id = SESSION_CTRL_REGISTRY.next_req_id();
             let cbdata = encode_req_id(req_id);
 
-            SESSION_CTRL_REGISTRY.lock().insert(req_id, cb);
+            let registry_entry = (
+                cb,
+                SessionControlDirectives {
+                    _flat_infos: flat_infos,
+                },
+            );
+            SESSION_CTRL_REGISTRY.lock().insert(req_id, registry_entry);
 
             let status = unsafe {
                 ffi::PMIx_Session_control(
