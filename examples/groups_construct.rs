@@ -43,13 +43,6 @@ fn main() {
                     "group_construct succeeded: {} result entries",
                     results.len()
                 );
-                for (index, info) in results.iter().enumerate() {
-                    println!("result {index}: {} entries", info.len());
-                }
-                // PMIx owns the returned result array as one allocation. The
-                // current Vec<Info> mapping exposes element pointers, so do not
-                // drop those aliases individually in this demonstration.
-                std::mem::forget(results);
                 match pmix::groups::group_destruct("example_grp", &[]) {
                     Ok(()) => println!("group_destruct succeeded"),
                     Err(error) => println!("group_destruct failed: {error:?}; continuing"),
