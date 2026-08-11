@@ -35,6 +35,20 @@ fn build_query() -> Result<pmix::query_log::PmixQuery, pmix::PmixStatus> {
     Ok(pmix::query_log::PmixQuery::new(&[PSET_MEMBERSHIP])?.with_qualifiers(qualifiers))
 }
 
+fn build_refresh_query() -> Result<pmix::query_log::PmixQuery, pmix::PmixStatus> {
+    let mut qualifiers = pmix::InfoBuilder::new();
+    qualifiers
+        .add_string_key(
+            PSET_NAME,
+            "ompi_global",
+            pmix::ffi::PMIX_STRING as pmix::ffi::pmix_data_type_t,
+        )
+        .map_err(|_| pmix::PmixError::ErrBadParam)?;
+    qualifiers.add_bool_key("pmix.qry.rfsh", true);
+    let qualifiers = qualifiers.build()?;
+    Ok(pmix::query_log::PmixQuery::new(&[PSET_MEMBERSHIP])?.with_qualifiers(qualifiers))
+}
+
 fn print_query_result(
     label: &str,
     result: Result<pmix::query_log::QueryResults, pmix::PmixStatus>,
@@ -91,7 +105,13 @@ fn main() {
         Err(pmix::PmixStatus::Known(pmix::PmixError::ErrNotFound))
     ) {
         println!("initial query returned PMIX_ERR_NOT_FOUND; refreshing cache and retrying");
-        println!("refresh retry unavailable: InfoBuilder has no public safe custom-key bool API for pmix.qry.rfsh; skipping the mis-encoded string workaround");
+        match build_refresh_query() {
+            Ok(refresh_query) => print_query_result(
+                "refresh query",
+                pmix::query_log::query_info(std::slice::from_ref(&refresh_query)),
+            ),
+            Err(error) => eprintln!("could not build refresh query: {error:?}"),
+        }
     } else {
         print_query_result("pset query", query_result);
     }

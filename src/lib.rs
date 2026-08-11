@@ -3194,7 +3194,14 @@ impl InfoBuilder {
     }
 
     /// Append a string-key `PMIX_BOOL` attribute with correct scalar encoding.
-    fn add_bool_key(&mut self, key: &str, value: bool) -> &mut Self {
+    ///
+    /// Use this for boolean-valued keys that exceed the 13-byte limit (e.g.
+    /// `PMIX_QUERY_REFRESH_CACHE` = "pmix.qry.rfsh") which don't fit in
+    /// [`InfoBuilder::add`] and can't be expressed as a string value.
+    ///
+    /// # Panics
+    /// Panics if `key` contains a NUL byte (keys are static attribute names).
+    pub fn add_bool_key(&mut self, key: &str, value: bool) -> &mut Self {
         let key_cstr = CString::new(key).expect("key must not contain null bytes");
         self.bool_infos.push(InfoEntryBool {
             key: key_cstr,
@@ -4174,6 +4181,14 @@ mod tests {
         builder
             .add_int_key("pmix.exit.code", 17)
             .expect("add int key");
+        let info = builder.build().expect("build info");
+        assert_eq!(info.len(), 1);
+    }
+
+    #[test]
+    fn test_info_builder_add_bool_key() {
+        let mut builder = InfoBuilder::new();
+        builder.add_bool_key("pmix.qry.rfsh", true);
         let info = builder.build().expect("build info");
         assert_eq!(info.len(), 1);
     }
