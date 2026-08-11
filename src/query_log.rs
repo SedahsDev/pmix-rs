@@ -222,6 +222,25 @@ impl Drop for PmixQuery {
 
                 // Null out keys so PMIx_Query_free doesn't try to free them.
                 (*self.handle).keys = ptr::null_mut();
+                // Free the qualifier array transferred by with_qualifiers (allocated via
+                // PMIx_Info_create). Do this before nulling the field so PMIx_Query_free
+                // doesn't touch it.
+                if !(*self.handle).qualifiers.is_null() && (*self.handle).nqual > 0 {
+                    // SAFETY: qualifiers was allocated by PMIx_Info_create in
+                    // InfoBuilder::build and transferred to this query in with_qualifiers;
+                    // PMIx_Info_free is the matching deallocator.
+                    #[cfg(any(test, feature = "mock_ffi"))]
+                    if mock_ffi::is_mock_enabled() {
+                        mock_ffi::mock_info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    } else {
+                        ffi::PMIx_Info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    }
+                    #[cfg(not(any(test, feature = "mock_ffi")))]
+                    {
+                        ffi::PMIx_Info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    }
+                }
+
                 // Null out qualifiers so PMIx_Query_free doesn't try to free them.
                 (*self.handle).qualifiers = ptr::null_mut();
                 (*self.handle).nqual = 0;
