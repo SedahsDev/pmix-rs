@@ -6,7 +6,7 @@
 //! This module provides safe Rust wrappers around the PMIx group
 //! management APIs.
 
-use crate::cbdata::{decode_req_id, encode_req_id, Registry};
+use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
@@ -21,7 +21,6 @@ use std::sync::{LazyLock, Mutex};
 /// Used by `group_join` and `group_join_nb` to specify whether
 /// to accept or decline a group invitation.
 pub use ffi::pmix_group_opt_t;
-
 
 // ── One-shot completion registries (issue #67) ───────────────────────────────
 //
@@ -43,27 +42,78 @@ static GROUP_LEAVE_REGISTRY: LazyLock<Registry<GroupLeaveCallbackWrapper>> =
 static GROUP_DESTRUCT_REGISTRY: LazyLock<Registry<GroupDestructCallbackWrapper>> =
     LazyLock::new(Registry::new);
 
-fn info_results_from_c(status: PmixStatus, info: *mut ffi::pmix_info_t, ninfo: usize) -> Vec<Info> {
-    if !status.is_success() || info.is_null() || ninfo == 0 {
-        return Vec::new();
-    }
-    // SAFETY: PMIx handed us a valid pmix_info_t array of length ninfo for the
-    // duration of the completion callback. We wrap each entry without taking
-    // free ownership of the whole array (same model as the previous Box-cbdata
-    // bridges in this module).
-    let mut vec = Vec::with_capacity(ninfo);
-    unsafe {
-        for i in 0..ninfo {
-            vec.push(Info {
-                handle: info.add(i),
-                len: 1,
-                _not_thread_safe: std::marker::PhantomData,
-            });
-        }
-    }
-    vec
+fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
+    procs
+        .iter()
+        .map(|proc| {
+            // SAFETY: Proc contains an initialized pmix_proc_t for this borrow.
+            unsafe { std::ptr::read(&proc.handle) }
+        })
+        .collect()
 }
 
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| {
+                        // SAFETY: entry is initialized and copied by value into local storage.
+                        unsafe { std::ptr::read(entry) }
+                    })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
+
+/// Owned result set from a group operation.
+///
+/// Wraps the `pmix_info_t*` array returned by `PMIx_Group_*` and frees it once
+/// via `PMIx_Info_free` on drop. The array is one allocation, not one per entry.
+#[derive(Debug)]
+pub struct GroupResults {
+    handle: *mut ffi::pmix_info_t,
+    len: usize,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl GroupResults {
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl Drop for GroupResults {
+    fn drop(&mut self) {
+        if !self.handle.is_null() && self.len > 0 {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if crate::mock_ffi::is_mock_enabled() {
+                // SAFETY: handle is the single allocation returned by PMIx_Group_*.
+                unsafe { crate::mock_ffi::mock_info_free(self.handle, self.len) };
+            } else {
+                // SAFETY: handle is the single allocation returned by PMIx_Group_*.
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            {
+                // SAFETY: handle is the single allocation returned by PMIx_Group_*.
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+            }
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        }
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Group_construct
@@ -76,7 +126,7 @@ fn info_results_from_c(status: PmixStatus, info: *mut ffi::pmix_info_t, ninfo: u
 /// specified processes have joined the group.
 ///
 /// # Returns
-/// * `Ok(Vec<Info>)` — group construction succeeded; results info array.
+/// * `Ok(GroupResults)` — group operation succeeded; owned results array.
 /// * `Err(PmixStatus)` — error in the request.
 ///
 /// # C API
@@ -90,7 +140,7 @@ pub fn group_construct(
     group_id: &str,
     procs: &[Proc],
     directives: &[Info],
-) -> Result<Vec<Info>, PmixStatus> {
+) -> Result<GroupResults, PmixStatus> {
     if group_id.is_empty() {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
@@ -103,20 +153,14 @@ pub fn group_construct(
         Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
     };
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
 
-    let (dirs_ptr, ndirs) = if directives.is_empty() {
+    let flat_infos = flat_infos(directives);
+    let (dirs_ptr, ndirs) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&directives[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
-            },
-            directives.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
@@ -139,28 +183,19 @@ pub fn group_construct(
         return Err(pmix_status);
     }
 
-    let rust_results: Vec<Info> = unsafe {
-        if results.is_null() || nresults == 0 {
-            Vec::new()
+    Ok(GroupResults {
+        handle: if results.is_null() || nresults == 0 {
+            ptr::null_mut()
         } else {
-            let arr_ptr = results;
-            let mut vec = Vec::with_capacity(nresults);
-            for i in 0..nresults {
-                vec.push(Info {
-                    handle: arr_ptr.add(i),
-                    len: 1,
-                _not_thread_safe: std::marker::PhantomData,
-                });
-            }
-            #[allow(unused_assignments)]
-            {
-                results = ptr::null_mut();
-            }
-            vec
-        }
-    };
-
-    Ok(rust_results)
+            results
+        },
+        len: if results.is_null() || nresults == 0 {
+            0
+        } else {
+            nresults
+        },
+        _not_thread_safe: std::marker::PhantomData,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,13 +204,13 @@ pub fn group_construct(
 
 /// Non-blocking group construct callback wrapper.
 pub struct GroupConstructCallbackWrapper {
-    callback: Box<dyn Fn(PmixStatus, Vec<Info>) + Send + 'static>,
+    callback: Box<dyn Fn(PmixStatus, GroupResults) + Send + 'static>,
 }
 
 impl GroupConstructCallbackWrapper {
     pub fn new<F>(f: F) -> Self
     where
-        F: Fn(PmixStatus, Vec<Info>) + Send + 'static,
+        F: Fn(PmixStatus, GroupResults) + Send + 'static,
     {
         Self {
             callback: Box::new(f),
@@ -212,7 +247,19 @@ pub unsafe extern "C" fn group_construct_callback_bridge(
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
-    let rust_results = info_results_from_c(pmix_status, info, ninfo);
+    let rust_results = GroupResults {
+        handle: if pmix_status.is_success() && !info.is_null() && ninfo > 0 {
+            info
+        } else {
+            ptr::null_mut()
+        },
+        len: if pmix_status.is_success() && !info.is_null() {
+            ninfo
+        } else {
+            0
+        },
+        _not_thread_safe: std::marker::PhantomData,
+    };
     let _ = invoke_user_callback("groups", move || {
         (cb_wrapper.callback)(pmix_status, rust_results);
     });
@@ -248,20 +295,14 @@ pub fn group_construct_nb(
     let req_id = GROUP_CONSTRUCT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -303,7 +344,7 @@ pub fn group_invite(
     group_id: &str,
     procs: &[Proc],
     info: &[Info],
-) -> Result<Vec<Info>, PmixStatus> {
+) -> Result<GroupResults, PmixStatus> {
     if group_id.is_empty() {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
@@ -316,19 +357,14 @@ pub fn group_invite(
         Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
     };
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
@@ -351,28 +387,19 @@ pub fn group_invite(
         return Err(pmix_status);
     }
 
-    let rust_results: Vec<Info> = unsafe {
-        if results.is_null() || nresult == 0 {
-            Vec::new()
+    Ok(GroupResults {
+        handle: if results.is_null() || nresult == 0 {
+            ptr::null_mut()
         } else {
-            let arr_ptr = results;
-            let mut vec = Vec::with_capacity(nresult);
-            for i in 0..nresult {
-                vec.push(Info {
-                    handle: arr_ptr.add(i),
-                    len: 1,
-                _not_thread_safe: std::marker::PhantomData,
-                });
-            }
-            #[allow(unused_assignments)]
-            {
-                results = ptr::null_mut();
-            }
-            vec
-        }
-    };
-
-    Ok(rust_results)
+            results
+        },
+        len: if results.is_null() || nresult == 0 {
+            0
+        } else {
+            nresult
+        },
+        _not_thread_safe: std::marker::PhantomData,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -381,13 +408,13 @@ pub fn group_invite(
 
 /// Non-blocking invite callback wrapper.
 pub struct GroupInviteCallbackWrapper {
-    callback: Box<dyn Fn(PmixStatus, Vec<Info>) + Send + 'static>,
+    callback: Box<dyn Fn(PmixStatus, GroupResults) + Send + 'static>,
 }
 
 impl GroupInviteCallbackWrapper {
     pub fn new<F>(f: F) -> Self
     where
-        F: Fn(PmixStatus, Vec<Info>) + Send + 'static,
+        F: Fn(PmixStatus, GroupResults) + Send + 'static,
     {
         Self {
             callback: Box::new(f),
@@ -420,7 +447,19 @@ pub unsafe extern "C" fn group_invite_callback_bridge(
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
-    let rust_results = info_results_from_c(pmix_status, info, ninfo);
+    let rust_results = GroupResults {
+        handle: if pmix_status.is_success() && !info.is_null() && ninfo > 0 {
+            info
+        } else {
+            ptr::null_mut()
+        },
+        len: if pmix_status.is_success() && !info.is_null() {
+            ninfo
+        } else {
+            0
+        },
+        _not_thread_safe: std::marker::PhantomData,
+    };
     let _ = invoke_user_callback("groups", move || {
         (cb_wrapper.callback)(pmix_status, rust_results);
     });
@@ -455,20 +494,14 @@ pub fn group_invite_nb(
     let req_id = GROUP_INVITE_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -517,7 +550,7 @@ pub fn group_join(
     leader: &Proc,
     option: ffi::pmix_group_opt_t,
     info: &[Info],
-) -> Result<Vec<Info>, PmixStatus> {
+) -> Result<GroupResults, PmixStatus> {
     if group_id.is_empty() {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
@@ -529,15 +562,11 @@ pub fn group_join(
 
     let leader_ptr = std::ptr::addr_of!(leader.handle) as *const ffi::pmix_proc_t;
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
@@ -560,28 +589,19 @@ pub fn group_join(
         return Err(pmix_status);
     }
 
-    let rust_results: Vec<Info> = unsafe {
-        if results.is_null() || nresult == 0 {
-            Vec::new()
+    Ok(GroupResults {
+        handle: if results.is_null() || nresult == 0 {
+            ptr::null_mut()
         } else {
-            let arr_ptr = results;
-            let mut vec = Vec::with_capacity(nresult);
-            for i in 0..nresult {
-                vec.push(Info {
-                    handle: arr_ptr.add(i),
-                    len: 1,
-                _not_thread_safe: std::marker::PhantomData,
-                });
-            }
-            #[allow(unused_assignments)]
-            {
-                results = ptr::null_mut();
-            }
-            vec
-        }
-    };
-
-    Ok(rust_results)
+            results
+        },
+        len: if results.is_null() || nresult == 0 {
+            0
+        } else {
+            nresult
+        },
+        _not_thread_safe: std::marker::PhantomData,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -590,13 +610,13 @@ pub fn group_join(
 
 /// Non-blocking join callback wrapper.
 pub struct GroupJoinCallbackWrapper {
-    callback: Box<dyn Fn(PmixStatus, Vec<Info>) + Send + 'static>,
+    callback: Box<dyn Fn(PmixStatus, GroupResults) + Send + 'static>,
 }
 
 impl GroupJoinCallbackWrapper {
     pub fn new<F>(f: F) -> Self
     where
-        F: Fn(PmixStatus, Vec<Info>) + Send + 'static,
+        F: Fn(PmixStatus, GroupResults) + Send + 'static,
     {
         Self {
             callback: Box::new(f),
@@ -629,7 +649,19 @@ pub unsafe extern "C" fn group_join_callback_bridge(
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
-    let rust_results = info_results_from_c(pmix_status, info, ninfo);
+    let rust_results = GroupResults {
+        handle: if pmix_status.is_success() && !info.is_null() && ninfo > 0 {
+            info
+        } else {
+            ptr::null_mut()
+        },
+        len: if pmix_status.is_success() && !info.is_null() {
+            ninfo
+        } else {
+            0
+        },
+        _not_thread_safe: std::marker::PhantomData,
+    };
     let _ = invoke_user_callback("groups", move || {
         (cb_wrapper.callback)(pmix_status, rust_results);
     });
@@ -665,15 +697,11 @@ pub fn group_join_nb(
 
     let leader_ptr = std::ptr::addr_of!(leader.handle) as *const ffi::pmix_proc_t;
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -719,15 +747,11 @@ pub fn group_leave(group_id: &str, info: &[Info]) -> Result<(), PmixStatus> {
         Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
     };
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe { ffi::PMIx_Group_leave(group_id_c.as_ptr(), info_ptr, ninfo) };
@@ -806,16 +830,11 @@ pub fn group_leave_nb(
     let req_id = GROUP_LEAVE_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -859,15 +878,11 @@ pub fn group_destruct(group_id: &str, info: &[Info]) -> Result<(), PmixStatus> {
         Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
     };
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe { ffi::PMIx_Group_destruct(group_id_c.as_ptr(), info_ptr, ninfo) };
@@ -946,16 +961,11 @@ pub fn group_destruct_nb(
     let req_id = GROUP_DESTRUCT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -1139,7 +1149,7 @@ mod tests {
         let called_clone = called.clone();
 
         let wrapper =
-            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
                 assert!(status.is_success());
                 called_clone.store(true, Ordering::SeqCst);
             });
@@ -1178,7 +1188,7 @@ mod tests {
         let status_clone = status_recv.clone();
 
         let wrapper =
-            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
                 called_clone.store(true, Ordering::SeqCst);
                 assert!(!status.is_success());
                 status_clone.store(status.to_raw(), Ordering::SeqCst);
@@ -1323,7 +1333,7 @@ mod tests {
         let called_clone = called.clone();
 
         let wrapper =
-            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
                 assert!(status.is_success());
                 called_clone.store(true, Ordering::SeqCst);
             });
@@ -1491,10 +1501,11 @@ mod tests {
         let called = std::sync::Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();
 
-        let wrapper = GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
-            assert!(status.is_success());
-            called_clone.store(true, Ordering::SeqCst);
-        });
+        let wrapper =
+            GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
+                assert!(status.is_success());
+                called_clone.store(true, Ordering::SeqCst);
+            });
 
         let req_id = 900004usize;
         {
@@ -1785,19 +1796,20 @@ mod tests {
     #[test]
     fn test_group_construct_callback_wrapper() {
         let wrapper =
-            GroupConstructCallbackWrapper::new(|_status: PmixStatus, _info: Vec<Info>| {});
+            GroupConstructCallbackWrapper::new(|_status: PmixStatus, _info: GroupResults| {});
         let _ = std::sync::Arc::new(wrapper);
     }
 
     #[test]
     fn test_group_invite_callback_wrapper() {
-        let wrapper = GroupInviteCallbackWrapper::new(|_status: PmixStatus, _info: Vec<Info>| {});
+        let wrapper =
+            GroupInviteCallbackWrapper::new(|_status: PmixStatus, _info: GroupResults| {});
         let _ = std::sync::Arc::new(wrapper);
     }
 
     #[test]
     fn test_group_join_callback_wrapper() {
-        let wrapper = GroupJoinCallbackWrapper::new(|_status: PmixStatus, _info: Vec<Info>| {});
+        let wrapper = GroupJoinCallbackWrapper::new(|_status: PmixStatus, _info: GroupResults| {});
         let _ = std::sync::Arc::new(wrapper);
     }
 
@@ -1927,7 +1939,7 @@ mod tests {
         let info_clone = info_count.clone();
 
         let wrapper =
-            GroupConstructCallbackWrapper::new(move |_status: PmixStatus, info: Vec<Info>| {
+            GroupConstructCallbackWrapper::new(move |_status: PmixStatus, info: GroupResults| {
                 info_clone.store(info.len(), Ordering::SeqCst);
             });
 
@@ -1960,7 +1972,7 @@ mod tests {
         let called_clone = called.clone();
 
         let wrapper =
-            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
                 assert!(status.is_success());
                 called_clone.store(true, Ordering::SeqCst);
             });
@@ -1994,7 +2006,7 @@ mod tests {
         let status_clone = status_recv.clone();
 
         let wrapper =
-            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            GroupConstructCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
                 called_clone.store(true, Ordering::SeqCst);
                 assert!(!status.is_success());
                 status_clone.store(status.to_raw(), Ordering::SeqCst);
@@ -2042,7 +2054,7 @@ mod tests {
         let called_clone = called.clone();
 
         let wrapper =
-            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
                 assert!(status.is_success());
                 called_clone.store(true, Ordering::SeqCst);
             });
@@ -2076,7 +2088,7 @@ mod tests {
         let status_clone = status_recv.clone();
 
         let wrapper =
-            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
                 called_clone.store(true, Ordering::SeqCst);
                 assert!(!status.is_success());
                 status_clone.store(status.to_raw(), Ordering::SeqCst);
@@ -2125,10 +2137,11 @@ mod tests {
         let called = std::sync::Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();
 
-        let wrapper = GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
-            assert!(status.is_success());
-            called_clone.store(true, Ordering::SeqCst);
-        });
+        let wrapper =
+            GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
+                assert!(status.is_success());
+                called_clone.store(true, Ordering::SeqCst);
+            });
 
         let req_id = 900014usize;
         {
@@ -2158,11 +2171,12 @@ mod tests {
         let status_recv = std::sync::Arc::new(AtomicI32::new(0));
         let status_clone = status_recv.clone();
 
-        let wrapper = GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
-            called_clone.store(true, Ordering::SeqCst);
-            assert!(!status.is_success());
-            status_clone.store(status.to_raw(), Ordering::SeqCst);
-        });
+        let wrapper =
+            GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
+                called_clone.store(true, Ordering::SeqCst);
+                assert!(!status.is_success());
+                status_clone.store(status.to_raw(), Ordering::SeqCst);
+            });
 
         let req_id = 900015usize;
         {
@@ -2496,7 +2510,7 @@ mod tests {
         let status_clone = status_recv.clone();
 
         let wrapper =
-            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
+            GroupInviteCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
                 status_clone.store(status.to_raw(), Ordering::SeqCst);
             });
 
@@ -2526,9 +2540,10 @@ mod tests {
         let status_recv = std::sync::Arc::new(AtomicI32::new(0));
         let status_clone = status_recv.clone();
 
-        let wrapper = GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: Vec<Info>| {
-            status_clone.store(status.to_raw(), Ordering::SeqCst);
-        });
+        let wrapper =
+            GroupJoinCallbackWrapper::new(move |status: PmixStatus, _info: GroupResults| {
+                status_clone.store(status.to_raw(), Ordering::SeqCst);
+            });
 
         let req_id = 900020usize;
         {
@@ -2693,7 +2708,9 @@ mod tests {
         let lock_check = std::thread::spawn(|| {
             let _guard = GROUP_LEAVE_REGISTRY.lock();
         });
-        lock_check.join().expect("registry lock must not be held across user callback code");
+        lock_check
+            .join()
+            .expect("registry lock must not be held across user callback code");
 
         let _ = release_tx.send(());
         progress.join().expect("bridge returns");
@@ -2751,19 +2768,24 @@ mod tests {
     }
 }
 
-
-
 /// Return the static PMIx spelling for a group operation.
 pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
-    let p = crate::pmix_ffi_or_mock!(mock = unsafe { crate::mock_ffi::mock_group_operation_string(op) }, real = unsafe { ffi::PMIx_Group_operation_string(op) });
-    if p.is_null() { return ""; }
+    let p = crate::pmix_ffi_or_mock!(
+        mock = unsafe { crate::mock_ffi::mock_group_operation_string(op) },
+        real = unsafe { ffi::PMIx_Group_operation_string(op) }
+    );
+    if p.is_null() {
+        return "";
+    }
     unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
 }
-
 
 #[cfg(test)]
 #[test]
 fn test_misc_group_string_wrapper() {
     let _guard = crate::mock_ffi::MockGuard::new();
-    assert_eq!(group_operation_string(crate::ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT), "unknown");
+    assert_eq!(
+        group_operation_string(crate::ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT),
+        "unknown"
+    );
 }
