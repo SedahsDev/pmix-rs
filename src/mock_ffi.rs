@@ -1777,13 +1777,23 @@ pub fn mock_query_free(p: *mut crate::ffi::pmix_query_t, n: usize) {
 /// Mock implementation of `PMIx_Query_info()`.
 /// Simulates a query response by writing to the output parameters.
 pub fn mock_query_info(
-    _queries: *mut crate::ffi::pmix_query_t,
-    _nqueries: usize,
+    queries: *mut crate::ffi::pmix_query_t,
+    nqueries: usize,
     results: *mut *mut crate::ffi::pmix_info_t,
     nresults: *mut usize,
 ) -> i32 {
     if is_mock_enabled() {
         let status = get_mock_status("PMIx_Query_info");
+        // Exercise the qualifier pointer supplied by PmixQuery. This mirrors
+        // the real call's dereference and catches prematurely freed qualifiers.
+        if nqueries > 0 && !queries.is_null() {
+            unsafe {
+                let query = &*queries;
+                if query.nqual > 0 && !query.qualifiers.is_null() {
+                    std::hint::black_box((*query.qualifiers).key[0]);
+                }
+            }
+        }
         // Return empty results regardless of status
         unsafe {
             *results = std::ptr::null_mut();
