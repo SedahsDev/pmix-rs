@@ -53,9 +53,9 @@ use std::sync::Mutex;
 
 use std::sync::LazyLock;
 
+use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
-use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::{Info, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -233,14 +233,27 @@ pub fn allocation_request(
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
     let mut nresults: usize = 0;
 
-    // Convert the Info slice to C pointers.
-    let info_ptr = if info.is_empty() {
-        ptr::null_mut()
+    let flat_infos: Vec<ffi::pmix_info_t> = info
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized pmix_info_t entries owned by the Info borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect();
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
+        (ptr::null_mut(), 0)
     } else {
-        // SAFETY: info is a non-empty slice of Info objects that remain
-        // alive for the duration of this call. We take the address of the
-        // first element's handle field.
-        &info[0] as *const Info as *mut ffi::pmix_info_t
+        (
+            flat_infos.as_ptr() as *mut ffi::pmix_info_t,
+            flat_infos.len(),
+        )
     };
 
     let status = unsafe {
@@ -253,7 +266,7 @@ pub fn allocation_request(
         ffi::PMIx_Allocation_request(
             directive.to_raw(),
             info_ptr,
-            info.len(),
+            ninfo,
             &mut results,
             &mut nresults,
         )
@@ -268,9 +281,9 @@ pub fn allocation_request(
     Ok(AllocationResults {
         handle: results,
         len: nresults,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        })
+
+        _not_thread_safe: std::marker::PhantomData,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,11 +303,11 @@ pub trait AllocationCallback: Send + 'static {
     fn on_complete(&self, status: PmixStatus, results: AllocationResults);
 }
 
-
 /// Global registry of pending allocation callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static ALLOCATION_REGISTRY: LazyLock<Registry<Box<dyn AllocationCallback>>> = LazyLock::new(Registry::new);
+static ALLOCATION_REGISTRY: LazyLock<Registry<Box<dyn AllocationCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (allocation completion).
 ///
@@ -338,11 +351,11 @@ extern "C" fn allocation_callback_bridge(
     let results = AllocationResults {
         handle: info,
         len: ninfo,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        };
+
+        _not_thread_safe: std::marker::PhantomData,
+    };
     let _ = invoke_user_callback("allocation", move || {
-            cb.on_complete(pmix_status, results);
+        cb.on_complete(pmix_status, results);
     });
     // release_fn is unused — we manage our own memory via AllocationResults Drop.
     let _ = release_fn;
@@ -387,14 +400,27 @@ pub fn allocation_request_nb(
 
     ALLOCATION_REGISTRY.lock().insert(req_id, callback);
 
-    // Convert the Info slice to C pointers.
-    let info_ptr = if info.is_empty() {
-        ptr::null_mut()
+    let flat_infos: Vec<ffi::pmix_info_t> = info
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized pmix_info_t entries owned by the Info borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect();
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
+        (ptr::null_mut(), 0)
     } else {
-        // SAFETY: info is a non-empty slice of Info objects that remain
-        // alive for the duration of this call. The callback bridge takes
-        // ownership of the result, not the input info.
-        &info[0] as *const Info as *mut ffi::pmix_info_t
+        (
+            flat_infos.as_ptr() as *mut ffi::pmix_info_t,
+            flat_infos.len(),
+        )
     };
 
     let status = unsafe {
@@ -409,7 +435,7 @@ pub fn allocation_request_nb(
         ffi::PMIx_Allocation_request_nb(
             directive.to_raw(),
             info_ptr,
-            info.len(),
+            ninfo,
             Some(allocation_callback_bridge),
             cbdata,
         )
@@ -530,7 +556,7 @@ impl JobControlResults {
         Self {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         }
     }
@@ -586,26 +612,40 @@ pub fn job_control(targets: &[Proc], directives: &[Info]) -> Result<JobControlRe
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
     let mut nresults: usize = 0;
 
-    // Convert targets slice to C pointer.
-    let targets_ptr = if targets.is_empty() {
-        ptr::null_mut()
+    let flat_targets: Vec<ffi::pmix_proc_t> = targets
+        .iter()
+        .map(|proc| unsafe { std::ptr::read(&proc.handle) })
+        .collect();
+    let (targets_ptr, ntargets) = if flat_targets.is_empty() {
+        (ptr::null_mut(), 0)
     } else {
-        // SAFETY: targets is a non-empty slice of Proc objects whose handle
-        // fields are valid pmix_proc_t structs that remain alive for this call.
-        unsafe {
-            std::ptr::addr_of!((*(&targets[0] as *const Proc)).handle) as *mut ffi::pmix_proc_t
-        }
+        (
+            flat_targets.as_ptr() as *mut ffi::pmix_proc_t,
+            flat_targets.len(),
+        )
     };
 
-    // Convert directives slice to C pointer.
-    let directives_ptr = if directives.is_empty() {
-        ptr::null_mut()
+    let flat_infos: Vec<ffi::pmix_info_t> = directives
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized pmix_info_t entries owned by the Info borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect();
+    let (directives_ptr, ndirs) = if flat_infos.is_empty() {
+        (ptr::null_mut(), 0)
     } else {
-        // SAFETY: directives is a non-empty slice of Info objects whose handles
-        // are valid pmix_info_t pointers that remain alive for this call.
-        unsafe {
-            std::ptr::addr_of!((*(&directives[0] as *const Info)).handle) as *mut ffi::pmix_info_t
-        }
+        (
+            flat_infos.as_ptr() as *mut ffi::pmix_info_t,
+            flat_infos.len(),
+        )
     };
 
     let status = unsafe {
@@ -616,9 +656,9 @@ pub fn job_control(targets: &[Proc], directives: &[Info]) -> Result<JobControlRe
         // - PMIx_Job_control is a thread-safe blocking call per the spec.
         ffi::PMIx_Job_control(
             targets_ptr as *const ffi::pmix_proc_t,
-            targets.len(),
+            ntargets,
             directives_ptr as *const ffi::pmix_info_t,
-            directives.len(),
+            ndirs,
             &mut results,
             &mut nresults,
         )
@@ -633,9 +673,9 @@ pub fn job_control(targets: &[Proc], directives: &[Info]) -> Result<JobControlRe
     Ok(JobControlResults {
         handle: results,
         len: nresults,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        })
+
+        _not_thread_safe: std::marker::PhantomData,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -655,11 +695,11 @@ pub trait JobControlCallback: Send + 'static {
     fn on_complete(&self, status: PmixStatus, results: JobControlResults);
 }
 
-
 /// Global registry of pending job control callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static JOB_CTRL_REGISTRY: LazyLock<Registry<Box<dyn JobControlCallback>>> = LazyLock::new(Registry::new);
+static JOB_CTRL_REGISTRY: LazyLock<Registry<Box<dyn JobControlCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (job control completion).
 ///
@@ -703,11 +743,11 @@ extern "C" fn job_control_callback_bridge(
     let results = JobControlResults {
         handle: info,
         len: ninfo,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        };
+
+        _not_thread_safe: std::marker::PhantomData,
+    };
     let _ = invoke_user_callback("allocation", move || {
-            cb.on_complete(pmix_status, results);
+        cb.on_complete(pmix_status, results);
     });
     // release_fn is unused — we manage our own memory via JobControlResults Drop.
     let _ = release_fn;
@@ -752,26 +792,40 @@ pub fn job_control_nb(
 
     JOB_CTRL_REGISTRY.lock().insert(req_id, callback);
 
-    // Convert targets slice to C pointer.
-    let targets_ptr = if targets.is_empty() {
-        ptr::null_mut()
+    let flat_targets: Vec<ffi::pmix_proc_t> = targets
+        .iter()
+        .map(|proc| unsafe { std::ptr::read(&proc.handle) })
+        .collect();
+    let (targets_ptr, ntargets) = if flat_targets.is_empty() {
+        (ptr::null_mut(), 0)
     } else {
-        // SAFETY: targets is a non-empty slice of Proc objects whose handle
-        // fields are valid pmix_proc_t structs that remain alive for this call.
-        unsafe {
-            std::ptr::addr_of!((*(&targets[0] as *const Proc)).handle) as *mut ffi::pmix_proc_t
-        }
+        (
+            flat_targets.as_ptr() as *mut ffi::pmix_proc_t,
+            flat_targets.len(),
+        )
     };
 
-    // Convert directives slice to C pointer.
-    let directives_ptr = if directives.is_empty() {
-        ptr::null_mut()
+    let flat_infos: Vec<ffi::pmix_info_t> = directives
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized pmix_info_t entries owned by the Info borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect();
+    let (directives_ptr, ndirs) = if flat_infos.is_empty() {
+        (ptr::null_mut(), 0)
     } else {
-        // SAFETY: directives is a non-empty slice of Info objects whose handles
-        // are valid pmix_info_t pointers that remain alive for this call.
-        unsafe {
-            std::ptr::addr_of!((*(&directives[0] as *const Info)).handle) as *mut ffi::pmix_info_t
-        }
+        (
+            flat_infos.as_ptr() as *mut ffi::pmix_info_t,
+            flat_infos.len(),
+        )
     };
 
     let status = unsafe {
@@ -785,9 +839,9 @@ pub fn job_control_nb(
         //   and will be removed when the callback fires.
         ffi::PMIx_Job_control_nb(
             targets_ptr as *const ffi::pmix_proc_t,
-            targets.len(),
+            ntargets,
             directives_ptr as *const ffi::pmix_info_t,
-            directives.len(),
+            ndirs,
             Some(job_control_callback_bridge),
             cbdata,
         )
@@ -850,7 +904,19 @@ pub trait SessionControlCallback: Send + 'static {
     fn on_complete(&self, status: PmixStatus, results: SessionControlResults);
 }
 
-static SESSION_CTRL_REGISTRY: LazyLock<Registry<Box<dyn SessionControlCallback>>> = LazyLock::new(Registry::new);
+struct SessionControlDirectives {
+    _flat_infos: Vec<ffi::pmix_info_t>,
+}
+
+// OpenPMIx consumes the directive array on its progress thread before it
+// invokes the completion callback. The entries are moved, not concurrently
+// accessed, while held in the registry; the wrapper makes that ownership
+// transfer explicit because bindgen cannot infer this C API guarantee.
+unsafe impl Send for SessionControlDirectives {}
+
+static SESSION_CTRL_REGISTRY: LazyLock<
+    Registry<(Box<dyn SessionControlCallback>, SessionControlDirectives)>,
+> = LazyLock::new(Registry::new);
 
 extern "C" fn session_control_callback_bridge(
     status: ffi::pmix_status_t,
@@ -866,12 +932,12 @@ extern "C" fn session_control_callback_bridge(
 
     let req_id = decode_req_id(cbdata);
 
-    let cb = {
+    let entry = {
         let mut registry = SESSION_CTRL_REGISTRY.lock();
         registry.remove(&req_id)
     };
-    let cb = match cb {
-        Some(cb) => cb,
+    let (cb, _flat_infos) = match entry {
+        Some(entry) => entry,
         None => {
             if !info.is_null() && ninfo > 0 {
                 unsafe {
@@ -886,11 +952,11 @@ extern "C" fn session_control_callback_bridge(
     let results = SessionControlResults {
         handle: info,
         len: ninfo,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        };
+
+        _not_thread_safe: std::marker::PhantomData,
+    };
     let _ = invoke_user_callback("allocation", move || {
-            cb.on_complete(pmix_status, results);
+        cb.on_complete(pmix_status, results);
     });
     let _ = release_fn;
 }
@@ -923,12 +989,28 @@ pub fn session_control(
     directives: &[Info],
     callback: Option<Box<dyn SessionControlCallback>>,
 ) -> Result<Option<SessionControlResults>, PmixStatus> {
-    let directives_ptr = if directives.is_empty() {
-        ptr::null_mut()
+    let flat_infos: Vec<ffi::pmix_info_t> = directives
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized pmix_info_t entries owned by the Info borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect();
+    let (directives_ptr, ndirs) = if flat_infos.is_empty() {
+        (ptr::null_mut(), 0)
     } else {
-        &directives[0] as *const Info as *mut ffi::pmix_info_t
+        (
+            flat_infos.as_ptr() as *mut ffi::pmix_info_t,
+            flat_infos.len(),
+        )
     };
-    let ndirs = directives.len();
 
     match callback {
         Some(cb) => {
@@ -936,7 +1018,13 @@ pub fn session_control(
             let req_id = SESSION_CTRL_REGISTRY.next_req_id();
             let cbdata = encode_req_id(req_id);
 
-            SESSION_CTRL_REGISTRY.lock().insert(req_id, cb);
+            let registry_entry = (
+                cb,
+                SessionControlDirectives {
+                    _flat_infos: flat_infos,
+                },
+            );
+            SESSION_CTRL_REGISTRY.lock().insert(req_id, registry_entry);
 
             let status = unsafe {
                 ffi::PMIx_Session_control(
@@ -974,9 +1062,9 @@ pub fn session_control(
                 Ok(Some(SessionControlResults {
                     handle: results,
                     len: nresults,
-                
-            _not_thread_safe: std::marker::PhantomData,
-        }))
+
+                    _not_thread_safe: std::marker::PhantomData,
+                }))
             } else {
                 Err(pmix_status)
             }
@@ -1114,7 +1202,7 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
@@ -1126,7 +1214,7 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         let s = format!("{:?}", results);
@@ -1333,7 +1421,7 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
@@ -1345,7 +1433,7 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         let s = format!("{:?}", results);
@@ -1455,7 +1543,7 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         drop(results); // Should not panic or segfault
@@ -1474,7 +1562,7 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         drop(results); // Should not panic or segfault
@@ -1556,9 +1644,48 @@ mod tests {
     }
 }
 
-
-pub fn resource_block_directive_string(d: ffi::pmix_resource_block_directive_t)->&'static str {let p=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_resource_block_directive_string(d)},real=unsafe{ffi::PMIx_Resource_block_directive_string(d)});if p.is_null(){""}else{unsafe{std::ffi::CStr::from_ptr(p).to_str().unwrap_or("")}}}
-pub fn resource_block(d:ffi::pmix_resource_block_directive_t,block:&mut [u8],res:&[crate::fabric::PmixResourceUnit],info:&[Info])->Result<(),PmixStatus>{let rp=res.first().map_or(ptr::null(),|x|x.as_ptr());let ip=info.first().map_or(ptr::null(),|x| Info::as_ptr(x).cast_const());let s=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_resource_block(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len())},real=unsafe{ffi::PMIx_Resource_block(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
+pub fn resource_block_directive_string(d: ffi::pmix_resource_block_directive_t) -> &'static str {
+    let p = crate::pmix_ffi_or_mock!(
+        mock = unsafe { crate::mock_ffi::mock_resource_block_directive_string(d) },
+        real = unsafe { ffi::PMIx_Resource_block_directive_string(d) }
+    );
+    if p.is_null() {
+        ""
+    } else {
+        unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
+    }
+}
+pub fn resource_block(
+    d: ffi::pmix_resource_block_directive_t,
+    block: &mut [u8],
+    res: &[crate::fabric::PmixResourceUnit],
+    info: &[Info],
+) -> Result<(), PmixStatus> {
+    let rp = res.first().map_or(ptr::null(), |x| x.as_ptr());
+    let ip = info
+        .first()
+        .map_or(ptr::null(), |x| Info::as_ptr(x).cast_const());
+    let s = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            crate::mock_ffi::mock_resource_block(
+                d,
+                block.as_mut_ptr().cast(),
+                rp,
+                res.len(),
+                ip,
+                info.len(),
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Resource_block(d, block.as_mut_ptr().cast(), rp, res.len(), ip, info.len())
+        }
+    );
+    if s == ffi::PMIX_SUCCESS as i32 {
+        Ok(())
+    } else {
+        Err(PmixStatus::from_raw(s))
+    }
+}
 /// Starts an asynchronous resource-block operation.
 ///
 /// # Safety
@@ -1573,17 +1700,64 @@ pub fn resource_block(d:ffi::pmix_resource_block_directive_t,block:&mut [u8],res
 /// PMIx or another owner may still use. The `block`, `res`, and `info` storage
 /// must likewise remain valid and unmodified in ways incompatible with PMIx
 /// until the asynchronous operation has completed, as required by the PMIx API.
-pub unsafe fn resource_block_nb(d:ffi::pmix_resource_block_directive_t,block:&mut [u8],res:&[crate::fabric::PmixResourceUnit],info:&[Info],cb:ffi::pmix_op_cbfunc_t,cbdata:*mut c_void)->Result<(),PmixStatus>{let rp=res.first().map_or(ptr::null(),|x|x.as_ptr());let ip=info.first().map_or(ptr::null(),|x| Info::as_ptr(x).cast_const());let s=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_resource_block_nb(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len(),cb,cbdata)},real=unsafe{ffi::PMIx_Resource_block_nb(d,block.as_mut_ptr().cast(),rp,res.len(),ip,info.len(),cb,cbdata)});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
-
+pub unsafe fn resource_block_nb(
+    d: ffi::pmix_resource_block_directive_t,
+    block: &mut [u8],
+    res: &[crate::fabric::PmixResourceUnit],
+    info: &[Info],
+    cb: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) -> Result<(), PmixStatus> {
+    let rp = res.first().map_or(ptr::null(), |x| x.as_ptr());
+    let ip = info
+        .first()
+        .map_or(ptr::null(), |x| Info::as_ptr(x).cast_const());
+    let s = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            crate::mock_ffi::mock_resource_block_nb(
+                d,
+                block.as_mut_ptr().cast(),
+                rp,
+                res.len(),
+                ip,
+                info.len(),
+                cb,
+                cbdata,
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_Resource_block_nb(
+                d,
+                block.as_mut_ptr().cast(),
+                rp,
+                res.len(),
+                ip,
+                info.len(),
+                cb,
+                cbdata,
+            )
+        }
+    );
+    if s == ffi::PMIX_SUCCESS as i32 {
+        Ok(())
+    } else {
+        Err(PmixStatus::from_raw(s))
+    }
+}
 
 #[cfg(test)]
 mod misc_wrapper_tests {
     use super::*;
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
         // SAFETY: test passes a pointer to the live AtomicUsize below.
-        unsafe { (*data.cast::<AtomicUsize>()).store(status as usize + 1, Ordering::SeqCst); }
+        unsafe {
+            (*data.cast::<AtomicUsize>()).store(status as usize + 1, Ordering::SeqCst);
+        }
     }
 
     #[test]
@@ -1595,7 +1769,17 @@ mod misc_wrapper_tests {
         let called = AtomicUsize::new(0);
         // SAFETY: callback has the PMIx ABI and called remains live through the
         // synchronous mock invocation; a real caller must extend that lifetime.
-        assert!(unsafe { resource_block_nb(0, &mut block, &units, &[], Some(callback), (&called as *const AtomicUsize).cast_mut().cast()) }.is_ok());
+        assert!(unsafe {
+            resource_block_nb(
+                0,
+                &mut block,
+                &units,
+                &[],
+                Some(callback),
+                (&called as *const AtomicUsize).cast_mut().cast(),
+            )
+        }
+        .is_ok());
         assert_eq!(called.load(Ordering::SeqCst), 1);
     }
 }
