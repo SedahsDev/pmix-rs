@@ -201,9 +201,9 @@ impl PmixQuery {
                 (*self.handle).qualifiers = info.handle as *mut ffi::pmix_info_t;
                 (*self.handle).nqual = info.len;
             }
-            // Prevent the Info from freeing its allocation on drop — we've
-            // transferred ownership to the query.
-            let _ = info;
+            // Ownership of the C allocation is transferred to the query; prevent
+            // Info's Drop from freeing it (`let _ = info;` would drop immediately).
+            std::mem::forget(info);
         }
         self
     }
@@ -222,6 +222,25 @@ impl Drop for PmixQuery {
 
                 // Null out keys so PMIx_Query_free doesn't try to free them.
                 (*self.handle).keys = ptr::null_mut();
+                // Free the qualifier array transferred by with_qualifiers (allocated via
+                // PMIx_Info_create). Do this before nulling the field so PMIx_Query_free
+                // doesn't touch it.
+                if !(*self.handle).qualifiers.is_null() && (*self.handle).nqual > 0 {
+                    // SAFETY: qualifiers was allocated by PMIx_Info_create in
+                    // InfoBuilder::build and transferred to this query in with_qualifiers;
+                    // PMIx_Info_free is the matching deallocator.
+                    #[cfg(any(test, feature = "mock_ffi"))]
+                    if mock_ffi::is_mock_enabled() {
+                        mock_ffi::mock_info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    } else {
+                        ffi::PMIx_Info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    }
+                    #[cfg(not(any(test, feature = "mock_ffi")))]
+                    {
+                        ffi::PMIx_Info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    }
+                }
+
                 // Null out qualifiers so PMIx_Query_free doesn't try to free them.
                 (*self.handle).qualifiers = ptr::null_mut();
                 (*self.handle).nqual = 0;
@@ -328,16 +347,18 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
     let mut nresults: usize = 0;
 
-    // Collect raw handles — queries must outlive this call (borrowed from caller).
-    let handles: Vec<*mut ffi::pmix_query_t> = queries.iter().map(|q| q.handle).collect();
-    let queries_ptr = handles.as_ptr() as *mut ffi::pmix_query_t;
+    // Copy the query structs by value. The C API takes an array of structs, not
+    // an array of pointers to structs.
+    let raw_queries: Vec<ffi::pmix_query_t> = queries
+        .iter()
+        .map(|q| unsafe { std::ptr::read(q.handle) })
+        .collect();
+    let queries_ptr = raw_queries.as_ptr() as *mut ffi::pmix_query_t;
 
     let status = unsafe {
-        // SAFETY: PMIx_Query_info is a synchronous PMIx API call.
-        // - queries_ptr points to an array of valid pmix_query_t structs
-        //   owned by the PmixQuery borrows passed by the caller.
-        // - results and nresults are output pointers that PMIx will write to.
-        // - PMIx does not retain queries_ptr after this call returns.
+        // SAFETY: PmixQuery structs are copied by value; the underlying keys and
+        // qualifier allocations are owned by the PmixQuery borrows and outlive
+        // this synchronous call. PMIx does not retain queries_ptr after return.
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
             mock_ffi::mock_query_info(queries_ptr, nqueries, &mut results, &mut nresults)
@@ -490,13 +511,19 @@ pub fn query_info_nb(
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     let nqueries = queries.len();
-    let handles: Vec<*mut ffi::pmix_query_t> = queries.iter().map(|q| q.handle).collect();
-    let queries_ptr = handles.as_ptr() as *mut ffi::pmix_query_t;
+    // Copy the query structs by value. The C API takes an array of structs, not
+    // an array of pointers to structs.
+    let raw_queries: Vec<ffi::pmix_query_t> = queries
+        .iter()
+        .map(|q| unsafe { std::ptr::read(q.handle) })
+        .collect();
+    let queries_ptr = raw_queries.as_ptr() as *mut ffi::pmix_query_t;
 
     let status = unsafe {
-        // SAFETY: PMIx_Query_info_nb is an async PMIx API call.
-        // - queries_ptr points to valid pmix_query_t structs owned by
-        //   the PmixQuery borrows (which outlive this call).
+        // SAFETY: PmixQuery structs are copied by value; the underlying keys and
+        // qualifier allocations are owned by the PmixQuery borrows and outlive
+        // this async submission. PMIx retains its own copy of query data before
+        // returning, and does not retain queries_ptr after return.
         // - cbfunc is a valid extern "C" function pointer.
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
         // - PMIx does not retain queries_ptr after this call returns.
@@ -1521,6 +1548,20 @@ mod tests {
     }
 
     // ── TASK-114: New tests to improve coverage ─────────────────────────────────
+
+    #[test]
+    fn test_query_info_with_qualifiers_success_with_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut builder = crate::InfoBuilder::new();
+        builder.add_bool_key("pmix.qry.rfsh", true);
+        let query = PmixQuery::new(&["pmix.version"])
+            .unwrap()
+            .with_qualifiers(builder.build().unwrap());
+
+        let result = query_info(&[query]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
 
     #[test]
     fn test_query_info_success_with_mock() {
