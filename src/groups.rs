@@ -6,7 +6,7 @@
 //! This module provides safe Rust wrappers around the PMIx group
 //! management APIs.
 
-use crate::cbdata::{decode_req_id, encode_req_id, Registry};
+use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
@@ -21,7 +21,6 @@ use std::sync::{LazyLock, Mutex};
 /// Used by `group_join` and `group_join_nb` to specify whether
 /// to accept or decline a group invitation.
 pub use ffi::pmix_group_opt_t;
-
 
 // ── One-shot completion registries (issue #67) ───────────────────────────────
 //
@@ -43,6 +42,36 @@ static GROUP_LEAVE_REGISTRY: LazyLock<Registry<GroupLeaveCallbackWrapper>> =
 static GROUP_DESTRUCT_REGISTRY: LazyLock<Registry<GroupDestructCallbackWrapper>> =
     LazyLock::new(Registry::new);
 
+fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
+    procs
+        .iter()
+        .map(|proc| {
+            // SAFETY: Proc contains an initialized pmix_proc_t for this borrow.
+            unsafe { std::ptr::read(&proc.handle) }
+        })
+        .collect()
+}
+
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| {
+                        // SAFETY: entry is initialized and copied by value into local storage.
+                        unsafe { std::ptr::read(entry) }
+                    })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
+
 fn info_results_from_c(status: PmixStatus, info: *mut ffi::pmix_info_t, ninfo: usize) -> Vec<Info> {
     if !status.is_success() || info.is_null() || ninfo == 0 {
         return Vec::new();
@@ -63,7 +92,6 @@ fn info_results_from_c(status: PmixStatus, info: *mut ffi::pmix_info_t, ninfo: u
     }
     vec
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Group_construct
@@ -103,20 +131,14 @@ pub fn group_construct(
         Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
     };
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
 
-    let (dirs_ptr, ndirs) = if directives.is_empty() {
+    let flat_infos = flat_infos(directives);
+    let (dirs_ptr, ndirs) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&directives[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
-            },
-            directives.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
@@ -149,7 +171,7 @@ pub fn group_construct(
                 vec.push(Info {
                     handle: arr_ptr.add(i),
                     len: 1,
-                _not_thread_safe: std::marker::PhantomData,
+                    _not_thread_safe: std::marker::PhantomData,
                 });
             }
             #[allow(unused_assignments)]
@@ -248,20 +270,14 @@ pub fn group_construct_nb(
     let req_id = GROUP_CONSTRUCT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -316,19 +332,14 @@ pub fn group_invite(
         Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
     };
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
@@ -361,7 +372,7 @@ pub fn group_invite(
                 vec.push(Info {
                     handle: arr_ptr.add(i),
                     len: 1,
-                _not_thread_safe: std::marker::PhantomData,
+                    _not_thread_safe: std::marker::PhantomData,
                 });
             }
             #[allow(unused_assignments)]
@@ -455,20 +466,14 @@ pub fn group_invite_nb(
     let req_id = GROUP_INVITE_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -529,15 +534,11 @@ pub fn group_join(
 
     let leader_ptr = std::ptr::addr_of!(leader.handle) as *const ffi::pmix_proc_t;
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
@@ -570,7 +571,7 @@ pub fn group_join(
                 vec.push(Info {
                     handle: arr_ptr.add(i),
                     len: 1,
-                _not_thread_safe: std::marker::PhantomData,
+                    _not_thread_safe: std::marker::PhantomData,
                 });
             }
             #[allow(unused_assignments)]
@@ -665,15 +666,11 @@ pub fn group_join_nb(
 
     let leader_ptr = std::ptr::addr_of!(leader.handle) as *const ffi::pmix_proc_t;
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -719,15 +716,11 @@ pub fn group_leave(group_id: &str, info: &[Info]) -> Result<(), PmixStatus> {
         Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
     };
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe { ffi::PMIx_Group_leave(group_id_c.as_ptr(), info_ptr, ninfo) };
@@ -806,16 +799,11 @@ pub fn group_leave_nb(
     let req_id = GROUP_LEAVE_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -859,15 +847,11 @@ pub fn group_destruct(group_id: &str, info: &[Info]) -> Result<(), PmixStatus> {
         Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
     };
 
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe { ffi::PMIx_Group_destruct(group_id_c.as_ptr(), info_ptr, ninfo) };
@@ -946,16 +930,11 @@ pub fn group_destruct_nb(
     let req_id = GROUP_DESTRUCT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let raw_status = unsafe {
@@ -2693,7 +2672,9 @@ mod tests {
         let lock_check = std::thread::spawn(|| {
             let _guard = GROUP_LEAVE_REGISTRY.lock();
         });
-        lock_check.join().expect("registry lock must not be held across user callback code");
+        lock_check
+            .join()
+            .expect("registry lock must not be held across user callback code");
 
         let _ = release_tx.send(());
         progress.join().expect("bridge returns");
@@ -2751,19 +2732,24 @@ mod tests {
     }
 }
 
-
-
 /// Return the static PMIx spelling for a group operation.
 pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
-    let p = crate::pmix_ffi_or_mock!(mock = unsafe { crate::mock_ffi::mock_group_operation_string(op) }, real = unsafe { ffi::PMIx_Group_operation_string(op) });
-    if p.is_null() { return ""; }
+    let p = crate::pmix_ffi_or_mock!(
+        mock = unsafe { crate::mock_ffi::mock_group_operation_string(op) },
+        real = unsafe { ffi::PMIx_Group_operation_string(op) }
+    );
+    if p.is_null() {
+        return "";
+    }
     unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
 }
-
 
 #[cfg(test)]
 #[test]
 fn test_misc_group_string_wrapper() {
     let _guard = crate::mock_ffi::MockGuard::new();
-    assert_eq!(group_operation_string(crate::ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT), "unknown");
+    assert_eq!(
+        group_operation_string(crate::ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT),
+        "unknown"
+    );
 }
