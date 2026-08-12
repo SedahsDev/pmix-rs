@@ -280,6 +280,13 @@ pub(crate) extern "C" fn register_resources_callback_bridge(
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
+    // Release the retained info array on every completion, including when the
+    // callback was already consumed or was never registered.
+    REGISTER_RESOURCE_INFO
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
+
     // Look up and remove the callback from the registry.
     let cb = {
         let mut registry = REGISTER_RESOURCES_REGISTRY.lock();

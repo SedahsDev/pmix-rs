@@ -775,9 +775,9 @@ pub fn log_data_nb(
         //   Info borrows (or is null if empty).
         // - cbfunc is a valid extern "C" function pointer.
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
-        // - PMIx does not retain data_ptr or dirs_ptr after this call returns.
-        // - The caller must keep data and directives alive until the
-        //   callback is invoked.
+        // - PMIx may retain or alias data_ptr and dirs_ptr on the host upcall
+        //   path. LOG_INFO_REGISTRY retains owned arrays until the bridge
+        //   runs, while the caller must keep nested value data alive.
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
             mock_ffi::mock_log_nb(
