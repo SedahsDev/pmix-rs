@@ -373,11 +373,14 @@ pub fn process_monitor_nb(
 
     let status = unsafe {
         // SAFETY: PMIx_Process_monitor_nb is an async PMIx API call.
-        // - monitor.handle points to a valid pmix_info_t (owned by the Info borrow).
-        // - dirs_ptr is either null or points to valid pmix_info_t entries.
+        // - PMIx retains and threadshift-aliases monitor_ptr and dirs_ptr
+        //   (infocopy=false); both point to valid pmix_info_t entries or null.
+        // - MONITOR_INFO_REGISTRY retains owned shallow copies keyed by req_id,
+        //   reclaimed by the monitor completion bridge. The caller must keep its
+        //   Info value data alive until the callback fires; nested value pointers
+        //   are not owned by the retained arrays.
         // - cbfunc is a valid extern "C" function pointer (our bridge).
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
-        // - PMIx does not retain monitor.handle or dirs_ptr after this call returns.
         ffi::PMIx_Process_monitor_nb(
             monitor_ptr,
             error.to_raw(),

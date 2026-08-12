@@ -371,16 +371,22 @@ pub fn server_register_resources(
     } else {
         unsafe { std::slice::from_raw_parts(info.handle, info.len).to_vec() }
     };
-    let info_ptr = if retained.is_empty() {
-        ptr::null()
-    } else {
-        retained.as_ptr()
-    };
     let info_len = retained.len();
     REGISTER_RESOURCE_INFO
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(req_id, RetainedResourceInfo(retained));
+    let info_ptr = {
+        let registry = REGISTER_RESOURCE_INFO
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let retained = &registry[&req_id].0;
+        if retained.is_empty() {
+            ptr::null()
+        } else {
+            retained.as_ptr()
+        }
+    };
 
     // Call the FFI function (or mock).
     let status;
@@ -398,10 +404,12 @@ pub fn server_register_resources(
         } else {
             unsafe {
                 // SAFETY: PMIx_server_register_resources is a non-blocking server API.
-                // - info_ptr is either a valid pointer to an array of pmix_info_t
-                //   (owned by the Info handle, which remains alive for the duration
-                //   of this call — PMIx copies the info internally), or null when
-                //   info_len is 0.
+                // - PMIx retains/aliases info_ptr across its threadshift and does
+                //   not copy the info array. REGISTER_RESOURCE_INFO keeps an owned
+                //   shallow copy of that array alive, keyed by req_id, until the
+                //   completion bridge reclaims it; the caller must keep the Info
+                //   value data alive until the callback fires (the retained array
+                //   does not own its nested value pointers), or null when empty.
                 // - info_len is the number of elements in the info array.
                 // - The callback bridge has C linkage and properly handles cbdata.
                 // - cbdata is an opaque pointer that we control and decode in the bridge.
@@ -419,10 +427,12 @@ pub fn server_register_resources(
         status = {
             unsafe {
                 // SAFETY: PMIx_server_register_resources is a non-blocking server API.
-                // - info_ptr is either a valid pointer to an array of pmix_info_t
-                //   (owned by the Info handle, which remains alive for the duration
-                //   of this call — PMIx copies the info internally), or null when
-                //   info_len is 0.
+                // - PMIx retains/aliases info_ptr across its threadshift and does
+                //   not copy the info array. REGISTER_RESOURCE_INFO keeps an owned
+                //   shallow copy of that array alive, keyed by req_id, until the
+                //   completion bridge reclaims it; the caller must keep the Info
+                //   value data alive until the callback fires (the retained array
+                //   does not own its nested value pointers), or null when empty.
                 // - info_len is the number of elements in the info array.
                 // - The callback bridge has C linkage and properly handles cbdata.
                 // - cbdata is an opaque pointer that we control and decode in the bridge.
@@ -589,16 +599,22 @@ pub fn server_deregister_resources(
     } else {
         unsafe { std::slice::from_raw_parts(info.handle, info.len).to_vec() }
     };
-    let info_ptr = if retained.is_empty() {
-        ptr::null()
-    } else {
-        retained.as_ptr()
-    };
     let info_len = retained.len();
     DEREGISTER_RESOURCE_INFO
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(req_id, RetainedResourceInfo(retained));
+    let info_ptr = {
+        let registry = DEREGISTER_RESOURCE_INFO
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let retained = &registry[&req_id].0;
+        if retained.is_empty() {
+            ptr::null()
+        } else {
+            retained.as_ptr()
+        }
+    };
 
     // Call the FFI function (or mock).
     let status;
@@ -616,10 +632,12 @@ pub fn server_deregister_resources(
         } else {
             unsafe {
                 // SAFETY: PMIx_server_deregister_resources is a non-blocking server API.
-                // - info_ptr is either a valid pointer to an array of pmix_info_t
-                //   (owned by the Info handle, which remains alive for the duration
-                //   of this call — PMIx copies the info internally), or null when
-                //   info_len is 0.
+                // - PMIx retains/aliases info_ptr across its threadshift and does
+                //   not copy the info array. DEREGISTER_RESOURCE_INFO keeps an
+                //   owned shallow copy of that array alive, keyed by req_id, until
+                //   the completion bridge reclaims it; the caller must keep the
+                //   Info value data alive until the callback fires (the retained
+                //   array does not own its nested value pointers), or null when empty.
                 // - info_len is the number of elements in the info array.
                 // - The callback bridge has C linkage and properly handles cbdata.
                 // - cbdata is an opaque pointer that we control and decode in the bridge.
@@ -637,10 +655,12 @@ pub fn server_deregister_resources(
         status = {
             unsafe {
                 // SAFETY: PMIx_server_deregister_resources is a non-blocking server API.
-                // - info_ptr is either a valid pointer to an array of pmix_info_t
-                //   (owned by the Info handle, which remains alive for the duration
-                //   of this call — PMIx copies the info internally), or null when
-                //   info_len is 0.
+                // - PMIx retains/aliases info_ptr across its threadshift and does
+                //   not copy the info array. DEREGISTER_RESOURCE_INFO keeps an
+                //   owned shallow copy of that array alive, keyed by req_id, until
+                //   the completion bridge reclaims it; the caller must keep the
+                //   Info value data alive until the callback fires (the retained
+                //   array does not own its nested value pointers), or null when empty.
                 // - info_len is the number of elements in the info array.
                 // - The callback bridge has C linkage and properly handles cbdata.
                 // - cbdata is an opaque pointer that we control and decode in the bridge.
