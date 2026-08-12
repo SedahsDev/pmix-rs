@@ -448,9 +448,9 @@ extern "C" fn query_callback_bridge(
     status: ffi::pmix_status_t,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
-    _release_cbdata: *mut c_void,
-    release_fn: ffi::pmix_release_cbfunc_t,
     cbdata: *mut c_void,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    _release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -1046,6 +1046,29 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────
     // query_callback_bridge tests (pmix_status_t is c_int, not an enum)
     // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_callback_bridge_uses_cbdata_parameter_four() {
+        let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        struct TestCallback {
+            called: Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl QueryCallback for TestCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let req_id = QUERY_REGISTRY.insert_next(Box::new(TestCallback {
+            called: Arc::clone(&called),
+        }));
+        let cbdata = crate::cbdata::encode_req_id(req_id);
+        let release_cbdata = std::ptr::dangling_mut::<std::ffi::c_void>();
+
+        query_callback_bridge(0, std::ptr::null_mut(), 0, cbdata, None, release_cbdata);
+
+        assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    }
 
     #[test]
     fn test_query_callback_bridge_null_cbdata() {
@@ -1774,9 +1797,9 @@ mod tests {
                 0, // PMIX_SUCCESS
                 std::ptr::null_mut(),
                 0,
-                std::ptr::null_mut(),
-                None,
                 cbdata,
+                None,
+                std::ptr::null_mut(),
             );
         }
 
