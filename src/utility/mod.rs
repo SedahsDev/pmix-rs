@@ -1030,10 +1030,6 @@ extern "C" fn reg_callback_bridge(
     if cbdata.is_null() {
         return;
     }
-
-    if cbdata.is_null() {
-        return;
-    }
     // SAFETY: cbdata points to the temporary Arc box passed to PMIx_IOF_pull.
     let ctx = unsafe { *Box::from_raw(cbdata as *mut Arc<Mutex<IoPullContext>>) };
 
@@ -1451,8 +1447,9 @@ impl PmixByteObject {
     /// points into this object's owned data. The caller must
     /// free the result with `PmixByteObject::free_c_ptr()`.
     ///
-    /// Note: `PMIx_IOF_push` copies the byte object's data internally,
-    /// so the C struct can be freed immediately after the call returns.
+    /// For asynchronous `PMIx_IOF_push`, PMIx retains the byte object until
+    /// the completion callback; the caller must keep both this object and
+    /// the returned C struct alive until then.
     fn as_c_mut_ptr(&self) -> *mut ffi::pmix_byte_object_t {
         let c_str = if self.bytes.is_empty() {
             std::ptr::null_mut()
@@ -1508,6 +1505,8 @@ impl<F> IoForwardPushHandler for F where F: Fn(PmixStatus) + Send + 'static {}
 /// - Process exits (OS reclaims memory)
 struct IoPushContext {
     cb: Box<dyn Fn(PmixStatus) + Send>,
+    c_bo_ptr: *mut ffi::pmix_byte_object_t,
+    bytes_owner: PmixByteObject,
 }
 
 /// C bridge for the push completion callback (`pmix_op_cbfunc_t`).
@@ -1524,10 +1523,20 @@ extern "C" fn push_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std:
     let ctx_ptr = cbdata as *mut IoPushContext;
     // Take ownership back — this callback is the last reference.
     let ctx = unsafe { Box::from_raw(ctx_ptr) };
+    let IoPushContext {
+        cb,
+        c_bo_ptr,
+        bytes_owner,
+    } = *ctx;
+
+    // PMIx has finished using cb->bo before invoking this callback. The C
+    // struct and the Rust-owned bytes can therefore be released exactly once.
+    unsafe { PmixByteObject::free_c_ptr(c_bo_ptr) };
+    drop(bytes_owner);
 
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("utility", move || {
-        (ctx.cb)(pmix_status);
+        (cb)(pmix_status);
     });
 }
 
@@ -1565,14 +1574,18 @@ where
     // Allocate the C byte_object_t on the heap.
     let c_bo_ptr = bo.as_c_mut_ptr();
 
-    // Box the callback into a context struct.
-    let ctx = IoPushContext { cb: Box::new(cb) };
+    // Box the callback and async byte-object ownership into a context struct.
+    let ctx = IoPushContext {
+        cb: Box::new(cb),
+        c_bo_ptr,
+        bytes_owner: bo,
+    };
     let ctx_ptr: *mut IoPushContext = Box::into_raw(Box::new(ctx));
 
     // SAFETY: PMIx_IOF_push is a documented PMIx tool API.
     // - targets: valid slice, passed as const pointer + length.
-    // - bo: heap-allocated pmix_byte_object_t, valid for duration of call.
-    //   PMIx may copy or retain the data internally.
+    // - bo: heap-allocated pmix_byte_object_t, owned by the context until
+    //   the completion callback because async PMIx retains it without copying.
     // - directives: valid slice, passed as const pointer + length.
     // - cbfunc: our push_callback_bridge extern "C" function.
     // - cbdata: ctx_ptr, owned by us, reclaimed in the callback.
@@ -1588,10 +1601,6 @@ where
         )
     };
 
-    // Free the C byte_object — PMIx has already copied/retained the data
-    // internally by the time this returns.
-    // SAFETY: c_bo_ptr was allocated by as_c_mut_ptr() above.
-    unsafe { PmixByteObject::free_c_ptr(c_bo_ptr) };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
 
@@ -1602,11 +1611,23 @@ where
         // Immediate error — callback will NOT be called. Free context.
         // SAFETY: ctx_ptr was not handed to PMIx since the call returned error.
         unsafe {
-            drop(Box::from_raw(ctx_ptr));
+            let ctx = Box::from_raw(ctx_ptr);
+            PmixByteObject::free_c_ptr(ctx.c_bo_ptr);
+            drop(ctx);
         }
         Err(pmix_status)
+    } else if pmix_status.to_raw() == -157 {
+        // PMIX_OPERATION_SUCCEEDED means the request completed inline and
+        // PMIx will not invoke the callback. Reclaim all owned state here.
+        // SAFETY: ctx_ptr is not retained by PMIx for this status.
+        unsafe {
+            let ctx = Box::from_raw(ctx_ptr);
+            PmixByteObject::free_c_ptr(ctx.c_bo_ptr);
+            drop(ctx);
+        }
+        Ok(())
     } else {
-        // Either async (callback will fire) or immediate success.
+        // PMIX_SUCCESS means async processing; the callback owns reclamation.
         Ok(())
     }
 }
