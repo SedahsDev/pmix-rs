@@ -756,7 +756,7 @@ extern "C" fn lookup_callback_bridge(
         unsafe {
             for i in 0..ndata {
                 let pdata = data.add(i);
-                let pdata_ref = &*pdata;
+                let pdata_ref = &mut *pdata;
 
                 let nspace_str = std::ffi::CStr::from_ptr(pdata_ref.proc_.nspace.as_ptr())
                     .to_string_lossy()
@@ -773,6 +773,10 @@ extern "C" fn lookup_callback_bridge(
                 let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
                 let value = if pdata_ref.value.type_ != pmix_undef {
                     let val = ptr::read(&pdata_ref.value);
+                    // SAFETY: `val` owns the payload copied from the PMIx result;
+                    // clear the source before PMIx frees the pdata array.
+                    std::ptr::write_bytes(&mut pdata_ref.value, 0, 1);
+                    pdata_ref.value.type_ = pmix_undef;
                     Some(PmixOwnedValue { inner: val, 
             _not_thread_safe: std::marker::PhantomData,
         })

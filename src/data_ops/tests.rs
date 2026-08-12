@@ -2151,6 +2151,46 @@ use super::*;
 
     // ─── Mock-aware lookup_nb callback tests ────────────────────────────────
 
+    /// Verify lookup callback ownership survives PMIx freeing the pdata array.
+    #[test]
+    fn test_lookup_callback_bridge_transfers_value_before_pdata_free() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static RECEIVED: AtomicBool = AtomicBool::new(false);
+
+        struct Callback;
+        impl LookupCallback for Callback {
+            fn on_result(self: Box<Self>, _status: PmixStatus, mut data: Vec<PmixPdata>) {
+                RECEIVED.store(
+                    data.pop().and_then(|pdata| pdata.value).is_some(),
+                    Ordering::SeqCst,
+                );
+            }
+        }
+
+        RECEIVED.store(false, Ordering::SeqCst);
+        let req_id = LOOKUP_REGISTRY.next_req_id();
+        LOOKUP_REGISTRY.lock().insert(req_id, Box::new(Callback));
+
+        let data = unsafe {
+            let data = libc::calloc(1, std::mem::size_of::<ffi::pmix_pdata_t>())
+                as *mut ffi::pmix_pdata_t;
+            assert!(!data.is_null());
+            (*data).value.type_ = crate::ffi::PMIX_STRING as _;
+            let string = std::ffi::CString::new("value").unwrap();
+            (*data).value.data.string = libc::strdup(string.as_ptr());
+            assert!(!(*data).value.data.string.is_null());
+            data
+        };
+
+        lookup_callback_bridge(
+            PMIX_SUCCESS,
+            data,
+            1,
+            crate::cbdata::encode_req_id(req_id),
+        );
+        assert!(RECEIVED.load(Ordering::SeqCst));
+    }
+
     /// Test lookup_nb callback bridge with success status.
     #[test]
     fn test_lookup_callback_bridge_success() {
