@@ -183,24 +183,18 @@ impl PmixCredential {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: copy bytes from a PMIx-allocated pmix_byte_object_t into a Vec<u8>
-// and free the PMIx-allocated struct.
+// Helper: copy bytes from a PMIx-allocated pmix_byte_object_t into a Vec<u8>.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Copy bytes from a PMIx-allocated `pmix_byte_object_t` into a Rust-owned
-/// `Vec<u8>`, then free the PMIx-allocated memory.
+/// Copy bytes from a `pmix_byte_object_t` into a Rust-owned `Vec<u8>`.
 ///
 /// # Safety
-/// - `cred` must be a valid, non-null pointer to a `pmix_byte_object_t`
-///   allocated by PMIx (i.e., via `pmix_malloc`).
+/// - `cred` must be a valid, non-null pointer whose struct and byte storage
+///   remain valid for the duration of the call.
 /// - The caller must ensure the struct is valid and not already freed.
-/// - Copy bytes from a PMIx-allocated `pmix_byte_object_t` into a Rust-owned
-///   `Vec<u8>`, then free the PMIx-allocated memory.
 ///
-/// # Safety
-/// - `cred` must be a valid, non-null pointer to a `pmix_byte_object_t`
-///   allocated by PMIx (i.e., via `pmix_malloc` / libc `malloc`).
-/// - The caller must ensure the struct is valid and not already freed.
+/// This function only copies the bytes. It does not free the struct or its
+/// byte storage; ownership remains with the caller or PMIx.
 unsafe fn copy_pmix_byte_object(cred: *const ffi::pmix_byte_object_t) -> Vec<u8> {
     let obj = unsafe { &*cred };
     if !obj.bytes.is_null() && obj.size > 0 {
@@ -213,6 +207,12 @@ unsafe fn copy_pmix_byte_object(cred: *const ffi::pmix_byte_object_t) -> Vec<u8>
     }
 }
 
+/// Copy a valid PMIx info array into a newly allocated PMIx-owned array.
+///
+/// # Safety
+/// `info` must be non-null and point to a valid `pmix_info_t[ninfo]` array.
+/// The returned array is owned by the caller and must be released with
+/// `PMIx_Info_free` when it is no longer needed.
 unsafe fn copy_info_array(info: *const ffi::pmix_info_t, ninfo: usize) -> *mut ffi::pmix_info_t {
     if info.is_null() || ninfo == 0 {
         return ptr::null_mut();
@@ -296,8 +296,11 @@ pub fn get_credential(info: &[Info]) -> Result<PmixCredential, PmixStatus> {
         unsafe {
             // SAFETY: cred_ptr is valid. PMIx has populated it with
             // the credential bytes (allocated by pmix_malloc).
-            // We copy the bytes into a Rust Vec and free the C memory.
             let bytes = copy_pmix_byte_object(cred_ptr);
+            if !(*cred_ptr).bytes.is_null() {
+                ffi::free((*cred_ptr).bytes as *mut c_void);
+            }
+            drop(Box::from_raw(cred_ptr));
             Ok(PmixCredential::from_vec(bytes))
         }
     } else {
@@ -391,7 +394,7 @@ static CREDENTIAL_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedCredentia
 ///
 /// Ownership notes:
 /// - `credential` is allocated by PMIx — we copy its bytes into a Vec<u8>
-///   and free the PMIx-allocated memory.
+///   without freeing the callback-owned memory.
 /// - `info` is allocated by PMIx — we copy the entries into a Vec<Info>
 ///   and then free the original array via `PMIx_Info_free`.
 extern "C" fn credential_callback_bridge(
@@ -405,7 +408,7 @@ extern "C" fn credential_callback_bridge(
         // Free resources if callback data is missing.
         if !credential.is_null() {
             unsafe {
-                // Copy bytes and free PMIx memory.
+                // Copy bytes only; PMIx owns callback memory and frees it.
                 let _bytes = copy_pmix_byte_object(credential);
             }
         }
@@ -439,7 +442,7 @@ extern "C" fn credential_callback_bridge(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    // Take ownership of the credential — copy bytes and free PMIx memory.
+    // Copy the credential while PMIx owns the callback memory.
     let cred = if !credential.is_null() {
         unsafe {
             let bytes = copy_pmix_byte_object(credential);
@@ -787,21 +790,25 @@ extern "C" fn validation_callback_bridge(
     let pmix_status = PmixStatus::from_raw(status);
 
     // Build ValidationResults from the info array.
-    let results = if !info.is_null() && ninfo > 0 {
+    let (results, pmix_status) = if !info.is_null() && ninfo > 0 {
         let copied = unsafe { copy_info_array(info, ninfo) };
-        ValidationResults {
-            handle: copied,
-            len: if copied.is_null() { 0 } else { ninfo },
-
-            _not_thread_safe: std::marker::PhantomData,
+        if copied.is_null() {
+            (
+                ValidationResults::empty(),
+                PmixStatus::Known(PmixError::ErrNomem),
+            )
+        } else {
+            (
+                ValidationResults {
+                    handle: copied,
+                    len: ninfo,
+                    _not_thread_safe: std::marker::PhantomData,
+                },
+                pmix_status,
+            )
         }
     } else {
-        ValidationResults {
-            handle: ptr::null_mut(),
-            len: 0,
-
-            _not_thread_safe: std::marker::PhantomData,
-        }
+        (ValidationResults::empty(), pmix_status)
     };
 
     let _ = invoke_user_callback("security", move || {
@@ -1153,9 +1160,13 @@ mod tests {
         });
         let bo_ptr = Box::into_raw(bo);
 
-        // Call the helper — it copies bytes and frees the C memory
+        // Call the helper — it copies bytes but does not free C memory.
         let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert_eq!(&result[..], bytes);
+        unsafe {
+            ffi::free(byte_ptr as *mut c_void);
+            drop(Box::from_raw(bo_ptr));
+        }
     }
 
     #[test]
@@ -1169,6 +1180,9 @@ mod tests {
 
         let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert!(result.is_empty());
+        unsafe {
+            drop(Box::from_raw(bo_ptr));
+        }
     }
 
     #[test]
@@ -1182,6 +1196,9 @@ mod tests {
 
         let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert!(result.is_empty());
+        unsafe {
+            drop(Box::from_raw(bo_ptr));
+        }
     }
 
     // ── get_credential / validate_credential (without DVM) ─────────────────
