@@ -1172,17 +1172,29 @@ impl PmixDeviceDistance {
     }
 }
 
+/// Release a PMIx-owned distance array after copying its entries.
+unsafe fn free_raw_distances(dist: *mut ffi::pmix_device_distance_t, len: usize) {
+    if dist.is_null() {
+        return;
+    }
+    for i in 0..len {
+        let entry = unsafe { dist.add(i) };
+        unsafe {
+            libc::free((*entry).uuid.cast());
+            libc::free((*entry).osname.cast());
+        }
+    }
+    unsafe { libc::free(dist.cast()) };
+}
+
 /// A collection of device distances returned by [`compute_distances`].
 ///
-/// Owns the C-allocated array and frees it on drop.
+/// The collection owns Rust copies of all returned data. PMIx-owned memory is
+/// released by the API call or callback bridge before this value is delivered.
 pub struct DeviceDistances {
-    /// The parsed distance entries.
+    /// The parsed, Rust-owned distance entries.
     distances: Vec<PmixDeviceDistance>,
-    /// Raw pointer to the C-allocated array (for cleanup).
-    raw_ptr: *mut ffi::pmix_device_distance_t,
-    /// Number of elements in the raw array.
-    len: usize,
-    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    /// Makes this type `!Send` + `!Sync` for consistency with PMIx fabric data.
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
@@ -1209,9 +1221,6 @@ impl DeviceDistances {
     pub fn test_new(distances: Vec<PmixDeviceDistance>) -> Self {
         Self {
             distances,
-            raw_ptr: ptr::null_mut(),
-            len: 0,
-        
             _not_thread_safe: std::marker::PhantomData,
         }
     }
@@ -1222,47 +1231,6 @@ impl std::fmt::Debug for DeviceDistances {
         f.debug_struct("DeviceDistances")
             .field("distances", &self.distances)
             .finish()
-    }
-}
-
-impl Drop for DeviceDistances {
-    fn drop(&mut self) {
-        if !self.raw_ptr.is_null() && self.len > 0 {
-            // SAFETY: We own the C-allocated array returned by PMIx_Compute_distances.
-            // Free each entry's strings, then free the array itself.
-            unsafe {
-                for i in 0..self.len {
-                    let entry = self.raw_ptr.add(i);
-                    if !(*entry).uuid.is_null() {
-                        let _ = std::ffi::CString::from_raw((*entry).uuid);
-                    }
-                    if !(*entry).osname.is_null() {
-                        let _ = std::ffi::CString::from_raw((*entry).osname);
-                    }
-                }
-                // Free the array — PMIx uses standard calloc/free.
-                // The C API uses PMIX_DEVICE_DIST_DESTRUCT which frees strings
-                // but not the array itself. We need to free the array with
-                // the same allocator PMIx used. Since PMIx uses libc calloc/free
-                // internally, we use std::alloc::dealloc with Layout::from_size_align.
-                // However, the safest approach is to let the PMIx library handle it.
-                // Since there's no PMIx-specific free function for this array,
-                // and the strings are already freed, we just null the pointer
-                // to avoid double-free. The C library will clean up on finalize.
-                //
-                // NOTE: In practice, PMIx expects the caller to use
-                // PMIX_DEVICE_DIST_DESTRUCT + free(). We handle string cleanup
-                // above. For the array itself, we rely on libc free.
-                let layout = std::alloc::Layout::from_size_align(
-                    std::mem::size_of::<ffi::pmix_device_distance_t>() * self.len,
-                    std::mem::align_of::<ffi::pmix_device_distance_t>(),
-                )
-                .unwrap();
-                std::alloc::dealloc(self.raw_ptr as *mut u8, layout);
-            }
-            self.raw_ptr = ptr::null_mut();
-            self.len = 0;
-        }
     }
 }
 
@@ -1440,7 +1408,7 @@ pub fn compute_distances(
 
     // SAFETY: On success, PMIx_Compute_distances allocates and returns a
     // valid array of pmix_device_distance_t with ndist elements.
-    // We take ownership of the data and will free it in DeviceDistances::drop.
+    // Copy the data before returning; PMIx owns the source array and its strings.
     let distances: Vec<PmixDeviceDistance> = unsafe {
         if raw_distances.is_null() || ndist == 0 {
             Vec::new()
@@ -1451,13 +1419,14 @@ pub fn compute_distances(
         }
     };
 
+    // PMIx owns this array. The strings were copied above, so release the
+    // PMIx allocation before returning the Rust-only value.
+    unsafe { free_raw_distances(raw_distances, ndist) };
+
     Ok(DeviceDistances {
         distances,
-        raw_ptr: raw_distances,
-        len: ndist,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        })
+        _not_thread_safe: std::marker::PhantomData,
+    })
 }
 
 /// Non-blocking variant of [`compute_distances`].
@@ -1525,19 +1494,13 @@ pub fn compute_distances_nb(
             };
             DeviceDistances {
                 distances: rust_distances,
-                raw_ptr: dist,
-                len: ndist,
-            
-            _not_thread_safe: std::marker::PhantomData,
-        }
+                _not_thread_safe: std::marker::PhantomData,
+            }
         } else {
             DeviceDistances {
                 distances: Vec::new(),
-                raw_ptr: ptr::null_mut(),
-                len: 0,
-            
-            _not_thread_safe: std::marker::PhantomData,
-        }
+                _not_thread_safe: std::marker::PhantomData,
+            }
         };
 
         // Call the release function if provided.
@@ -2557,6 +2520,46 @@ mod tests {
         assert!(result.is_ok());
         let distances = result.unwrap();
         assert_eq!(distances.len(), 0);
+    }
+
+    #[test]
+    fn test_compute_distances_nb_deep_copies_before_release() {
+        let _guard = mock_ffi::MockGuard::new();
+        mock_ffi::mock_set_device_distances(vec![(
+            "nb-uuid".to_string(),
+            "nb-osname".to_string(),
+            0,
+            3,
+            9,
+        )]);
+
+        struct Callback {
+            result: std::sync::Arc<std::sync::Mutex<Option<(String, String)>>>,
+        }
+        impl ComputeDistancesCallback for Callback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, distances: DeviceDistances) {
+                let entry = &distances.distances()[0];
+                *self.result.lock().unwrap() =
+                    Some((entry.uuid().to_string(), entry.osname().to_string()));
+            }
+        }
+
+        let result = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let mut topo = PmixTopology::new(Some("hwloc")).unwrap();
+        let mut cpuset = PmixCpuset::new();
+        compute_distances_nb(
+            &mut topo,
+            &mut cpuset,
+            &[],
+            Box::new(Callback {
+                result: result.clone(),
+            }),
+        )
+        .unwrap();
+
+        let (uuid, osname) = result.lock().unwrap().take().unwrap();
+        assert_eq!(uuid, "nb-uuid");
+        assert_eq!(osname, "nb-osname");
     }
 
     #[test]

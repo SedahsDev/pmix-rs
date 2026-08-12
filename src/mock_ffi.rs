@@ -1641,16 +1641,21 @@ pub fn mock_compute_distances(
             if !mock_distances.is_empty() {
                 let count = mock_distances.len();
                 // Allocate array of device_distance_t
-                let layout = std::alloc::Layout::from_size_align(
-                    std::mem::size_of::<crate::ffi::pmix_device_distance_t>() * count,
-                    std::mem::align_of::<crate::ffi::pmix_device_distance_t>(),
-                ).unwrap();
-                let ptr = unsafe { std::alloc::alloc(layout) as *mut crate::ffi::pmix_device_distance_t };
+                let ptr = unsafe {
+                    libc::calloc(
+                        count,
+                        std::mem::size_of::<crate::ffi::pmix_device_distance_t>(),
+                    ) as *mut crate::ffi::pmix_device_distance_t
+                };
                 if !ptr.is_null() {
                     for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate() {
                         let entry = unsafe { &mut *ptr.add(i) };
-                        entry.uuid = std::ffi::CString::new(uuid.as_str()).unwrap().into_raw();
-                        entry.osname = std::ffi::CString::new(osname.as_str()).unwrap().into_raw();
+                        entry.uuid = unsafe {
+                            libc::strdup(std::ffi::CString::new(uuid.as_str()).unwrap().as_ptr())
+                        };
+                        entry.osname = unsafe {
+                            libc::strdup(std::ffi::CString::new(osname.as_str()).unwrap().as_ptr())
+                        };
                         entry.type_ = *dtype;
                         entry.mindist = *mind;
                         entry.maxdist = *maxd;
@@ -1674,7 +1679,7 @@ pub fn mock_compute_distances_nb(
     _cpuset: *mut crate::ffi::pmix_cpuset_t,
     _info: *mut crate::ffi::pmix_info_t,
     _ninfo: usize,
-    _cbfunc: Option<unsafe extern "C" fn(
+    cbfunc: Option<unsafe extern "C" fn(
         i32,
         *mut crate::ffi::pmix_device_distance_t,
         usize,
@@ -1682,13 +1687,61 @@ pub fn mock_compute_distances_nb(
         Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
         *mut std::os::raw::c_void,
     )>,
-    _cbdata: *mut std::os::raw::c_void,
+    cbdata: *mut std::os::raw::c_void,
 ) -> i32 {
-    if is_mock_enabled() {
-        get_mock_status("PMIx_Compute_distances_nb")
-    } else {
-        PMIX_ERR_INIT
+    if !is_mock_enabled() {
+        return PMIX_ERR_INIT;
     }
+    let status = get_mock_status("PMIx_Compute_distances_nb");
+    if status != PMIX_SUCCESS {
+        return status;
+    }
+
+    let values = MOCK_DEVICE_DISTANCES.with(|cell| cell.borrow().clone());
+    let count = values.len();
+    let dist = unsafe {
+        libc::calloc(
+            count.max(1),
+            std::mem::size_of::<crate::ffi::pmix_device_distance_t>(),
+        ) as *mut crate::ffi::pmix_device_distance_t
+    };
+    if dist.is_null() {
+        return -5; // PMIX_ERR_NOMEM
+    }
+    for (i, (uuid, osname, dtype, mind, maxd)) in values.iter().enumerate() {
+        unsafe {
+            let entry = &mut *dist.add(i);
+            entry.uuid = libc::strdup(std::ffi::CString::new(uuid.as_str()).unwrap().as_ptr());
+            entry.osname = libc::strdup(std::ffi::CString::new(osname.as_str()).unwrap().as_ptr());
+            entry.type_ = *dtype;
+            entry.mindist = *mind;
+            entry.maxdist = *maxd;
+        }
+    }
+
+    #[repr(C)]
+    struct DistanceCaddy {
+        dist: *mut crate::ffi::pmix_device_distance_t,
+        len: usize,
+    }
+    unsafe extern "C" fn release_distances(data: *mut std::os::raw::c_void) {
+        let caddy = unsafe { Box::from_raw(data as *mut DistanceCaddy) };
+        for i in 0..caddy.len {
+            let entry = unsafe { &*caddy.dist.add(i) };
+            unsafe {
+                libc::free(entry.uuid.cast());
+                libc::free(entry.osname.cast());
+            }
+        }
+        unsafe { libc::free(caddy.dist.cast()) };
+    }
+    if let Some(callback) = cbfunc {
+        let caddy = Box::into_raw(Box::new(DistanceCaddy { dist, len: count }));
+        unsafe { callback(status, dist, count, cbdata, Some(release_distances), caddy.cast()) };
+    } else {
+        unsafe { libc::free(dist.cast()) };
+    }
+    status
 }
 
 /// Mock implementation of `PMIx_Topology_destruct()`.
