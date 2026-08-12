@@ -410,14 +410,13 @@ use super::*;
 
     #[test]
     fn test_rank_wildcard_value() {
-        assert_eq!(PMIX_RANK_WILDCARD, -1);
+        assert_eq!(ffi::PMIX_RANK_WILDCARD, 0xFFFF_FFFEu32);
+        assert_ne!(ffi::PMIX_RANK_WILDCARD, u32::MAX);
     }
 
     #[test]
     fn test_rank_wildcast_as_u32() {
-        // PMIX_RANK_WILDCARD as u32 wraps to MAX
-        let rank: u32 = PMIX_RANK_WILDCARD as u32;
-        assert_eq!(rank, u32::MAX);
+        assert_eq!(ffi::PMIX_RANK_WILDCARD, 0xFFFF_FFFEu32);
     }
 
     // ─── PmixStatus roundtrip tests for data_ops context ────────────────────
@@ -2488,9 +2487,9 @@ use super::*;
     #[test]
     fn test_mock_proc_wildcard_rank() {
         let _guard = MockGuard::new();
-        let proc =
-            Proc::new("", PMIX_RANK_WILDCARD as u32).unwrap_or_else(|_| Proc::new("", 0).unwrap());
-        assert_eq!(proc.get_rank(), PMIX_RANK_WILDCARD as u32);
+        let proc = Proc::new("", ffi::PMIX_RANK_WILDCARD)
+            .unwrap_or_else(|_| Proc::new("", 0).unwrap());
+        assert_eq!(proc.get_rank(), ffi::PMIX_RANK_WILDCARD);
     }
 
     // ─── PmixPdata mock-aware tests ─────────────────────────────────────────
@@ -2501,6 +2500,7 @@ use super::*;
         let _guard = MockGuard::new();
         let pdata = PmixPdata::new("test.lookup.key");
         assert_eq!(pdata.key, "test.lookup.key");
+        assert_eq!(pdata.proc.get_rank(), ffi::PMIX_RANK_WILDCARD);
         assert!(pdata.value.is_none());
     }
 

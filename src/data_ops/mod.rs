@@ -550,16 +550,13 @@ impl PmixPdata {
     /// populated by [`lookup`][crate::data_ops::lookup] on success.
     pub fn new(key: &str) -> Self {
         Self {
-            proc: Proc::new("", PMIX_RANK_WILDCARD as u32)
+            proc: Proc::new("", ffi::PMIX_RANK_WILDCARD)
                 .unwrap_or_else(|_| Proc::new("", 0).expect("invariant: unwrap in data_ops.rs")),
             key: key.to_string(),
             value: None,
         }
     }
 }
-
-/// PMIX_RANK_WILDCARD constant.
-const PMIX_RANK_WILDCARD: i32 = -1;
 
 /// Lookup information published by this or another process.
 ///
@@ -617,7 +614,7 @@ pub fn lookup(
         }
 
         // Initialize the proc field as wildcard.
-        pdata.proc_.rank = PMIX_RANK_WILDCARD as u32;
+        pdata.proc_.rank = ffi::PMIX_RANK_WILDCARD;
 
         // Zero the value so PMIx writes into it.
         unsafe {
