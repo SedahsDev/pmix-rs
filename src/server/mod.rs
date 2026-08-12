@@ -2304,6 +2304,8 @@ pub trait CollectInventoryCallback: Send + 'static {
 pub struct CollectInventoryResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -2322,14 +2324,12 @@ impl CollectInventoryResults {
 
 impl Drop for CollectInventoryResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
-            unsafe {
-                // SAFETY: handle was returned by PMIx as an allocated
-                // pmix_info_t array. PMIx_Info_free releases it.
-                ffi::PMIx_Info_free(self.handle, self.len);
-                self.handle = ptr::null_mut();
-                self.len = 0;
-            }
+        if let Some(release_fn) = self.release_fn.take() {
+            // SAFETY: PMIx supplied this callback and opaque data for this
+            // completion; it releases the tracker-owned info array.
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
         }
     }
 }
@@ -2353,7 +2353,7 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     ninfo: usize,
     cbdata: *mut c_void,
     release_fn: ffi::pmix_release_cbfunc_t,
-    _release_cbdata: *mut c_void,
+    release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -2371,11 +2371,9 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     let cb = match cb {
         Some(cb) => cb,
         None => {
-            // Callback already consumed — free the info array to avoid leak.
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    ffi::PMIx_Info_free(info, ninfo);
-                }
+            // Callback already consumed — release the PMIx tracker.
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
             return;
         }
@@ -2385,14 +2383,13 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     let inventory = CollectInventoryResults {
         handle: info,
         len: ninfo,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        };
+        release_fn,
+        release_cbdata,
+        _not_thread_safe: std::marker::PhantomData,
+    };
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status, inventory);
+        cb.on_complete(pmix_status, inventory);
     });
-    // release_fn is unused — we manage our own memory via CollectInventoryResults Drop.
-    let _ = release_fn;
 }
 
 /// Collect hardware and software inventory from the local system (non-blocking).
