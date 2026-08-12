@@ -42,15 +42,14 @@
 //! #define PMIx_Heartbeat()  // sends a heartbeat via PMIx_Process_monitor_nb
 //! ```
 
-
 use std::ffi::CString;
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::LazyLock;
 
+use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
-use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::{Info, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -88,7 +87,7 @@ impl MonitorResults {
         Self {
             handle: std::ptr::null_mut(),
             len,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         }
     }
@@ -128,7 +127,16 @@ pub trait MonitorCallback: Send {
     fn on_complete(&mut self, status: PmixStatus, results: Option<MonitorResults>);
 }
 
-static MONITOR_REGISTRY: LazyLock<Registry<Box<dyn MonitorCallback>>> = LazyLock::new(Registry::new);
+static MONITOR_REGISTRY: LazyLock<Registry<Box<dyn MonitorCallback>>> =
+    LazyLock::new(Registry::new);
+struct RetainedMonitorInfo {
+    monitor: Vec<ffi::pmix_info_t>,
+    directives: Vec<ffi::pmix_info_t>,
+}
+unsafe impl Send for RetainedMonitorInfo {}
+static MONITOR_INFO_REGISTRY: LazyLock<
+    std::sync::Mutex<std::collections::HashMap<usize, RetainedMonitorInfo>>,
+> = LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// C bridge for `pmix_info_cbfunc_t` (monitor completion).
 ///
@@ -145,6 +153,10 @@ unsafe extern "C" fn monitor_callback_bridge(
 ) {
     // Decode the request ID from the cbdata pointer.
     let req_id = decode_req_id(cbdata);
+    MONITOR_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
 
     // Remove the callback from the registry — it is consumed exactly once.
     let mut registry = MONITOR_REGISTRY.lock();
@@ -158,14 +170,14 @@ unsafe extern "C" fn monitor_callback_bridge(
                 Some(MonitorResults {
                     handle: info,
                     len: ninfo,
-                
-            _not_thread_safe: std::marker::PhantomData,
-        })
+
+                    _not_thread_safe: std::marker::PhantomData,
+                })
             } else {
                 None
             };
             let _ = invoke_user_callback("monitoring", move || {
-                    cb.on_complete(PmixStatus::from_raw(status), results);
+                cb.on_complete(PmixStatus::from_raw(status), results);
             });
         }
         None => {
@@ -271,7 +283,7 @@ pub fn process_monitor(
         Ok(MonitorResults {
             handle: results,
             len: nresults,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         })
     } else {
@@ -317,13 +329,45 @@ pub fn process_monitor_nb(
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = encode_req_id(req_id);
 
-    // Build directive pointer array.
-    let (dirs_ptr, ndirs) = if directives.is_empty() {
-        (ptr::null(), 0)
+    let retained: Vec<ffi::pmix_info_t> = if monitor.handle.is_null() || monitor.len == 0 {
+        Vec::new()
     } else {
+        unsafe { std::slice::from_raw_parts(monitor.handle, monitor.len).to_vec() }
+    };
+    let dirs: Vec<ffi::pmix_info_t> = directives
+        .iter()
+        .filter(|i| !i.handle.is_null())
+        .flat_map(|i| unsafe { std::slice::from_raw_parts(i.handle, i.len).to_vec() })
+        .collect();
+    MONITOR_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(
+            req_id,
+            RetainedMonitorInfo {
+                monitor: retained,
+                directives: dirs,
+            },
+        );
+    let (monitor_ptr, dirs_ptr, ndirs) = {
+        let retained = MONITOR_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let retained = retained
+            .get(&req_id)
+            .expect("retained monitor info inserted");
         (
-            directives[0].handle as *const ffi::pmix_info_t,
-            directives[0].len,
+            if retained.monitor.is_empty() {
+                ptr::null()
+            } else {
+                retained.monitor.as_ptr()
+            },
+            if retained.directives.is_empty() {
+                ptr::null()
+            } else {
+                retained.directives.as_ptr()
+            },
+            retained.directives.len(),
         )
     };
 
@@ -335,7 +379,7 @@ pub fn process_monitor_nb(
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
         // - PMIx does not retain monitor.handle or dirs_ptr after this call returns.
         ffi::PMIx_Process_monitor_nb(
-            monitor.handle,
+            monitor_ptr,
             error.to_raw(),
             dirs_ptr,
             ndirs,
@@ -351,6 +395,10 @@ pub fn process_monitor_nb(
         // Request rejected — remove the callback from the registry.
         let mut registry = MONITOR_REGISTRY.lock();
         registry.remove(&req_id);
+        MONITOR_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -991,9 +1039,12 @@ mod tests {
     }
 }
 
-
-pub fn heartbeat_raw() { crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_heartbeat()},real=unsafe{ffi::PMIx_Heartbeat()}); }
-
+pub fn heartbeat_raw() {
+    crate::pmix_ffi_or_mock!(
+        mock = unsafe { crate::mock_ffi::mock_heartbeat() },
+        real = unsafe { ffi::PMIx_Heartbeat() }
+    );
+}
 
 #[cfg(test)]
 #[test]
