@@ -1601,22 +1601,12 @@ where
         )
     };
 
-
     let pmix_status = PmixStatus::from_raw(raw_status);
 
     // Per spec: PMIX_SUCCESS means async processing (callback will fire).
     // PMIX_OPERATION_SUCCEEDED means immediate success (callback NOT called).
     // Any error means immediate failure (callback NOT called).
-    if pmix_status.is_error() {
-        // Immediate error — callback will NOT be called. Free context.
-        // SAFETY: ctx_ptr was not handed to PMIx since the call returned error.
-        unsafe {
-            let ctx = Box::from_raw(ctx_ptr);
-            PmixByteObject::free_c_ptr(ctx.c_bo_ptr);
-            drop(ctx);
-        }
-        Err(pmix_status)
-    } else if pmix_status.to_raw() == -157 {
+    if pmix_status == PmixStatus::Known(crate::PmixError::OperationSucceeded) {
         // PMIX_OPERATION_SUCCEEDED means the request completed inline and
         // PMIx will not invoke the callback. Reclaim all owned state here.
         // SAFETY: ctx_ptr is not retained by PMIx for this status.
@@ -1626,6 +1616,15 @@ where
             drop(ctx);
         }
         Ok(())
+    } else if pmix_status.is_error() {
+        // Immediate error — callback will NOT be called. Free context.
+        // SAFETY: ctx_ptr was not handed to PMIx since the call returned error.
+        unsafe {
+            let ctx = Box::from_raw(ctx_ptr);
+            PmixByteObject::free_c_ptr(ctx.c_bo_ptr);
+            drop(ctx);
+        }
+        Err(pmix_status)
     } else {
         // PMIX_SUCCESS means async processing; the callback owns reclamation.
         Ok(())
