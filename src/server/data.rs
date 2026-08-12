@@ -11,7 +11,10 @@ use crate::mock_ffi;
 fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
     procs
         .iter()
-        .map(|proc| unsafe { std::ptr::read(&proc.handle) })
+        .map(|proc| {
+            // SAFETY: Proc contains an initialized pmix_proc_t for this borrow.
+            unsafe { std::ptr::read(&proc.handle) }
+        })
         .collect()
 }
 
@@ -22,9 +25,13 @@ fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
             if info.handle.is_null() || info.len == 0 {
                 Vec::new()
             } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
                 unsafe { std::slice::from_raw_parts(info.handle, info.len) }
                     .iter()
-                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .map(|entry| {
+                        // SAFETY: entry is initialized and copied by value into local storage.
+                        unsafe { std::ptr::read(entry) }
+                    })
                     .collect::<Vec<_>>()
             }
         })

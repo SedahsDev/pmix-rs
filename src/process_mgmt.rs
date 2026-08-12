@@ -491,7 +491,10 @@ static DISCONNECT_REGISTRY: LazyLock<Registry<DisconnectCallbackWrapper>> = Lazy
 fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
     procs
         .iter()
-        .map(|proc| unsafe { std::ptr::read(&proc.handle) })
+        .map(|proc| {
+            // SAFETY: Proc contains an initialized pmix_proc_t for this borrow.
+            unsafe { std::ptr::read(&proc.handle) }
+        })
         .collect()
 }
 
@@ -502,9 +505,13 @@ fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
             if info.handle.is_null() || info.len == 0 {
                 Vec::new()
             } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
                 unsafe { std::slice::from_raw_parts(info.handle, info.len) }
                     .iter()
-                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .map(|entry| {
+                        // SAFETY: entry is initialized and copied by value into local storage.
+                        unsafe { std::ptr::read(entry) }
+                    })
                     .collect::<Vec<_>>()
             }
         })
@@ -755,11 +762,10 @@ pub fn connect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Convert proc slice to a raw pointer.
-    // SAFETY: `procs` is a non-empty slice of `Proc` values, each
-    // containing a `pmix_proc_t` handle as its first field. We take
-    // the address of the first element's handle and cast it to the
-    // FFI type. The slice remains valid for the duration of this call.
+    // Build owned contiguous arrays for the FFI call.
+    // SAFETY: `procs_ptr` points into an owned contiguous Vec of
+    // `ffi::pmix_proc_t` values, and `info_ptr` points into an owned
+    // contiguous Vec of `ffi::pmix_info_t` values; both Vecs outlive the FFI call.
     let flat_procs = flat_procs(procs);
     let procs_ptr = flat_procs.as_ptr();
     let flat_infos = flat_infos(info);
@@ -770,11 +776,10 @@ pub fn connect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
     };
 
     // SAFETY: FFI call into PMIx library.
-    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles
-    //   that remain valid for the duration of this call. PMIx does
-    //   not retain these pointers after return.
-    // - `info_ptr` is either null or points to a valid slice of
-    //   `pmix_info_t` pointers. PMIx reads but does not retain.
+    // - `procs_ptr` points into the owned contiguous `flat_procs` Vec,
+    //   which outlives this call. PMIx does not retain the pointer after return.
+    // - `info_ptr` is either null or points into the owned contiguous `flat_infos`
+    //   Vec, which outlives this call. PMIx reads but does not retain the pointer.
     // - `nprocs` and `ninfo` are the correct lengths of their arrays.
     // - This is a blocking call: it does not return until all
     //   participating processes have completed the connect operation.
@@ -869,8 +874,10 @@ pub fn connect_nb(
     let req_id = CONNECT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
-    // Convert proc slice to a raw pointer.
-    // SAFETY: `procs` is a non-empty slice of `Proc` values.
+    // Build owned contiguous arrays for the FFI call.
+    // SAFETY: `procs_ptr` points into an owned contiguous Vec of
+    // `ffi::pmix_proc_t` values, and `info_ptr` points into an owned
+    // contiguous Vec of `ffi::pmix_info_t` values; both Vecs outlive the FFI call.
     let flat_procs = flat_procs(procs);
     let procs_ptr = flat_procs.as_ptr();
     let flat_infos = flat_infos(info);
@@ -881,9 +888,10 @@ pub fn connect_nb(
     };
 
     // SAFETY: FFI call into PMIx library.
-    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles.
-    // - `info_ptr` is either null or points to a valid slice of
-    //   `pmix_info_t` pointers.
+    // - `procs_ptr` points into the owned contiguous `flat_procs` Vec,
+    //   which outlives this call.
+    // - `info_ptr` is either null or points into the owned contiguous `flat_infos`
+    //   Vec, which outlives this call.
     // - `connect_callback_bridge` is a valid extern "C" callback.
     // - `cbdata` is an opaque request ID for CONNECT_REGISTRY.
     // - PMIx_Connect_nb returns immediately; the callback is invoked
@@ -966,11 +974,10 @@ pub fn disconnect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Convert proc slice to a raw pointer.
-    // SAFETY: `procs` is a non-empty slice of `Proc` values, each
-    // containing a `pmix_proc_t` handle as its first field. We take
-    // the address of the first element's handle and cast it to the
-    // FFI type. The slice remains valid for the duration of this call.
+    // Build owned contiguous arrays for the FFI call.
+    // SAFETY: `procs_ptr` points into an owned contiguous Vec of
+    // `ffi::pmix_proc_t` values, and `info_ptr` points into an owned
+    // contiguous Vec of `ffi::pmix_info_t` values; both Vecs outlive the FFI call.
     let flat_procs = flat_procs(procs);
     let procs_ptr = flat_procs.as_ptr();
     let flat_infos = flat_infos(info);
@@ -981,11 +988,10 @@ pub fn disconnect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
     };
 
     // SAFETY: FFI call into PMIx library.
-    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles
-    //   that remain valid for the duration of this call. PMIx does
-    //   not retain these pointers after return.
-    // - `info_ptr` is either null or points to a valid slice of
-    //   `pmix_info_t` pointers. PMIx reads but does not retain.
+    // - `procs_ptr` points into the owned contiguous `flat_procs` Vec,
+    //   which outlives this call. PMIx does not retain the pointer after return.
+    // - `info_ptr` is either null or points into the owned contiguous `flat_infos`
+    //   Vec, which outlives this call. PMIx reads but does not retain the pointer.
     // - `nprocs` and `ninfo` are the correct lengths of their arrays.
     // - This is a blocking call: it does not return until all
     //   participating processes have completed the disconnect operation.
@@ -1080,8 +1086,10 @@ pub fn disconnect_nb(
     let req_id = DISCONNECT_REGISTRY.insert_next(callback);
     let cbdata = encode_req_id(req_id);
 
-    // Convert proc slice to a raw pointer.
-    // SAFETY: `procs` is a non-empty slice of `Proc` values.
+    // Build owned contiguous arrays for the FFI call.
+    // SAFETY: `procs_ptr` points into an owned contiguous Vec of
+    // `ffi::pmix_proc_t` values, and `info_ptr` points into an owned
+    // contiguous Vec of `ffi::pmix_info_t` values; both Vecs outlive the FFI call.
     let flat_procs = flat_procs(procs);
     let procs_ptr = flat_procs.as_ptr();
     let flat_infos = flat_infos(info);
@@ -1092,9 +1100,10 @@ pub fn disconnect_nb(
     };
 
     // SAFETY: FFI call into PMIx library.
-    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles.
-    // - `info_ptr` is either null or points to a valid slice of
-    //   `pmix_info_t` pointers.
+    // - `procs_ptr` points into the owned contiguous `flat_procs` Vec,
+    //   which outlives this call.
+    // - `info_ptr` is either null or points into the owned contiguous `flat_infos`
+    //   Vec, which outlives this call.
     // - `disconnect_callback_bridge` is a valid extern "C" callback.
     // - `cbdata` is an opaque request ID for DISCONNECT_REGISTRY.
     // - PMIx_Disconnect_nb returns immediately; the callback is invoked
