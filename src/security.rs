@@ -39,6 +39,23 @@ use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
 
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixCredential — safe wrapper for pmix_byte_object_t
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,7 +253,8 @@ unsafe fn copy_and_free_pmix_byte_object(cred: *mut ffi::pmix_byte_object_t) -> 
 /// `pmix_status_t PMIx_Get_credential(const pmix_info_t info[], size_t ninfo,`
 /// `  pmix_byte_object_t *credential);`
 pub fn get_credential(info: &[Info]) -> Result<PmixCredential, PmixStatus> {
-    let ninfo = info.len();
+    let info_handles = flat_infos(info);
+    let ninfo = info_handles.len();
 
     // Allocate a pmix_byte_object_t on the stack for the output credential.
     // We use Box to get a heap-allocated struct that we can pass to PMIx.
@@ -246,8 +264,6 @@ pub fn get_credential(info: &[Info]) -> Result<PmixCredential, PmixStatus> {
     });
     let cred_ptr = Box::into_raw(cred_box);
 
-    // Collect raw handles from the Info objects.
-    let info_handles: Vec<*mut ffi::pmix_info_t> = info.iter().map(|i| i.handle).collect();
     let info_ptr = if ninfo > 0 {
         info_handles.as_ptr() as *const ffi::pmix_info_t
     } else {
@@ -484,10 +500,8 @@ pub fn get_credential_nb(
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    let ninfo = info.len();
-
-    // Collect raw handles from the Info objects.
-    let info_handles: Vec<*mut ffi::pmix_info_t> = info.iter().map(|i| i.handle).collect();
+    let info_handles = flat_infos(info);
+    let ninfo = info_handles.len();
     let info_ptr = if ninfo > 0 {
         info_handles.as_ptr() as *const ffi::pmix_info_t
     } else {
@@ -599,10 +613,8 @@ pub fn validate_credential(
     credential: &PmixCredential,
     info: &[Info],
 ) -> Result<ValidationResults, PmixStatus> {
-    let ninfo = info.len();
-
-    // Collect raw handles from the Info objects.
-    let info_handles: Vec<*mut ffi::pmix_info_t> = info.iter().map(|i| i.handle).collect();
+    let info_handles = flat_infos(info);
+    let ninfo = info_handles.len();
     let info_ptr = if ninfo > 0 {
         info_handles.as_ptr() as *const ffi::pmix_info_t
     } else {
@@ -804,10 +816,8 @@ pub fn validate_credential_nb(
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    let ninfo = info.len();
-
-    // Collect raw handles from the Info objects.
-    let info_handles: Vec<*mut ffi::pmix_info_t> = info.iter().map(|i| i.handle).collect();
+    let info_handles = flat_infos(info);
+    let ninfo = info_handles.len();
     let info_ptr = if ninfo > 0 {
         info_handles.as_ptr() as *const ffi::pmix_info_t
     } else {
