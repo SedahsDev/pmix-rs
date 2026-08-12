@@ -35,18 +35,36 @@
 //!                           pmix_op_cbfunc_t cbfunc, void *cbdata);
 //! ```
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
-use crate::ffi;
 use crate::cbdata::Registry;
+use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
+
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixQuery — safe Rust wrapper around `pmix_query_t`
@@ -591,13 +609,10 @@ pub fn query_info_nb(
 /// `pmix_status_t PMIx_Log(const pmix_info_t data[], size_t ndata,`
 /// `  const pmix_info_t directives[], size_t ndirs);`
 pub fn log_data(data: &[Info], directives: &[Info]) -> Result<(), PmixStatus> {
-    let ndata = data.len();
-    let ndirs = directives.len();
-
-    // Convert slices to raw C pointers.
-    // Collect raw handles from the Info objects.
-    let data_handles: Vec<*mut ffi::pmix_info_t> = data.iter().map(|i| i.handle).collect();
-    let dirs_handles: Vec<*mut ffi::pmix_info_t> = directives.iter().map(|i| i.handle).collect();
+    let data_handles = flat_infos(data);
+    let dirs_handles = flat_infos(directives);
+    let ndata = data_handles.len();
+    let ndirs = dirs_handles.len();
     let data_ptr = if ndata > 0 {
         data_handles.as_ptr() as *const ffi::pmix_info_t
     } else {
@@ -654,6 +669,15 @@ pub trait LogCallback: Send {
 /// Global registry mapping log request IDs to pending callbacks.
 static LOG_REGISTRY: LazyLock<Registry<Box<dyn LogCallback>>> = LazyLock::new(Registry::new);
 
+/// Flattened info arrays retained until the asynchronous log callback completes.
+struct RetainedLogInfos {
+    _data: Vec<ffi::pmix_info_t>,
+    _directives: Vec<ffi::pmix_info_t>,
+}
+unsafe impl Send for RetainedLogInfos {}
+static LOG_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedLogInfos>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// C bridge for `pmix_op_cbfunc_t` (log completion).
 ///
 /// Called by PMIx when the non-blocking log request completes. The `cbdata`
@@ -666,6 +690,10 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+    LOG_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -706,8 +734,10 @@ pub fn log_data_nb(
     directives: &[Info],
     callback: Box<dyn LogCallback>,
 ) -> Result<(), PmixStatus> {
-    let ndata = data.len();
-    let ndirs = directives.len();
+    let data_handles = flat_infos(data);
+    let dirs_handles = flat_infos(directives);
+    let ndata = data_handles.len();
+    let ndirs = dirs_handles.len();
 
     // Allocate a unique request ID and register the callback.
     let req_id = LOG_REGISTRY.insert_next(callback);
@@ -715,9 +745,6 @@ pub fn log_data_nb(
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    // Collect raw handles from the Info objects.
-    let data_handles: Vec<*mut ffi::pmix_info_t> = data.iter().map(|i| i.handle).collect();
-    let dirs_handles: Vec<*mut ffi::pmix_info_t> = directives.iter().map(|i| i.handle).collect();
     let data_ptr = if ndata > 0 {
         data_handles.as_ptr() as *const ffi::pmix_info_t
     } else {
@@ -728,6 +755,14 @@ pub fn log_data_nb(
     } else {
         ptr::null()
     };
+
+    LOG_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedLogInfos {
+            _data: data_handles,
+            _directives: dirs_handles,
+        });
 
     let status = unsafe {
         // SAFETY: PMIx_Log_nb is an async PMIx API call.
@@ -780,6 +815,10 @@ pub fn log_data_nb(
         // Request rejected — remove the callback from the registry.
         let mut registry = LOG_REGISTRY.lock();
         registry.remove(&req_id);
+        LOG_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         Err(pmix_status)
     }
 }

@@ -65,6 +65,26 @@ use crate::{Info, PmixDeviceType, PmixError, PmixStatus};
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| {
+                        // SAFETY: entry is initialized and copied by value into local storage.
+                        unsafe { std::ptr::read(entry) }
+                    })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixFabric — safe wrapper for pmix_fabric_t
 // ─────────────────────────────────────────────────────────────────────────────
@@ -227,6 +247,7 @@ pub trait FabricCallback: Send {
 /// into an `extern "C"` callback compatible with `pmix_op_cbfunc_t`.
 struct FabricCallbackWrapper {
     callback: Box<dyn FabricCallback>,
+    _directives: Option<Vec<ffi::pmix_info_t>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -254,16 +275,11 @@ struct FabricCallbackWrapper {
 /// `                                   const pmix_info_t directives[],`
 /// `                                   size_t ndirs);`
 pub fn fabric_register(fabric: &mut PmixFabric, directives: &[Info]) -> Result<(), PmixStatus> {
-    let (dirs_ptr, ndirs) = if directives.is_empty() {
+    let flat_infos = flat_infos(directives);
+    let (dirs_ptr, ndirs) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&directives[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
-            },
-            directives.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let fabric_ptr = fabric.as_mut_ptr();
@@ -319,19 +335,14 @@ pub fn fabric_register_nb(
     directives: &[Info],
     callback: Box<dyn FabricCallback>,
 ) -> Result<(), PmixStatus> {
-    let (dirs_ptr, ndirs) = if directives.is_empty() {
+    let flat_infos = flat_infos(directives);
+    let (dirs_ptr, ndirs) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&directives[0] as *const Info)).handle)
-                    as *const ffi::pmix_info_t
-            },
-            directives.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
-    let wrapper = FabricCallbackWrapper { callback };
+    let wrapper = FabricCallbackWrapper { callback, _directives: Some(flat_infos) };
     let wrapper_ptr = Box::into_raw(Box::new(wrapper)) as *mut std::os::raw::c_void;
 
     extern "C" fn fabric_register_cb(
@@ -459,7 +470,7 @@ pub fn fabric_update_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let wrapper = FabricCallbackWrapper { callback };
+    let wrapper = FabricCallbackWrapper { callback, _directives: None };
     let wrapper_ptr = Box::into_raw(Box::new(wrapper)) as *mut std::os::raw::c_void;
 
     extern "C" fn fabric_update_cb(status: ffi::pmix_status_t, cbdata: *mut std::os::raw::c_void) {
@@ -558,7 +569,7 @@ pub fn fabric_deregister_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let wrapper = FabricCallbackWrapper { callback };
+    let wrapper = FabricCallbackWrapper { callback, _directives: None };
     let wrapper_ptr = Box::into_raw(Box::new(wrapper)) as *mut std::os::raw::c_void;
 
     extern "C" fn fabric_deregister_cb(
@@ -1274,6 +1285,7 @@ pub trait ComputeDistancesCallback: Send {
 /// Internal wrapper for the compute_distances_nb callback.
 struct ComputeDistancesCallbackWrapper {
     callback: Box<dyn ComputeDistancesCallback>,
+    _info: Vec<ffi::pmix_info_t>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1365,15 +1377,11 @@ pub fn compute_distances(
     cpuset: &mut PmixCpuset,
     info: &[Info],
 ) -> Result<DeviceDistances, PmixStatus> {
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null_mut(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *mut ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr() as *mut ffi::pmix_info_t, flat_infos.len())
     };
 
     let topo_ptr = topo.as_mut_ptr();
@@ -1479,18 +1487,20 @@ pub fn compute_distances_nb(
     info: &[Info],
     callback: Box<dyn ComputeDistancesCallback>,
 ) -> Result<(), PmixStatus> {
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null_mut(), 0)
     } else {
         (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *mut ffi::pmix_info_t
-            },
-            info.len(),
+            flat_infos.as_ptr() as *mut ffi::pmix_info_t,
+            flat_infos.len(),
         )
     };
 
-    let wrapper = ComputeDistancesCallbackWrapper { callback };
+    let wrapper = ComputeDistancesCallbackWrapper {
+        callback,
+        _info: flat_infos,
+    };
     let wrapper_ptr = Box::into_raw(Box::new(wrapper)) as *mut std::os::raw::c_void;
 
     extern "C" fn compute_distances_cb(
