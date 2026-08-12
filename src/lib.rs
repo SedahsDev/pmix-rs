@@ -2758,7 +2758,7 @@ impl PmixValueBuilder {
     pub fn build(self) -> Result<PmixOwnedValue, ValueError> {
         Ok(PmixOwnedValue {
             inner: self.build_raw()?,
-        
+            pmix_owned: false,
             _not_thread_safe: std::marker::PhantomData,
         })
     }
@@ -2959,6 +2959,31 @@ pub fn free_value(v: &mut pmix_value_t) {
     }
 }
 
+/// Destruct nested payloads allocated by PMIx.
+pub(crate) unsafe fn destruct_pmix_value(v: &mut pmix_value_t) {
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_value_destruct(v) },
+        real = unsafe { ffi::PMIx_Value_destruct(v) },
+    );
+}
+
+/// Release a PMIx-allocated `pmix_value_t` struct and its nested payloads.
+pub(crate) unsafe fn release_pmix_value(value: *mut pmix_value_t) {
+    if value.is_null() {
+        return;
+    }
+    pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_value_destruct(value);
+            mock_ffi::mock_value_free(value, 1);
+        },
+        real = unsafe {
+            ffi::PMIx_Value_destruct(value);
+            libc::free(value.cast());
+        },
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixOwnedValue – RAII wrapper with automatic cleanup
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2970,6 +2995,7 @@ pub fn free_value(v: &mut pmix_value_t) {
 /// ownership to a C API that calls `PMIX_VALUE_RELEASE` itself.
 pub struct PmixOwnedValue {
     inner: pmix_value_t,
+    pmix_owned: bool,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -3044,7 +3070,12 @@ impl PmixOwnedValue {
 
 impl Drop for PmixOwnedValue {
     fn drop(&mut self) {
-        free_value(&mut self.inner);
+        if self.pmix_owned {
+            // SAFETY: nested payloads were allocated by PMIx.
+            unsafe { destruct_pmix_value(&mut self.inner) };
+        } else {
+            free_value(&mut self.inner);
+        }
     }
 }
 
@@ -3960,14 +3991,15 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
 
     if status.is_success() && !value.is_null() {
         // SAFETY: PMIx returned a valid heap-allocated value on success. The
-        // copy owns nested payloads; reclaiming the Box reclaims only the
-        // C-allocated struct.
-        let owned = unsafe { *value };
-        // SAFETY: `value` is the allocation returned by PMIx_Get and is
-        // reclaimed exactly once after copying its contents.
-        drop(unsafe { Box::from_raw(value) });
+        let owned = unsafe { ptr::read(value) };
+        // The nested payloads moved into `owned`; release only the now-empty
+        // PMIx struct allocation.
+        unsafe { ptr::write_bytes(value, 0, 1) };
+        // SAFETY: `value` is the PMIx allocation returned by PMIx_Get.
+        unsafe { release_pmix_value(value) };
         Ok(PmixOwnedValue {
             inner: owned,
+            pmix_owned: true,
             _not_thread_safe: std::marker::PhantomData,
         })
     } else {

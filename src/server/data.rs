@@ -209,9 +209,11 @@ pub fn server_lookup(
             unsafe { std::ptr::write_bytes(&mut pdata.value, 0, 1) };
             pdata.value.type_ = pmix_undef;
             unsafe { ffi::PMIx_Pdata_destruct(&mut pdata) };
-            Ok(PmixOwnedValue { inner: val, 
-            _not_thread_safe: std::marker::PhantomData,
-        })
+            Ok(PmixOwnedValue {
+                inner: val,
+                pmix_owned: true,
+                _not_thread_safe: std::marker::PhantomData,
+            })
         } else {
             unsafe { ffi::PMIx_Pdata_destruct(&mut pdata) };
             Err(PmixStatus::Known(PmixError::ErrNotFound))

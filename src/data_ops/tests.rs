@@ -1583,7 +1583,7 @@ use super::*;
         // This verifies the Drop implementation doesn't panic on zeroed data
         let val = PmixOwnedValue {
             inner: unsafe { std::mem::zeroed() },
-        
+            pmix_owned: false,
             _not_thread_safe: std::marker::PhantomData,
         };
         // Drop happens at end of scope — should not panic
