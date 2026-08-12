@@ -205,7 +205,9 @@ pub fn server_lookup(
         if pdata.value.type_ != pmix_undef {
             // Take ownership of the value.
             let val = unsafe { ptr::read(&pdata.value) };
-            // Destruct the pdata.
+            // Transfer ownership before PMIx destructs the pdata.
+            unsafe { std::ptr::write_bytes(&mut pdata.value, 0, 1) };
+            pdata.value.type_ = pmix_undef;
             unsafe { ffi::PMIx_Pdata_destruct(&mut pdata) };
             Ok(PmixOwnedValue { inner: val, 
             _not_thread_safe: std::marker::PhantomData,
@@ -217,7 +219,6 @@ pub fn server_lookup(
     } else {
         // Clean up.
         unsafe {
-            crate::free_value(&mut pdata.value);
             ffi::PMIx_Pdata_destruct(&mut pdata);
         }
         Err(pmix_status)
