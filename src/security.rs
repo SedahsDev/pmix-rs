@@ -109,7 +109,8 @@ impl PmixCredential {
         } else {
             // Allocate a copy of the bytes using libc malloc so we can
             // free it later with libc free.
-            let layout = std::alloc::Layout::array::<u8>(self.bytes.len()).expect("invariant: unwrap in security.rs");
+            let layout = std::alloc::Layout::array::<u8>(self.bytes.len())
+                .expect("invariant: unwrap in security.rs");
             let buf = unsafe { std::alloc::alloc(layout) as *mut std::os::raw::c_char };
             unsafe {
                 std::ptr::copy_nonoverlapping(
@@ -139,7 +140,8 @@ impl PmixCredential {
             let bo = unsafe { Box::from_raw(ptr) };
             // Free the internal bytes buffer if non-null.
             if !bo.bytes.is_null() {
-                let layout = std::alloc::Layout::array::<u8>(bo.size).expect("invariant: unwrap in security.rs");
+                let layout = std::alloc::Layout::array::<u8>(bo.size)
+                    .expect("invariant: unwrap in security.rs");
                 unsafe {
                     std::alloc::dealloc(bo.bytes as *mut u8, layout);
                 }
@@ -199,27 +201,33 @@ impl PmixCredential {
 /// - `cred` must be a valid, non-null pointer to a `pmix_byte_object_t`
 ///   allocated by PMIx (i.e., via `pmix_malloc` / libc `malloc`).
 /// - The caller must ensure the struct is valid and not already freed.
-unsafe fn copy_and_free_pmix_byte_object(cred: *mut ffi::pmix_byte_object_t) -> Vec<u8> {
+unsafe fn copy_pmix_byte_object(cred: *const ffi::pmix_byte_object_t) -> Vec<u8> {
     let obj = unsafe { &*cred };
-    let bytes = if !obj.bytes.is_null() && obj.size > 0 {
+    if !obj.bytes.is_null() && obj.size > 0 {
         unsafe {
             let slice = std::slice::from_raw_parts(obj.bytes as *const c_uchar, obj.size);
             slice.to_vec()
         }
     } else {
         Vec::new()
-    };
-    // Free the internal bytes buffer using libc free.
-    if !obj.bytes.is_null() {
-        unsafe {
-            ffi::free(obj.bytes as *mut std::ffi::c_void);
+    }
+}
+
+unsafe fn copy_info_array(info: *const ffi::pmix_info_t, ninfo: usize) -> *mut ffi::pmix_info_t {
+    if info.is_null() || ninfo == 0 {
+        return ptr::null_mut();
+    }
+    let copied = unsafe { ffi::PMIx_Info_create(ninfo) };
+    if copied.is_null() {
+        return ptr::null_mut();
+    }
+    for i in 0..ninfo {
+        if unsafe { ffi::PMIx_Info_xfer(copied.add(i), info.add(i)) } != ffi::PMIX_SUCCESS as i32 {
+            unsafe { ffi::PMIx_Info_free(copied, ninfo) };
+            return ptr::null_mut();
         }
     }
-    // Free the struct itself using libc free.
-    unsafe {
-        ffi::free(cred as *mut std::ffi::c_void);
-    }
-    bytes
+    copied
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -289,7 +297,7 @@ pub fn get_credential(info: &[Info]) -> Result<PmixCredential, PmixStatus> {
             // SAFETY: cred_ptr is valid. PMIx has populated it with
             // the credential bytes (allocated by pmix_malloc).
             // We copy the bytes into a Rust Vec and free the C memory.
-            let bytes = copy_and_free_pmix_byte_object(cred_ptr);
+            let bytes = copy_pmix_byte_object(cred_ptr);
             Ok(PmixCredential::from_vec(bytes))
         }
     } else {
@@ -358,7 +366,8 @@ impl CredentialResults {
 }
 
 /// Global registry mapping request IDs to pending credential callbacks.
-static CREDENTIAL_REGISTRY: LazyLock<Registry<Box<dyn CredentialCallback>>> = LazyLock::new(Registry::new);
+static CREDENTIAL_REGISTRY: LazyLock<Registry<Box<dyn CredentialCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// Flattened info arrays retained until the asynchronous credential callback completes.
 struct RetainedCredentialInfo {
@@ -397,12 +406,7 @@ extern "C" fn credential_callback_bridge(
         if !credential.is_null() {
             unsafe {
                 // Copy bytes and free PMIx memory.
-                let _bytes = copy_and_free_pmix_byte_object(credential);
-            }
-        }
-        if !info.is_null() && ninfo > 0 {
-            unsafe {
-                ffi::PMIx_Info_free(info, ninfo);
+                let _bytes = copy_pmix_byte_object(credential);
             }
         }
         return;
@@ -426,12 +430,7 @@ extern "C" fn credential_callback_bridge(
             // Callback already consumed — free resources to avoid leak.
             if !credential.is_null() {
                 unsafe {
-                    let _bytes = copy_and_free_pmix_byte_object(credential);
-                }
-            }
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    ffi::PMIx_Info_free(info, ninfo);
+                    let _bytes = copy_pmix_byte_object(credential);
                 }
             }
             return;
@@ -443,7 +442,7 @@ extern "C" fn credential_callback_bridge(
     // Take ownership of the credential — copy bytes and free PMIx memory.
     let cred = if !credential.is_null() {
         unsafe {
-            let bytes = copy_and_free_pmix_byte_object(credential);
+            let bytes = copy_pmix_byte_object(credential);
             Some(PmixCredential::from_vec(bytes))
         }
     } else {
@@ -463,16 +462,18 @@ extern "C" fn credential_callback_bridge(
                 // pmix_info_t with copied fields.
                 let new_info = ffi::PMIx_Info_create(1);
                 if !new_info.is_null() {
-                    std::ptr::copy_nonoverlapping(&entry as *const ffi::pmix_info_t, new_info, 1);
+                    if ffi::PMIx_Info_xfer(new_info, &entry) != ffi::PMIX_SUCCESS as i32 {
+                        ffi::PMIx_Info_free(new_info, 1);
+                        continue;
+                    }
                     info_vec.push(Info {
                         handle: new_info,
                         len: 1,
-                    _not_thread_safe: std::marker::PhantomData,
+                        _not_thread_safe: std::marker::PhantomData,
                     });
                 }
             }
             // Free the original C-allocated info array.
-            ffi::PMIx_Info_free(info, ninfo);
             let n = info_vec.len();
             CredentialResults {
                 info: info_vec,
@@ -484,7 +485,7 @@ extern "C" fn credential_callback_bridge(
     };
 
     let _ = invoke_user_callback("security", move || {
-            cb.on_complete(pmix_status, cred, results);
+        cb.on_complete(pmix_status, cred, results);
     });
 }
 
@@ -523,7 +524,12 @@ pub fn get_credential_nb(
     CREDENTIAL_INFO_REGISTRY
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(req_id, RetainedCredentialInfo { _info: info_handles });
+        .insert(
+            req_id,
+            RetainedCredentialInfo {
+                _info: info_handles,
+            },
+        );
 
     let status = unsafe {
         // SAFETY: PMIx_Get_credential_nb is an async PMIx API call.
@@ -576,7 +582,7 @@ impl ValidationResults {
         Self {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         }
     }
@@ -674,7 +680,7 @@ pub fn validate_credential(
         Ok(ValidationResults {
             handle: results,
             len: nresults,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         })
     } else {
@@ -703,7 +709,8 @@ pub trait ValidationCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending validation callbacks.
-static VALIDATION_REGISTRY: LazyLock<Registry<Box<dyn ValidationCallback>>> = LazyLock::new(Registry::new);
+static VALIDATION_REGISTRY: LazyLock<Registry<Box<dyn ValidationCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// Flattened info arrays retained until the asynchronous validation callback completes.
 static VALIDATION_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedCredentialInfo>>> =
@@ -714,7 +721,6 @@ static VALIDATION_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedCredentia
 type ValidationCredMap = std::collections::HashMap<usize, usize>;
 static VALIDATION_CRED_MAP: LazyLock<Mutex<ValidationCredMap>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
 
 /// C bridge for `pmix_validation_cbfunc_t`.
 ///
@@ -734,11 +740,6 @@ extern "C" fn validation_callback_bridge(
     cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
-        if !info.is_null() && ninfo > 0 {
-            unsafe {
-                ffi::PMIx_Info_free(info, ninfo);
-            }
-        }
         return;
     }
 
@@ -758,13 +759,10 @@ extern "C" fn validation_callback_bridge(
         Some(cb) => cb,
         None => {
             // Callback already consumed — free resources to avoid leak.
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    ffi::PMIx_Info_free(info, ninfo);
-                }
-            }
             // Also free the C credential if it was stored.
-            let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
+            let mut cred_map = VALIDATION_CRED_MAP
+                .lock()
+                .expect("mutex poisoned (security.rs)");
             if let Some(cred_ptr) = cred_map.remove(&req_id) {
                 unsafe {
                     PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
@@ -776,7 +774,9 @@ extern "C" fn validation_callback_bridge(
 
     // Free the C credential struct that was passed to PMIx.
     {
-        let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
+        let mut cred_map = VALIDATION_CRED_MAP
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         if let Some(cred_ptr) = cred_map.remove(&req_id) {
             unsafe {
                 PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
@@ -788,23 +788,24 @@ extern "C" fn validation_callback_bridge(
 
     // Build ValidationResults from the info array.
     let results = if !info.is_null() && ninfo > 0 {
+        let copied = unsafe { copy_info_array(info, ninfo) };
         ValidationResults {
-            handle: info,
-            len: ninfo,
-        
+            handle: copied,
+            len: if copied.is_null() { 0 } else { ninfo },
+
             _not_thread_safe: std::marker::PhantomData,
         }
     } else {
         ValidationResults {
             handle: ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         }
     };
 
     let _ = invoke_user_callback("security", move || {
-            cb.on_complete(pmix_status, results);
+        cb.on_complete(pmix_status, results);
     });
 }
 
@@ -837,7 +838,9 @@ pub fn validate_credential_nb(
     // in a separate registry keyed by req_id.
     let cred_c = credential.as_c_mut_ptr();
     {
-        let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
+        let mut cred_map = VALIDATION_CRED_MAP
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         cred_map.insert(req_id, cred_c as usize);
     }
     VALIDATION_REGISTRY.lock().insert(req_id, callback);
@@ -852,7 +855,12 @@ pub fn validate_credential_nb(
     VALIDATION_INFO_REGISTRY
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(req_id, RetainedCredentialInfo { _info: info_handles });
+        .insert(
+            req_id,
+            RetainedCredentialInfo {
+                _info: info_handles,
+            },
+        );
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -879,7 +887,9 @@ pub fn validate_credential_nb(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&req_id);
-        let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
+        let mut cred_map = VALIDATION_CRED_MAP
+            .lock()
+            .expect("mutex poisoned (security.rs)");
         if let Some(cred_ptr) = cred_map.remove(&req_id) {
             unsafe {
                 PmixCredential::free_c_ptr(cred_ptr as *mut ffi::pmix_byte_object_t);
@@ -1109,7 +1119,6 @@ mod tests {
 
     // ── Registry tests ─────────────────────────────────────────────────────
 
-
     #[test]
     fn test_credential_registry_is_accessible() {
         let registry = CREDENTIAL_REGISTRY.lock();
@@ -1128,10 +1137,10 @@ mod tests {
         assert!(cred_map.is_empty());
     }
 
-    // ── copy_and_free_pmix_byte_object ─────────────────────────────────────
+    // ── copy_pmix_byte_object ─────────────────────────────────────
 
     #[test]
-    fn test_copy_and_free_pmix_byte_object_allocated() {
+    fn test_copy_pmix_byte_object_allocated() {
         // Allocate a pmix_byte_object_t with data using libc malloc
         let bytes = b"test data";
         let byte_ptr = unsafe { libc::malloc(bytes.len()) as *mut std::os::raw::c_char };
@@ -1145,12 +1154,12 @@ mod tests {
         let bo_ptr = Box::into_raw(bo);
 
         // Call the helper — it copies bytes and frees the C memory
-        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert_eq!(&result[..], bytes);
     }
 
     #[test]
-    fn test_copy_and_free_pmix_byte_object_null_bytes() {
+    fn test_copy_pmix_byte_object_null_bytes() {
         // Allocate struct but with null bytes
         let bo = Box::new(ffi::pmix_byte_object_t {
             bytes: ptr::null_mut(),
@@ -1158,12 +1167,12 @@ mod tests {
         });
         let bo_ptr = Box::into_raw(bo);
 
-        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert!(result.is_empty());
     }
 
     #[test]
-    fn test_copy_and_free_pmix_byte_object_zero_size() {
+    fn test_copy_pmix_byte_object_zero_size() {
         // Allocate struct with non-null bytes but zero size
         let bo = Box::new(ffi::pmix_byte_object_t {
             bytes: ptr::null_mut(),
@@ -1171,7 +1180,7 @@ mod tests {
         });
         let bo_ptr = Box::into_raw(bo);
 
-        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert!(result.is_empty());
     }
 
@@ -1553,11 +1562,11 @@ mod tests {
         }
     }
 
-    // ── copy_and_free_pmix_byte_object edge cases ─────────────────────────
+    // ── copy_pmix_byte_object edge cases ─────────────────────────
 
     /// Test copy_and_free with large data block.
     #[test]
-    fn test_copy_and_free_pmix_byte_object_large() {
+    fn test_copy_pmix_byte_object_large() {
         let data = vec![0xABu8; 4096];
         let byte_ptr = unsafe { libc::malloc(data.len()) as *mut std::os::raw::c_char };
         unsafe {
@@ -1569,14 +1578,14 @@ mod tests {
         });
         let bo_ptr = Box::into_raw(bo);
 
-        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert_eq!(result.len(), 4096);
         assert_eq!(&result[..], &data[..]);
     }
 
     /// Test copy_and_free with data containing null bytes.
     #[test]
-    fn test_copy_and_free_pmix_byte_object_with_nulls() {
+    fn test_copy_pmix_byte_object_with_nulls() {
         let data = vec![0u8, 1, 0, 2, 0, 3, 0, 4];
         let byte_ptr = unsafe { libc::malloc(data.len()) as *mut std::os::raw::c_char };
         unsafe {
@@ -1588,14 +1597,14 @@ mod tests {
         });
         let bo_ptr = Box::into_raw(bo);
 
-        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert_eq!(result.len(), 8);
         assert_eq!(&result[..], &data[..]);
     }
 
     /// Test copy_and_free with single byte.
     #[test]
-    fn test_copy_and_free_pmix_byte_object_single_byte() {
+    fn test_copy_pmix_byte_object_single_byte() {
         let byte_ptr = unsafe { libc::malloc(1) as *mut std::os::raw::c_char };
         unsafe { *byte_ptr = 0x42 };
         let bo = Box::new(ffi::pmix_byte_object_t {
@@ -1604,7 +1613,7 @@ mod tests {
         });
         let bo_ptr = Box::into_raw(bo);
 
-        let result = unsafe { copy_and_free_pmix_byte_object(bo_ptr) };
+        let result = unsafe { copy_pmix_byte_object(bo_ptr) };
         assert_eq!(result, vec![0x42u8]);
     }
 
