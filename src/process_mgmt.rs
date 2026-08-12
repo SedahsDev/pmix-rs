@@ -488,6 +488,29 @@ static SPAWN_REGISTRY: LazyLock<Registry<SpawnCallbackWrapper>> = LazyLock::new(
 static CONNECT_REGISTRY: LazyLock<Registry<ConnectCallbackWrapper>> = LazyLock::new(Registry::new);
 static DISCONNECT_REGISTRY: LazyLock<Registry<DisconnectCallbackWrapper>> = LazyLock::new(Registry::new);
 
+fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
+    procs
+        .iter()
+        .map(|proc| unsafe { std::ptr::read(&proc.handle) })
+        .collect()
+}
+
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
+
 /// Non-blocking spawn callback wrapper.
 ///
 /// Wraps a Rust closure so it can be called from the C FFI callback.
@@ -737,23 +760,13 @@ pub fn connect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
     // containing a `pmix_proc_t` handle as its first field. We take
     // the address of the first element's handle and cast it to the
     // FFI type. The slice remains valid for the duration of this call.
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    // Convert info slice to a raw pointer.
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        // SAFETY: `info` is a non-empty slice of `Info` values, each
-        // containing a pointer to a `pmix_info_t`. We take the address
-        // of the first element's handle field.
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     // SAFETY: FFI call into PMIx library.
@@ -765,7 +778,7 @@ pub fn connect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
     // - `nprocs` and `ninfo` are the correct lengths of their arrays.
     // - This is a blocking call: it does not return until all
     //   participating processes have completed the connect operation.
-    let raw_status = unsafe { ffi::PMIx_Connect(procs_ptr, procs.len(), info_ptr, ninfo) };
+    let raw_status = unsafe { ffi::PMIx_Connect(procs_ptr, flat_procs.len(), info_ptr, ninfo) };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
     if pmix_status.is_success() {
@@ -858,20 +871,13 @@ pub fn connect_nb(
 
     // Convert proc slice to a raw pointer.
     // SAFETY: `procs` is a non-empty slice of `Proc` values.
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    // Convert info slice to a raw pointer.
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     // SAFETY: FFI call into PMIx library.
@@ -885,7 +891,7 @@ pub fn connect_nb(
     let raw_status = unsafe {
         ffi::PMIx_Connect_nb(
             procs_ptr,
-            procs.len(),
+            flat_procs.len(),
             info_ptr,
             ninfo,
             Some(connect_callback_bridge),
@@ -965,20 +971,13 @@ pub fn disconnect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
     // containing a `pmix_proc_t` handle as its first field. We take
     // the address of the first element's handle and cast it to the
     // FFI type. The slice remains valid for the duration of this call.
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    // Convert info slice to a raw pointer.
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     // SAFETY: FFI call into PMIx library.
@@ -990,7 +989,7 @@ pub fn disconnect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
     // - `nprocs` and `ninfo` are the correct lengths of their arrays.
     // - This is a blocking call: it does not return until all
     //   participating processes have completed the disconnect operation.
-    let raw_status = unsafe { ffi::PMIx_Disconnect(procs_ptr, procs.len(), info_ptr, ninfo) };
+    let raw_status = unsafe { ffi::PMIx_Disconnect(procs_ptr, flat_procs.len(), info_ptr, ninfo) };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
     if pmix_status.is_success() {
@@ -1083,20 +1082,13 @@ pub fn disconnect_nb(
 
     // Convert proc slice to a raw pointer.
     // SAFETY: `procs` is a non-empty slice of `Proc` values.
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    // Convert info slice to a raw pointer.
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     // SAFETY: FFI call into PMIx library.
@@ -1110,7 +1102,7 @@ pub fn disconnect_nb(
     let raw_status = unsafe {
         ffi::PMIx_Disconnect_nb(
             procs_ptr,
-            procs.len(),
+            flat_procs.len(),
             info_ptr,
             ninfo,
             Some(disconnect_callback_bridge),
@@ -1956,6 +1948,20 @@ mod tests {
         if let Err(status) = result {
             assert_ne!(status, PmixStatus::Known(crate::PmixError::ErrBadParam));
         }
+    }
+
+    #[test]
+    fn test_connect_arrays_are_flattened_for_multiple_entries() {
+        let p1 = crate::Proc::new("ns_a", 7).unwrap();
+        let p2 = crate::Proc::new("ns_b", 9).unwrap();
+        let i1 = crate::info_with_string_key("test.key.one", "one").unwrap();
+        let i2 = crate::info_with_string_key("test.key.two", "two").unwrap();
+        let procs = super::flat_procs(&[p1, p2]);
+        let infos = super::flat_infos(&[i1, i2]);
+        assert_eq!(procs.len(), 2);
+        assert_eq!(infos.len(), 2);
+        assert_eq!(procs[0].rank, 7);
+        assert_eq!(procs[1].rank, 9);
     }
 
     #[test]
