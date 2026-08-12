@@ -2175,7 +2175,7 @@ use super::*;
             let data = libc::calloc(1, std::mem::size_of::<ffi::pmix_pdata_t>())
                 as *mut ffi::pmix_pdata_t;
             assert!(!data.is_null());
-            (*data).value.type_ = PMIX_STRING as _;
+            (*data).value.type_ = crate::ffi::PMIX_STRING as _;
             let string = std::ffi::CString::new("value").unwrap();
             (*data).value.data.string = libc::strdup(string.as_ptr());
             assert!(!(*data).value.data.string.is_null());
