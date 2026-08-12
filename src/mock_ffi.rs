@@ -1737,8 +1737,17 @@ pub fn mock_compute_distances_nb(
     }
     if let Some(callback) = cbfunc {
         let caddy = Box::into_raw(Box::new(DistanceCaddy { dist, len: count }));
-        unsafe { callback(status, dist, count, cbdata, Some(release_distances), caddy.cast()) };
+        unsafe {
+            callback(status, dist, count, cbdata, Some(release_distances), caddy.cast())
+        };
     } else {
+        for i in 0..count {
+            let entry = unsafe { &*dist.add(i) };
+            unsafe {
+                libc::free(entry.uuid.cast());
+                libc::free(entry.osname.cast());
+            }
+        }
         unsafe { libc::free(dist.cast()) };
     }
     status
