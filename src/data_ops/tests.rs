@@ -1590,6 +1590,18 @@ use super::*;
         drop(val);
     }
 
+    #[test]
+    fn test_pmix_owned_value_pmix_owned_drop() {
+        let val = PmixOwnedValue {
+            // SAFETY: The zeroed value is valid for the mock destruct path,
+            // which owns no nested C allocations.
+            inner: unsafe { std::mem::zeroed() },
+            pmix_owned: true,
+            _not_thread_safe: std::marker::PhantomData,
+        };
+        drop(val);
+    }
+
     // ─── Multiple sequential publish calls ──────────────────────────────────
 
     #[test]

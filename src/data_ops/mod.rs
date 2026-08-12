@@ -15,7 +15,7 @@ use std::sync::{LazyLock, Mutex};
 use crate::cbdata::Registry;
 use crate::ffi;
 use crate::threading::invoke_user_callback;
-use crate::{free_value, release_pmix_value, Info, PmixError, PmixOwnedValue, PmixStatus, Proc};
+use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, free_value, release_pmix_value};
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
@@ -501,7 +501,10 @@ pub fn get(proc: &Proc, key: &str, info: Option<&Info>) -> Result<PmixOwnedValue
         };
         // `value` is PMIx-allocated; the payload moved into `owned`, so
         // release only the now-empty PMIx struct allocation.
+        // SAFETY: `value` points to the PMIx-allocated struct whose payload
+        // was moved above; zero it before releasing the struct allocation.
         unsafe { ptr::write_bytes(value, 0, 1) };
+        // SAFETY: `value` is the PMIx allocation returned by `PMIx_Get`.
         unsafe { release_pmix_value(value) };
         Ok(PmixOwnedValue {
             inner: owned,
