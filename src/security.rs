@@ -30,6 +30,7 @@
 //!                                           pmix_validation_cbfunc_t cbfunc, void *cbdata);
 //! ```
 
+use std::collections::HashMap;
 use std::os::raw::{c_uchar, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
@@ -359,6 +360,14 @@ impl CredentialResults {
 /// Global registry mapping request IDs to pending credential callbacks.
 static CREDENTIAL_REGISTRY: LazyLock<Registry<Box<dyn CredentialCallback>>> = LazyLock::new(Registry::new);
 
+/// Flattened info arrays retained until the asynchronous credential callback completes.
+struct RetainedCredentialInfo {
+    _info: Vec<ffi::pmix_info_t>,
+}
+unsafe impl Send for RetainedCredentialInfo {}
+static CREDENTIAL_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedCredentialInfo>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// C bridge for `pmix_credential_cbfunc_t`.
 ///
 /// Called by PMIx when the non-blocking credential request completes.
@@ -401,6 +410,10 @@ extern "C" fn credential_callback_bridge(
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+    CREDENTIAL_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -507,6 +520,10 @@ pub fn get_credential_nb(
     } else {
         ptr::null()
     };
+    CREDENTIAL_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedCredentialInfo { _info: info_handles });
 
     let status = unsafe {
         // SAFETY: PMIx_Get_credential_nb is an async PMIx API call.
@@ -526,6 +543,10 @@ pub fn get_credential_nb(
         // Request rejected — remove the callback from the registry.
         let mut registry = CREDENTIAL_REGISTRY.lock();
         registry.remove(&req_id);
+        CREDENTIAL_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -684,6 +705,10 @@ pub trait ValidationCallback: Send {
 /// Global registry mapping request IDs to pending validation callbacks.
 static VALIDATION_REGISTRY: LazyLock<Registry<Box<dyn ValidationCallback>>> = LazyLock::new(Registry::new);
 
+/// Flattened info arrays retained until the asynchronous validation callback completes.
+static VALIDATION_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedCredentialInfo>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// Map from request ID to the C-allocated credential pointer for async validation.
 /// We store as usize to avoid Send/Sync issues with raw pointers in a shared HashMap.
 type ValidationCredMap = std::collections::HashMap<usize, usize>;
@@ -719,6 +744,10 @@ extern "C" fn validation_callback_bridge(
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+    VALIDATION_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -813,9 +842,6 @@ pub fn validate_credential_nb(
     }
     VALIDATION_REGISTRY.lock().insert(req_id, callback);
 
-    // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = crate::cbdata::encode_req_id(req_id);
-
     let info_handles = flat_infos(info);
     let ninfo = info_handles.len();
     let info_ptr = if ninfo > 0 {
@@ -823,6 +849,13 @@ pub fn validate_credential_nb(
     } else {
         ptr::null()
     };
+    VALIDATION_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedCredentialInfo { _info: info_handles });
+
+    // Encode the request ID as a non-null pointer for cbdata.
+    let cbdata = crate::cbdata::encode_req_id(req_id);
 
     let status = unsafe {
         // SAFETY: PMIx_Validate_credential_nb is an async PMIx API call.
@@ -842,6 +875,10 @@ pub fn validate_credential_nb(
         // Request rejected — remove the callback and free the C credential.
         let mut registry = VALIDATION_REGISTRY.lock();
         registry.remove(&req_id);
+        VALIDATION_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         let mut cred_map = VALIDATION_CRED_MAP.lock().expect("mutex poisoned (security.rs)");
         if let Some(cred_ptr) = cred_map.remove(&req_id) {
             unsafe {

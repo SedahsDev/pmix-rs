@@ -35,13 +35,14 @@
 //!                           pmix_op_cbfunc_t cbfunc, void *cbdata);
 //! ```
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
-use crate::ffi;
 use crate::cbdata::Registry;
+use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
 
@@ -668,6 +669,15 @@ pub trait LogCallback: Send {
 /// Global registry mapping log request IDs to pending callbacks.
 static LOG_REGISTRY: LazyLock<Registry<Box<dyn LogCallback>>> = LazyLock::new(Registry::new);
 
+/// Flattened info arrays retained until the asynchronous log callback completes.
+struct RetainedLogInfos {
+    _data: Vec<ffi::pmix_info_t>,
+    _directives: Vec<ffi::pmix_info_t>,
+}
+unsafe impl Send for RetainedLogInfos {}
+static LOG_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedLogInfos>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// C bridge for `pmix_op_cbfunc_t` (log completion).
 ///
 /// Called by PMIx when the non-blocking log request completes. The `cbdata`
@@ -680,6 +690,10 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+    LOG_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -742,6 +756,14 @@ pub fn log_data_nb(
         ptr::null()
     };
 
+    LOG_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedLogInfos {
+            _data: data_handles,
+            _directives: dirs_handles,
+        });
+
     let status = unsafe {
         // SAFETY: PMIx_Log_nb is an async PMIx API call.
         // - data_ptr points to a valid pmix_info_t array owned by the
@@ -793,6 +815,10 @@ pub fn log_data_nb(
         // Request rejected — remove the callback from the registry.
         let mut registry = LOG_REGISTRY.lock();
         registry.remove(&req_id);
+        LOG_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         Err(pmix_status)
     }
 }
