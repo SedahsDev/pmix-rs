@@ -186,7 +186,7 @@ impl PmixQuery {
             handle: query_ptr,
             _keys: c_keys,
             keys_array,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         })
     }
@@ -396,7 +396,7 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
         Ok(QueryResults {
             handle: results,
             len: nresults,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         })
     } else {
@@ -490,11 +490,11 @@ extern "C" fn query_callback_bridge(
     let results = QueryResults {
         handle: info,
         len: ninfo,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        };
+
+        _not_thread_safe: std::marker::PhantomData,
+    };
     let _ = invoke_user_callback("query_log", move || {
-            cb.on_complete(pmix_status, results);
+        cb.on_complete(pmix_status, results);
     });
     // release_fn is unused — we manage our own memory via QueryResults Drop.
     let _ = release_fn;
@@ -710,7 +710,7 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
 
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("query_log", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -759,10 +759,13 @@ pub fn log_data_nb(
     LOG_INFO_REGISTRY
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(req_id, RetainedLogInfos {
-            _data: data_handles,
-            _directives: dirs_handles,
-        });
+        .insert(
+            req_id,
+            RetainedLogInfos {
+                _data: data_handles,
+                _directives: dirs_handles,
+            },
+        );
 
     let status = unsafe {
         // SAFETY: PMIx_Log_nb is an async PMIx API call.
@@ -772,9 +775,9 @@ pub fn log_data_nb(
         //   Info borrows (or is null if empty).
         // - cbfunc is a valid extern "C" function pointer.
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
-        // - PMIx does not retain data_ptr or dirs_ptr after this call returns.
-        // - The caller must keep data and directives alive until the
-        //   callback is invoked.
+        // - PMIx may retain or alias data_ptr and dirs_ptr on the host upcall
+        //   path. LOG_INFO_REGISTRY retains owned arrays until the bridge
+        //   runs, while the caller must keep nested value data alive.
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
             mock_ffi::mock_log_nb(
@@ -971,7 +974,7 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
@@ -983,7 +986,7 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 3,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(!results.is_empty());
@@ -995,7 +998,7 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 5,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         let debug_str = format!("{:?}", results);
@@ -1008,7 +1011,7 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         drop(results);
@@ -1019,7 +1022,7 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 5,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         drop(results);
@@ -1152,10 +1155,7 @@ mod tests {
         // invoke the bridge callback). Clean it up ourselves.
         if result.is_ok() {
             let mut registry = QUERY_REGISTRY.lock();
-            let req_id = registry
-                .keys()
-                .find(|id| !ids_before.contains(id))
-                .copied();
+            let req_id = registry.keys().find(|id| !ids_before.contains(id)).copied();
             if let Some(req_id) = req_id {
                 registry.remove(&req_id);
             }
@@ -1429,7 +1429,7 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         cb.on_complete(PmixStatus::Known(PmixError::Success), results);
@@ -1583,7 +1583,7 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: usize::MAX,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(!results.is_empty());
@@ -1604,7 +1604,8 @@ mod tests {
 
     #[test]
     fn test_info_with_string_key_for_log() {
-        let info = crate::info_with_string_key("PMIX_LOG_STDOUT", "test message").expect("string info");
+        let info =
+            crate::info_with_string_key("PMIX_LOG_STDOUT", "test message").expect("string info");
         assert!(!info.is_empty());
         assert_eq!(info.len(), 1);
     }
@@ -1641,7 +1642,7 @@ mod tests {
     fn test_query_info_error_path_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_INIT)
+                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_INIT),
         );
         let query = PmixQuery::new(&["pmix.version"]).unwrap();
         let result = query_info(&[query]);
@@ -1676,7 +1677,7 @@ mod tests {
     fn test_query_info_nb_error_cleanup_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Query_info_nb", mock_ffi::PMIX_ERR_INIT)
+                .with_function_status("PMIx_Query_info_nb", mock_ffi::PMIX_ERR_INIT),
         );
         let query = PmixQuery::new(&["pmix.version"]).unwrap();
 
@@ -1701,7 +1702,8 @@ mod tests {
     #[test]
     fn test_log_data_success_with_mock() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
+        let data =
+            vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
         let result = log_data(&data, &directives);
         assert!(result.is_ok());
@@ -1711,19 +1713,24 @@ mod tests {
     fn test_log_data_error_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Log", mock_ffi::PMIX_ERR_NOT_SUPPORTED)
+                .with_function_status("PMIx_Log", mock_ffi::PMIX_ERR_NOT_SUPPORTED),
         );
-        let data = vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
+        let data =
+            vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
         let result = log_data(&data, &directives);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrNotSupported));
+        assert_eq!(
+            result.unwrap_err(),
+            PmixStatus::Known(PmixError::ErrNotSupported)
+        );
     }
 
     #[test]
     fn test_log_data_nb_success_with_mock() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
+        let data =
+            vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
 
         struct TestLogCallback {
@@ -1747,9 +1754,10 @@ mod tests {
     fn test_log_data_nb_error_cleanup_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Log_nb", mock_ffi::PMIX_ERR_INIT)
+                .with_function_status("PMIx_Log_nb", mock_ffi::PMIX_ERR_INIT),
         );
-        let data = vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
+        let data =
+            vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
 
         struct TestLogCallback {
@@ -1788,7 +1796,9 @@ mod tests {
             }
         }
 
-        let req_id = QUERY_REGISTRY.insert_next(Box::new(BridgeTestCallback { called: called_clone }));
+        let req_id = QUERY_REGISTRY.insert_next(Box::new(BridgeTestCallback {
+            called: called_clone,
+        }));
 
         // Simulate the callback being invoked
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1823,7 +1833,9 @@ mod tests {
             }
         }
 
-        let req_id = LOG_REGISTRY.insert_next(Box::new(BridgeLogTestCallback { called: called_clone }));
+        let req_id = LOG_REGISTRY.insert_next(Box::new(BridgeLogTestCallback {
+            called: called_clone,
+        }));
 
         let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
@@ -1837,7 +1849,7 @@ mod tests {
     fn test_query_info_partial_success_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_PARTIAL_SUCCESS)
+                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_PARTIAL_SUCCESS),
         );
         let query = PmixQuery::new(&["pmix.version"]).unwrap();
         let result = query_info(&[query]);
@@ -1848,8 +1860,10 @@ mod tests {
     #[test]
     fn test_log_data_with_both_data_and_directives() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("log.message", "Hello, world!").expect("string info")];
-        let directives = vec![crate::info_with_string_key("pmix.log.stdout", "true").expect("string info")];
+        let data =
+            vec![crate::info_with_string_key("log.message", "Hello, world!").expect("string info")];
+        let directives =
+            vec![crate::info_with_string_key("pmix.log.stdout", "true").expect("string info")];
         let result = log_data(&data, &directives);
         assert!(result.is_ok());
     }
@@ -1878,8 +1892,7 @@ impl PmixQueryConstructed {
         // SAFETY: allocation is converted to the matching `pmix_query_t` pointer
         // and is freed by `destruct`/`release` while owned by this wrapper.
         let handle = unsafe {
-            libc::calloc(1, std::mem::size_of::<ffi::pmix_query_t>())
-                as *mut ffi::pmix_query_t
+            libc::calloc(1, std::mem::size_of::<ffi::pmix_query_t>()) as *mut ffi::pmix_query_t
         };
         if !handle.is_null() {
             // SAFETY: `handle` is freshly calloc'd storage with the exact

@@ -391,6 +391,14 @@ struct HandlerRegState {
     user_fn: Box<NotificationFn>,
     user_cbfunc: HandlerRegCbFn,
     user_cbdata: *mut c_void,
+    retained_info: Vec<ffi::pmix_info_t>,
+}
+
+struct NotifyState {
+    source: ffi::pmix_proc_t,
+    info: Vec<ffi::pmix_info_t>,
+    cbfunc: OpCbFn,
+    cbdata: *mut c_void,
 }
 
 /// C bridge for the registration-completion callback of
@@ -612,12 +620,6 @@ pub fn register_event_handler_nb(
         )
     };
 
-    let (info_ptr, ninfo) = if info.len > 0 {
-        (info.handle as *const ffi::pmix_info_t, info.len)
-    } else {
-        (ptr::null(), 0)
-    };
-
     // In non-blocking mode the reference ID is only delivered via cbfunc, so
     // the user fn is boxed into a registration state; the completion bridge
     // parks it in HANDLER_REGISTRY (freed on error) and then forwards to the
@@ -628,8 +630,22 @@ pub fn register_event_handler_nb(
         user_fn: Box::new(evhdlr),
         user_cbfunc: cbfunc,
         user_cbdata: cbdata,
+        retained_info: if info.handle.is_null() || info.len == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: Info owns `len` initialized entries for this borrow.
+            unsafe { std::slice::from_raw_parts(info.handle, info.len).to_vec() }
+        },
     });
     let state_ptr = Box::into_raw(state);
+    let (info_ptr, ninfo) = unsafe {
+        let state = &mut *state_ptr;
+        if state.retained_info.is_empty() {
+            (ptr::null_mut(), 0)
+        } else {
+            (state.retained_info.as_mut_ptr(), state.retained_info.len())
+        }
+    };
 
     // SAFETY: FFI call into PMIx library. The codes slice lives for the
     // duration of this call. On the async path the boxed HandlerRegState is
@@ -875,28 +891,62 @@ pub fn notify_event_nb(
     cbfunc: OpCbFn,
     cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
-    let (info_ptr, ninfo) = if info.len > 0 {
-        (info.handle as *const ffi::pmix_info_t, info.len)
-    } else {
-        (ptr::null(), 0)
+    let state = Box::new(NotifyState {
+        source: source.handle,
+        info: if info.handle.is_null() || info.len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(info.handle, info.len).to_vec() }
+        },
+        cbfunc,
+        cbdata,
+    });
+    let state_ptr = Box::into_raw(state);
+    let (source_ptr, info_ptr, ninfo) = unsafe {
+        let x = &mut *state_ptr;
+        (
+            &x.source as *const _,
+            if x.info.is_empty() {
+                ptr::null_mut()
+            } else {
+                x.info.as_mut_ptr()
+            },
+            x.info.len(),
+        )
     };
-
-    // SAFETY: FFI call into PMIx library. Same safety considerations as
-    // the blocking variant.
     let raw_status = unsafe {
         ffi::PMIx_Notify_event(
             status.to_raw(),
-            &source.handle as *const ffi::pmix_proc_t,
+            source_ptr,
             range as ffi::pmix_data_range_t,
             info_ptr,
             ninfo,
-            cbfunc,
-            cbdata,
+            Some(notify_state_bridge),
+            state_ptr as *mut c_void,
         )
     };
 
     let st = PmixStatus::from_raw(raw_status);
-    if st.is_success() { Ok(()) } else { Err(st) }
+    if st.is_success() {
+        Ok(())
+    } else {
+        unsafe {
+            drop(Box::from_raw(state_ptr));
+        }
+        Err(st)
+    }
+}
+
+extern "C" fn notify_state_bridge(status: i32, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+    let x = unsafe { Box::from_raw(cbdata as *mut NotifyState) };
+    if let Some(cb) = x.cbfunc {
+        unsafe {
+            cb(status, x.cbdata);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1495,6 +1545,7 @@ mod tests {
             user_fn: Box::new(Some(test_handler)),
             user_cbfunc: Some(reg_cb),
             user_cbdata: std::ptr::null_mut(),
+            retained_info: Vec::new(),
         });
 
         handler_reg_cb_bridge(
@@ -1537,6 +1588,7 @@ mod tests {
             user_fn: Box::new(Some(test_handler)),
             user_cbfunc: Some(reg_cb),
             user_cbdata: std::ptr::null_mut(),
+            retained_info: Vec::new(),
         });
 
         handler_reg_cb_bridge(
