@@ -413,22 +413,17 @@ pub fn data_pack<T>(
         return Err(PmixStatus::from_raw(-27)); // PMIX_ERR_BAD_PARAM
     }
 
-    let target_ptr = if let Some(t) = target {
-        let raw = t.to_raw();
-        // We need to keep `raw` alive for the FFI call. Since pmix_proc_t
-        // contains a fixed-size char array (not a pointer), it's safe to
-        // take a reference to a local variable.
-        &raw as *const ffi::pmix_proc_t
-    } else {
-        ptr::null()
-    };
+    let raw_target = target.as_ref().map(PmixProcRef::to_raw);
+    let target_ptr = raw_target
+        .as_ref()
+        .map_or(ptr::null(), |r| r as *const ffi::pmix_proc_t);
 
     // SAFETY: PMIx_Data_pack reads `num_vals` values of `data_type` from
     // the `src` pointer. The caller guarantees that `src` points to valid
     // memory of the specified type and count. The buffer must be a valid,
     // allocated pmix_data_buffer_t. The target pointer is either null or
-    // points to a valid pmix_proc_t (which lives on the stack and contains
-    // no dangling pointers — nspace is a fixed char[256] array).
+    // points into the owned `raw_target` binding, which outlives this call
+    // and contains no dangling pointers (nspace is a fixed char[256] array).
     let status = unsafe {
         ffi::PMIx_Data_pack(
             target_ptr,
@@ -505,19 +500,17 @@ pub fn data_unpack<T>(
     max_num_values: &mut i32,
     data_type: PmixDataType,
 ) -> Result<i32, PmixStatus> {
-    let source_ptr = if let Some(s) = source {
-        let raw = s.to_raw();
-        &raw as *const ffi::pmix_proc_t
-    } else {
-        ptr::null()
-    };
+    let raw_source = source.as_ref().map(PmixProcRef::to_raw);
+    let source_ptr = raw_source
+        .as_ref()
+        .map_or(ptr::null(), |r| r as *const ffi::pmix_proc_t);
 
     // SAFETY: PMIx_Data_unpack writes up to `*max_num_values` values of
     // `data_type` into `dest`. The caller guarantees that `dest` points to
     // valid, writable memory of the specified type and capacity. The buffer
     // must be a valid, allocated pmix_data_buffer_t that has been populated
-    // with data. The source pointer is either null or points to a valid
-    // pmix_proc_t on the stack.
+    // with data. The source pointer is either null or points into the owned
+    // `raw_source` binding, which outlives this call.
     let status = unsafe {
         ffi::PMIx_Data_unpack(
             source_ptr,
