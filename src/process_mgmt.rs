@@ -61,6 +61,15 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
+/// Duplicate a Rust-owned C string with the allocator used by PMIx's `free()`.
+///
+/// The returned pointer is owned by the caller and must be released with
+/// `libc::free`, not `CString::from_raw`.
+unsafe fn libc_strdup(value: &CStr) -> *mut c_char {
+    // SAFETY: `value` is a valid NUL-terminated C string and `strdup` copies it.
+    unsafe { libc::strdup(value.as_ptr()) }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Abort
 // ─────────────────────────────────────────────────────────────────────────────
@@ -373,10 +382,8 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 
     // Drop guard ensures PMIx_App_free is always called, even on error.
     // PMIx_App_free calls PMIX_APP_DESTRUCT on each element, which in turn
-    // calls pmix_free (→ free) on cmd, argv, env, cwd. Therefore we must
-    // allocate all string data and pointer arrays via C allocators so
-    // free() is valid. We use CString::into_raw() for strings and
-    // libc::calloc for pointer arrays.
+    // calls pmix_free (→ free) on cmd, argv, env, cwd. Therefore all string
+    // data and pointer arrays must use C allocators.
     struct AppArrayGuard(*mut ffi::pmix_app_t, usize);
     impl Drop for AppArrayGuard {
         fn drop(&mut self) {
@@ -388,9 +395,9 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
     for (i, app) in apps.iter().enumerate() {
         let app_ptr = unsafe { raw_apps.add(i) };
 
-        // ── cmd: transfer ownership to C via CString::into_raw ──
+        // ── cmd: transfer ownership to PMIx via libc allocation ──
         let cmd_ptr: *mut c_char = match &app.cmd {
-            Some(cs) => CString::into_raw(cs.clone()),
+            Some(cs) => unsafe { libc_strdup(cs.as_c_str()) },
             None => ptr::null_mut(),
         };
         unsafe { (*app_ptr).cmd = cmd_ptr };
@@ -406,7 +413,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
             };
             for (j, s) in app.argv.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
-                unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
+                unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             // ptrs[n] is already NULL from calloc.
             ptrs
@@ -423,7 +430,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
             };
             for (j, s) in app.env.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
-                unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
+                unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
         };
@@ -431,7 +438,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 
         // ── cwd ──
         let cwd_ptr: *mut c_char = match &app.cwd {
-            Some(cs) => CString::into_raw(cs.clone()),
+            Some(cs) => unsafe { libc_strdup(cs.as_c_str()) },
             None => ptr::null_mut(),
         };
         unsafe { (*app_ptr).cwd = cwd_ptr };
@@ -462,9 +469,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 
     // The AppArrayGuard will call PMIx_App_free(raw_apps, napps) which
     // calls PMIX_APP_DESTRUCT on each element, freeing cmd/argv/env/cwd
-    // via pmix_free (→ free). This is correct because we allocated all
-    // string data via CString::into_raw (which uses libc::malloc) and
-    // pointer arrays via libc::calloc.
+    // via pmix_free (→ free). String data and pointer arrays use libc allocators.
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -629,7 +634,7 @@ pub fn spawn_nb(
 
         // cmd
         let cmd_ptr: *mut c_char = match &app.cmd {
-            Some(cs) => CString::into_raw(cs.clone()),
+            Some(cs) => unsafe { libc_strdup(cs.as_c_str()) },
             None => ptr::null_mut(),
         };
         unsafe { (*app_ptr).cmd = cmd_ptr };
@@ -644,7 +649,7 @@ pub fn spawn_nb(
             };
             for (j, s) in app.argv.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
-                unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
+                unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
         };
@@ -660,7 +665,7 @@ pub fn spawn_nb(
             };
             for (j, s) in app.env.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
-                unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
+                unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
         };
@@ -668,7 +673,7 @@ pub fn spawn_nb(
 
         // cwd
         let cwd_ptr: *mut c_char = match &app.cwd {
-            Some(cs) => CString::into_raw(cs.clone()),
+            Some(cs) => unsafe { libc_strdup(cs.as_c_str()) },
             None => ptr::null_mut(),
         };
         unsafe { (*app_ptr).cwd = cwd_ptr };
@@ -1322,6 +1327,15 @@ mod tests {
         let app = PmixAppBuilder::new().build().unwrap();
         assert_eq!(app.cmd(), None);
         assert!(app.argv().is_empty());
+    }
+
+    #[test]
+    fn libc_strdup_result_can_be_freed_with_libc() {
+        let source = CString::new("allocator-safe").unwrap();
+        let duplicate = unsafe { libc_strdup(source.as_c_str()) };
+        assert!(!duplicate.is_null());
+        assert_eq!(unsafe { CStr::from_ptr(duplicate) }, source.as_c_str());
+        unsafe { libc::free(duplicate.cast()) };
     }
 
     #[test]

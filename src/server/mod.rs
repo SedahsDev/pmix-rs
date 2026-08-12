@@ -1281,11 +1281,9 @@ pub fn server_setup_fork(proc: &Proc, env: Option<Vec<&str>>) -> Result<Vec<Stri
             for (i, env_str) in initial_env.iter().enumerate() {
                 match CString::new(*env_str) {
                     Ok(cs) => {
-                        // SAFETY: arr_ptr[i] is a valid writable slot in our
-                        // calloc'd array. We store a raw pointer from CString
-                        // which will be freed later by libc::free.
+                        // SAFETY: `strdup` returns storage owned by libc::free.
                         unsafe {
-                            *arr_ptr.add(i) = cs.into_raw();
+                            *arr_ptr.add(i) = libc::strdup(cs.as_ptr());
                         }
                     }
                     Err(_) => {
