@@ -4,6 +4,22 @@ use super::*;
 
     use super::*;
 
+    #[test]
+    fn lookup_rejects_over_length_key_before_ffi() {
+        mock_ffi::enable_mock_ffi();
+        let mut data = [PmixPdata::new(
+            &"k".repeat(ffi::PMIX_MAX_KEYLEN as usize + 1),
+        )];
+
+        let result = lookup(&mut data, None);
+
+        mock_ffi::disable_mock_ffi();
+        assert!(matches!(
+            result,
+            Err(PmixStatus::Known(PmixError::ErrBadParam))
+        ));
+    }
+
     // ─── PmixPdata construction tests ───────────────────────────────────────
 
     #[test]

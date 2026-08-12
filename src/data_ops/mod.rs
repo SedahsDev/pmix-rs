@@ -591,6 +591,13 @@ pub fn lookup(
         return Err(PmixStatus::Known(PmixError::Error));
     }
 
+    if data
+        .iter()
+        .any(|item| item.key.len() > ffi::PMIX_MAX_KEYLEN as usize)
+    {
+        return Err(PmixStatus::Known(PmixError::ErrBadParam));
+    }
+
     // Build the raw pmix_pdata_t array.
     let ndata = data.len();
     let mut raw_pdata: Vec<ffi::pmix_pdata_t> = Vec::with_capacity(ndata);
