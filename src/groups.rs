@@ -74,12 +74,17 @@ fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
 
 /// Owned result set from a group operation.
 ///
-/// Wraps the `pmix_info_t*` array returned by `PMIx_Group_*` and frees it once
-/// via `PMIx_Info_free` on drop. The array is one allocation, not one per entry.
+/// Result set from a group operation.
+///
+/// Blocking calls own their returned array and release it with
+/// `PMIx_Info_free`. Non-blocking calls view a PMIx-owned tracker array and
+/// retain the release callback that frees the tracker and array.
 #[derive(Debug)]
 pub struct GroupResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -95,7 +100,13 @@ impl GroupResults {
 
 impl Drop for GroupResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
+        if let Some(release_fn) = self.release_fn.take() {
+            // SAFETY: PMIx supplied this callback and opaque data for this
+            // completion; it releases the tracker-owned info array.
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        } else if !self.handle.is_null() && self.len > 0 {
             #[cfg(any(test, feature = "mock_ffi"))]
             if crate::mock_ffi::is_mock_enabled() {
                 // SAFETY: handle is the single allocation returned by PMIx_Group_*.
@@ -194,6 +205,8 @@ pub fn group_construct(
         } else {
             nresults
         },
+        release_fn: None,
+        release_cbdata: ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     })
 }
@@ -232,8 +245,8 @@ pub unsafe extern "C" fn group_construct_callback_bridge(
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
     cbdata: *mut c_void,
-    _release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
-    _release_cbdata: *mut c_void,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -244,6 +257,9 @@ pub unsafe extern "C" fn group_construct_callback_bridge(
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
+        if let Some(release_fn) = release_fn {
+            unsafe { release_fn(release_cbdata) };
+        }
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
@@ -258,6 +274,8 @@ pub unsafe extern "C" fn group_construct_callback_bridge(
         } else {
             0
         },
+        release_fn,
+        release_cbdata,
         _not_thread_safe: std::marker::PhantomData,
     };
     let _ = invoke_user_callback("groups", move || {
@@ -398,6 +416,8 @@ pub fn group_invite(
         } else {
             nresult
         },
+        release_fn: None,
+        release_cbdata: ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     })
 }
@@ -432,8 +452,8 @@ pub unsafe extern "C" fn group_invite_callback_bridge(
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
     cbdata: *mut c_void,
-    _release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
-    _release_cbdata: *mut c_void,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -444,6 +464,9 @@ pub unsafe extern "C" fn group_invite_callback_bridge(
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
+        if let Some(release_fn) = release_fn {
+            unsafe { release_fn(release_cbdata) };
+        }
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
@@ -458,6 +481,8 @@ pub unsafe extern "C" fn group_invite_callback_bridge(
         } else {
             0
         },
+        release_fn,
+        release_cbdata,
         _not_thread_safe: std::marker::PhantomData,
     };
     let _ = invoke_user_callback("groups", move || {
@@ -600,6 +625,8 @@ pub fn group_join(
         } else {
             nresult
         },
+        release_fn: None,
+        release_cbdata: ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     })
 }
@@ -634,8 +661,8 @@ pub unsafe extern "C" fn group_join_callback_bridge(
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
     cbdata: *mut c_void,
-    _release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
-    _release_cbdata: *mut c_void,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -646,6 +673,9 @@ pub unsafe extern "C" fn group_join_callback_bridge(
         registry.remove(&req_id)
     };
     let Some(cb_wrapper) = cb else {
+        if let Some(release_fn) = release_fn {
+            unsafe { release_fn(release_cbdata) };
+        }
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
@@ -660,6 +690,8 @@ pub unsafe extern "C" fn group_join_callback_bridge(
         } else {
             0
         },
+        release_fn,
+        release_cbdata,
         _not_thread_safe: std::marker::PhantomData,
     };
     let _ = invoke_user_callback("groups", move || {
@@ -993,6 +1025,33 @@ mod tests {
     use super::*;
     use crate::Proc;
     use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
+
+    unsafe extern "C" fn record_release(cbdata: *mut c_void) {
+        let called = unsafe { &*(cbdata.cast::<AtomicUsize>()) };
+        called.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn group_construct_bridge_releases_tracker_on_result_drop() {
+        let called = AtomicUsize::new(0);
+        let req_id = 9_001usize;
+        GROUP_CONSTRUCT_REGISTRY
+            .lock()
+            .insert(req_id, GroupConstructCallbackWrapper::new(|_, results| {
+                assert!(results.is_empty());
+            }));
+        unsafe {
+            group_construct_callback_bridge(
+                ffi::PMIX_SUCCESS as i32,
+                ptr::null_mut(),
+                0,
+                encode_req_id(req_id),
+                Some(record_release),
+                (&called as *const AtomicUsize).cast_mut().cast(),
+            );
+        }
+        assert_eq!(called.load(Ordering::SeqCst), 1);
+    }
 
     // ── Helper: create a Proc for testing ────────────────────────────────────
 
