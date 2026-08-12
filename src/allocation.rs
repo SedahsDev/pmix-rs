@@ -710,9 +710,9 @@ extern "C" fn job_control_callback_bridge(
     status: ffi::pmix_status_t,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
-    _release_cbdata: *mut std::ffi::c_void,
-    release_fn: ffi::pmix_release_cbfunc_t,
     cbdata: *mut std::ffi::c_void,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    _release_cbdata: *mut std::ffi::c_void,
 ) {
     if cbdata.is_null() {
         return;
