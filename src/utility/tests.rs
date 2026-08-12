@@ -2381,6 +2381,13 @@ use std::sync::{Arc, Mutex};
 
     use crate::mock_ffi;
 
+    #[test]
+    fn test_generate_regex_and_ppn_copy_and_free_mock_outputs() {
+        let _guard = mock_ffi::MockGuard::new();
+        assert_eq!(generate_regex("node001,node002").unwrap(), "pmix:mock_regex");
+        assert_eq!(generate_ppn("0-3;4-7").unwrap(), "pmix:mock_ppn");
+    }
+
     // ── mock_generate_regex tests ──────────────────────────────────────────
 
     /// Mock generate_regex returns PMIX_SUCCESS when mock is enabled.
@@ -2397,9 +2404,7 @@ use std::sync::{Arc, Mutex};
         );
         // Clean up the mock-allocated string
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                regex_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(regex_ptr.cast());
         }
     }
 
@@ -2450,9 +2455,7 @@ use std::sync::{Arc, Mutex};
                 result.starts_with("pmix:"),
                 "mock regex should start with pmix:"
             );
-            drop(std::ffi::CString::from_raw(
-                regex_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(regex_ptr.cast());
         }
     }
 
@@ -2471,9 +2474,7 @@ use std::sync::{Arc, Mutex};
             "ppn output should be non-null on success"
         );
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2524,9 +2525,7 @@ use std::sync::{Arc, Mutex};
                 result.starts_with("pmix:"),
                 "mock ppn should start with pmix:"
             );
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2539,9 +2538,7 @@ use std::sync::{Arc, Mutex};
         let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
         assert_eq!(status, mock_ffi::PMIX_SUCCESS);
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2554,9 +2551,7 @@ use std::sync::{Arc, Mutex};
         let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
         assert_eq!(status, mock_ffi::PMIX_SUCCESS);
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2569,9 +2564,7 @@ use std::sync::{Arc, Mutex};
         let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
         assert_eq!(status, mock_ffi::PMIX_SUCCESS);
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2584,9 +2577,7 @@ use std::sync::{Arc, Mutex};
         let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
         assert_eq!(status, mock_ffi::PMIX_SUCCESS);
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2736,9 +2727,7 @@ use std::sync::{Arc, Mutex};
             mock_ffi::PMIX_SUCCESS
         );
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                regex_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(regex_ptr.cast());
         }
         // generate_ppn
         let input = std::ffi::CString::new("0-3").unwrap();
@@ -2748,9 +2737,7 @@ use std::sync::{Arc, Mutex};
             mock_ffi::PMIX_SUCCESS
         );
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
         // get_attribute_string
         let attr = std::ffi::CString::new("pmix.host").unwrap();

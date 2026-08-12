@@ -13,6 +13,8 @@ use crate::{
     IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType,
     PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus, ffi,
 };
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
 use std::ffi::CStr;
 use std::ptr;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -727,11 +729,8 @@ pub fn device_type_string(ty: PmixDeviceType) -> Result<String, PmixStatus> {
 /// compressed representation (e.g. `"pmix:node[001-003,010-011]"`) that
 /// preserves the order of the input values.
 ///
-/// The returned string is **owned by the caller** — the PMIx library
-/// allocates it with `malloc`.  This wrapper takes ownership via
-/// [`CString::from_raw`][std::ffi::CString::from_raw] and returns a Rust
-/// [`String`], so the caller does not need to worry about freeing the
-/// underlying C allocation.
+/// The returned string is copied into a Rust [`String`]. The PMIx-allocated
+/// buffer is freed with [`libc::free`] before this function returns.
 ///
 /// # C API
 /// `pmix_status_t PMIx_generate_regex(const char *input, char **regex)`
@@ -762,27 +761,22 @@ pub fn generate_regex(input: &str) -> Result<String, PmixStatus> {
     // is written by the PMIx library and points to malloc'd memory that
     // the caller owns. We check the return status before touching the
     // output pointer.
-    let status = unsafe { ffi::PMIx_generate_regex(input_cstr.as_ptr(), &mut regex_ptr) };
+    let status = crate::pmix_ffi_or_mock!(
+        mock = mock_ffi::mock_generate_regex(input_cstr.as_ptr(), &mut regex_ptr),
+        real = unsafe { ffi::PMIx_generate_regex(input_cstr.as_ptr(), &mut regex_ptr) },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
     if !pmix_status.is_success() {
         return Err(pmix_status);
     }
 
-    // SAFETY: On success, regex_ptr is non-null and points to malloc'd
-    // memory owned by the caller. We take ownership via CString::from_raw
-    // so it will be freed when the CString is dropped (and the String
-    // extracted from it is independently owned).
-    let owned = unsafe {
-        if regex_ptr.is_null() {
-            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
-        }
-        std::ffi::CString::from_raw(regex_ptr)
-    };
-
-    // Extract the string content (copies into a Rust-owned String).
-    // CString is dropped here, freeing the original C allocation.
-    Ok(owned.into_string().unwrap_or_default())
+    if regex_ptr.is_null() {
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    let result = unsafe { CStr::from_ptr(regex_ptr).to_string_lossy().into_owned() };
+    unsafe { libc::free(regex_ptr.cast()) };
+    Ok(result)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -800,10 +794,8 @@ pub fn generate_regex(input: &str) -> Result<String, PmixStatus> {
 /// `"pmix:0-10"` or `"raw:0-3;4-7;8,9,10"` depending on the registered
 /// preg module) that identifies which processes run on each node.
 ///
-/// The returned string is **owned by the caller** — the PMIx library
-/// allocates it.  This wrapper takes ownership via [`CString::from_raw`][std::ffi::CString::from_raw]
-/// and returns a Rust [`String`], so the caller does not need to worry about
-/// freeing the underlying C allocation.
+/// The returned string is copied into a Rust [`String`]. The PMIx-allocated
+/// buffer is freed with [`libc::free`] before this function returns.
 ///
 /// # C API
 /// `pmix_status_t PMIx_generate_ppn(const char *input, char **ppn)`
@@ -834,27 +826,22 @@ pub fn generate_ppn(input: &str) -> Result<String, PmixStatus> {
     // is written by the PMIx library and points to malloc'd memory that
     // the caller owns. We check the return status before touching the
     // output pointer.
-    let status = unsafe { ffi::PMIx_generate_ppn(input_cstr.as_ptr(), &mut ppn_ptr) };
+    let status = crate::pmix_ffi_or_mock!(
+        mock = mock_ffi::mock_generate_ppn(input_cstr.as_ptr(), &mut ppn_ptr),
+        real = unsafe { ffi::PMIx_generate_ppn(input_cstr.as_ptr(), &mut ppn_ptr) },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
     if !pmix_status.is_success() {
         return Err(pmix_status);
     }
 
-    // SAFETY: On success, ppn_ptr is non-null and points to malloc'd
-    // memory owned by the caller. We take ownership via CString::from_raw
-    // so it will be freed when the CString is dropped (and the String
-    // extracted from it is independently owned).
-    let owned = unsafe {
-        if ppn_ptr.is_null() {
-            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
-        }
-        std::ffi::CString::from_raw(ppn_ptr)
-    };
-
-    // Extract the string content (copies into a Rust-owned String).
-    // CString is dropped here, freeing the original C allocation.
-    Ok(owned.into_string().unwrap_or_default())
+    if ppn_ptr.is_null() {
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    let result = unsafe { CStr::from_ptr(ppn_ptr).to_string_lossy().into_owned() };
+    unsafe { libc::free(ppn_ptr.cast()) };
+    Ok(result)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1185,7 +1185,7 @@ pub fn mock_generate_regex(
         // In mock tests, we just check the status and don't dereference.
         if status == PMIX_SUCCESS && !regex.is_null() {
             let mock_regex = std::ffi::CString::new("pmix:mock_regex").unwrap();
-            let mock_ptr = mock_regex.into_raw() as *mut std::os::raw::c_char;
+            let mock_ptr = unsafe { libc::strdup(mock_regex.as_ptr()) };
             unsafe {
                 *regex = mock_ptr;
             }
@@ -1214,7 +1214,7 @@ pub fn mock_generate_ppn(
         // On success, write a mock PPN string to the output pointer.
         if status == PMIX_SUCCESS && !ppn.is_null() {
             let mock_ppn = std::ffi::CString::new("pmix:mock_ppn").unwrap();
-            let mock_ptr = mock_ppn.into_raw() as *mut std::os::raw::c_char;
+            let mock_ptr = unsafe { libc::strdup(mock_ppn.as_ptr()) };
             unsafe {
                 *ppn = mock_ptr;
             }
