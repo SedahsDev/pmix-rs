@@ -15,7 +15,7 @@ use std::sync::{LazyLock, Mutex};
 use crate::cbdata::Registry;
 use crate::ffi;
 use crate::threading::invoke_user_callback;
-use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, free_value};
+use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, free_value, release_pmix_value};
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
@@ -264,15 +264,19 @@ extern "C" fn get_value_callback_bridge(
             );
             (copy_status == ffi::PMIX_SUCCESS as i32).then_some(PmixOwnedValue {
                 inner: copied,
+                pmix_owned: true,
                 _not_thread_safe: std::marker::PhantomData,
             })
         } else {
             // SAFETY: The ordinary callback path returns an allocated struct.
             let val = unsafe { ptr::read(kv) };
             // SAFETY: `kv` is the allocation returned by PMIx_Get_nb.
-            drop(unsafe { Box::from_raw(kv) });
+            unsafe { ptr::write_bytes(kv, 0, 1) };
+            // SAFETY: `kv` is a PMIx allocation returned to this callback.
+            unsafe { release_pmix_value(kv) };
             Some(PmixOwnedValue {
                 inner: val,
+                pmix_owned: true,
                 _not_thread_safe: std::marker::PhantomData,
             })
         }
@@ -495,7 +499,16 @@ pub fn get(proc: &Proc, key: &str, info: Option<&Info>) -> Result<PmixOwnedValue
             // which will free it on drop.
             ptr::read(value)
         };
-        Ok(PmixOwnedValue { inner: owned, 
+        // `value` is PMIx-allocated; the payload moved into `owned`, so
+        // release only the now-empty PMIx struct allocation.
+        // SAFETY: `value` points to the PMIx-allocated struct whose payload
+        // was moved above; zero it before releasing the struct allocation.
+        unsafe { ptr::write_bytes(value, 0, 1) };
+        // SAFETY: `value` is the PMIx allocation returned by `PMIx_Get`.
+        unsafe { release_pmix_value(value) };
+        Ok(PmixOwnedValue {
+            inner: owned,
+            pmix_owned: true,
             _not_thread_safe: std::marker::PhantomData,
         })
     } else {
@@ -663,6 +676,7 @@ pub fn lookup(
             pdata.value.type_ = pmix_undef;
             Some(PmixOwnedValue {
                 inner: val,
+                pmix_owned: true,
                 _not_thread_safe: std::marker::PhantomData,
             })
         } else {
@@ -777,9 +791,11 @@ extern "C" fn lookup_callback_bridge(
                     // clear the source before PMIx frees the pdata array.
                     std::ptr::write_bytes(&mut pdata_ref.value, 0, 1);
                     pdata_ref.value.type_ = pmix_undef;
-                    Some(PmixOwnedValue { inner: val, 
-            _not_thread_safe: std::marker::PhantomData,
-        })
+                    Some(PmixOwnedValue {
+                        inner: val,
+                        pmix_owned: true,
+                        _not_thread_safe: std::marker::PhantomData,
+                    })
                 } else {
                     None
                 };
