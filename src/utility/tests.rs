@@ -1,8 +1,8 @@
 //! utility unit tests
 
 use super::*;
+use std::sync::{Arc, Mutex};
 
-    use super::*;
 
     // ──────────────────────────────────────────────────────────────────────
     // PmixByteObject tests
@@ -59,8 +59,35 @@ use super::*;
         let bo = PmixByteObject::from_slice(b"roundtrip test");
         let c_ptr = bo.as_c_mut_ptr();
         assert!(!c_ptr.is_null());
+        // The C pointer must refer to the byte object while the FFI call is
+        // in progress, not to a temporary buffer that has already dropped.
+        let c_bo = unsafe { &*c_ptr };
+        let bytes = unsafe { std::slice::from_raw_parts(c_bo.bytes as *const u8, c_bo.size) };
+        assert_eq!(bytes, b"roundtrip test");
         // SAFETY: c_ptr was returned by as_c_mut_ptr and has not been freed.
         unsafe { PmixByteObject::free_c_ptr(c_ptr) };
+    }
+
+    #[test]
+    fn test_io_registry_context_survives_removal() {
+        let context = Arc::new(Mutex::new(IoPullContext {
+            io_cb: Box::new(|_, _, _, _| {}),
+            reg_cb: Box::new(|_, _| {}),
+        }));
+        let handle = 0x445usize;
+        IOF_REGISTRY
+            .lock()
+            .unwrap()
+            .insert(handle, Arc::clone(&context));
+        let callback_context = IOF_REGISTRY
+            .lock()
+            .unwrap()
+            .get(&handle)
+            .unwrap()
+            .clone();
+        IOF_REGISTRY.lock().unwrap().remove(&handle);
+        let guard = callback_context.lock().unwrap();
+        (guard.reg_cb)(PmixStatus::from_raw(0), handle);
     }
 
     /// Empty byte object converts to C and back without issues.
