@@ -8,6 +8,36 @@ use std::sync::{LazyLock, Mutex};
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 
+fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
+    procs
+        .iter()
+        .map(|proc| {
+            // SAFETY: Proc contains an initialized pmix_proc_t for this borrow.
+            unsafe { std::ptr::read(&proc.handle) }
+        })
+        .collect()
+}
+
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| {
+                        // SAFETY: entry is initialized and copied by value into local storage.
+                        unsafe { std::ptr::read(entry) }
+                    })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_server_publish — publish key-value data through the server
 // ─────────────────────────────────────────────────────────────────────────────
@@ -504,19 +534,13 @@ pub fn server_connect(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
         let status;
@@ -526,7 +550,7 @@ pub fn server_connect(
             unsafe {
             mock_ffi::mock_server_fence(
                 procs_ptr as *const std::ffi::c_void,
-                procs.len(),
+                flat_procs.len(),
                 info_ptr as *mut std::ffi::c_void,
                 ninfo,
                 ptr::null_mut(),
@@ -534,13 +558,13 @@ pub fn server_connect(
             )
         }
         } else {
-            unsafe { ffi::PMIx_Connect(procs_ptr, procs.len(), info_ptr, ninfo) }
+            unsafe { ffi::PMIx_Connect(procs_ptr, flat_procs.len(), info_ptr, ninfo) }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
-            unsafe { ffi::PMIx_Connect(procs_ptr, procs.len(), info_ptr, ninfo) }
+            unsafe { ffi::PMIx_Connect(procs_ptr, flat_procs.len(), info_ptr, ninfo) }
         };
     }
 
@@ -578,25 +602,19 @@ pub fn server_connect_nb(
     let cbdata = encode_req_id(req_id);
 
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let status = unsafe {
         ffi::PMIx_Connect_nb(
             procs_ptr,
-            procs.len(),
+            flat_procs.len(),
             info_ptr,
             ninfo,
             Some(connect_nb_callback_bridge),
@@ -643,19 +661,13 @@ pub fn server_disconnect(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
         let status;
@@ -665,7 +677,7 @@ pub fn server_disconnect(
             unsafe {
             mock_ffi::mock_server_fence(
                 procs_ptr as *const std::ffi::c_void,
-                procs.len(),
+                flat_procs.len(),
                 info_ptr as *mut std::ffi::c_void,
                 ninfo,
                 ptr::null_mut(),
@@ -673,13 +685,13 @@ pub fn server_disconnect(
             )
         }
         } else {
-            unsafe { ffi::PMIx_Disconnect(procs_ptr, procs.len(), info_ptr, ninfo) }
+            unsafe { ffi::PMIx_Disconnect(procs_ptr, flat_procs.len(), info_ptr, ninfo) }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
-            unsafe { ffi::PMIx_Disconnect(procs_ptr, procs.len(), info_ptr, ninfo) }
+            unsafe { ffi::PMIx_Disconnect(procs_ptr, flat_procs.len(), info_ptr, ninfo) }
         };
     }
 
@@ -715,25 +727,19 @@ pub fn server_disconnect_nb(
     let cbdata = encode_req_id(req_id);
 
 
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    let (info_ptr, ninfo) = if info.is_empty() {
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     let status = unsafe {
         ffi::PMIx_Disconnect_nb(
             procs_ptr,
-            procs.len(),
+            flat_procs.len(),
             info_ptr,
             ninfo,
             Some(disconnect_nb_callback_bridge),
@@ -796,6 +802,24 @@ pub fn server_spawn_nb(
     callback: crate::process_mgmt::SpawnCallbackWrapper,
 ) -> Result<(), PmixStatus> {
     crate::process_mgmt::spawn_nb(job_info, apps, callback)
+}
+
+#[cfg(test)]
+mod array_tests {
+    use super::*;
+    #[test]
+    fn server_arrays_are_flattened_for_multiple_entries() {
+        let p1 = Proc::new("ns_a", 7).unwrap();
+        let p2 = Proc::new("ns_b", 9).unwrap();
+        let i1 = crate::info_with_string_key("test.key.one", "one").unwrap();
+        let i2 = crate::info_with_string_key("test.key.two", "two").unwrap();
+        let procs = flat_procs(&[p1, p2]);
+        let infos = flat_infos(&[i1, i2]);
+        assert_eq!(procs.len(), 2);
+        assert_eq!(infos.len(), 2);
+        assert_eq!(procs[0].rank, 7);
+        assert_eq!(procs[1].rank, 9);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
