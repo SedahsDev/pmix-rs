@@ -773,6 +773,8 @@ extern "C" fn lookup_callback_bridge(
                 let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
                 let value = if pdata_ref.value.type_ != pmix_undef {
                     let val = ptr::read(&pdata_ref.value);
+                    // SAFETY: `val` owns the payload copied from the PMIx result;
+                    // clear the source before PMIx frees the pdata array.
                     std::ptr::write_bytes(&mut pdata_ref.value, 0, 1);
                     pdata_ref.value.type_ = pmix_undef;
                     Some(PmixOwnedValue { inner: val, 
