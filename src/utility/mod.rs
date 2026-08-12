@@ -15,6 +15,7 @@ use crate::{
 };
 use std::ffi::CStr;
 use std::ptr;
+use std::sync::{Arc, LazyLock, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -952,7 +953,6 @@ pub fn register_attributes(function: &str, attrs: &[&str]) -> Result<(), PmixSta
 
 use std::collections::HashMap;
 use crate::threading::invoke_user_callback;
-use std::sync::{LazyLock, Mutex};
 
 /// Global registry mapping IOF handles to their Rust callback contexts.
 ///
@@ -960,29 +960,10 @@ use std::sync::{LazyLock, Mutex};
 /// Our bridge function looks up the handle in this registry to find the
 /// corresponding Rust closure. The registry is populated when `iof_pull`
 /// or `iof_pull_blocking` is called and cleared when deregistered.
-type Registry = HashMap<usize, SendSyncPtr<*mut IoPullContext>>;
+type Registry = HashMap<usize, Arc<Mutex<IoPullContext>>>;
 static IOF_REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Wrapper that allows raw pointers to cross thread boundaries.
-///
-/// The raw pointer itself is managed by the PMIx FFI bridge — it is
-/// allocated via `Box::into_raw` and freed via `Box::from_raw` or
-/// on deregistration. This newtype only exists so the `HashMap` inside
-/// `IOF_REGISTRY` satisfies `Send + Sync`.
-#[derive(Clone, Copy)]
-struct SendSyncPtr<T>(T);
-// SAFETY: The pointer is only accessed behind a Mutex guard, so concurrent
-// access is serialized. The lifetime of the pointed-to data is managed by
-// the caller (Box::into_raw / Box::from_raw), not by Rust's ownership rules.
-unsafe impl<T> Send for SendSyncPtr<T> {}
-unsafe impl<T> Sync for SendSyncPtr<T> {}
-
 /// Context stored per IO pull registration, carrying both callbacks.
-///
-/// Allocated on the heap via `Box::into_raw`. Freed when:
-/// - Registration fails (immediate)
-/// - `iof_deregister` is called (via registry cleanup)
-/// - Process exits (OS reclaims memory)
 ///
 /// Type aliases for the callback types used below.
 type IoDataCallback = Box<dyn Fn(usize, IOFChannelFlags, &ffi::pmix_proc_t, &[u8]) + Send>;
@@ -1007,19 +988,11 @@ extern "C" fn io_callback_bridge(
 ) {
     // Look up the context in the registry.
     let registry = IOF_REGISTRY.lock().unwrap();
-    let ctx_ptr = match registry.get(&iofhdlr) {
-        Some(wrapped) => wrapped.0,
+    let ctx = match registry.get(&iofhdlr) {
+        Some(ctx) => Arc::clone(ctx),
         None => return, // Context not found — skip.
     };
     drop(registry); // Release lock before calling user code.
-
-    if ctx_ptr.is_null() {
-        return;
-    }
-
-    // SAFETY: ctx_ptr was allocated via Box::into_raw in iof_pull /
-    // iof_pull_blocking and remains valid until deregistration.
-    let ctx = unsafe { &*ctx_ptr };
 
     // SAFETY: source is valid for the duration of this callback.
     // PMIx guarantees the source pointer points to a valid pmix_proc_t.
@@ -1040,6 +1013,7 @@ extern "C" fn io_callback_bridge(
 
     let channel_flags = IOFChannelFlags(channel);
     let _ = invoke_user_callback("utility", move || {
+        let ctx = ctx.lock().unwrap();
         (ctx.io_cb)(iofhdlr, channel_flags, source_proc, bytes);
     });
 }
@@ -1056,20 +1030,19 @@ extern "C" fn reg_callback_bridge(
     if cbdata.is_null() {
         return;
     }
-
-    // SAFETY: cbdata is the ctx_ptr we passed to PMIx_IOF_pull.
-    // It was allocated via Box::into_raw and is valid.
-    let ctx = unsafe { &*(cbdata as *const IoPullContext) };
+    // SAFETY: cbdata points to the temporary Arc box passed to PMIx_IOF_pull.
+    let ctx = unsafe { *Box::from_raw(cbdata as *mut Arc<Mutex<IoPullContext>>) };
 
     // Register the handle in the global registry so the IO callback
     // can look it up later.
     {
         let mut registry = IOF_REGISTRY.lock().unwrap();
-        registry.insert(refid, SendSyncPtr(cbdata as *mut IoPullContext));
+        registry.insert(refid, Arc::clone(&ctx));
     }
 
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("utility", move || {
+        let ctx = ctx.lock().unwrap();
         (ctx.reg_cb)(pmix_status, refid);
     });
 }
@@ -1133,7 +1106,8 @@ where
         io_cb: Box::new(cb),
         reg_cb: Box::new(regcb),
     };
-    let ctx_ptr: *mut IoPullContext = Box::into_raw(Box::new(ctx));
+    let ctx = Arc::new(Mutex::new(ctx));
+    let ctx_ptr = Box::into_raw(Box::new(Arc::clone(&ctx)));
 
     // SAFETY: PMIx_IOF_pull is a documented PMIx tool API.
     // - procs: valid slice, passed as const pointer + length.
@@ -1201,7 +1175,8 @@ where
             // Unused in blocking mode.
         }),
     };
-    let ctx_ptr: *mut IoPullContext = Box::into_raw(Box::new(ctx));
+    let ctx = Arc::new(Mutex::new(ctx));
+    let ctx_ptr = Box::into_raw(Box::new(Arc::clone(&ctx)));
 
     // SAFETY: Same as iof_pull, but regcbfunc is None (blocking mode).
     let raw_result: ffi::pmix_status_t = unsafe {
@@ -1229,10 +1204,16 @@ where
         // In blocking mode, the return value is the registration handle.
         let handle = raw_result as usize;
 
+        // No registration callback will reclaim this temporary Arc box in
+        // blocking mode; PMIx has returned, so reclaim it here.
+        unsafe {
+            drop(Box::from_raw(ctx_ptr));
+        }
+
         // Store the context in the registry so the IO callback can find it.
         {
             let mut registry = IOF_REGISTRY.lock().unwrap();
-            registry.insert(handle, SendSyncPtr(ctx_ptr));
+            registry.insert(handle, ctx);
         }
         Ok(handle)
     }
@@ -1320,18 +1301,7 @@ where
     // IO callbacks will be delivered for this registration.
     {
         let mut registry = IOF_REGISTRY.lock().unwrap();
-        if let Some(ctx_wrapped) = registry.remove(&handle) {
-            let ctx_ptr = ctx_wrapped.0;
-            if !ctx_ptr.is_null() {
-                // SAFETY: ctx_ptr was allocated via Box::into_raw in
-                // iof_pull / iof_pull_blocking and has not been freed yet.
-                // We take ownership back and drop it, which frees the
-                // IoPullContext and its contained closures.
-                unsafe {
-                    drop(Box::from_raw(ctx_ptr));
-                }
-            }
-        }
+        registry.remove(&handle);
     }
 
     // Box the deregistration callback context so we can pass it as `*mut c_void`.
@@ -1390,16 +1360,7 @@ pub fn iof_deregister_blocking(
     // Remove the handle from the global registry immediately.
     {
         let mut registry = IOF_REGISTRY.lock().unwrap();
-        if let Some(ctx_wrapped) = registry.remove(&handle) {
-            let ctx_ptr = ctx_wrapped.0;
-            if !ctx_ptr.is_null() {
-                // SAFETY: ctx_ptr was allocated via Box::into_raw in
-                // iof_pull / iof_pull_blocking and has not been freed yet.
-                unsafe {
-                    drop(Box::from_raw(ctx_ptr));
-                }
-            }
-        }
+        registry.remove(&handle);
     }
 
     // SAFETY: PMIx_IOF_deregister with NULL callback = blocking mode.
@@ -1483,21 +1444,17 @@ impl PmixByteObject {
     /// Convert to a C `pmix_byte_object_t` for FFI.
     ///
     /// Returns a heap-allocated `pmix_byte_object_t` whose `bytes` field
-    /// points to a `CString`-wrapped copy of our data. The caller must
+    /// points into this object's owned data. The caller must
     /// free the result with `PmixByteObject::free_c_ptr()`.
     ///
-    /// Note: `PMIx_IOF_push` copies the byte object's data internally,
-    /// so the C struct can be freed immediately after the call returns.
+    /// For asynchronous `PMIx_IOF_push`, PMIx retains the byte object until
+    /// the completion callback; the caller must keep both this object and
+    /// the returned C struct alive until then.
     fn as_c_mut_ptr(&self) -> *mut ffi::pmix_byte_object_t {
-        // Allocate a CString from our bytes so the C struct has a valid
-        // pointer. The CString is stored inside the C struct's bytes field.
         let c_str = if self.bytes.is_empty() {
             std::ptr::null_mut()
         } else {
-            // SAFETY: Our bytes are owned by self (Vec<u8>) and will outlive
-            // the FFI call. We create a mutable copy for the C struct.
-            let mut data = self.bytes.clone();
-            data.as_mut_ptr() as *mut std::os::raw::c_char
+            self.bytes.as_ptr() as *mut std::os::raw::c_char
         };
 
         // Build the C struct on the heap.
@@ -1548,6 +1505,8 @@ impl<F> IoForwardPushHandler for F where F: Fn(PmixStatus) + Send + 'static {}
 /// - Process exits (OS reclaims memory)
 struct IoPushContext {
     cb: Box<dyn Fn(PmixStatus) + Send>,
+    c_bo_ptr: *mut ffi::pmix_byte_object_t,
+    bytes_owner: PmixByteObject,
 }
 
 /// C bridge for the push completion callback (`pmix_op_cbfunc_t`).
@@ -1564,10 +1523,20 @@ extern "C" fn push_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std:
     let ctx_ptr = cbdata as *mut IoPushContext;
     // Take ownership back — this callback is the last reference.
     let ctx = unsafe { Box::from_raw(ctx_ptr) };
+    let IoPushContext {
+        cb,
+        c_bo_ptr,
+        bytes_owner,
+    } = *ctx;
+
+    // PMIx has finished using cb->bo before invoking this callback. The C
+    // struct and the Rust-owned bytes can therefore be released exactly once.
+    unsafe { PmixByteObject::free_c_ptr(c_bo_ptr) };
+    drop(bytes_owner);
 
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("utility", move || {
-        (ctx.cb)(pmix_status);
+        (cb)(pmix_status);
     });
 }
 
@@ -1605,14 +1574,18 @@ where
     // Allocate the C byte_object_t on the heap.
     let c_bo_ptr = bo.as_c_mut_ptr();
 
-    // Box the callback into a context struct.
-    let ctx = IoPushContext { cb: Box::new(cb) };
+    // Box the callback and async byte-object ownership into a context struct.
+    let ctx = IoPushContext {
+        cb: Box::new(cb),
+        c_bo_ptr,
+        bytes_owner: bo,
+    };
     let ctx_ptr: *mut IoPushContext = Box::into_raw(Box::new(ctx));
 
     // SAFETY: PMIx_IOF_push is a documented PMIx tool API.
     // - targets: valid slice, passed as const pointer + length.
-    // - bo: heap-allocated pmix_byte_object_t, valid for duration of call.
-    //   PMIx may copy or retain the data internally.
+    // - bo: heap-allocated pmix_byte_object_t, owned by the context until
+    //   the completion callback because async PMIx retains it without copying.
     // - directives: valid slice, passed as const pointer + length.
     // - cbfunc: our push_callback_bridge extern "C" function.
     // - cbdata: ctx_ptr, owned by us, reclaimed in the callback.
@@ -1628,25 +1601,32 @@ where
         )
     };
 
-    // Free the C byte_object — PMIx has already copied/retained the data
-    // internally by the time this returns.
-    // SAFETY: c_bo_ptr was allocated by as_c_mut_ptr() above.
-    unsafe { PmixByteObject::free_c_ptr(c_bo_ptr) };
-
     let pmix_status = PmixStatus::from_raw(raw_status);
 
     // Per spec: PMIX_SUCCESS means async processing (callback will fire).
     // PMIX_OPERATION_SUCCEEDED means immediate success (callback NOT called).
     // Any error means immediate failure (callback NOT called).
-    if pmix_status.is_error() {
+    if pmix_status == PmixStatus::Known(crate::PmixError::OperationSucceeded) {
+        // PMIX_OPERATION_SUCCEEDED means the request completed inline and
+        // PMIx will not invoke the callback. Reclaim all owned state here.
+        // SAFETY: ctx_ptr is not retained by PMIx for this status.
+        unsafe {
+            let ctx = Box::from_raw(ctx_ptr);
+            PmixByteObject::free_c_ptr(ctx.c_bo_ptr);
+            drop(ctx);
+        }
+        Ok(())
+    } else if pmix_status.is_error() {
         // Immediate error — callback will NOT be called. Free context.
         // SAFETY: ctx_ptr was not handed to PMIx since the call returned error.
         unsafe {
-            drop(Box::from_raw(ctx_ptr));
+            let ctx = Box::from_raw(ctx_ptr);
+            PmixByteObject::free_c_ptr(ctx.c_bo_ptr);
+            drop(ctx);
         }
         Err(pmix_status)
     } else {
-        // Either async (callback will fire) or immediate success.
+        // PMIX_SUCCESS means async processing; the callback owns reclamation.
         Ok(())
     }
 }
