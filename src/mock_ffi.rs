@@ -257,8 +257,11 @@ pub fn mock_get(
             .to_string_lossy()
             .into_owned()
     };
-    let mut boxed = Box::new(unsafe { std::mem::MaybeUninit::<crate::ffi::pmix_value_t>::zeroed().assume_init() });
-    if let Some((bytes, dtype)) = KEY_VALUE_STORE.with(|cell| cell.borrow().get(&key_str).cloned()) {
+    let mut boxed = Box::new(unsafe {
+        std::mem::MaybeUninit::<crate::ffi::pmix_value_t>::zeroed().assume_init()
+    });
+    if let Some((bytes, dtype)) = KEY_VALUE_STORE.with(|cell| cell.borrow().get(&key_str).cloned())
+    {
         // PMIX_INT = 1, PMIX_STRING = 3 (OpenPMIx >= 6.1 numbering).
         if dtype == crate::ffi::PMIX_STRING as u32 {
             boxed.type_ = crate::ffi::PMIX_STRING as u16;
@@ -314,12 +317,7 @@ pub fn mock_lookup_nb(
     _info: *const std::ffi::c_void,
     _ninfo: usize,
     _cbfunc: Option<
-        unsafe extern "C" fn(
-            i32,
-            *mut crate::ffi::pmix_pdata_t,
-            usize,
-            *mut std::ffi::c_void,
-        ),
+        unsafe extern "C" fn(i32, *mut crate::ffi::pmix_pdata_t, usize, *mut std::ffi::c_void),
     >,
     _cbdata: *mut std::ffi::c_void,
 ) -> i32 {
@@ -1352,7 +1350,9 @@ pub fn mock_iof_pull(
             }
             // If a registration callback is provided, invoke it with the handle
             if let Some(cb) = regcbfunc {
-                unsafe { cb(status, handle, regcbdata); }
+                unsafe {
+                    cb(status, handle, regcbdata);
+                }
             }
             // In blocking mode (no regcbfunc), return the handle as status
             // (matching real PMIx behavior where blocking returns the handle)
@@ -1385,7 +1385,9 @@ pub fn mock_iof_deregister(
         });
         // Invoke the callback if provided (async mode)
         if let Some(cb) = cbfunc {
-            unsafe { cb(status, cbdata); }
+            unsafe {
+                cb(status, cbdata);
+            }
         }
         status
     } else {
@@ -1410,7 +1412,9 @@ pub fn mock_iof_push(
         let status = get_mock_status("PMIx_IOF_push");
         // Invoke the callback if provided (async mode)
         if let Some(cb) = cbfunc {
-            unsafe { cb(status, cbdata); }
+            unsafe {
+                cb(status, cbdata);
+            }
         }
         status
     } else {
@@ -1499,8 +1503,8 @@ pub fn mock_fabric_register_nb(
     fabric: *mut crate::ffi::pmix_fabric_t,
     _directives: *const crate::ffi::pmix_info_t,
     _ndirs: usize,
-    _cbfunc: Option<unsafe extern "C" fn(i32, *mut std::os::raw::c_void)>,
-    _cbdata: *mut std::os::raw::c_void,
+    cbfunc: Option<unsafe extern "C" fn(i32, *mut std::os::raw::c_void)>,
+    cbdata: *mut std::os::raw::c_void,
 ) -> i32 {
     if is_mock_enabled() {
         let status = get_mock_status("PMIx_Fabric_register_nb");
@@ -1514,6 +1518,13 @@ pub fn mock_fabric_register_nb(
             MOCK_FABRIC_REGISTERED.with(|cell| {
                 *cell.borrow_mut() = true;
             });
+        }
+        // PMIx retains cbdata when submission fails synchronously and does not
+        // invoke the callback, so only complete successful submissions here.
+        if status == PMIX_SUCCESS {
+            if let Some(cb) = cbfunc {
+                unsafe { cb(status, cbdata) };
+            }
         }
         status
     } else {
@@ -1648,7 +1659,8 @@ pub fn mock_compute_distances(
                     ) as *mut crate::ffi::pmix_device_distance_t
                 };
                 if !ptr.is_null() {
-                    for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate() {
+                    for (i, (uuid, osname, dtype, mind, maxd)) in mock_distances.iter().enumerate()
+                    {
                         let entry = unsafe { &mut *ptr.add(i) };
                         entry.uuid = unsafe {
                             libc::strdup(std::ffi::CString::new(uuid.as_str()).unwrap().as_ptr())
@@ -1679,14 +1691,16 @@ pub fn mock_compute_distances_nb(
     _cpuset: *mut crate::ffi::pmix_cpuset_t,
     _info: *mut crate::ffi::pmix_info_t,
     _ninfo: usize,
-    cbfunc: Option<unsafe extern "C" fn(
-        i32,
-        *mut crate::ffi::pmix_device_distance_t,
-        usize,
-        *mut std::os::raw::c_void,
-        Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
-        *mut std::os::raw::c_void,
-    )>,
+    cbfunc: Option<
+        unsafe extern "C" fn(
+            i32,
+            *mut crate::ffi::pmix_device_distance_t,
+            usize,
+            *mut std::os::raw::c_void,
+            Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+            *mut std::os::raw::c_void,
+        ),
+    >,
     cbdata: *mut std::os::raw::c_void,
 ) -> i32 {
     if !is_mock_enabled() {
@@ -1738,7 +1752,14 @@ pub fn mock_compute_distances_nb(
     if let Some(callback) = cbfunc {
         let caddy = Box::into_raw(Box::new(DistanceCaddy { dist, len: count }));
         unsafe {
-            callback(status, dist, count, cbdata, Some(release_distances), caddy.cast())
+            callback(
+                status,
+                dist,
+                count,
+                cbdata,
+                Some(release_distances),
+                caddy.cast(),
+            )
         };
     } else {
         for i in 0..count {
@@ -1872,14 +1893,16 @@ pub fn mock_query_info(
 pub fn mock_query_info_nb(
     _queries: *mut crate::ffi::pmix_query_t,
     _nqueries: usize,
-    _cbfunc: Option<unsafe extern "C" fn(
-        crate::ffi::pmix_status_t,
-        *mut crate::ffi::pmix_info_t,
-        usize,
-        *mut std::ffi::c_void,
-        crate::ffi::pmix_release_cbfunc_t,
-        *mut std::ffi::c_void,
-    )>,
+    _cbfunc: Option<
+        unsafe extern "C" fn(
+            crate::ffi::pmix_status_t,
+            *mut crate::ffi::pmix_info_t,
+            usize,
+            *mut std::ffi::c_void,
+            crate::ffi::pmix_release_cbfunc_t,
+            *mut std::ffi::c_void,
+        ),
+    >,
     _cbdata: *mut std::ffi::c_void,
 ) -> i32 {
     if is_mock_enabled() {
@@ -1929,7 +1952,6 @@ pub fn mock_info_free(_info: *mut crate::ffi::pmix_info_t, _ninfo: usize) {
 // Tests for the mock FFI framework itself
 // ─────────────────────────────────────────────────────────────────────────────
 
-
 /// Mock PMIx_Value_construct: initialize the destination to zero.
 pub unsafe fn mock_value_construct(value: *mut crate::ffi::pmix_value_t) {
     // SAFETY: callers pass writable storage for one pmix_value_t.
@@ -1941,59 +1963,114 @@ pub unsafe fn mock_value_destruct(_value: *mut crate::ffi::pmix_value_t) {}
 
 /// Mock PMIx_Value_create: allocate zeroed value storage for tests.
 pub unsafe fn mock_value_create(n: usize) -> *mut crate::ffi::pmix_value_t {
-    if n == 0 { return std::ptr::null_mut(); }
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
     let layout = std::alloc::Layout::array::<crate::ffi::pmix_value_t>(n).ok();
     match layout {
-        Some(layout) => unsafe { std::alloc::alloc_zeroed(layout) as *mut crate::ffi::pmix_value_t },
+        Some(layout) => unsafe {
+            std::alloc::alloc_zeroed(layout) as *mut crate::ffi::pmix_value_t
+        },
         None => std::ptr::null_mut(),
     }
 }
 
 /// Mock PMIx_Value_free: release storage allocated by mock_value_create.
 pub unsafe fn mock_value_free(value: *mut crate::ffi::pmix_value_t, n: usize) {
-    if value.is_null() || n == 0 { return; }
+    if value.is_null() || n == 0 {
+        return;
+    }
     if let Ok(layout) = std::alloc::Layout::array::<crate::ffi::pmix_value_t>(n) {
         // SAFETY: pointer and layout match mock_value_create.
         unsafe { std::alloc::dealloc(value as *mut u8, layout) };
     }
 }
 
-pub unsafe fn mock_value_load(value: *mut crate::ffi::pmix_value_t, _data: *const std::ffi::c_void, ty: crate::ffi::pmix_data_type_t) -> i32 {
+pub unsafe fn mock_value_load(
+    value: *mut crate::ffi::pmix_value_t,
+    _data: *const std::ffi::c_void,
+    ty: crate::ffi::pmix_data_type_t,
+) -> i32 {
     let status = get_mock_status("PMIx_Value_load");
     if status == PMIX_SUCCESS && !value.is_null() {
         // SAFETY: value is writable storage supplied by the wrapper.
-        unsafe { (*value).type_ = ty; }
+        unsafe {
+            (*value).type_ = ty;
+        }
     }
     status
 }
 
-pub unsafe fn mock_value_unload(_value: *mut crate::ffi::pmix_value_t, data: *mut *mut std::ffi::c_void, size: *mut usize) -> i32 {
+pub unsafe fn mock_value_unload(
+    _value: *mut crate::ffi::pmix_value_t,
+    data: *mut *mut std::ffi::c_void,
+    size: *mut usize,
+) -> i32 {
     let status = get_mock_status("PMIx_Value_unload");
     if status == PMIX_SUCCESS {
         let bytes = b"mock";
         let ptr = unsafe { libc::malloc(bytes.len()) } as *mut u8;
-        if ptr.is_null() { return -2; }
+        if ptr.is_null() {
+            return -2;
+        }
         // SAFETY: malloc returned bytes.len() writable bytes.
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len()); *data = ptr.cast(); *size = bytes.len(); }
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+            *data = ptr.cast();
+            *size = bytes.len();
+        }
     }
     status
 }
 
-pub unsafe fn mock_value_xfer(_dest: *mut crate::ffi::pmix_value_t, _src: *const crate::ffi::pmix_value_t) -> i32 { get_mock_status("PMIx_Value_xfer") }
-pub unsafe fn mock_value_get_number(_value: *const crate::ffi::pmix_value_t, _dest: *mut std::ffi::c_void, _ty: crate::ffi::pmix_data_type_t) -> i32 { get_mock_status("PMIx_Value_get_number") }
-pub unsafe fn mock_value_get_size(_value: *const crate::ffi::pmix_value_t, size: *mut usize) -> i32 {
+pub unsafe fn mock_value_xfer(
+    _dest: *mut crate::ffi::pmix_value_t,
+    _src: *const crate::ffi::pmix_value_t,
+) -> i32 {
+    get_mock_status("PMIx_Value_xfer")
+}
+pub unsafe fn mock_value_get_number(
+    _value: *const crate::ffi::pmix_value_t,
+    _dest: *mut std::ffi::c_void,
+    _ty: crate::ffi::pmix_data_type_t,
+) -> i32 {
+    get_mock_status("PMIx_Value_get_number")
+}
+pub unsafe fn mock_value_get_size(
+    _value: *const crate::ffi::pmix_value_t,
+    size: *mut usize,
+) -> i32 {
     let status = get_mock_status("PMIx_Value_get_size");
-    if status == PMIX_SUCCESS && !size.is_null() { unsafe { *size = 4; } }
+    if status == PMIX_SUCCESS && !size.is_null() {
+        unsafe {
+            *size = 4;
+        }
+    }
     status
 }
-pub unsafe fn mock_value_compare(_v1: *mut crate::ffi::pmix_value_t, _v2: *mut crate::ffi::pmix_value_t) -> crate::ffi::pmix_value_cmp_t { crate::ffi::pmix_value_cmp_t::PMIX_EQUAL }
-pub unsafe fn mock_value_comparison_string(_cmp: crate::ffi::pmix_value_cmp_t) -> *const std::os::raw::c_char { b"equal\0".as_ptr().cast() }
-pub unsafe fn mock_value_string(_value: *const crate::ffi::pmix_value_t) -> *mut std::os::raw::c_char {
+pub unsafe fn mock_value_compare(
+    _v1: *mut crate::ffi::pmix_value_t,
+    _v2: *mut crate::ffi::pmix_value_t,
+) -> crate::ffi::pmix_value_cmp_t {
+    crate::ffi::pmix_value_cmp_t::PMIX_EQUAL
+}
+pub unsafe fn mock_value_comparison_string(
+    _cmp: crate::ffi::pmix_value_cmp_t,
+) -> *const std::os::raw::c_char {
+    b"equal\0".as_ptr().cast()
+}
+pub unsafe fn mock_value_string(
+    _value: *const crate::ffi::pmix_value_t,
+) -> *mut std::os::raw::c_char {
     // SAFETY: strdup allocates with malloc, matching PMIx_Value_string's
     // contract and the wrapper's libc::free call.
     unsafe { libc::strdup(c"mock".as_ptr()) }
 }
-pub unsafe fn mock_value_true(_value: *const crate::ffi::pmix_value_t) -> crate::ffi::pmix_boolean_t { crate::ffi::pmix_boolean_t::PMIX_BOOL_TRUE }
+pub unsafe fn mock_value_true(
+    _value: *const crate::ffi::pmix_value_t,
+) -> crate::ffi::pmix_boolean_t {
+    crate::ffi::pmix_boolean_t::PMIX_BOOL_TRUE
+}
 
 /// Mock implementations for PMIx_Info helper functions.
 pub unsafe fn mock_info_construct(p: *mut crate::ffi::pmix_info_t) {
@@ -3338,7 +3415,9 @@ pub unsafe fn mock_info_list_get_info(
         MOCK_INFO_LIST_ENTRY.with(|entry| {
             let ptr = entry.as_ptr() as *mut crate::ffi::pmix_info_t;
             // SAFETY: `next` is supplied by the wrapper for PMIx traversal.
-            unsafe { *next = ptr.cast(); }
+            unsafe {
+                *next = ptr.cast();
+            }
             ptr
         })
     })
@@ -3430,16 +3509,22 @@ pub unsafe fn mock_argv_split_inter(
     mock_argv_one()
 }
 pub unsafe fn mock_argv_count(argv: *mut *mut std::ffi::c_char) -> std::ffi::c_int {
-    if argv.is_null() { return 0; }
+    if argv.is_null() {
+        return 0;
+    }
     // SAFETY: argv is non-null and points to a valid NULL-terminated argv array.
     unsafe {
         let mut count = 0;
-        while !(*argv.add(count as usize)).is_null() { count += 1; }
+        while !(*argv.add(count as usize)).is_null() {
+            count += 1;
+        }
         count
     }
 }
 pub unsafe fn mock_argv_free(argv: *mut *mut std::ffi::c_char) {
-    if argv.is_null() { return; }
+    if argv.is_null() {
+        return;
+    }
     unsafe {
         let mut index = 0;
         while !(*argv.add(index)).is_null() {
@@ -3460,8 +3545,11 @@ pub unsafe fn mock_argv_join(
 pub unsafe fn mock_argv_copy(argv: *mut *mut std::ffi::c_char) -> *mut *mut std::ffi::c_char {
     let count = unsafe { mock_argv_count(argv) } as usize;
     unsafe {
-        let out = libc::calloc(count + 1, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
-        if out.is_null() { return std::ptr::null_mut(); }
+        let out = libc::calloc(count + 1, std::mem::size_of::<*mut std::ffi::c_char>())
+            as *mut *mut std::ffi::c_char;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
         for i in 0..count {
             // SAFETY: argv is a valid NULL-terminated array and each entry is a valid C string.
             *out.add(i) = libc::strdup(*argv.add(i));
@@ -3475,14 +3563,26 @@ pub unsafe fn mock_argv_append_nosize(
 ) -> crate::ffi::pmix_status_t {
     // SAFETY: the caller provides PMIx-compatible argv and argument pointers.
     unsafe {
-        if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
-        let old = *argv; let count = mock_argv_count(old) as usize;
-        let out = libc::calloc(count + 2, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
-        if out.is_null() { return -32; }
-        for i in 0..count { *out.add(i) = libc::strdup(*old.add(i)); }
+        if argv.is_null() || (*argv).is_null() || arg.is_null() {
+            return -27;
+        }
+        let old = *argv;
+        let count = mock_argv_count(old) as usize;
+        let out = libc::calloc(count + 2, std::mem::size_of::<*mut std::ffi::c_char>())
+            as *mut *mut std::ffi::c_char;
+        if out.is_null() {
+            return -32;
+        }
+        for i in 0..count {
+            *out.add(i) = libc::strdup(*old.add(i));
+        }
         *out.add(count) = libc::strdup(arg);
-        for i in 0..count { libc::free((*old.add(i)).cast()); }
-        libc::free(old.cast()); *argv = out; 0
+        for i in 0..count {
+            libc::free((*old.add(i)).cast());
+        }
+        libc::free(old.cast());
+        *argv = out;
+        0
     }
 }
 pub unsafe fn mock_argv_append_unique_nosize(
@@ -3491,9 +3591,16 @@ pub unsafe fn mock_argv_append_unique_nosize(
 ) -> crate::ffi::pmix_status_t {
     // SAFETY: the caller provides PMIx-compatible argv and argument pointers.
     unsafe {
-        if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
-        let old = *argv; let count = mock_argv_count(old) as usize;
-        for i in 0..count { if libc::strcmp(*old.add(i), arg) == 0 { return 0; } }
+        if argv.is_null() || (*argv).is_null() || arg.is_null() {
+            return -27;
+        }
+        let old = *argv;
+        let count = mock_argv_count(old) as usize;
+        for i in 0..count {
+            if libc::strcmp(*old.add(i), arg) == 0 {
+                return 0;
+            }
+        }
         mock_argv_append_nosize(argv, arg)
     }
 }
@@ -3503,13 +3610,26 @@ pub unsafe fn mock_argv_prepend_nosize(
 ) -> crate::ffi::pmix_status_t {
     // SAFETY: the caller provides PMIx-compatible argv and argument pointers.
     unsafe {
-        if argv.is_null() || (*argv).is_null() || arg.is_null() { return -27; }
-        let old = *argv; let count = mock_argv_count(old) as usize;
-        let out = libc::calloc(count + 2, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char;
-        if out.is_null() { return -32; }
-        *out = libc::strdup(arg); for i in 0..count { *out.add(i + 1) = libc::strdup(*old.add(i)); }
-        for i in 0..count { libc::free((*old.add(i)).cast()); }
-        libc::free(old.cast()); *argv = out; 0
+        if argv.is_null() || (*argv).is_null() || arg.is_null() {
+            return -27;
+        }
+        let old = *argv;
+        let count = mock_argv_count(old) as usize;
+        let out = libc::calloc(count + 2, std::mem::size_of::<*mut std::ffi::c_char>())
+            as *mut *mut std::ffi::c_char;
+        if out.is_null() {
+            return -32;
+        }
+        *out = libc::strdup(arg);
+        for i in 0..count {
+            *out.add(i + 1) = libc::strdup(*old.add(i));
+        }
+        for i in 0..count {
+            libc::free((*old.add(i)).cast());
+        }
+        libc::free(old.cast());
+        *argv = out;
+        0
     }
 }
 
@@ -3518,8 +3638,7 @@ fn mock_argv_one() -> *mut *mut std::ffi::c_char {
     // SAFETY: calloc allocates space for two pointer slots, which are initialized
     // before returning; the allocation is released by libc::free in mock_argv_free.
     let argv = unsafe {
-        libc::calloc(2, std::mem::size_of::<*mut std::ffi::c_char>())
-            as *mut *mut std::ffi::c_char
+        libc::calloc(2, std::mem::size_of::<*mut std::ffi::c_char>()) as *mut *mut std::ffi::c_char
     };
     if argv.is_null() {
         unsafe { libc::free(entry.cast()) };
@@ -3532,107 +3651,348 @@ fn mock_argv_one() -> *mut *mut std::ffi::c_char {
 // END PMIx_Argv_* mocks
 
 // PMIx_Proc_*, PMIx_Check_*, PMIx_Proc_info_*, and PMIx_Node_pid_* mocks.
-pub unsafe fn mock_proc_create(n: usize) -> *mut crate::ffi::pmix_proc_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_proc_t>()) as *mut _ } }
+pub unsafe fn mock_proc_create(n: usize) -> *mut crate::ffi::pmix_proc_t {
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_proc_t>()) as *mut _ }
+}
 pub unsafe fn mock_proc_free(_p: *mut crate::ffi::pmix_proc_t, _n: usize) {}
 pub unsafe fn mock_proc_destruct(_p: *mut crate::ffi::pmix_proc_t) {}
-pub unsafe fn mock_proc_string(_p: *const crate::ffi::pmix_proc_t) -> *mut std::ffi::c_char { unsafe { libc::strdup(b"mock-proc\0".as_ptr().cast()) } }
-pub unsafe fn mock_proc_load(_p: *mut crate::ffi::pmix_proc_t, _ns: *const std::ffi::c_char, _rank: crate::ffi::pmix_rank_t) {}
-pub unsafe fn mock_xfer_procid(_dst: *mut crate::ffi::pmix_proc_t, _src: *const crate::ffi::pmix_proc_t) {}
-pub unsafe fn mock_check_procid(_a: *const crate::ffi::pmix_proc_t, _b: *const crate::ffi::pmix_proc_t) -> bool { false }
-pub unsafe fn mock_check_rank(_a: crate::ffi::pmix_rank_t, _b: crate::ffi::pmix_rank_t) -> bool { false }
-pub unsafe fn mock_check_nspace(_a: *const std::ffi::c_char, _b: *const std::ffi::c_char) -> bool { false }
-pub unsafe fn mock_check_key(_key: *const std::ffi::c_char, _s: *const std::ffi::c_char) -> bool { false }
-pub unsafe fn mock_check_reserved_key(_key: *const std::ffi::c_char) -> bool { false }
+pub unsafe fn mock_proc_string(_p: *const crate::ffi::pmix_proc_t) -> *mut std::ffi::c_char {
+    unsafe { libc::strdup(b"mock-proc\0".as_ptr().cast()) }
+}
+pub unsafe fn mock_proc_load(
+    _p: *mut crate::ffi::pmix_proc_t,
+    _ns: *const std::ffi::c_char,
+    _rank: crate::ffi::pmix_rank_t,
+) {
+}
+pub unsafe fn mock_xfer_procid(
+    _dst: *mut crate::ffi::pmix_proc_t,
+    _src: *const crate::ffi::pmix_proc_t,
+) {
+}
+pub unsafe fn mock_check_procid(
+    _a: *const crate::ffi::pmix_proc_t,
+    _b: *const crate::ffi::pmix_proc_t,
+) -> bool {
+    false
+}
+pub unsafe fn mock_check_rank(_a: crate::ffi::pmix_rank_t, _b: crate::ffi::pmix_rank_t) -> bool {
+    false
+}
+pub unsafe fn mock_check_nspace(_a: *const std::ffi::c_char, _b: *const std::ffi::c_char) -> bool {
+    false
+}
+pub unsafe fn mock_check_key(_key: *const std::ffi::c_char, _s: *const std::ffi::c_char) -> bool {
+    false
+}
+pub unsafe fn mock_check_reserved_key(_key: *const std::ffi::c_char) -> bool {
+    false
+}
 pub unsafe fn mock_load_key(key: *mut std::ffi::c_char, src: *const std::ffi::c_char) {
-    if key.is_null() || src.is_null() { return; }
+    if key.is_null() || src.is_null() {
+        return;
+    }
     // SAFETY: callers provide valid C strings and a destination sized for PMIx's key limit.
     let bytes = unsafe { std::ffi::CStr::from_ptr(src).to_bytes() };
     let n = bytes.len().min(crate::ffi::PMIX_MAX_KEYLEN as usize - 1);
     // SAFETY: the wrapper bounds the destination to the copied source length.
-    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), key, n); *key.add(n) = 0; }
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), key, n);
+        *key.add(n) = 0;
+    }
 }
-pub unsafe fn mock_load_procid(_p: *mut crate::ffi::pmix_proc_t, _ns: *const std::ffi::c_char, _rank: crate::ffi::pmix_rank_t) {}
-pub unsafe fn mock_rank_valid(_a: crate::ffi::pmix_rank_t) -> bool { false }
-pub unsafe fn mock_procid_invalid(_p: *const crate::ffi::pmix_proc_t) -> bool { false }
-pub unsafe fn mock_nspace_invalid(_ns: *const std::ffi::c_char) -> bool { false }
-pub unsafe fn mock_proc_info_construct(p: *mut crate::ffi::pmix_proc_info_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
+pub unsafe fn mock_load_procid(
+    _p: *mut crate::ffi::pmix_proc_t,
+    _ns: *const std::ffi::c_char,
+    _rank: crate::ffi::pmix_rank_t,
+) {
+}
+pub unsafe fn mock_rank_valid(_a: crate::ffi::pmix_rank_t) -> bool {
+    false
+}
+pub unsafe fn mock_procid_invalid(_p: *const crate::ffi::pmix_proc_t) -> bool {
+    false
+}
+pub unsafe fn mock_nspace_invalid(_ns: *const std::ffi::c_char) -> bool {
+    false
+}
+pub unsafe fn mock_proc_info_construct(p: *mut crate::ffi::pmix_proc_info_t) {
+    if !p.is_null() {
+        unsafe { std::ptr::write_bytes(p, 0, 1) };
+    }
+}
 pub unsafe fn mock_proc_info_destruct(_p: *mut crate::ffi::pmix_proc_info_t) {}
-pub unsafe fn mock_proc_info_create(n: usize) -> *mut crate::ffi::pmix_proc_info_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_proc_info_t>()) as *mut _ } }
+pub unsafe fn mock_proc_info_create(n: usize) -> *mut crate::ffi::pmix_proc_info_t {
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_proc_info_t>()) as *mut _ }
+}
 pub unsafe fn mock_proc_info_free(_p: *mut crate::ffi::pmix_proc_info_t, _n: usize) {}
-pub unsafe fn mock_node_pid_construct(p: *mut crate::ffi::pmix_node_pid_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
+pub unsafe fn mock_node_pid_construct(p: *mut crate::ffi::pmix_node_pid_t) {
+    if !p.is_null() {
+        unsafe { std::ptr::write_bytes(p, 0, 1) };
+    }
+}
 pub unsafe fn mock_node_pid_destruct(_p: *mut crate::ffi::pmix_node_pid_t) {}
-pub unsafe fn mock_node_pid_create(n: usize) -> *mut crate::ffi::pmix_node_pid_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_node_pid_t>()) as *mut _ } }
+pub unsafe fn mock_node_pid_create(n: usize) -> *mut crate::ffi::pmix_node_pid_t {
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_node_pid_t>()) as *mut _ }
+}
 pub unsafe fn mock_node_pid_free(_p: *mut crate::ffi::pmix_node_pid_t, _n: usize) {}
 
-
 // Safe-wrapper support for PMIx data utility constructors and array APIs.
-pub unsafe fn mock_data_buffer_construct(b: *mut crate::ffi::pmix_data_buffer_t) { if !b.is_null() { unsafe { std::ptr::write_bytes(b, 0, 1) }; } }
+pub unsafe fn mock_data_buffer_construct(b: *mut crate::ffi::pmix_data_buffer_t) {
+    if !b.is_null() {
+        unsafe { std::ptr::write_bytes(b, 0, 1) };
+    }
+}
 pub unsafe fn mock_data_buffer_destruct(_b: *mut crate::ffi::pmix_data_buffer_t) {}
-pub unsafe fn mock_data_buffer_load(_b: *mut crate::ffi::pmix_data_buffer_t, bytes: *mut std::os::raw::c_char, _sz: usize) { if !bytes.is_null() { unsafe { libc::free(bytes as *mut libc::c_void); } } }
-pub unsafe fn mock_data_buffer_unload(_b: *mut crate::ffi::pmix_data_buffer_t, bytes: *mut *mut std::os::raw::c_char, sz: *mut usize) { if !bytes.is_null() && !sz.is_null() { unsafe { let p = libc::malloc(3) as *mut std::os::raw::c_char; if !p.is_null() { std::ptr::copy_nonoverlapping(b"abc".as_ptr() as *const std::os::raw::c_char, p, 3); *bytes = p; *sz = 3; } } } }
-pub unsafe fn mock_data_array_construct(p: *mut crate::ffi::pmix_data_array_t, num: usize, ty: crate::ffi::pmix_data_type_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); (*p).size = num; (*p).type_ = ty; } } }
-pub unsafe fn mock_data_array_init(p: *mut crate::ffi::pmix_data_array_t, ty: crate::ffi::pmix_data_type_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); (*p).type_ = ty; } } }
+pub unsafe fn mock_data_buffer_load(
+    _b: *mut crate::ffi::pmix_data_buffer_t,
+    bytes: *mut std::os::raw::c_char,
+    _sz: usize,
+) {
+    if !bytes.is_null() {
+        unsafe {
+            libc::free(bytes as *mut libc::c_void);
+        }
+    }
+}
+pub unsafe fn mock_data_buffer_unload(
+    _b: *mut crate::ffi::pmix_data_buffer_t,
+    bytes: *mut *mut std::os::raw::c_char,
+    sz: *mut usize,
+) {
+    if !bytes.is_null() && !sz.is_null() {
+        unsafe {
+            let p = libc::malloc(3) as *mut std::os::raw::c_char;
+            if !p.is_null() {
+                std::ptr::copy_nonoverlapping(b"abc".as_ptr() as *const std::os::raw::c_char, p, 3);
+                *bytes = p;
+                *sz = 3;
+            }
+        }
+    }
+}
+pub unsafe fn mock_data_array_construct(
+    p: *mut crate::ffi::pmix_data_array_t,
+    num: usize,
+    ty: crate::ffi::pmix_data_type_t,
+) {
+    if !p.is_null() {
+        unsafe {
+            std::ptr::write_bytes(p, 0, 1);
+            (*p).size = num;
+            (*p).type_ = ty;
+        }
+    }
+}
+pub unsafe fn mock_data_array_init(
+    p: *mut crate::ffi::pmix_data_array_t,
+    ty: crate::ffi::pmix_data_type_t,
+) {
+    if !p.is_null() {
+        unsafe {
+            std::ptr::write_bytes(p, 0, 1);
+            (*p).type_ = ty;
+        }
+    }
+}
 pub unsafe fn mock_data_array_destruct(_p: *mut crate::ffi::pmix_data_array_t) {}
-pub unsafe fn mock_data_array_create(n: usize, ty: crate::ffi::pmix_data_type_t) -> *mut crate::ffi::pmix_data_array_t { let p = (unsafe { libc::calloc(1, std::mem::size_of::<crate::ffi::pmix_data_array_t>()) }) as *mut crate::ffi::pmix_data_array_t; if !p.is_null() { unsafe { (*p).size = n; (*p).type_ = ty; } } p }
+pub unsafe fn mock_data_array_create(
+    n: usize,
+    ty: crate::ffi::pmix_data_type_t,
+) -> *mut crate::ffi::pmix_data_array_t {
+    let p = (unsafe { libc::calloc(1, std::mem::size_of::<crate::ffi::pmix_data_array_t>()) })
+        as *mut crate::ffi::pmix_data_array_t;
+    if !p.is_null() {
+        unsafe {
+            (*p).size = n;
+            (*p).type_ = ty;
+        }
+    }
+    p
+}
 pub unsafe fn mock_data_array_free(_p: *mut crate::ffi::pmix_data_array_t) {}
-pub unsafe fn mock_byte_object_construct_stack(b: *mut crate::ffi::pmix_byte_object_t) { if !b.is_null() { unsafe { std::ptr::write_bytes(b, 0, 1) }; } }
-pub unsafe fn mock_byte_object_create(n: usize) -> *mut crate::ffi::pmix_byte_object_t { (unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_byte_object_t>()) }) as *mut crate::ffi::pmix_byte_object_t }
+pub unsafe fn mock_byte_object_construct_stack(b: *mut crate::ffi::pmix_byte_object_t) {
+    if !b.is_null() {
+        unsafe { std::ptr::write_bytes(b, 0, 1) };
+    }
+}
+pub unsafe fn mock_byte_object_create(n: usize) -> *mut crate::ffi::pmix_byte_object_t {
+    (unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_byte_object_t>()) })
+        as *mut crate::ffi::pmix_byte_object_t
+}
 pub unsafe fn mock_byte_object_free(_g: *mut crate::ffi::pmix_byte_object_t, _n: usize) {}
-pub unsafe fn mock_byte_object_load(_b: *mut crate::ffi::pmix_byte_object_t, d: *mut std::os::raw::c_char, _sz: usize) { if !d.is_null() { unsafe { libc::free(d as *mut libc::c_void); } } }
-
+pub unsafe fn mock_byte_object_load(
+    _b: *mut crate::ffi::pmix_byte_object_t,
+    d: *mut std::os::raw::c_char,
+    _sz: usize,
+) {
+    if !d.is_null() {
+        unsafe {
+            libc::free(d as *mut libc::c_void);
+        }
+    }
+}
 
 // Mock implementations for fabric type constructors and calloc/free families.
-pub unsafe fn mock_fabric_construct(p: *mut crate::ffi::pmix_fabric_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
-pub unsafe fn mock_geometry_create(n: usize) -> *mut crate::ffi::pmix_geometry_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_geometry_t>()) as *mut _ } }
+pub unsafe fn mock_fabric_construct(p: *mut crate::ffi::pmix_fabric_t) {
+    if !p.is_null() {
+        unsafe { std::ptr::write_bytes(p, 0, 1) };
+    }
+}
+pub unsafe fn mock_geometry_create(n: usize) -> *mut crate::ffi::pmix_geometry_t {
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_geometry_t>()) as *mut _ }
+}
 pub unsafe fn mock_geometry_free(_p: *mut crate::ffi::pmix_geometry_t, _n: usize) {}
-pub unsafe fn mock_topology_construct(p: *mut crate::ffi::pmix_topology_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
-pub unsafe fn mock_topology_create(n: usize) -> *mut crate::ffi::pmix_topology_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_topology_t>()) as *mut _ } }
+pub unsafe fn mock_topology_construct(p: *mut crate::ffi::pmix_topology_t) {
+    if !p.is_null() {
+        unsafe { std::ptr::write_bytes(p, 0, 1) };
+    }
+}
+pub unsafe fn mock_topology_create(n: usize) -> *mut crate::ffi::pmix_topology_t {
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_topology_t>()) as *mut _ }
+}
 pub unsafe fn mock_topology_free(_p: *mut crate::ffi::pmix_topology_t, _n: usize) {}
-pub unsafe fn mock_cpuset_create(n: usize) -> *mut crate::ffi::pmix_cpuset_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_cpuset_t>()) as *mut _ } }
+pub unsafe fn mock_cpuset_create(n: usize) -> *mut crate::ffi::pmix_cpuset_t {
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_cpuset_t>()) as *mut _ }
+}
 pub unsafe fn mock_cpuset_free(_p: *mut crate::ffi::pmix_cpuset_t, _n: usize) {}
-pub unsafe fn mock_endpoint_create(n: usize) -> *mut crate::ffi::pmix_endpoint_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_endpoint_t>()) as *mut _ } }
+pub unsafe fn mock_endpoint_create(n: usize) -> *mut crate::ffi::pmix_endpoint_t {
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_endpoint_t>()) as *mut _ }
+}
 pub unsafe fn mock_endpoint_free(_p: *mut crate::ffi::pmix_endpoint_t, _n: usize) {}
-pub unsafe fn mock_coord_construct(p: *mut crate::ffi::pmix_coord_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
+pub unsafe fn mock_coord_construct(p: *mut crate::ffi::pmix_coord_t) {
+    if !p.is_null() {
+        unsafe { std::ptr::write_bytes(p, 0, 1) };
+    }
+}
 pub unsafe fn mock_coord_destruct(_p: *mut crate::ffi::pmix_coord_t) {}
 pub unsafe fn mock_coord_create(dims: usize, n: usize) -> *mut crate::ffi::pmix_coord_t {
-    if n == 0 { return std::ptr::null_mut(); }
-    let p = unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_coord_t>()) as *mut crate::ffi::pmix_coord_t };
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
+    let p = unsafe {
+        libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_coord_t>())
+            as *mut crate::ffi::pmix_coord_t
+    };
     if !p.is_null() {
-        unsafe { mock_coord_construct(p); (*p).dims = dims; }
+        unsafe {
+            mock_coord_construct(p);
+            (*p).dims = dims;
+        }
     }
     p
 }
 pub unsafe fn mock_coord_free(_p: *mut crate::ffi::pmix_coord_t, _n: usize) {}
-pub unsafe fn mock_device_construct(p: *mut crate::ffi::pmix_device_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
+pub unsafe fn mock_device_construct(p: *mut crate::ffi::pmix_device_t) {
+    if !p.is_null() {
+        unsafe { std::ptr::write_bytes(p, 0, 1) };
+    }
+}
 pub unsafe fn mock_device_destruct(_p: *mut crate::ffi::pmix_device_t) {}
-pub unsafe fn mock_device_create(n: usize) -> *mut crate::ffi::pmix_device_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_t>()) as *mut _ } }
+pub unsafe fn mock_device_create(n: usize) -> *mut crate::ffi::pmix_device_t {
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_t>()) as *mut _ }
+}
 pub unsafe fn mock_device_free(_p: *mut crate::ffi::pmix_device_t, _n: usize) {}
 pub unsafe fn mock_device_distance_destruct(_p: *mut crate::ffi::pmix_device_distance_t) {}
 pub unsafe fn mock_device_distance_construct(p: *mut crate::ffi::pmix_device_distance_t) {
     // SAFETY: the caller provides writable storage for one PMIx distance object.
-    if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); (*p).type_ = 0; (*p).mindist = u16::MAX; (*p).maxdist = u16::MAX; } }
+    if !p.is_null() {
+        unsafe {
+            std::ptr::write_bytes(p, 0, 1);
+            (*p).type_ = 0;
+            (*p).mindist = u16::MAX;
+            (*p).maxdist = u16::MAX;
+        }
+    }
 }
-pub unsafe fn mock_device_distance_create(n: usize) -> *mut crate::ffi::pmix_device_distance_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_distance_t>()) as *mut _ } }
+pub unsafe fn mock_device_distance_create(n: usize) -> *mut crate::ffi::pmix_device_distance_t {
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_distance_t>()) as *mut _ }
+}
 pub unsafe fn mock_device_distance_free(_p: *mut crate::ffi::pmix_device_distance_t, _n: usize) {}
 
 // Mock implementations for PMIx_Regattr_*.
-pub unsafe fn mock_regattr_construct(p: *mut crate::ffi::pmix_regattr_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1) }; } }
-pub unsafe fn mock_regattr_destruct(p: *mut crate::ffi::pmix_regattr_t) {
-    if p.is_null() { return; }
-    unsafe {
-        if !(*p).name.is_null() { libc::free((*p).name.cast()); (*p).name = std::ptr::null_mut(); }
-        if !(*p).description.is_null() { let mut i = 0; while !(*(*p).description.add(i)).is_null() { libc::free((*(*p).description.add(i)).cast()); i += 1; } libc::free((*p).description.cast()); (*p).description = std::ptr::null_mut(); }
-        std::ptr::write_bytes((*p).string.as_mut_ptr(), 0, (*p).string.len()); (*p).type_ = 0;
+pub unsafe fn mock_regattr_construct(p: *mut crate::ffi::pmix_regattr_t) {
+    if !p.is_null() {
+        unsafe { std::ptr::write_bytes(p, 0, 1) };
     }
 }
-pub unsafe fn mock_regattr_create(n: usize) -> *mut crate::ffi::pmix_regattr_t { if n == 0 { return std::ptr::null_mut(); } unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_regattr_t>()) as *mut _ } }
-pub unsafe fn mock_regattr_free(_p: *mut crate::ffi::pmix_regattr_t, _n: usize) {}
-pub unsafe fn mock_regattr_load(p: *mut crate::ffi::pmix_regattr_t, name: *const libc::c_char, key: *const libc::c_char, ty: crate::ffi::pmix_data_type_t, description: *const libc::c_char) {
-    if p.is_null() { return; }
-    unsafe { (*p).name = libc::strdup(name); let len = libc::strlen(key).min((*p).string.len() - 1); std::ptr::copy_nonoverlapping(key, (*p).string.as_mut_ptr(), len); (*p).string[len] = 0; (*p).type_ = ty; let out = libc::calloc(2, std::mem::size_of::<*mut libc::c_char>()) as *mut *mut libc::c_char; if !out.is_null() { out.write(libc::strdup(description)); out.add(1).write(std::ptr::null_mut()); (*p).description = out; } }
+pub unsafe fn mock_regattr_destruct(p: *mut crate::ffi::pmix_regattr_t) {
+    if p.is_null() {
+        return;
+    }
+    unsafe {
+        if !(*p).name.is_null() {
+            libc::free((*p).name.cast());
+            (*p).name = std::ptr::null_mut();
+        }
+        if !(*p).description.is_null() {
+            let mut i = 0;
+            while !(*(*p).description.add(i)).is_null() {
+                libc::free((*(*p).description.add(i)).cast());
+                i += 1;
+            }
+            libc::free((*p).description.cast());
+            (*p).description = std::ptr::null_mut();
+        }
+        std::ptr::write_bytes((*p).string.as_mut_ptr(), 0, (*p).string.len());
+        (*p).type_ = 0;
+    }
 }
-pub unsafe fn mock_regattr_xfer(_dest: *mut crate::ffi::pmix_regattr_t, _src: *const crate::ffi::pmix_regattr_t) {}
-
+pub unsafe fn mock_regattr_create(n: usize) -> *mut crate::ffi::pmix_regattr_t {
+    if n == 0 {
+        return std::ptr::null_mut();
+    }
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_regattr_t>()) as *mut _ }
+}
+pub unsafe fn mock_regattr_free(_p: *mut crate::ffi::pmix_regattr_t, _n: usize) {}
+pub unsafe fn mock_regattr_load(
+    p: *mut crate::ffi::pmix_regattr_t,
+    name: *const libc::c_char,
+    key: *const libc::c_char,
+    ty: crate::ffi::pmix_data_type_t,
+    description: *const libc::c_char,
+) {
+    if p.is_null() {
+        return;
+    }
+    unsafe {
+        (*p).name = libc::strdup(name);
+        let len = libc::strlen(key).min((*p).string.len() - 1);
+        std::ptr::copy_nonoverlapping(key, (*p).string.as_mut_ptr(), len);
+        (*p).string[len] = 0;
+        (*p).type_ = ty;
+        let out =
+            libc::calloc(2, std::mem::size_of::<*mut libc::c_char>()) as *mut *mut libc::c_char;
+        if !out.is_null() {
+            out.write(libc::strdup(description));
+            out.add(1).write(std::ptr::null_mut());
+            (*p).description = out;
+        }
+    }
+}
+pub unsafe fn mock_regattr_xfer(
+    _dest: *mut crate::ffi::pmix_regattr_t,
+    _src: *const crate::ffi::pmix_regattr_t,
+) {
+}
 
 /// Mock implementation of `PMIx_Query_construct`.
 pub fn mock_query_construct(p: *mut crate::ffi::pmix_query_t) {
@@ -3674,103 +4034,256 @@ pub fn mock_query_qualifiers_create(p: *mut crate::ffi::pmix_query_t, n: usize) 
 }
 
 /// Mock implementations for PMIx_App_* utility functions.
-pub unsafe fn mock_app_construct(p: *mut crate::ffi::pmix_app_t) { if !p.is_null() { unsafe { std::ptr::write_bytes(p, 0, 1); } } }
+pub unsafe fn mock_app_construct(p: *mut crate::ffi::pmix_app_t) {
+    if !p.is_null() {
+        unsafe {
+            std::ptr::write_bytes(p, 0, 1);
+        }
+    }
+}
 pub unsafe fn mock_app_destruct(p: *mut crate::ffi::pmix_app_t) {
     if !p.is_null() {
         // SAFETY: info was allocated with calloc and belongs to this app.
-        unsafe { libc::free((*p).info.cast()); }
-        unsafe { std::ptr::write_bytes(p, 0, 1); }
+        unsafe {
+            libc::free((*p).info.cast());
+        }
+        unsafe {
+            std::ptr::write_bytes(p, 0, 1);
+        }
     }
 }
-pub unsafe fn mock_app_info_create(p: *mut crate::ffi::pmix_app_t, n: usize) { if !p.is_null() { unsafe { (*p).info = libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_info_t>()) as *mut _; (*p).ninfo = n; } } }
-pub unsafe fn mock_app_release(p: *mut crate::ffi::pmix_app_t) { unsafe { mock_app_destruct(p) } }
+pub unsafe fn mock_app_info_create(p: *mut crate::ffi::pmix_app_t, n: usize) {
+    if !p.is_null() {
+        unsafe {
+            (*p).info = libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_info_t>()) as *mut _;
+            (*p).ninfo = n;
+        }
+    }
+}
+pub unsafe fn mock_app_release(p: *mut crate::ffi::pmix_app_t) {
+    unsafe { mock_app_destruct(p) }
+}
 pub unsafe fn mock_app_string(_p: *const crate::ffi::pmix_app_t) -> *mut libc::c_char {
     // SAFETY: strdup allocates with malloc, matching the wrapper's libc::free.
     unsafe { libc::strdup(c"mock_app".as_ptr()) }
 }
 
 // PMIx_Envar_*, PMIx_Setenv, and multicluster namespace mocks.
-pub unsafe fn mock_envar_construct(e: *mut crate::ffi::pmix_envar_t) { if !e.is_null() { unsafe { std::ptr::write_bytes(e, 0, 1) } } }
+pub unsafe fn mock_envar_construct(e: *mut crate::ffi::pmix_envar_t) {
+    if !e.is_null() {
+        unsafe { std::ptr::write_bytes(e, 0, 1) }
+    }
+}
 pub unsafe fn mock_envar_destruct(_e: *mut crate::ffi::pmix_envar_t) {}
-pub unsafe fn mock_envar_create(n: usize) -> *mut crate::ffi::pmix_envar_t { unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_envar_t>()) as *mut _ } }
+pub unsafe fn mock_envar_create(n: usize) -> *mut crate::ffi::pmix_envar_t {
+    unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_envar_t>()) as *mut _ }
+}
 pub unsafe fn mock_envar_free(_e: *mut crate::ffi::pmix_envar_t, _n: usize) {}
-pub unsafe fn mock_envar_load(_e: *mut crate::ffi::pmix_envar_t, _var: *mut libc::c_char, _value: *mut libc::c_char, _separator: libc::c_char) {}
-pub unsafe fn mock_setenv(name: *const libc::c_char, value: *const libc::c_char, overwrite: bool, env: *mut *mut *mut libc::c_char) -> crate::ffi::pmix_status_t {
-    if name.is_null() || value.is_null() || env.is_null() { return crate::ffi::PMIX_ERR_BAD_PARAM as _; }
+pub unsafe fn mock_envar_load(
+    _e: *mut crate::ffi::pmix_envar_t,
+    _var: *mut libc::c_char,
+    _value: *mut libc::c_char,
+    _separator: libc::c_char,
+) {
+}
+pub unsafe fn mock_setenv(
+    name: *const libc::c_char,
+    value: *const libc::c_char,
+    overwrite: bool,
+    env: *mut *mut *mut libc::c_char,
+) -> crate::ffi::pmix_status_t {
+    if name.is_null() || value.is_null() || env.is_null() {
+        return crate::ffi::PMIX_ERR_BAD_PARAM as _;
+    }
     unsafe {
         let name = std::ffi::CStr::from_ptr(name).to_string_lossy();
-        let entry = format!("{}={}", name, std::ffi::CStr::from_ptr(value).to_string_lossy());
+        let entry = format!(
+            "{}={}",
+            name,
+            std::ffi::CStr::from_ptr(value).to_string_lossy()
+        );
         let mut index = 0;
         while !(*(*env).add(index)).is_null() {
             let current = std::ffi::CStr::from_ptr(*(*env).add(index)).to_string_lossy();
-            if current.split_once('=').map_or(false, |(key, _)| key == name) {
-                if overwrite { libc::free(*(*env).add(index).cast()); *(*env).add(index) = libc::strdup(std::ffi::CString::new(entry).unwrap().as_ptr()); }
+            if current
+                .split_once('=')
+                .map_or(false, |(key, _)| key == name)
+            {
+                if overwrite {
+                    libc::free(*(*env).add(index).cast());
+                    *(*env).add(index) =
+                        libc::strdup(std::ffi::CString::new(entry).unwrap().as_ptr());
+                }
                 return 0;
             }
             index += 1;
         }
-        let replacement = libc::calloc(index + 2, std::mem::size_of::<*mut libc::c_char>()) as *mut *mut libc::c_char;
-        if replacement.is_null() { return crate::ffi::PMIX_ERR_NOMEM as _; }
-        for i in 0..index { *replacement.add(i) = libc::strdup(*(*env).add(i)); }
+        let replacement = libc::calloc(index + 2, std::mem::size_of::<*mut libc::c_char>())
+            as *mut *mut libc::c_char;
+        if replacement.is_null() {
+            return crate::ffi::PMIX_ERR_NOMEM as _;
+        }
+        for i in 0..index {
+            *replacement.add(i) = libc::strdup(*(*env).add(i));
+        }
         *replacement.add(index) = libc::strdup(std::ffi::CString::new(entry).unwrap().as_ptr());
         let old = *env;
-        for i in 0..index { libc::free((*old.add(i)).cast()); }
+        for i in 0..index {
+            libc::free((*old.add(i)).cast());
+        }
         libc::free(old.cast());
         *env = replacement;
     }
     0
 }
-pub unsafe fn mock_multicluster_nspace_construct(target: *mut libc::c_char, cluster: *mut libc::c_char, nspace: *mut libc::c_char) {
-    if target.is_null() || cluster.is_null() || nspace.is_null() { return; }
-    unsafe { libc::snprintf(target, 256, b"%s:%s\0".as_ptr().cast(), cluster, nspace); }
+pub unsafe fn mock_multicluster_nspace_construct(
+    target: *mut libc::c_char,
+    cluster: *mut libc::c_char,
+    nspace: *mut libc::c_char,
+) {
+    if target.is_null() || cluster.is_null() || nspace.is_null() {
+        return;
+    }
+    unsafe {
+        libc::snprintf(target, 256, b"%s:%s\0".as_ptr().cast(), cluster, nspace);
+    }
 }
-pub unsafe fn mock_multicluster_nspace_parse(target: *mut libc::c_char, cluster: *mut libc::c_char, nspace: *mut libc::c_char) {
-    if target.is_null() || cluster.is_null() || nspace.is_null() { return; }
+pub unsafe fn mock_multicluster_nspace_parse(
+    target: *mut libc::c_char,
+    cluster: *mut libc::c_char,
+    nspace: *mut libc::c_char,
+) {
+    if target.is_null() || cluster.is_null() || nspace.is_null() {
+        return;
+    }
     unsafe {
         let text = std::ffi::CStr::from_ptr(target).to_bytes();
-        if let Some(pos) = text.iter().position(|&b| b == b':') { std::ptr::copy_nonoverlapping(text.as_ptr(), cluster.cast(), pos.min(255)); *cluster.add(pos.min(255)) = 0; let rest = &text[pos + 1..]; std::ptr::copy_nonoverlapping(rest.as_ptr(), nspace.cast(), rest.len().min(255)); *nspace.add(rest.len().min(255)) = 0; }
+        if let Some(pos) = text.iter().position(|&b| b == b':') {
+            std::ptr::copy_nonoverlapping(text.as_ptr(), cluster.cast(), pos.min(255));
+            *cluster.add(pos.min(255)) = 0;
+            let rest = &text[pos + 1..];
+            std::ptr::copy_nonoverlapping(rest.as_ptr(), nspace.cast(), rest.len().min(255));
+            *nspace.add(rest.len().min(255)) = 0;
+        }
     }
 }
 
-
 // Miscellaneous PMIx utility mocks appended for the safe-wrapper tests.
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_error_code(_name: *const std::os::raw::c_char) -> i32 { 0 }
+pub unsafe fn mock_error_code(_name: *const std::os::raw::c_char) -> i32 {
+    0
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_group_operation_string(_op: crate::ffi::pmix_group_operation_t) -> *const std::os::raw::c_char { b"unknown\0".as_ptr().cast() }
+pub unsafe fn mock_group_operation_string(
+    _op: crate::ffi::pmix_group_operation_t,
+) -> *const std::os::raw::c_char {
+    b"unknown\0".as_ptr().cast()
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_resource_unit_construct(d: *mut crate::ffi::pmix_resource_unit_t) { if !d.is_null() { (*d).type_ = 0; (*d).count = 0; } }
+pub unsafe fn mock_resource_unit_construct(d: *mut crate::ffi::pmix_resource_unit_t) {
+    if !d.is_null() {
+        (*d).type_ = 0;
+        (*d).count = 0;
+    }
+}
 #[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn mock_resource_unit_destruct(_d: *mut crate::ffi::pmix_resource_unit_t) {}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_resource_unit_create(n: usize) -> *mut crate::ffi::pmix_resource_unit_t { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_resource_unit_t>()).cast() }
+pub unsafe fn mock_resource_unit_create(n: usize) -> *mut crate::ffi::pmix_resource_unit_t {
+    libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_resource_unit_t>()).cast()
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_resource_unit_free(d: *mut crate::ffi::pmix_resource_unit_t, _n: usize) { libc::free(d.cast()); }
+pub unsafe fn mock_resource_unit_free(d: *mut crate::ffi::pmix_resource_unit_t, _n: usize) {
+    libc::free(d.cast());
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_resource_unit_string(_d: *const crate::ffi::pmix_resource_unit_t) -> *mut std::os::raw::c_char { libc::strdup(b"resource-unit\0".as_ptr().cast()) }
+pub unsafe fn mock_resource_unit_string(
+    _d: *const crate::ffi::pmix_resource_unit_t,
+) -> *mut std::os::raw::c_char {
+    libc::strdup(b"resource-unit\0".as_ptr().cast())
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_resource_block_directive_string(_d: crate::ffi::pmix_resource_block_directive_t) -> *const std::os::raw::c_char { b"unknown\0".as_ptr().cast() }
+pub unsafe fn mock_resource_block_directive_string(
+    _d: crate::ffi::pmix_resource_block_directive_t,
+) -> *const std::os::raw::c_char {
+    b"unknown\0".as_ptr().cast()
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_resource_block(_d: crate::ffi::pmix_resource_block_directive_t, _b: *mut std::os::raw::c_char, _r: *const crate::ffi::pmix_resource_unit_t, _nr: usize, _i: *const crate::ffi::pmix_info_t, _ni: usize) -> i32 { 0 }
+pub unsafe fn mock_resource_block(
+    _d: crate::ffi::pmix_resource_block_directive_t,
+    _b: *mut std::os::raw::c_char,
+    _r: *const crate::ffi::pmix_resource_unit_t,
+    _nr: usize,
+    _i: *const crate::ffi::pmix_info_t,
+    _ni: usize,
+) -> i32 {
+    0
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_resource_block_nb(_d: crate::ffi::pmix_resource_block_directive_t, _b: *mut std::os::raw::c_char, _r: *const crate::ffi::pmix_resource_unit_t, _nr: usize, _i: *const crate::ffi::pmix_info_t, _ni: usize, cb: crate::ffi::pmix_op_cbfunc_t, data: *mut std::os::raw::c_void) -> i32 { if let Some(cb) = cb { cb(0, data); } 0 }
+pub unsafe fn mock_resource_block_nb(
+    _d: crate::ffi::pmix_resource_block_directive_t,
+    _b: *mut std::os::raw::c_char,
+    _r: *const crate::ffi::pmix_resource_unit_t,
+    _nr: usize,
+    _i: *const crate::ffi::pmix_info_t,
+    _ni: usize,
+    cb: crate::ffi::pmix_op_cbfunc_t,
+    data: *mut std::os::raw::c_void,
+) -> i32 {
+    if let Some(cb) = cb {
+        cb(0, data);
+    }
+    0
+}
 #[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn mock_heartbeat() {}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_pdata_construct(p: *mut crate::ffi::pmix_pdata_t) { if !p.is_null() { std::ptr::write_bytes(p, 0, 1); } }
+pub unsafe fn mock_pdata_construct(p: *mut crate::ffi::pmix_pdata_t) {
+    if !p.is_null() {
+        std::ptr::write_bytes(p, 0, 1);
+    }
+}
 #[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn mock_pdata_destruct(_p: *mut crate::ffi::pmix_pdata_t) {}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_pdata_create(n: usize) -> *mut crate::ffi::pmix_pdata_t { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_pdata_t>()).cast() }
+pub unsafe fn mock_pdata_create(n: usize) -> *mut crate::ffi::pmix_pdata_t {
+    libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_pdata_t>()).cast()
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_pdata_free(p: *mut crate::ffi::pmix_pdata_t, _n: usize) { libc::free(p.cast()); }
+pub unsafe fn mock_pdata_free(p: *mut crate::ffi::pmix_pdata_t, _n: usize) {
+    libc::free(p.cast());
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_pdata_load(_d: *mut crate::ffi::pmix_pdata_t, _p: *const crate::ffi::pmix_proc_t, _k: *const std::os::raw::c_char, _v: *const std::os::raw::c_void, _t: crate::ffi::pmix_data_type_t) {}
+pub unsafe fn mock_pdata_load(
+    _d: *mut crate::ffi::pmix_pdata_t,
+    _p: *const crate::ffi::pmix_proc_t,
+    _k: *const std::os::raw::c_char,
+    _v: *const std::os::raw::c_void,
+    _t: crate::ffi::pmix_data_type_t,
+) {
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_pdata_xfer(_d: *mut crate::ffi::pmix_pdata_t, _s: *mut crate::ffi::pmix_pdata_t) {}
+pub unsafe fn mock_pdata_xfer(
+    _d: *mut crate::ffi::pmix_pdata_t,
+    _s: *mut crate::ffi::pmix_pdata_t,
+) {
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_tool_set_server_module(_m: *mut crate::ffi::pmix_server_module_t) -> i32 { 0 }
+pub unsafe fn mock_tool_set_server_module(_m: *mut crate::ffi::pmix_server_module_t) -> i32 {
+    0
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_server_generate_cpuset(_s: *const std::os::raw::c_char, _c: *mut crate::ffi::pmix_cpuset_t) -> i32 { 0 }
+pub unsafe fn mock_server_generate_cpuset(
+    _s: *const std::os::raw::c_char,
+    _c: *mut crate::ffi::pmix_cpuset_t,
+) -> i32 {
+    0
+}
 #[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn mock_server_collect_job_info(_p: *mut crate::ffi::pmix_proc_t, _n: usize, _b: *mut crate::ffi::pmix_data_buffer_t) -> i32 { 0 }
+pub unsafe fn mock_server_collect_job_info(
+    _p: *mut crate::ffi::pmix_proc_t,
+    _n: usize,
+    _b: *mut crate::ffi::pmix_data_buffer_t,
+) -> i32 {
+    0
+}
