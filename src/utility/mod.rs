@@ -1145,7 +1145,8 @@ where
 /// * `Err(PmixStatus)` — registration failed.
 ///
 /// # C API
-/// Same as `PMIx_IOF_pull` with `regcbfunc` set to NULL (blocking mode).
+/// Same as `PMIx_IOF_pull`, using the asynchronous registration callback
+/// internally to obtain the real registration handle.
 pub fn iof_pull_blocking<F>(
     procs: &[ffi::pmix_proc_t],
     directives: &[ffi::pmix_info_t],
@@ -1155,54 +1156,62 @@ pub fn iof_pull_blocking<F>(
 where
     F: IoForwardHandler,
 {
-    // In blocking mode, regcbfunc is NULL, so we don't need a real reg_cb.
+    let (tx, rx) = std::sync::mpsc::channel::<(PmixStatus, usize)>();
     let ctx = IoPullContext {
         io_cb: Box::new(cb),
-        reg_cb: Box::new(|_, _| {
-            // Unused in blocking mode.
+        reg_cb: Box::new(move |status, refid| {
+            let _ = tx.send((status, refid));
         }),
     };
     let ctx = Arc::new(Mutex::new(ctx));
     let ctx_ptr = Box::into_raw(Box::new(Arc::clone(&ctx)));
 
-    // SAFETY: Same as iof_pull, but regcbfunc is None (blocking mode).
+    // SAFETY: Same as iof_pull; the registration callback sends the real
+    // refid to this thread after reg_callback_bridge registers the context.
     let raw_result: ffi::pmix_status_t = unsafe {
-        ffi::PMIx_IOF_pull(
-            procs.as_ptr(),
-            procs.len(),
-            directives.as_ptr(),
-            directives.len(),
-            channel.raw(),
-            Some(io_callback_bridge),
-            None, // blocking mode — no async registration callback
-            ctx_ptr as *mut std::os::raw::c_void,
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_iof_pull(
+                procs.as_ptr(),
+                procs.len(),
+                directives.as_ptr(),
+                directives.len(),
+                channel.raw(),
+                Some(io_callback_bridge),
+                Some(reg_callback_bridge),
+                ctx_ptr as *mut std::os::raw::c_void,
+            ),
+            real = ffi::PMIx_IOF_pull(
+                procs.as_ptr(),
+                procs.len(),
+                directives.as_ptr(),
+                directives.len(),
+                channel.raw(),
+                Some(io_callback_bridge),
+                Some(reg_callback_bridge),
+                ctx_ptr as *mut std::os::raw::c_void,
+            ),
         )
     };
 
     let pmix_status = PmixStatus::from_raw(raw_result);
     if pmix_status.is_error() {
-        // Registration failed — free the context.
-        // SAFETY: ctx_ptr was not handed to PMIx since the call failed.
+        // The registration callback was not called on this error path.
+        // SAFETY: ctx_ptr remains owned by this function after the failed call.
         unsafe {
             drop(Box::from_raw(ctx_ptr));
         }
         Err(pmix_status)
     } else {
-        // In blocking mode, the return value is the registration handle.
-        let handle = raw_result as usize;
-
-        // No registration callback will reclaim this temporary Arc box in
-        // blocking mode; PMIx has returned, so reclaim it here.
-        unsafe {
-            drop(Box::from_raw(ctx_ptr));
+        // reg_callback_bridge reclaimed ctx_ptr and inserted the real refid.
+        let (status, refid) = rx
+            .recv()
+            .expect("PMIx_IOF_pull succeeded without invoking its registration callback");
+        if status.is_error() {
+            IOF_REGISTRY.lock().unwrap().remove(&refid);
+            Err(status)
+        } else {
+            Ok(refid)
         }
-
-        // Store the context in the registry so the IO callback can find it.
-        {
-            let mut registry = IOF_REGISTRY.lock().unwrap();
-            registry.insert(handle, ctx);
-        }
-        Ok(handle)
     }
 }
 
