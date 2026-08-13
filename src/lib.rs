@@ -2851,14 +2851,13 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
                 };
             }
 
-            // Heap-allocate pmix_envar_t; transfer both CStrings.
+            // Write pmix_envar_t inline; transfer both CStrings.
             PmixPayload::Envar(e) => {
-                let raw = Box::new(pmix_envar_t {
+                dst.data.envar = pmix_envar_t {
                     envar: e.envar.into_raw(),
                     value: e.value.into_raw(),
                     separator: e.separator as i8,
-                });
-                dst.data.envar = *Box::into_raw(raw);
+                };
             }
 
             // Opaque pointer – no allocation here, caller owns data.

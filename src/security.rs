@@ -31,6 +31,7 @@
 //! ```
 
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::os::raw::{c_uchar, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
@@ -73,6 +74,29 @@ fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
 #[derive(Debug, Clone)]
 pub struct PmixCredential {
     bytes: Vec<u8>,
+}
+
+/// Scoped raw view of a credential's `pmix_byte_object_t`, owned on the heap
+/// but reclaimed when the guard drops. The `bytes` pointer borrows from the
+/// originating `PmixCredential`, so this must not outlive it.
+#[derive(Debug)]
+pub struct CredentialByteObject<'a> {
+    inner: Box<ffi::pmix_byte_object_t>,
+    _marker: std::marker::PhantomData<&'a PmixCredential>,
+}
+
+impl Deref for CredentialByteObject<'_> {
+    type Target = ffi::pmix_byte_object_t;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for CredentialByteObject<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
 }
 
 impl PmixCredential {
@@ -150,25 +174,19 @@ impl PmixCredential {
         }
     }
 
-    /// Get a raw `*const pmix_byte_object_t` for FFI calls.
-    ///
-    /// Returns a pointer to a leaked `pmix_byte_object_t` that points
-    /// directly to our Rust-owned bytes buffer. The pointer is valid
-    /// for as long as `self` is alive (the struct is leaked, but the
-    /// bytes are owned by the Vec inside self).
-    ///
-    /// WARNING: The returned pointer should not be freed by the caller.
-    /// Use `as_c_mut_ptr()` for operations that need a mutable copy.
-    pub fn as_raw(&self) -> *const ffi::pmix_byte_object_t {
-        let bo = Box::leak(Box::new(ffi::pmix_byte_object_t {
-            bytes: if self.bytes.is_empty() {
-                ptr::null_mut()
-            } else {
-                self.bytes.as_ptr() as *mut std::os::raw::c_char
-            },
-            size: self.bytes.len(),
-        }));
-        bo as *const ffi::pmix_byte_object_t
+    /// Get a scoped raw view of the credential for FFI calls.
+    pub fn as_raw(&self) -> CredentialByteObject<'_> {
+        CredentialByteObject {
+            inner: Box::new(ffi::pmix_byte_object_t {
+                bytes: if self.bytes.is_empty() {
+                    ptr::null_mut()
+                } else {
+                    self.bytes.as_ptr() as *mut std::os::raw::c_char
+                },
+                size: self.bytes.len(),
+            }),
+            _marker: std::marker::PhantomData,
+        }
     }
 
     /// `true` if the credential has no bytes.
@@ -939,8 +957,9 @@ mod tests {
     #[test]
     fn test_credential_as_raw() {
         let cred = PmixCredential::from_bytes(b"test");
-        let ptr = cred.as_raw();
-        assert!(!ptr.is_null());
+        let raw = cred.as_raw();
+        assert_eq!(raw.size, 4);
+        assert!(!raw.bytes.is_null());
     }
 
     // ── PmixCredential clone ───────────────────────────────────────────────
@@ -1049,14 +1068,9 @@ mod tests {
     #[test]
     fn test_credential_as_raw_empty() {
         let cred = PmixCredential::empty();
-        let ptr = cred.as_raw();
-        assert!(!ptr.is_null());
-        // The leaked struct should have null bytes and zero size
-        unsafe {
-            let bo = &*ptr;
-            assert!(bo.bytes.is_null());
-            assert_eq!(bo.size, 0);
-        }
+        let raw = cred.as_raw();
+        assert!(raw.bytes.is_null());
+        assert_eq!(raw.size, 0);
     }
 
     // ── CredentialResults ──────────────────────────────────────────────────
