@@ -3098,6 +3098,21 @@ use std::sync::{Arc, Mutex};
         assert!(result.is_err());
     }
 
+    /// iof_pull_blocking returns the registration callback's real refid.
+    #[test]
+    fn test_iof_pull_blocking_returns_real_refid() {
+        let _guard = mock_ffi::MockGuard::new();
+        mock_ffi::mock_reset_iof_registry();
+        mock_ffi::mock_set_iof_handle(42);
+        IOF_REGISTRY.lock().unwrap().clear();
+
+        let result = iof_pull_blocking(&[], &[], IOFChannelFlags::STDOUT, |_, _, _, _| {});
+
+        assert_eq!(result, Ok(42));
+        assert!(IOF_REGISTRY.lock().unwrap().contains_key(&42));
+        IOF_REGISTRY.lock().unwrap().remove(&42);
+    }
+
     /// iof_pull_blocking returns error without daemon.
     #[test]
     fn test_iof_pull_blocking_without_daemon() {
