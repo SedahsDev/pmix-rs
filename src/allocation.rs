@@ -314,10 +314,12 @@ fn release_retained_info(req_id: usize) {
     if let Some((address, len)) = ALLOCATION_INFO_REGISTRY.remove(req_id) {
         // SAFETY: the pair was created from Box::into_raw for this request and
         // is removed at most once.
-        unsafe { drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
-            address as *mut ffi::pmix_info_t,
-            len,
-        ))) };
+        unsafe {
+            drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+                address as *mut ffi::pmix_info_t,
+                len,
+            )))
+        };
     }
 }
 
