@@ -125,12 +125,13 @@ pub fn abort(
         None => (ptr::null(), None),
     };
 
-    // Convert the optional proc array to a raw pointer + length.
+    // Convert the optional proc array to a contiguous raw pointer + length.
+    let flat;
     let (procs_ptr, nprocs) = match procs {
-        Some(procs) if !procs.is_empty() => (
-            &procs[0].handle as *const ffi::pmix_proc_t as *mut ffi::pmix_proc_t,
-            procs.len(),
-        ),
+        Some(procs) if !procs.is_empty() => {
+            flat = flat_procs(procs);
+            (flat.as_ptr() as *mut ffi::pmix_proc_t, flat.len())
+        }
         _ => (ptr::null_mut(), 0),
     };
 
@@ -140,9 +141,9 @@ pub fn abort(
     // - `msg_ptr` is either null or a valid NUL-terminated C string
     //   whose lifetime (`_msg_cstring`) is kept alive until after this
     //   call returns.
-    // - `procs_ptr` is either null or points to a valid slice of
-    //   `pmix_proc_t` handles that remain valid for the duration of
-    //   this call. PMIx does not retain these pointers after return.
+    // - `procs_ptr` is either null or points to a temporary flattened
+    //   `Vec<pmix_proc_t>` that remains alive for the duration of this call.
+    //   PMIx does not retain these pointers after return.
     // - Note: if the caller's own process is included in `procs`, this
     //   function may not return. That is documented PMIx behavior.
     let raw_status = unsafe {
