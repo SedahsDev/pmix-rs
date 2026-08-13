@@ -1519,8 +1519,12 @@ pub fn mock_fabric_register_nb(
                 *cell.borrow_mut() = true;
             });
         }
-        if let Some(cb) = cbfunc {
-            unsafe { cb(status, cbdata) };
+        // PMIx retains cbdata when submission fails synchronously and does not
+        // invoke the callback, so only complete successful submissions here.
+        if status == PMIX_SUCCESS {
+            if let Some(cb) = cbfunc {
+                unsafe { cb(status, cbdata) };
+            }
         }
         status
     } else {

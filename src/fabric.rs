@@ -59,8 +59,8 @@ use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 use crate::ffi;
@@ -157,6 +157,7 @@ impl PmixFabric {
             module: ptr::null_mut(),
             registered: Arc::new(AtomicBool::new(false)),
             register_complete: Arc::new(AtomicBool::new(false)),
+            // SAFETY: pmix_fabric_t is a C POD struct; zero initializes its pointers and scalars.
             raw: Box::new(unsafe { std::mem::zeroed() }),
 
             _not_thread_safe: std::marker::PhantomData,
@@ -172,6 +173,7 @@ impl PmixFabric {
             module: ptr::null_mut(),
             registered: Arc::new(AtomicBool::new(false)),
             register_complete: Arc::new(AtomicBool::new(false)),
+            // SAFETY: pmix_fabric_t is a C POD struct; zero initializes its pointers and scalars.
             raw: Box::new(unsafe { std::mem::zeroed() }),
 
             _not_thread_safe: std::marker::PhantomData,
@@ -233,6 +235,12 @@ impl PmixFabric {
         }
     }
 
+    /// Synchronize PMIx-populated fields after `fabric_register_nb` completes.
+    ///
+    /// Call this from the owner after its registration callback has run. The
+    /// callback receives only the completion status, so this method consumes
+    /// the internal completion marker and imports the raw `index` and `ninfo`
+    /// values into this Rust object. Returns `true` exactly once per completion.
     pub fn sync_after_register(&mut self) -> bool {
         if self.register_complete.swap(false, Ordering::AcqRel) {
             if self.is_registered() {
@@ -314,12 +322,13 @@ pub fn fabric_register(fabric: &mut PmixFabric, directives: &[Info]) -> Result<(
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) } };
+        status = unsafe { ffi::PMIx_Fabric_register(fabric_ptr, dirs_ptr, ndirs) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
         fabric.sync_from_raw();
+        fabric.registered.store(true, Ordering::Release);
         Ok(())
     } else {
         Err(pmix_status)
@@ -425,7 +434,6 @@ pub fn fabric_register_nb(
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
-        fabric.registered.store(true, Ordering::Release);
         Ok(())
     } else {
         // Callback was not queued; reclaim the wrapper.
@@ -470,7 +478,7 @@ pub fn fabric_update(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Fabric_update(fabric_ptr) } };
+        status = unsafe { ffi::PMIx_Fabric_update(fabric_ptr) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -570,7 +578,7 @@ pub fn fabric_deregister(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) } };
+        status = unsafe { ffi::PMIx_Fabric_deregister(fabric_ptr) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -1349,7 +1357,7 @@ pub fn load_topology(topo: &mut PmixTopology) -> Result<(), PmixStatus> {
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = { unsafe { ffi::PMIx_Load_topology(raw_ptr) } };
+        status = unsafe { ffi::PMIx_Load_topology(raw_ptr) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
