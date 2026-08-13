@@ -139,6 +139,11 @@ impl PmixByteObject {
     pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
         &mut self.inner
     }
+
+    /// Get a const pointer to the underlying C struct (for FFI interop).
+    pub fn as_ptr(&self) -> *const ffi::pmix_byte_object_t {
+        &self.inner
+    }
 }
 
 impl Default for PmixByteObject {

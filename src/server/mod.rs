@@ -1659,14 +1659,16 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
             let mut entries = Vec::with_capacity(ninfo);
             for i in 0..ninfo {
                 let entry = *info.add(i);
-                let key = CStr::from_ptr(entry.key.as_ptr() as *const std::os::raw::c_char)
-                    .to_string_lossy()
-                    .into_owned();
+                let key_slice =
+                    std::slice::from_raw_parts(entry.key.as_ptr() as *const u8, entry.key.len());
+                let key = CStr::from_bytes_until_nul(key_slice)
+                    .map(|key| key.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 // Extract value as string based on type_.
                 // pmix_data_type_t is u16; match against known values.
                 let dtype = entry.value.type_;
-                let value_str = match dtype {
-                    3 => {
+                let value_str = match dtype as u32 {
+                    ffi::PMIX_STRING => {
                         // PMIX_STRING
                         if !entry.value.data.string.is_null() {
                             CStr::from_ptr(entry.value.data.string)
@@ -1676,23 +1678,23 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
                             String::new()
                         }
                     }
-                    6 => format!("{}", entry.value.data.integer), // PMIX_INT
-                    11 => format!("{}", entry.value.data.uint),   // PMIX_UINT
-                    4 => format!("{}", entry.value.data.size),    // PMIX_SIZE
-                    7 => format!("{}", entry.value.data.int8),    // PMIX_INT8
-                    8 => format!("{}", entry.value.data.int16),   // PMIX_INT16
-                    9 => format!("{}", entry.value.data.int32),   // PMIX_INT32
-                    10 => format!("{}", entry.value.data.int64),  // PMIX_INT64
-                    12 => format!("{}", entry.value.data.uint8),  // PMIX_UINT8
-                    13 => format!("{}", entry.value.data.uint16), // PMIX_UINT16
-                    14 => format!("{}", entry.value.data.uint32), // PMIX_UINT32
-                    15 => format!("{}", entry.value.data.uint64), // PMIX_UINT64
-                    16 => format!("{}", entry.value.data.fval),   // PMIX_FLOAT
-                    17 => format!("{}", entry.value.data.dval),   // PMIX_DOUBLE
-                    1 => format!("{}", entry.value.data.flag),    // PMIX_BOOL
-                    5 => format!("{}", entry.value.data.pid),     // PMIX_PID
-                    20 => format!("{}", entry.value.data.status), // PMIX_STATUS
-                    31 => format!("{}", entry.value.data.rank), // PMIX_PROC_RANK (stored as rank in union)
+                    ffi::PMIX_INT => format!("{}", entry.value.data.integer), // PMIX_INT
+                    ffi::PMIX_UINT => format!("{}", entry.value.data.uint),   // PMIX_UINT
+                    ffi::PMIX_SIZE => format!("{}", entry.value.data.size),    // PMIX_SIZE
+                    ffi::PMIX_INT8 => format!("{}", entry.value.data.int8),    // PMIX_INT8
+                    ffi::PMIX_INT16 => format!("{}", entry.value.data.int16),   // PMIX_INT16
+                    ffi::PMIX_INT32 => format!("{}", entry.value.data.int32),   // PMIX_INT32
+                    ffi::PMIX_INT64 => format!("{}", entry.value.data.int64),  // PMIX_INT64
+                    ffi::PMIX_UINT8 => format!("{}", entry.value.data.uint8),  // PMIX_UINT8
+                    ffi::PMIX_UINT16 => format!("{}", entry.value.data.uint16), // PMIX_UINT16
+                    ffi::PMIX_UINT32 => format!("{}", entry.value.data.uint32), // PMIX_UINT32
+                    ffi::PMIX_UINT64 => format!("{}", entry.value.data.uint64), // PMIX_UINT64
+                    ffi::PMIX_FLOAT => format!("{}", entry.value.data.fval),   // PMIX_FLOAT
+                    ffi::PMIX_DOUBLE => format!("{}", entry.value.data.dval),  // PMIX_DOUBLE
+                    ffi::PMIX_BOOL => format!("{}", entry.value.data.flag),    // PMIX_BOOL
+                    ffi::PMIX_PID => format!("{}", entry.value.data.pid),     // PMIX_PID
+                    ffi::PMIX_STATUS => format!("{}", entry.value.data.status), // PMIX_STATUS
+                    ffi::PMIX_PROC_RANK => format!("{}", entry.value.data.rank), // PMIX_PROC_RANK (stored as rank in union)
                     _ => format!("[type={}] ", dtype),
                 };
                 entries.push((key, value_str));
@@ -2037,20 +2039,14 @@ pub fn server_setup_local_support(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() {
-        // PMIX_SUCCESS — request accepted, callback will be invoked asynchronously.
-        // PMIX_OPERATION_SUCCEEDED (-157) — immediately processed and succeeded,
-        // callback will NOT be called.
-        if pmix_status.to_raw() == -157 {
-            // PMIX_OPERATION_SUCCEEDED — callback not called, so remove it.
-            let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
-            registry.remove(&req_id);
-            // Return success — the operation completed immediately.
-            Ok(())
-        } else {
-            // PMIX_SUCCESS — callback will be invoked asynchronously.
-            Ok(())
-        }
+    if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+        // Immediately processed and succeeded — callback was not called.
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
+        registry.remove(&req_id);
+        Ok(())
+    } else if pmix_status.is_success() {
+        // PMIX_SUCCESS — callback will be invoked asynchronously.
+        Ok(())
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
@@ -2223,8 +2219,7 @@ pub fn server_iof_deliver(
     let source_ptr = &source.handle as *const ffi::pmix_proc_t;
 
     // Get the byte object pointer.
-    let bo_ptr =
-        bo as *const crate::data_serialization::PmixByteObject as *const ffi::pmix_byte_object_t;
+    let bo_ptr = bo.as_ptr();
 
     // Prepare info parameters.
     let (info_ptr, ninfo) = if info.len > 0 {
@@ -2239,10 +2234,11 @@ pub fn server_iof_deliver(
         // - source_ptr is a valid reference to the Proc's internal pmix_proc_t
         //   that remains alive for the duration of this call (PMIx copies it).
         // - channel.0 is the raw pmix_iof_channel_t bitmask.
-        // - bo_ptr is a valid reference to the PmixByteObject's internal
-        //   pmix_byte_object_t. The caller must ensure bo remains valid until
-        //   the callback fires (the PMIx spec requires the host RM to retain
-        //   the byte object until the callback is executed).
+        // - bo_ptr is obtained from PmixByteObject::as_ptr and is a valid
+        //   reference to its internal pmix_byte_object_t. The caller must
+        //   ensure bo remains valid until the callback fires (the PMIx spec
+        //   requires the host RM to retain the byte object until the callback
+        //   is executed).
         // - info_ptr is either a valid array of pmix_info_t (from Info.handle)
         //   or null (PMIx accepts null info with ninfo=0).
         // - The callback bridge has C linkage and properly handles cbdata.
