@@ -1708,7 +1708,7 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
     if let Some(ack) = cbfunc {
         // SAFETY: cbfunc and cbdata are provided by PMIx and are valid
         // for the duration of this callback invocation.
-        unsafe { ack(ffi::PMIX_SUCCESS as ffi::pmix_status_t, cbdata) };
+        unsafe { ack(status, cbdata) };
     }
 
     // Look up and remove the callback from the registry.

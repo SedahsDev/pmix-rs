@@ -94,6 +94,9 @@ fn read_c_argv(argv: *mut *mut c_char) -> Result<Vec<String>, PmixError> {
 }
 
 fn split_impl(src: &str, delimiter: char, kind: SplitKind) -> Result<Vec<String>, PmixError> {
+    if u32::from(delimiter) > 0xff {
+        return Err(PmixError::ErrBadParam);
+    }
     let source = CString::new(src).map_err(invalid_argument)?;
     let raw = crate::pmix_ffi_or_mock!(
         // SAFETY: source is a live NUL-terminated CString and the delimiter is a valid C int.
@@ -164,6 +167,9 @@ pub fn split_inter(
 
 /// Join strings with PMIx's argv join utility.
 pub fn join(argv: &[String], delimiter: char) -> Result<String, PmixError> {
+    if u32::from(delimiter) > 0xff {
+        return Err(PmixError::ErrBadParam);
+    }
     let cargv = to_c_argv(argv)?;
     let joined = crate::pmix_ffi_or_mock!(
         // SAFETY: cargv.ptr is a valid NULL-terminated array owned by cargv.
@@ -283,6 +289,14 @@ mod tests {
         assert_eq!(copy(&values).unwrap(), values);
         assert_eq!(join(&values, ',').unwrap(), "joined");
         assert_eq!(count(&values), 2);
+    }
+
+    #[test]
+    fn non_latin1_delimiters_are_rejected_before_ffi() {
+        assert_eq!(split("a😀b", '😀'), Err(PmixError::ErrBadParam));
+        assert_eq!(split_with_empty("a😀b", '😀'), Err(PmixError::ErrBadParam));
+        assert_eq!(split_inter("a😀b", '😀', true), Err(PmixError::ErrBadParam));
+        assert_eq!(join(&["a".to_owned()], '😀'), Err(PmixError::ErrBadParam));
     }
 
     #[test]
