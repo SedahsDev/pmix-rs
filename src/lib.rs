@@ -1361,7 +1361,7 @@ impl std::fmt::Display for PmixDeviceType {
 /// # C API
 /// `typedef uint8_t pmix_persistence_t`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(usize)]
+#[repr(u8)]
 #[non_exhaustive]
 pub enum PmixPersistence {
     /// `PMIX_PERSIST_INDEF` (0) — retain until specifically deleted.
@@ -1383,7 +1383,7 @@ pub enum PmixPersistence {
     Invalid = 255,
 
     /// An unrecognised or future persistence value.
-    Unknown(u8),
+    Unknown(u8) = 128,
 }
 
 impl PmixPersistence {
@@ -1480,7 +1480,7 @@ pub enum PmixDataRange {
     Invalid = 255,
 
     /// An unrecognised or future range value.
-    Unknown = 128,
+    Unknown(u8) = 128,
 }
 
 impl PmixDataRange {
@@ -1496,14 +1496,14 @@ impl PmixDataRange {
             6 => Self::Custom,
             7 => Self::ProcLocal,
             255 => Self::Invalid,
-            _other => Self::Unknown,
+            other => Self::Unknown(other),
         }
     }
 
     /// Return the raw `u8` value suitable for passing to the C API.
     pub fn to_raw(self) -> u8 {
         match self {
-            Self::Unknown => 128,
+            Self::Unknown(v) => v,
             Self::Undef => 0,
             Self::Rm => 1,
             Self::Local => 2,
@@ -1529,7 +1529,7 @@ impl std::fmt::Display for PmixDataRange {
             Self::Custom => write!(f, "CUSTOM"),
             Self::ProcLocal => write!(f, "PROC LOCAL"),
             Self::Invalid => write!(f, "INVALID"),
-            Self::Unknown => write!(f, "UNKNOWN RANGE (128)"),
+            Self::Unknown(v) => write!(f, "UNKNOWN RANGE ({v})"),
         }
     }
 }
@@ -4751,7 +4751,7 @@ mod tests {
 
     #[test]
     fn test_pmix_data_range_from_raw_unknown() {
-        assert_eq!(PmixDataRange::from_raw(99), PmixDataRange::Unknown);
+        assert_eq!(PmixDataRange::from_raw(99), PmixDataRange::Unknown(99));
     }
 
     #[test]
@@ -4766,7 +4766,7 @@ mod tests {
             PmixDataRange::Custom,
             PmixDataRange::ProcLocal,
             PmixDataRange::Invalid,
-            PmixDataRange::Unknown,
+            PmixDataRange::Unknown(128),
         ];
         for range in ranges {
             let raw = range.to_raw();

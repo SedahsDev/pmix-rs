@@ -733,7 +733,7 @@ use std::sync::{Arc, Mutex};
     #[test]
     fn test_data_range_string_unknown() {
         use crate::PmixDataRange::Unknown;
-        let range = Unknown;
+        let range = Unknown(99);
         let result = data_range_string(range);
         assert!(
             result.is_ok(),
@@ -801,7 +801,7 @@ use std::sync::{Arc, Mutex};
         assert_eq!(PmixDataRange::from_raw(6), Custom);
         assert_eq!(PmixDataRange::from_raw(7), ProcLocal);
         assert_eq!(PmixDataRange::from_raw(255), Invalid);
-        assert!(matches!(PmixDataRange::from_raw(200), Unknown));
+        assert!(matches!(PmixDataRange::from_raw(200), Unknown(_)));
     }
 
     /// `PmixDataRange::to_raw` returns the expected raw values.
@@ -818,7 +818,7 @@ use std::sync::{Arc, Mutex};
         assert_eq!(Custom.to_raw(), 6);
         assert_eq!(ProcLocal.to_raw(), 7);
         assert_eq!(Invalid.to_raw(), 255);
-        assert_eq!(Unknown.to_raw(), 128);
+        assert_eq!(Unknown(128).to_raw(), 128);
     }
 
     /// `PmixDataRange` implements Display.
@@ -835,7 +835,7 @@ use std::sync::{Arc, Mutex};
         assert_eq!(format!("{}", Custom), "CUSTOM");
         assert_eq!(format!("{}", ProcLocal), "PROC LOCAL");
         assert_eq!(format!("{}", Invalid), "INVALID");
-        assert_eq!(format!("{}", Unknown), "UNKNOWN RANGE (128)");
+        assert_eq!(format!("{}", Unknown(128)), "UNKNOWN RANGE (128)");
     }
 
     // ──────────────────────────────────────────────────────────────────────

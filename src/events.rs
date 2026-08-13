@@ -855,7 +855,7 @@ pub fn notify_event(
         ffi::PMIx_Notify_event(
             status.to_raw(),
             &source.handle as *const ffi::pmix_proc_t,
-            range as ffi::pmix_data_range_t,
+            range.to_raw() as ffi::pmix_data_range_t,
             info_ptr,
             ninfo,
             None, // blocking mode
@@ -918,7 +918,7 @@ pub fn notify_event_nb(
         ffi::PMIx_Notify_event(
             status.to_raw(),
             source_ptr,
-            range as ffi::pmix_data_range_t,
+            range.to_raw() as ffi::pmix_data_range_t,
             info_ptr,
             ninfo,
             Some(notify_state_bridge),
