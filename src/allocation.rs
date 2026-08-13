@@ -308,6 +308,19 @@ pub trait AllocationCallback: Send + 'static {
 /// Maps request ID -> callback. Entries are removed when the callback fires.
 static ALLOCATION_REGISTRY: LazyLock<Registry<Box<dyn AllocationCallback>>> =
     LazyLock::new(Registry::new);
+static ALLOCATION_INFO_REGISTRY: LazyLock<Registry<(usize, usize)>> =
+    LazyLock::new(Registry::new);
+
+fn release_retained_info(req_id: usize) {
+    if let Some((address, len)) = ALLOCATION_INFO_REGISTRY.remove(req_id) {
+        // SAFETY: the pair was created from Box::into_raw for this request and
+        // is removed at most once.
+        unsafe { drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+            address as *mut ffi::pmix_info_t,
+            len,
+        ))) };
+    }
+}
 
 /// C bridge for `pmix_info_cbfunc_t` (allocation completion).
 ///
@@ -337,7 +350,8 @@ extern "C" fn allocation_callback_bridge(
     let cb = match cb {
         Some(cb) => cb,
         None => {
-            // Callback already consumed — free the info array to avoid leak.
+            // Callback already consumed — free retained request info and result array.
+            release_retained_info(req_id);
             if !info.is_null() && ninfo > 0 {
                 unsafe {
                     ffi::PMIx_Info_free(info, ninfo);
@@ -357,6 +371,7 @@ extern "C" fn allocation_callback_bridge(
     let _ = invoke_user_callback("allocation", move || {
         cb.on_complete(pmix_status, results);
     });
+    release_retained_info(req_id);
     // release_fn is unused — we manage our own memory via AllocationResults Drop.
     let _ = release_fn;
 }
@@ -414,13 +429,16 @@ pub fn allocation_request_nb(
             }
         })
         .collect();
-    let (info_ptr, ninfo) = if flat_infos.is_empty() {
-        (ptr::null_mut(), 0)
+    let ninfo = flat_infos.len();
+    let retained_infos = flat_infos.into_boxed_slice();
+    let info_ptr = if retained_infos.is_empty() {
+        ptr::null_mut()
     } else {
-        (
-            flat_infos.as_ptr() as *mut ffi::pmix_info_t,
-            flat_infos.len(),
-        )
+        let raw = Box::into_raw(retained_infos);
+        ALLOCATION_INFO_REGISTRY
+            .lock()
+            .insert(req_id, (raw as *mut ffi::pmix_info_t as usize, ninfo));
+        raw as *mut ffi::pmix_info_t
     };
 
     let status = unsafe {
@@ -446,9 +464,10 @@ pub fn allocation_request_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        // Request was rejected — remove the callback so it doesn't leak.
+        // Request was rejected — remove the callback and retained info.
         let mut registry = ALLOCATION_REGISTRY.lock();
         registry.remove(&req_id);
+        release_retained_info(req_id);
         Err(pmix_status)
     }
 }

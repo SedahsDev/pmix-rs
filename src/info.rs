@@ -496,16 +496,54 @@ impl PmixInfoList {
     }
 
     /// Convert the list without mutating it. An empty list returns
-    /// `PMIX_ERR_EMPTY`; on success the caller owns the returned array and must
-    /// release it with `PMIx_Data_array_destruct`.
-    pub fn convert(&self) -> Result<crate::ffi::pmix_data_array_t, crate::PmixStatus> {
+    /// `PMIX_ERR_EMPTY`; the returned array is released when its wrapper drops.
+    pub fn convert(&self) -> Result<ConvertedInfoArray, crate::PmixStatus> {
         // SAFETY: zeroed is a valid initial output value for PMIx to populate.
         let mut array = unsafe { std::mem::zeroed() };
         // SAFETY: self and output pointer are valid for the synchronous call.
         Self::status(crate::pmix_ffi_or_mock!(
             mock = unsafe { crate::mock_ffi::mock_info_list_convert(self.as_ptr(), &mut array) },
             real = unsafe { crate::ffi::PMIx_Info_list_convert(self.as_ptr(), &mut array) },
-        )).map(|()| array)
+        ))
+        .map(|()| ConvertedInfoArray {
+            array,
+            _not_thread_safe: std::marker::PhantomData,
+        })
+    }
+}
+
+/// An owned array returned by [`PmixInfoList::convert`].
+pub struct ConvertedInfoArray {
+    array: crate::ffi::pmix_data_array_t,
+    _not_thread_safe: std::marker::PhantomData<*mut ()>,
+}
+
+impl ConvertedInfoArray {
+    /// Borrow the PMIx array for a synchronous consumer.
+    pub fn raw(&self) -> &crate::ffi::pmix_data_array_t {
+        &self.array
+    }
+
+    /// Return the mutable PMIx array pointer expected by C APIs.
+    pub fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_data_array_t {
+        &mut self.array
+    }
+}
+
+impl std::ops::Deref for ConvertedInfoArray {
+    type Target = crate::ffi::pmix_data_array_t;
+
+    fn deref(&self) -> &Self::Target {
+        &self.array
+    }
+}
+
+impl Drop for ConvertedInfoArray {
+    fn drop(&mut self) {
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_data_array_destruct(&mut self.array) },
+            real = unsafe { crate::ffi::PMIx_Data_array_destruct(&mut self.array) },
+        );
     }
 }
 
@@ -551,6 +589,14 @@ mod info_list_tests {
         crate::mock_ffi::set_mock_info_list_size(1);
         assert_eq!(list.len(), 1);
         assert_eq!(list.iter().len(), 1);
+    }
+
+    #[test]
+    fn converted_info_array_is_owned_by_raii_wrapper() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let list = PmixInfoList::new().unwrap();
+        let converted = list.convert().unwrap();
+        let _ = converted.raw();
     }
 
     #[test]
