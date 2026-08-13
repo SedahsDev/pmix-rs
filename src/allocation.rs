@@ -308,8 +308,7 @@ pub trait AllocationCallback: Send + 'static {
 /// Maps request ID -> callback. Entries are removed when the callback fires.
 static ALLOCATION_REGISTRY: LazyLock<Registry<Box<dyn AllocationCallback>>> =
     LazyLock::new(Registry::new);
-static ALLOCATION_INFO_REGISTRY: LazyLock<Registry<(usize, usize)>> =
-    LazyLock::new(Registry::new);
+static ALLOCATION_INFO_REGISTRY: LazyLock<Registry<(usize, usize)>> = LazyLock::new(Registry::new);
 
 fn release_retained_info(req_id: usize) {
     if let Some((address, len)) = ALLOCATION_INFO_REGISTRY.remove(req_id) {

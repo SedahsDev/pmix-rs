@@ -541,7 +541,11 @@ impl std::ops::Deref for ConvertedInfoArray {
 impl Drop for ConvertedInfoArray {
     fn drop(&mut self) {
         crate::pmix_ffi_or_mock!(
+            // SAFETY: self.array owns a valid, destructible mock data array and
+            // this Drop implementation destroys it exactly once.
             mock = unsafe { crate::mock_ffi::mock_data_array_destruct(&mut self.array) },
+            // SAFETY: self.array owns a valid, destructible PMIx data array and
+            // this Drop implementation destroys it exactly once.
             real = unsafe { crate::ffi::PMIx_Data_array_destruct(&mut self.array) },
         );
     }
