@@ -159,6 +159,8 @@ impl std::fmt::Display for PmixAllocDirective {
 pub struct AllocationResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -177,14 +179,25 @@ impl AllocationResults {
 
 impl Drop for AllocationResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
-            unsafe {
-                // SAFETY: handle was returned by PMIx_Allocation_request as an
-                // allocated pmix_info_t array. PMIx_Info_free releases it.
-                ffi::PMIx_Info_free(self.handle, self.len);
-                self.handle = ptr::null_mut();
-                self.len = 0;
+        if let Some(release_fn) = self.release_fn.take() {
+            // SAFETY: PMIx supplied this callback and opaque data for this
+            // completion; it releases the tracker-owned info array.
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        } else if !self.handle.is_null() && self.len > 0 {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if crate::mock_ffi::is_mock_enabled() {
+                crate::mock_ffi::mock_info_free(self.handle, self.len);
+            } else {
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
             }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            unsafe {
+                ffi::PMIx_Info_free(self.handle, self.len);
+            }
+            self.handle = ptr::null_mut();
+            self.len = 0;
         }
     }
 }
@@ -281,6 +294,8 @@ pub fn allocation_request(
     Ok(AllocationResults {
         handle: results,
         len: nresults,
+        release_fn: None,
+        release_cbdata: ptr::null_mut(),
 
         _not_thread_safe: std::marker::PhantomData,
     })
@@ -334,7 +349,7 @@ extern "C" fn allocation_callback_bridge(
     ninfo: usize,
     cbdata: *mut std::ffi::c_void,
     release_fn: ffi::pmix_release_cbfunc_t,
-    _release_cbdata: *mut std::ffi::c_void,
+    release_cbdata: *mut std::ffi::c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -353,10 +368,8 @@ extern "C" fn allocation_callback_bridge(
         None => {
             // Callback already consumed — free retained request info and result array.
             release_retained_info(req_id);
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    ffi::PMIx_Info_free(info, ninfo);
-                }
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
             return;
         }
@@ -366,6 +379,8 @@ extern "C" fn allocation_callback_bridge(
     let results = AllocationResults {
         handle: info,
         len: ninfo,
+        release_fn,
+        release_cbdata,
 
         _not_thread_safe: std::marker::PhantomData,
     };
@@ -373,8 +388,6 @@ extern "C" fn allocation_callback_bridge(
         cb.on_complete(pmix_status, results);
     });
     release_retained_info(req_id);
-    // release_fn is unused — we manage our own memory via AllocationResults Drop.
-    let _ = release_fn;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -554,6 +567,8 @@ impl std::fmt::Display for PmixJobCtrlAction {
 pub struct JobControlResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -576,6 +591,8 @@ impl JobControlResults {
         Self {
             handle: ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         }
@@ -584,14 +601,23 @@ impl JobControlResults {
 
 impl Drop for JobControlResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
-            unsafe {
-                // SAFETY: handle was returned by PMIx_Job_control as an
-                // allocated pmix_info_t array. PMIx_Info_free releases it.
-                ffi::PMIx_Info_free(self.handle, self.len);
-                self.handle = ptr::null_mut();
-                self.len = 0;
+        if let Some(release_fn) = self.release_fn.take() {
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        } else if !self.handle.is_null() && self.len > 0 {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if crate::mock_ffi::is_mock_enabled() {
+                crate::mock_ffi::mock_info_free(self.handle, self.len);
+            } else {
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
             }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            unsafe {
+                ffi::PMIx_Info_free(self.handle, self.len);
+            }
+            self.handle = ptr::null_mut();
+            self.len = 0;
         }
     }
 }
@@ -693,6 +719,8 @@ pub fn job_control(targets: &[Proc], directives: &[Info]) -> Result<JobControlRe
     Ok(JobControlResults {
         handle: results,
         len: nresults,
+        release_fn: None,
+        release_cbdata: ptr::null_mut(),
 
         _not_thread_safe: std::marker::PhantomData,
     })
@@ -718,7 +746,14 @@ pub trait JobControlCallback: Send + 'static {
 /// Global registry of pending job control callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static JOB_CTRL_REGISTRY: LazyLock<Registry<Box<dyn JobControlCallback>>> =
+struct JobControlDirectives {
+    _flat_targets: Vec<ffi::pmix_proc_t>,
+    _flat_infos: Vec<ffi::pmix_info_t>,
+}
+
+unsafe impl Send for JobControlDirectives {}
+
+static JOB_CTRL_REGISTRY: LazyLock<Registry<(Box<dyn JobControlCallback>, JobControlDirectives)>> =
     LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (job control completion).
@@ -732,7 +767,7 @@ extern "C" fn job_control_callback_bridge(
     ninfo: usize,
     cbdata: *mut std::ffi::c_void,
     release_fn: ffi::pmix_release_cbfunc_t,
-    _release_cbdata: *mut std::ffi::c_void,
+    release_cbdata: *mut std::ffi::c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -742,18 +777,15 @@ extern "C" fn job_control_callback_bridge(
     let req_id = decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
-    let cb = {
+    let entry = {
         let mut registry = JOB_CTRL_REGISTRY.lock();
         registry.remove(&req_id)
     };
-    let cb = match cb {
-        Some(cb) => cb,
+    let (cb, _retained) = match entry {
+        Some(entry) => entry,
         None => {
-            // Callback already consumed — free the info array to avoid leak.
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    ffi::PMIx_Info_free(info, ninfo);
-                }
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
             return;
         }
@@ -763,14 +795,14 @@ extern "C" fn job_control_callback_bridge(
     let results = JobControlResults {
         handle: info,
         len: ninfo,
+        release_fn,
+        release_cbdata,
 
         _not_thread_safe: std::marker::PhantomData,
     };
     let _ = invoke_user_callback("allocation", move || {
         cb.on_complete(pmix_status, results);
     });
-    // release_fn is unused — we manage our own memory via JobControlResults Drop.
-    let _ = release_fn;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -810,8 +842,6 @@ pub fn job_control_nb(
     // returns 0, so cbdata is never null.
     let cbdata = encode_req_id(req_id);
 
-    JOB_CTRL_REGISTRY.lock().insert(req_id, callback);
-
     let flat_targets: Vec<ffi::pmix_proc_t> = targets
         .iter()
         .map(|proc| unsafe { std::ptr::read(&proc.handle) })
@@ -847,6 +877,17 @@ pub fn job_control_nb(
             flat_infos.len(),
         )
     };
+
+    JOB_CTRL_REGISTRY.lock().insert(
+        req_id,
+        (
+            callback,
+            JobControlDirectives {
+                _flat_targets: flat_targets,
+                _flat_infos: flat_infos,
+            },
+        ),
+    );
 
     let status = unsafe {
         // SAFETY:
@@ -890,6 +931,8 @@ pub fn job_control_nb(
 pub struct SessionControlResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -906,12 +949,23 @@ impl SessionControlResults {
 
 impl Drop for SessionControlResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
+        if let Some(release_fn) = self.release_fn.take() {
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        } else if !self.handle.is_null() && self.len > 0 {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if crate::mock_ffi::is_mock_enabled() {
+                crate::mock_ffi::mock_info_free(self.handle, self.len);
+            } else {
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+            }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
             unsafe {
                 ffi::PMIx_Info_free(self.handle, self.len);
-                self.handle = ptr::null_mut();
-                self.len = 0;
             }
+            self.handle = ptr::null_mut();
+            self.len = 0;
         }
     }
 }
@@ -944,7 +998,7 @@ extern "C" fn session_control_callback_bridge(
     ninfo: usize,
     cbdata: *mut c_void,
     release_fn: ffi::pmix_release_cbfunc_t,
-    _release_cbdata: *mut c_void,
+    release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -959,10 +1013,8 @@ extern "C" fn session_control_callback_bridge(
     let (cb, _flat_infos) = match entry {
         Some(entry) => entry,
         None => {
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    ffi::PMIx_Info_free(info, ninfo);
-                }
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
             return;
         }
@@ -972,13 +1024,14 @@ extern "C" fn session_control_callback_bridge(
     let results = SessionControlResults {
         handle: info,
         len: ninfo,
+        release_fn,
+        release_cbdata,
 
         _not_thread_safe: std::marker::PhantomData,
     };
     let _ = invoke_user_callback("allocation", move || {
         cb.on_complete(pmix_status, results);
     });
-    let _ = release_fn;
 }
 
 /// Send a session-level control command to the PMIx server (non-blocking).
@@ -1082,6 +1135,8 @@ pub fn session_control(
                 Ok(Some(SessionControlResults {
                     handle: results,
                     len: nresults,
+                    release_fn: None,
+                    release_cbdata: ptr::null_mut(),
 
                     _not_thread_safe: std::marker::PhantomData,
                 }))
@@ -1222,6 +1277,8 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1234,6 +1291,8 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1441,6 +1500,8 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1453,6 +1514,8 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1563,6 +1626,8 @@ mod tests {
         let results = AllocationResults {
             handle: ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1582,6 +1647,8 @@ mod tests {
         let results = SessionControlResults {
             handle: ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
