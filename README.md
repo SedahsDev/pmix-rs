@@ -36,6 +36,25 @@ Full model, type inventory, progress/pinning, and roadmap: **[THREADING.md](./TH
 
 There is **no** committed `src/bindings.rs`. Bindings are generated into Cargo’s `OUT_DIR` on every build and never touch the working tree.
 
+### Selecting an OpenPMIx installation
+
+The crate requires OpenPMIx **≥ 6.1**. On systems where `pkg-config pmix` finds an older system installation (for example, PMIx 5.0.7), set `PMIX_PREFIX` to a suitable OpenPMIx installation before each clean build:
+
+```bash
+export PMIX_PREFIX=/path/to/openpmix-6.1.0
+export PKG_CONFIG_PATH=$PMIX_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+export LD_LIBRARY_PATH=$PMIX_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+```
+
+`PKG_CONFIG_PATH` and `LD_LIBRARY_PATH` may be omitted when the installation is already discoverable by the system. To pin the prefix once per checkout instead, create `.cargo/config.toml` with:
+
+```toml
+[env]
+PMIX_PREFIX = { value = "/opt/openpmix-6.1.0", force = true }
+```
+
+This configuration is local to the checkout and must be adjusted separately on each machine. The `PMIX_PREFIX` setting takes precedence over `pkg-config` discovery, so it avoids repeatedly selecting an older system installation after `cargo clean`.
+
 ### Debian / Ubuntu
 
 ```bash
