@@ -206,8 +206,26 @@ pub trait GetValueCallback: Send {
 /// function uses this pointer to recover the Rust closure from the registry.
 type GetRegistry = Registry<Box<dyn GetValueCallback>>;
 static GET_REGISTRY: LazyLock<GetRegistry> = LazyLock::new(GetRegistry::new);
+type GetRetainedInputs = (CString, usize, usize);
+static GET_RETAINED_INPUTS: LazyLock<Registry<GetRetainedInputs>> =
+    LazyLock::new(Registry::new);
 static QUALIFIED_GETS: LazyLock<Mutex<std::collections::HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+fn release_retained_get_inputs(req_id: usize) {
+    if let Some((_key, address, len)) = GET_RETAINED_INPUTS.remove(req_id) {
+        if address != 0 {
+            // SAFETY: the pair was created from Box::into_raw for this request
+            // and is removed at most once.
+            unsafe {
+                drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+                    address as *mut ffi::pmix_info_t,
+                    len,
+                )))
+            };
+        }
+    }
+}
 
 
 /// C bridge for `pmix_value_cbfunc_t`.
@@ -238,7 +256,10 @@ extern "C" fn get_value_callback_bridge(
 
     let cb = match cb {
         Some(cb) => cb,
-        None => return, // Callback already consumed or never registered.
+        None => {
+            release_retained_get_inputs(req_id);
+            return; // Callback already consumed or never registered.
+        }
     };
 
     let qualified = QUALIFIED_GETS
@@ -288,6 +309,7 @@ extern "C" fn get_value_callback_bridge(
     let _ = invoke_user_callback("data_ops", move || {
         cb.on_result(pmix_status, value);
     });
+    release_retained_get_inputs(req_id);
 }
 
 /// Non-blocking retrieval of a key-value attribute.
@@ -336,16 +358,26 @@ pub fn get_nb(
         }
     };
 
-    let (info_ptr, ninfo) = match info {
-        Some(info) => {
-            if info.handle.is_null() {
-                (ptr::null(), 0)
-            } else {
-                (info.handle as *const ffi::pmix_info_t, info.len)
-            }
+    let (info_ptr, ninfo, retained_info) = match info {
+        Some(info) if !info.handle.is_null() && info.len > 0 => {
+            // SAFETY: handle points to len initialized pmix_info_t entries owned by the Info borrow.
+            let copied: Vec<ffi::pmix_info_t> = unsafe {
+                std::slice::from_raw_parts(info.handle, info.len)
+                    .iter()
+                    .map(|entry| std::ptr::read(entry))
+                    .collect()
+            };
+            let ninfo = copied.len();
+            let raw = Box::into_raw(copied.into_boxed_slice());
+            (raw as *mut ffi::pmix_info_t, ninfo, (raw as *mut ffi::pmix_info_t as usize, ninfo))
         }
-        None => (ptr::null(), 0),
+        _ => (ptr::null_mut(), 0, (0, 0)),
     };
+    let key_ptr = key_c.as_ptr();
+    GET_RETAINED_INPUTS
+        .lock()
+        .insert(req_id, (key_c, retained_info.0, retained_info.1));
+    let info_ptr = info_ptr as *const ffi::pmix_info_t;
 
     if let Some(info) = info {
         if !info.handle.is_null() && info.len > 0 {
@@ -370,7 +402,7 @@ pub fn get_nb(
         mock = unsafe {
             mock_ffi::mock_get_nb(
                 &proc.handle as *const _ as *const std::ffi::c_void,
-                key_c.as_ptr(),
+                key_ptr,
                 info_ptr as *const std::ffi::c_void,
                 ninfo,
                 Some(get_value_callback_bridge),
@@ -380,7 +412,7 @@ pub fn get_nb(
         real = unsafe {
             ffi::PMIx_Get_nb(
                 &proc.handle as *const ffi::pmix_proc_t,
-                key_c.as_ptr(),
+                key_ptr,
                 info_ptr,
                 ninfo,
                 Some(get_value_callback_bridge),
@@ -405,6 +437,7 @@ pub fn get_nb(
             .remove(&req_id);
         let mut registry = GET_REGISTRY.lock();
         registry.remove(&req_id);
+        release_retained_get_inputs(req_id);
         Err(pmix_status)
     }
 }
