@@ -293,6 +293,8 @@ impl Drop for PmixQuery {
 pub struct QueryResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -319,11 +321,26 @@ impl QueryResults {
 
 impl Drop for QueryResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
+        if let Some(release_fn) = self.release_fn.take() {
+            // SAFETY: PMIx supplied this callback and opaque data for this
+            // completion; it releases the tracker-owned info array.
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        } else if !self.handle.is_null() && self.len > 0 {
             unsafe {
                 // SAFETY: handle was returned by PMIx_Query_info as an
                 // allocated pmix_info_t array. PMIx_Info_free releases it.
-                ffi::PMIx_Info_free(self.handle, self.len);
+                #[cfg(any(test, feature = "mock_ffi"))]
+                if mock_ffi::is_mock_enabled() {
+                    mock_ffi::mock_info_free(self.handle, self.len);
+                } else {
+                    ffi::PMIx_Info_free(self.handle, self.len);
+                }
+                #[cfg(not(any(test, feature = "mock_ffi")))]
+                {
+                    ffi::PMIx_Info_free(self.handle, self.len);
+                }
                 self.handle = ptr::null_mut();
                 self.len = 0;
             }
@@ -396,6 +413,8 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
         Ok(QueryResults {
             handle: results,
             len: nresults,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         })
@@ -441,16 +460,15 @@ static QUERY_REGISTRY: LazyLock<Registry<Box<dyn QueryCallback>>> = LazyLock::ne
 /// parameter encodes the request ID. We look up the registered closure
 /// and invoke it with the result status and info array.
 ///
-/// The PMIx 4.1 callback signature includes release_fn and release_cbdata
-/// parameters for custom memory management — we pass None/null since we
-/// use our own ownership model.
+/// The PMIx callback supplies release_fn and release_cbdata for releasing the
+/// PMIx-owned result array after the result is no longer needed.
 extern "C" fn query_callback_bridge(
     status: ffi::pmix_status_t,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
     cbdata: *mut c_void,
-    release_fn: ffi::pmix_release_cbfunc_t,
-    _release_cbdata: *mut c_void,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -467,20 +485,9 @@ extern "C" fn query_callback_bridge(
     let cb = match cb {
         Some(cb) => cb,
         None => {
-            // Callback already consumed — free the info array to avoid leak.
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    #[cfg(any(test, feature = "mock_ffi"))]
-                    if mock_ffi::is_mock_enabled() {
-                        mock_ffi::mock_info_free(info, ninfo);
-                    } else {
-                        ffi::PMIx_Info_free(info, ninfo);
-                    }
-                    #[cfg(not(any(test, feature = "mock_ffi")))]
-                    {
-                        ffi::PMIx_Info_free(info, ninfo);
-                    }
-                }
+            // Callback already consumed — release the PMIx-owned result array.
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
             return;
         }
@@ -490,14 +497,14 @@ extern "C" fn query_callback_bridge(
     let results = QueryResults {
         handle: info,
         len: ninfo,
+        release_fn,
+        release_cbdata,
 
         _not_thread_safe: std::marker::PhantomData,
     };
     let _ = invoke_user_callback("query_log", move || {
         cb.on_complete(pmix_status, results);
     });
-    // release_fn is unused — we manage our own memory via QueryResults Drop.
-    let _ = release_fn;
 }
 
 /// Non-blocking query of the PMIx server for information.
@@ -974,6 +981,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -986,6 +995,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 3,
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -998,6 +1009,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 5,
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1011,6 +1024,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1022,6 +1037,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 5,
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1071,6 +1088,36 @@ mod tests {
         query_callback_bridge(0, std::ptr::null_mut(), 0, cbdata, None, release_cbdata);
 
         assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_query_callback_bridge_releases_results_on_drop() {
+        unsafe extern "C" fn record_release(cbdata: *mut c_void) {
+            let called = unsafe { &*(cbdata.cast::<std::sync::atomic::AtomicUsize>()) };
+            called.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        struct TestCallback;
+        impl QueryCallback for TestCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, results: QueryResults) {
+                assert!(results.is_empty());
+            }
+        }
+
+        let called = std::sync::atomic::AtomicUsize::new(0);
+        let req_id = QUERY_REGISTRY.insert_next(Box::new(TestCallback));
+        let cbdata = crate::cbdata::encode_req_id(req_id);
+        query_callback_bridge(
+            0,
+            std::ptr::null_mut(),
+            0,
+            cbdata,
+            Some(record_release),
+            (&called as *const std::sync::atomic::AtomicUsize)
+                .cast_mut()
+                .cast(),
+        );
+
+        assert_eq!(called.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -1429,6 +1476,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
@@ -1583,6 +1632,8 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: usize::MAX,
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
