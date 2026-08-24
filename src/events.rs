@@ -59,6 +59,8 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
+use crate::threading::invoke_user_callback;
+
 /// PMIx event notification completion callback type (re-exported for external use).
 ///
 /// This is the callback type used by `NotificationFn` to signal completion
@@ -421,14 +423,16 @@ extern "C" fn handler_reg_cb_bridge(status: i32, refid: EventHandlerRef, cbdata:
     if PmixStatus::from_raw(status).is_success() {
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(refid, state.user_fn);
     }
 
     if let Some(user_cbfunc) = state.user_cbfunc {
         // SAFETY: user-supplied completion callback with user-supplied opaque
         // cbdata; both are forwarded verbatim from the registration call.
-        unsafe { user_cbfunc(status, refid, state.user_cbdata) };
+        let _ = invoke_user_callback("events", || unsafe {
+            user_cbfunc(status, refid, state.user_cbdata)
+        });
     }
 }
 
@@ -520,7 +524,7 @@ pub fn register_event_handler(
     if evhdlr.is_some() {
         PENDING_REGISTRATIONS
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .push(PendingRegistration {
                 codes: codes.iter().map(|status| status.to_raw()).collect(),
                 user_fn: Box::new(evhdlr),
@@ -555,7 +559,7 @@ pub fn register_event_handler(
             // are never nested in the bridge, avoiding an ABBA cycle.
             let mut pending = PENDING_REGISTRATIONS
                 .lock()
-                .expect("mutex poisoned (events.rs)");
+                .unwrap_or_else(|e| e.into_inner());
             let user_fn = pending
                 .last()
                 .expect("pending blocking registration missing")
@@ -563,7 +567,7 @@ pub fn register_event_handler(
                 .expect("pending blocking notification fn missing");
             HANDLER_REGISTRY
                 .lock()
-                .expect("mutex poisoned (events.rs)")
+                .unwrap_or_else(|e| e.into_inner())
                 .insert(handler_ref, Box::new(Some(user_fn)));
             pending.pop();
         }
@@ -572,7 +576,7 @@ pub fn register_event_handler(
         if evhdlr.is_some() {
             PENDING_REGISTRATIONS
                 .lock()
-                .expect("mutex poisoned (events.rs)")
+                .unwrap_or_else(|e| e.into_inner())
                 .pop();
         }
         Err(status)
@@ -734,11 +738,11 @@ pub fn deregister_event_handler(
     // is possible while preserving registry-first removal for UAF safety.
     DEREG_IN_PROGRESS
         .lock()
-        .expect("mutex poisoned (events.rs)")
+        .unwrap_or_else(|e| e.into_inner())
         .insert(evhdlr_ref);
     HANDLER_REGISTRY
         .lock()
-        .expect("mutex poisoned (events.rs)")
+        .unwrap_or_else(|e| e.into_inner())
         .remove(&evhdlr_ref);
 
     let raw_status =
@@ -749,7 +753,7 @@ pub fn deregister_event_handler(
     let status = PmixStatus::from_raw(raw_status);
     DEREG_IN_PROGRESS
         .lock()
-        .expect("mutex poisoned (events.rs)")
+        .unwrap_or_else(|e| e.into_inner())
         .remove(&evhdlr_ref);
     if status.is_success() {
         Ok(())
@@ -780,11 +784,11 @@ pub fn deregister_event_handler_nb(
     // first prevents pending fallback from claiming an in-flight delivery.
     DEREG_IN_PROGRESS
         .lock()
-        .expect("mutex poisoned (events.rs)")
+        .unwrap_or_else(|e| e.into_inner())
         .insert(evhdlr_ref);
     HANDLER_REGISTRY
         .lock()
-        .expect("mutex poisoned (events.rs)")
+        .unwrap_or_else(|e| e.into_inner())
         .remove(&evhdlr_ref);
 
     // SAFETY: FFI call into PMIx library. Same safety considerations as
@@ -794,7 +798,7 @@ pub fn deregister_event_handler_nb(
     let status = PmixStatus::from_raw(raw_status);
     DEREG_IN_PROGRESS
         .lock()
-        .expect("mutex poisoned (events.rs)")
+        .unwrap_or_else(|e| e.into_inner())
         .remove(&evhdlr_ref);
     if status.is_success() {
         Ok(())
@@ -941,12 +945,12 @@ extern "C" fn notify_state_bridge(status: i32, cbdata: *mut c_void) {
     if cbdata.is_null() {
         return;
     }
-    let x = unsafe { Box::from_raw(cbdata as *mut NotifyState) };
-    if let Some(cb) = x.cbfunc {
-        unsafe {
-            cb(status, x.cbdata);
+    let _ = invoke_user_callback("events", || {
+        let x = unsafe { Box::from_raw(cbdata as *mut NotifyState) };
+        if let Some(cb) = x.cbfunc {
+            unsafe { cb(status, x.cbdata) };
         }
-    }
+    });
 }
 
 #[cfg(test)]
@@ -1030,7 +1034,7 @@ mod tests {
     fn test_handler_registry_insert_lookup_remove() {
         let ref_id: EventHandlerRef = 424242;
         {
-            let mut registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+            let mut registry = HANDLER_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
             registry.insert(ref_id, Box::new(Some(test_handler)));
             let found = registry.get(&ref_id).and_then(|b| *b.as_ref());
             assert!(found.is_some(), "user fn should be findable by ref id");
@@ -1067,7 +1071,7 @@ mod tests {
 
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(ref_id, Box::new(Some(recording_handler)));
 
         unsafe {
@@ -1095,7 +1099,7 @@ mod tests {
         );
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .remove(&ref_id);
     }
 
@@ -1210,7 +1214,7 @@ mod tests {
         CALLED.store(0, Ordering::SeqCst);
         PENDING_REGISTRATIONS
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .push(PendingRegistration {
                 codes: vec![17],
                 user_fn: Box::new(Some(handler)),
@@ -1234,24 +1238,24 @@ mod tests {
         assert_eq!(CALLED.load(Ordering::SeqCst), 1);
         let pending = PENDING_REGISTRATIONS
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .pop()
             .unwrap();
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(424252, pending.user_fn);
         assert!(
             HANDLER_REGISTRY
                 .lock()
-                .expect("mutex poisoned (events.rs)")
+                .unwrap_or_else(|e| e.into_inner())
                 .contains_key(&424252)
         );
         // Leave a non-matching pending entry to verify that the re-keyed
         // handler is delivered; the registry-miss path is covered elsewhere.
         PENDING_REGISTRATIONS
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .push(PendingRegistration {
                 codes: vec![18],
                 user_fn: Box::new(Some(handler)),
@@ -1308,14 +1312,14 @@ mod tests {
         let ref_id = 424253;
         PENDING_REGISTRATIONS
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .push(PendingRegistration {
                 codes: vec![17],
                 user_fn: Box::new(Some(handler)),
             });
         DEREG_IN_PROGRESS
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(ref_id);
         // SAFETY: test invokes the bridge with null FFI pointers; the
         // completion callback is valid for this call.
@@ -1377,7 +1381,7 @@ mod tests {
 
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(ref_id, Box::new(Some(panicking_handler)));
 
         // Must return normally (panic contained) — would abort the test thread
@@ -1409,7 +1413,7 @@ mod tests {
 
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .remove(&ref_id);
     }
 
@@ -1418,12 +1422,12 @@ mod tests {
         let ref_id: EventHandlerRef = 424_251;
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(ref_id, Box::new(Some(test_handler)));
         assert!(
             HANDLER_REGISTRY
                 .lock()
-                .expect("mutex poisoned (events.rs)")
+                .unwrap_or_else(|e| e.into_inner())
                 .contains_key(&ref_id)
         );
 
@@ -1432,7 +1436,7 @@ mod tests {
         assert!(
             HANDLER_REGISTRY
                 .lock()
-                .expect("mutex poisoned (events.rs)")
+                .unwrap_or_else(|e| e.into_inner())
                 .is_empty(),
             "finalize cleanup must drop every parked NotificationFn"
         );
@@ -1463,14 +1467,14 @@ mod tests {
         ) {
             if let Some(tx) = ENTER_TX
                 .lock()
-                .expect("mutex poisoned (events.rs)")
+                .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
             {
                 let _ = tx.send(());
             }
             if let Some(rx) = RELEASE_RX
                 .lock()
-                .expect("mutex poisoned (events.rs)")
+                .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
             {
                 let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
@@ -1479,13 +1483,13 @@ mod tests {
 
         let (enter_tx, enter_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
-        *ENTER_TX.lock().expect("mutex poisoned (events.rs)") = Some(enter_tx);
-        *RELEASE_RX.lock().expect("mutex poisoned (events.rs)") = Some(release_rx);
+        *ENTER_TX.lock().unwrap_or_else(|e| e.into_inner()) = Some(enter_tx);
+        *RELEASE_RX.lock().unwrap_or_else(|e| e.into_inner()) = Some(release_rx);
 
         let ref_id: EventHandlerRef = 424244;
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(ref_id, Box::new(Some(blocking_handler)));
 
         // Stand-in "progress thread": delivers the event, blocking inside the
@@ -1524,7 +1528,7 @@ mod tests {
 
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .remove(&ref_id);
     }
 
@@ -1558,7 +1562,7 @@ mod tests {
         // and the user's completion callback was forwarded the ref id.
         assert_eq!(REG_REFID.load(Ordering::SeqCst), ref_id);
         let parked = {
-            let registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+            let registry = HANDLER_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
             registry.get(&ref_id).and_then(|b| *b.as_ref())
         };
         assert!(
@@ -1567,7 +1571,7 @@ mod tests {
         );
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .remove(&ref_id);
     }
 
@@ -1600,7 +1604,7 @@ mod tests {
         // Failure: nothing parked (box freed instead), user cbfunc still
         // forwarded the error status verbatim.
         assert_eq!(REG_STATUS.load(Ordering::SeqCst), -39);
-        let registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+        let registry = HANDLER_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
         assert!(
             registry.get(&ref_id).is_none(),
             "no fn parked on failed registration"
@@ -1612,14 +1616,14 @@ mod tests {
         let ref_id: EventHandlerRef = 424247;
         HANDLER_REGISTRY
             .lock()
-            .expect("mutex poisoned (events.rs)")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(ref_id, Box::new(Some(test_handler)));
 
         // Without PMIx init the C call fails, but the registry entry is freed
         // first — no handler can fire into freed memory after this returns.
         let _ = deregister_event_handler(ref_id, None);
 
-        let registry = HANDLER_REGISTRY.lock().expect("mutex poisoned (events.rs)");
+        let registry = HANDLER_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
         assert!(
             registry.get(&ref_id).is_none(),
             "deregistration must free the user fn"
