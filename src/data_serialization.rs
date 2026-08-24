@@ -776,10 +776,7 @@ pub fn data_print<T>(
     // Convert optional prefix to C string.
     let prefix_ptr: *mut std::os::raw::c_char = match prefix {
         Some(s) if !s.is_empty() => {
-            let c_str = std::ffi::CString::new(s).unwrap_or_else(|_| {
-                // If the prefix contains null bytes, fall back to empty.
-                std::ffi::CString::new("").expect("CString::new interior NUL (data_serialization.rs)")
-            });
+            let c_str = std::ffi::CString::new(s).map_err(|_| PmixStatus::from_raw(-27))?;
             c_str.into_raw()
         }
         _ => ptr::null_mut(),
@@ -850,9 +847,8 @@ impl PmixPrintOutput {
             .into_owned();
         // Free the C allocation — the Rust String owns its own copy now.
         // SAFETY: ptr was allocated by asprintf (standard malloc).
-        // CString::from_raw takes ownership and calls free() on drop.
         unsafe {
-            let _ = std::ffi::CString::from_raw(ptr);
+            libc::free(ptr as *mut libc::c_void);
         }
         Self { inner: s }
     }
@@ -1289,6 +1285,27 @@ mod tests {
     }
 
     // ── PmixPrintOutput ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_print_rejects_interior_nul_prefix() {
+        let value = 42_i32;
+        let result = data_print(&value, Some("prefix\0suffix"), PmixDataType::Int32);
+        assert!(matches!(result, Err(status) if status == PmixStatus::from_raw(-27)));
+    }
+
+    #[test]
+    fn test_print_output_frees_malloc_allocated_output() {
+        let raw = unsafe {
+            let bytes = b"malloc output\0";
+            let ptr = libc::malloc(bytes.len()) as *mut u8;
+            assert!(!ptr.is_null());
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+            ptr as *mut std::os::raw::c_char
+        };
+        let output = unsafe { PmixPrintOutput::from_raw(raw) };
+        assert_eq!(output.as_str(), "malloc output");
+        drop(output);
+    }
 
     #[test]
     fn test_print_output_default() {
