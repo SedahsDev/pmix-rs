@@ -1572,9 +1572,17 @@ use super::*;
 
     #[test]
     fn test_proc_new_long_namespace() {
-        let long_ns = "a".repeat(256);
-        let proc = Proc::new(&long_ns, 0).unwrap();
-        assert_eq!(proc.get_rank(), 0);
+        // Over-length nspace (> PMIX_MAX_NSLEN) is rejected, not truncated.
+        assert!(matches!(
+            Proc::new(&"a".repeat(ffi::PMIX_MAX_NSLEN as usize + 1), 0),
+            Err(PmixError::ErrBadParam)
+        ));
+        // A valid-length namespace still succeeds.
+        assert!(Proc::new(
+            &"a".repeat(ffi::PMIX_MAX_NSLEN as usize),
+            0
+        )
+        .is_ok());
     }
 
     #[test]
