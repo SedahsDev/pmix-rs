@@ -72,10 +72,94 @@ use crate::security::PmixCredential;
 use crate::cbdata::Registry;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
+
+#[allow(dead_code)]
+struct RetainedServerData {
+    infos: Vec<ffi::pmix_info_t>,
+    directives: Vec<ffi::pmix_info_t>,
+    source: Option<Box<ffi::pmix_proc_t>>,
+    bo: Option<Box<ffi::pmix_byte_object_t>>,
+    bo_bytes: Option<Vec<u8>>,
+}
+
+unsafe impl Send for RetainedServerData {}
+
+static SERVER_RETAINED_DATA: LazyLock<Mutex<HashMap<usize, RetainedServerData>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn retained_info(info: &Info) -> Vec<ffi::pmix_info_t> {
+    if info.handle.is_null() || info.len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: Info owns a valid array of `len` initialized PMIx entries.
+        unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+            .iter()
+            .map(|entry| unsafe { std::ptr::read(entry) })
+            .collect()
+    }
+}
+
+fn release_server_retained_data(req_id: usize) {
+    SERVER_RETAINED_DATA
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
+}
+
+fn retain_server_info(req_id: usize, info: &Info) -> (*mut ffi::pmix_info_t, usize) {
+    let infos = retained_info(info);
+    let ninfo = infos.len();
+    let ptr = if infos.is_empty() {
+        ptr::null_mut()
+    } else {
+        infos.as_ptr() as *mut _
+    };
+    SERVER_RETAINED_DATA
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedServerData {
+            infos,
+            directives: Vec::new(),
+            source: None,
+            bo: None,
+            bo_bytes: None,
+        });
+    (ptr, ninfo)
+}
+
+fn retain_server_iof(req_id: usize, source: &Proc, bo: &crate::data_serialization::PmixByteObject, info: &Info) -> (*const ffi::pmix_proc_t, *const ffi::pmix_byte_object_t, *mut ffi::pmix_info_t, usize) {
+    let infos = retained_info(info);
+    let ninfo = infos.len();
+    let bo_bytes = bo.as_slice().to_vec();
+    let source = Box::new(source.handle);
+    let bo = Box::new(ffi::pmix_byte_object_t {
+        bytes: if bo_bytes.is_empty() {
+            ptr::null_mut()
+        } else {
+            bo_bytes.as_ptr() as *mut c_char
+        },
+        size: bo_bytes.len(),
+    });
+    let source_ptr = source.as_ref() as *const _;
+    let bo_ptr = bo.as_ref() as *const _;
+    let info_ptr = if infos.is_empty() { ptr::null_mut() } else { infos.as_ptr() as *mut _ };
+    SERVER_RETAINED_DATA
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedServerData {
+            infos,
+            directives: Vec::new(),
+            source: Some(source),
+            bo: Some(bo),
+            bo_bytes: Some(bo_bytes),
+        });
+    (source_ptr, bo_ptr, info_ptr, ninfo)
+}
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
@@ -544,6 +628,8 @@ pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_statu
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
+    release_server_retained_data(req_id);
+
     // Look up and remove the callback from the registry.
     let cb = {
         let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
@@ -652,11 +738,7 @@ pub fn server_register_nspace(
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare info parameters.
-    let (info_ptr, ninfo) = if info.len > 0 {
-        (info.handle, info.len)
-    } else {
-        (ptr::null_mut(), 0)
-    };
+    let (info_ptr, ninfo) = retain_server_info(req_id, info);
 
     // Call the FFI function.
     let status = unsafe {
@@ -686,6 +768,7 @@ pub fn server_register_nspace(
         // will never be invoked.
         let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
         registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -1645,6 +1728,8 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(provided_cbdata);
 
+    release_server_retained_data(req_id);
+
     // Copy the info array before the PMIx library frees it.
     // The info array is owned by PMIx until we call the ack callback.
     //
@@ -1826,13 +1911,8 @@ pub fn server_setup_application(
     // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    // Get the info array pointer and length.
-    let info_ptr = if info.len > 0 {
-        info.handle
-    } else {
-        ptr::null_mut()
-    };
-    let info_len = info.len;
+    // Retain the info array while PMIx processes the threadshifted request.
+    let (info_ptr, info_len) = retain_server_info(req_id, info);
 
     // Call the FFI function.
     let status = unsafe {
@@ -1858,14 +1938,17 @@ pub fn server_setup_application(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() {
-        // Request accepted — callback will be invoked asynchronously.
-        Ok(())
-    } else {
-        // Immediate failure — remove the registered callback so it
-        // will never be invoked.
+    if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+        release_server_retained_data(req_id);
         let mut registry = SETUP_APPLICATION_REGISTRY.lock();
         registry.remove(&req_id);
+        Ok(())
+    } else if pmix_status.is_success() {
+        Ok(())
+    } else {
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock();
+        registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -1902,6 +1985,8 @@ pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_s
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+
+    release_server_retained_data(req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -2010,11 +2095,7 @@ pub fn server_setup_local_support(
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare info parameters.
-    let (info_ptr, ninfo) = if info.len > 0 {
-        (info.handle, info.len)
-    } else {
-        (ptr::null_mut(), 0)
-    };
+    let (info_ptr, ninfo) = retain_server_info(req_id, info);
 
     // Call the FFI function.
     let status = unsafe {
@@ -2043,6 +2124,7 @@ pub fn server_setup_local_support(
         // Immediately processed and succeeded — callback was not called.
         let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
         registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Ok(())
     } else if pmix_status.is_success() {
         // PMIX_SUCCESS — callback will be invoked asynchronously.
@@ -2052,6 +2134,7 @@ pub fn server_setup_local_support(
         // will never be invoked.
         let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
         registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -2096,6 +2179,8 @@ pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t,
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+
+    release_server_retained_data(req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -2215,18 +2300,8 @@ pub fn server_iof_deliver(
     // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    // Get a pointer to the source proc's internal pmix_proc_t for FFI.
-    let source_ptr = &source.handle as *const ffi::pmix_proc_t;
-
-    // Get the byte object pointer.
-    let bo_ptr = bo.as_ptr();
-
-    // Prepare info parameters.
-    let (info_ptr, ninfo) = if info.len > 0 {
-        (info.handle, info.len)
-    } else {
-        (ptr::null_mut(), 0)
-    };
+    // Retain all inputs PMIx may access after this call returns.
+    let (source_ptr, bo_ptr, info_ptr, ninfo) = retain_server_iof(req_id, source, bo, info);
 
     // Call the FFI function.
     let status = unsafe {
@@ -2259,14 +2334,17 @@ pub fn server_iof_deliver(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() {
-        // Request accepted — callback will be invoked asynchronously.
-        Ok(())
-    } else {
-        // Immediate failure — remove the registered callback so it
-        // will never be invoked.
+    if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+        release_server_retained_data(req_id);
         let mut registry = IOF_DELIVER_REGISTRY.lock();
         registry.remove(&req_id);
+        Ok(())
+    } else if pmix_status.is_success() {
+        Ok(())
+    } else {
+        let mut registry = IOF_DELIVER_REGISTRY.lock();
+        registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -2356,6 +2434,8 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+
+    release_server_retained_data(req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -2467,12 +2547,7 @@ pub fn server_collect_inventory(
         registry.insert(req_id, callback);
     }
 
-    // Convert the directives Info slice to C pointers.
-    let (directives_ptr, ndirs) = if directives.len > 0 {
-        (directives.handle, directives.len)
-    } else {
-        (ptr::null_mut(), 0)
-    };
+    let (directives_ptr, ndirs) = retain_server_info(req_id, directives);
 
     let status = unsafe {
         // SAFETY:
@@ -2497,13 +2572,17 @@ pub fn server_collect_inventory(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() {
-        // Request accepted — callback will be invoked asynchronously.
-        Ok(())
-    } else {
-        // Request was rejected — remove the callback so it doesn't leak.
+    if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+        release_server_retained_data(req_id);
         let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
         registry.remove(&req_id);
+        Ok(())
+    } else if pmix_status.is_success() {
+        Ok(())
+    } else {
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
+        registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -2562,6 +2641,8 @@ pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_sta
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+
+    release_server_retained_data(req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
@@ -2666,19 +2747,14 @@ pub fn server_deliver_inventory(
             registry.insert(req_id, cb);
         }
 
-        // Convert inventory Info slice to C pointers.
-        let (info_ptr, ninfo) = if inventory.len > 0 {
-            (inventory.handle, inventory.len)
-        } else {
-            (ptr::null_mut(), 0)
-        };
-
-        // Convert directives Info slice to C pointers.
-        let (directives_ptr, ndirs) = if directives.len > 0 {
-            (directives.handle, directives.len)
-        } else {
-            (ptr::null_mut(), 0)
-        };
+        // Retain both arrays while PMIx processes this threadshifted request.
+        let retained_inventory = retained_info(inventory);
+        let retained_directives = retained_info(directives);
+        let ninfo = retained_inventory.len();
+        let ndirs = retained_directives.len();
+        let info_ptr = if ninfo == 0 { ptr::null_mut() } else { retained_inventory.as_ptr() as *mut _ };
+        let directives_ptr = if ndirs == 0 { ptr::null_mut() } else { retained_directives.as_ptr() as *mut _ };
+        SERVER_RETAINED_DATA.lock().unwrap_or_else(|e| e.into_inner()).insert(req_id, RetainedServerData { infos: retained_inventory, directives: retained_directives, source: None, bo: None, bo_bytes: None });
 
         let status = unsafe {
             // SAFETY:
@@ -2707,13 +2783,17 @@ pub fn server_deliver_inventory(
 
         let pmix_status = PmixStatus::from_raw(status);
 
-        if pmix_status.is_success() {
-            // Request accepted — callback will be invoked asynchronously.
-            Ok(())
-        } else {
-            // Request was rejected — remove the callback so it doesn't leak.
+        if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+            release_server_retained_data(req_id);
             let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
             registry.remove(&req_id);
+            Ok(())
+        } else if pmix_status.is_success() {
+            Ok(())
+        } else {
+            let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
+            registry.remove(&req_id);
+            release_server_retained_data(req_id);
             Err(pmix_status)
         }
     } else {
