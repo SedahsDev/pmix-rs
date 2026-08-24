@@ -52,6 +52,23 @@ use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
 
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MonitorResults — owned result set from process_monitor()
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +81,8 @@ use crate::{Info, PmixError, PmixStatus};
 pub struct MonitorResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -87,6 +106,8 @@ impl MonitorResults {
         Self {
             handle: std::ptr::null_mut(),
             len,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         }
@@ -95,14 +116,28 @@ impl MonitorResults {
 
 impl Drop for MonitorResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
-            unsafe {
-                // SAFETY: handle was returned by PMIx_Process_monitor as an
-                // allocated pmix_info_t array. PMIx_Info_free releases it.
-                ffi::PMIx_Info_free(self.handle, self.len);
-                self.handle = ptr::null_mut();
-                self.len = 0;
+        if let Some(release_fn) = self.release_fn.take() {
+            // SAFETY: PMIx supplied this callback and opaque data for this
+            // completion; it releases the tracker-owned info array.
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        } else if !self.handle.is_null() && self.len > 0 {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if crate::mock_ffi::is_mock_enabled() {
+                // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
+                unsafe { crate::mock_ffi::mock_info_free(self.handle, self.len) };
+            } else {
+                // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
             }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            {
+                // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+            }
+            self.handle = ptr::null_mut();
+            self.len = 0;
         }
     }
 }
@@ -148,8 +183,8 @@ unsafe extern "C" fn monitor_callback_bridge(
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
     cbdata: *mut c_void,
-    _release_fn: ffi::pmix_release_cbfunc_t,
-    _release_cbdata: *mut c_void,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    release_cbdata: *mut c_void,
 ) {
     // Decode the request ID from the cbdata pointer.
     let req_id = decode_req_id(cbdata);
@@ -170,10 +205,15 @@ unsafe extern "C" fn monitor_callback_bridge(
                 Some(MonitorResults {
                     handle: info,
                     len: ninfo,
+                    release_fn,
+                    release_cbdata,
 
                     _not_thread_safe: std::marker::PhantomData,
                 })
             } else {
+                if let Some(release_fn) = release_fn {
+                    unsafe { release_fn(release_cbdata) };
+                }
                 None
             };
             let _ = invoke_user_callback("monitoring", move || {
@@ -181,13 +221,10 @@ unsafe extern "C" fn monitor_callback_bridge(
             });
         }
         None => {
-            // Callback already consumed or never registered — free the info
-            // array to avoid a leak if one was provided.
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    // SAFETY: info was passed by PMIx as an allocated array.
-                    ffi::PMIx_Info_free(info, ninfo);
-                }
+            // Callback already consumed or never registered — release the
+            // PMIx-owned callback allocation if one was provided.
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
         }
     }
@@ -241,24 +278,12 @@ pub fn process_monitor(
     let mut nresults: usize = 0;
 
     // Build a flat array of directive info entries.
+    let flat;
     let (dirs_ptr, ndirs) = if directives.is_empty() {
         (ptr::null(), 0)
     } else {
-        // Info stores a handle to the first element and a length.
-        // Directives from a single InfoBuilder are contiguous.
-        if directives.len() == 1 {
-            (
-                directives[0].handle as *const ffi::pmix_info_t,
-                directives[0].len,
-            )
-        } else {
-            // Multiple Info objects — use the first's pointer.
-            // In practice, callers should pass a single Info containing all directives.
-            (
-                directives[0].handle as *const ffi::pmix_info_t,
-                directives[0].len,
-            )
-        }
+        flat = flat_infos(directives);
+        (flat.as_ptr(), flat.len())
     };
 
     let status = unsafe {
@@ -283,6 +308,8 @@ pub fn process_monitor(
         Ok(MonitorResults {
             handle: results,
             len: nresults,
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         })
@@ -675,6 +702,19 @@ mod tests {
         cb.on_complete(PmixStatus::from_raw(-1), Some(dummy_results));
         assert!(!status.lock().unwrap().as_ref().unwrap().is_success());
         assert!(*had_results.lock().unwrap());
+    }
+
+    #[test]
+    fn test_flat_infos_concatenates_multiple_info_objects() {
+        use crate::InfoBuilder;
+        let mut first_builder = InfoBuilder::new();
+        first_builder.collect_data();
+        let first = first_builder.build().expect("build first info");
+        let mut second_builder = InfoBuilder::new();
+        second_builder.collect_data();
+        let second = second_builder.build().expect("build second info");
+
+        assert_eq!(flat_infos(&[first, second]).len(), 2);
     }
 
     /// process_monitor with success-like error code.
