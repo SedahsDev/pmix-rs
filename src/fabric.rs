@@ -117,6 +117,8 @@ pub struct PmixFabric {
     /// Whether this fabric has been registered with PMIx.
     registered: Arc<AtomicBool>,
     register_complete: Arc<AtomicBool>,
+    /// Whether a non-blocking operation retains the raw fabric pointer.
+    operation_pending: Arc<AtomicBool>,
     /// Raw C struct for FFI calls.
     raw: Box<ffi::pmix_fabric_t>,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
@@ -157,6 +159,7 @@ impl PmixFabric {
             module: ptr::null_mut(),
             registered: Arc::new(AtomicBool::new(false)),
             register_complete: Arc::new(AtomicBool::new(false)),
+            operation_pending: Arc::new(AtomicBool::new(false)),
             // SAFETY: pmix_fabric_t is a C POD struct; zero initializes its pointers and scalars.
             raw: Box::new(unsafe { std::mem::zeroed() }),
 
@@ -173,6 +176,7 @@ impl PmixFabric {
             module: ptr::null_mut(),
             registered: Arc::new(AtomicBool::new(false)),
             register_complete: Arc::new(AtomicBool::new(false)),
+            operation_pending: Arc::new(AtomicBool::new(false)),
             // SAFETY: pmix_fabric_t is a C POD struct; zero initializes its pointers and scalars.
             raw: Box::new(unsafe { std::mem::zeroed() }),
 
@@ -253,6 +257,18 @@ impl PmixFabric {
     }
 }
 
+impl Drop for PmixFabric {
+    fn drop(&mut self) {
+        debug_assert!(
+            !self.operation_pending.load(Ordering::Acquire),
+            "PmixFabric must remain alive until its non-blocking operation completes"
+        );
+        if self.is_registered() {
+            let _ = fabric_deregister(self);
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback traits for non-blocking fabric operations
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +292,7 @@ struct FabricCallbackWrapper {
     _directives: Option<Vec<ffi::pmix_info_t>>,
     registered: Option<Arc<AtomicBool>>,
     register_complete: Option<Arc<AtomicBool>>,
+    operation_pending: Option<Arc<AtomicBool>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -339,6 +356,7 @@ pub fn fabric_register(fabric: &mut PmixFabric, directives: &[Info]) -> Result<(
 ///
 /// Returns immediately and invokes the provided callback when the operation
 /// completes.
+/// The fabric must remain alive until the callback is invoked.
 ///
 /// # Arguments
 /// * `fabric` — A mutable [`PmixFabric`] to register.
@@ -371,6 +389,7 @@ pub fn fabric_register_nb(
         _directives: Some(flat_infos),
         registered: Some(Arc::clone(&fabric.registered)),
         register_complete: Some(Arc::clone(&fabric.register_complete)),
+        operation_pending: Some(Arc::clone(&fabric.operation_pending)),
     };
     let wrapper_ptr = Box::into_raw(Box::new(wrapper)) as *mut std::os::raw::c_void;
 
@@ -388,9 +407,13 @@ pub fn fabric_register_nb(
             registered.store(pmix_status.is_success(), Ordering::Release);
             complete.store(true, Ordering::Release);
         }
+        if let Some(pending) = wrapper.operation_pending.as_ref() {
+            pending.store(false, Ordering::Release);
+        }
         wrapper.callback.on_complete(pmix_status);
     }
 
+    fabric.operation_pending.store(true, Ordering::Release);
     let fabric_ptr = fabric.as_mut_ptr();
     let status;
     #[cfg(any(test, feature = "mock_ffi"))]
@@ -437,6 +460,7 @@ pub fn fabric_register_nb(
         Ok(())
     } else {
         // Callback was not queued; reclaim the wrapper.
+        fabric.operation_pending.store(false, Ordering::Release);
         let _ = unsafe { Box::from_raw(wrapper_ptr as *mut FabricCallbackWrapper) };
         Err(pmix_status)
     }
@@ -492,6 +516,8 @@ pub fn fabric_update(fabric: &mut PmixFabric) -> Result<(), PmixStatus> {
 
 /// Non-blocking variant of [`fabric_update`].
 ///
+/// The fabric must remain alive until the callback is invoked.
+///
 /// # C API
 /// `pmix_status_t PMIx_Fabric_update_nb(pmix_fabric_t *fabric,`
 /// `                                    pmix_op_cbfunc_t cbfunc, void *cbdata);`
@@ -508,6 +534,7 @@ pub fn fabric_update_nb(
         _directives: None,
         registered: None,
         register_complete: None,
+        operation_pending: Some(Arc::clone(&fabric.operation_pending)),
     };
     let wrapper_ptr = Box::into_raw(Box::new(wrapper)) as *mut std::os::raw::c_void;
 
@@ -515,9 +542,13 @@ pub fn fabric_update_nb(
         let wrapper_ptr = cbdata as *mut FabricCallbackWrapper;
         let wrapper = unsafe { Box::from_raw(wrapper_ptr) };
         let pmix_status = PmixStatus::from_raw(status);
+        if let Some(pending) = wrapper.operation_pending.as_ref() {
+            pending.store(false, Ordering::Release);
+        }
         wrapper.callback.on_complete(pmix_status);
     }
 
+    fabric.operation_pending.store(true, Ordering::Release);
     let fabric_ptr = fabric.as_mut_ptr();
     let status;
     #[cfg(any(test, feature = "mock_ffi"))]
@@ -539,8 +570,13 @@ pub fn fabric_update_nb(
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
+            fabric.operation_pending.store(false, Ordering::Release);
+        }
         Ok(())
     } else {
+        fabric.operation_pending.store(false, Ordering::Release);
         let _ = unsafe { Box::from_raw(wrapper_ptr as *mut FabricCallbackWrapper) };
         Err(pmix_status)
     }
@@ -610,6 +646,7 @@ pub fn fabric_deregister_nb(
         _directives: None,
         registered: None,
         register_complete: None,
+        operation_pending: None,
     };
     let wrapper_ptr = Box::into_raw(Box::new(wrapper)) as *mut std::os::raw::c_void;
 
