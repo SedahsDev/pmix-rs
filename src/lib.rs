@@ -2245,26 +2245,32 @@ pub struct PmixEnvar {
 }
 
 impl PmixEnvar {
-    /// Create from `&str` arguments; returns `NulError` if either string has
-    /// an interior NUL.
-    pub fn new(envar: &str, value: &str, separator: char) -> Result<Self, NulError> {
+    /// Create from `&str` arguments; returns `ErrBadParam` for invalid strings
+    /// or separators.
+    pub fn new(envar: &str, value: &str, separator: char) -> Result<Self, PmixError> {
+        if u32::from(separator as u8) != separator as u32 || separator.is_ascii_control() {
+            return Err(PmixError::ErrBadParam);
+        }
         Ok(Self {
-            envar: CString::new(envar)?,
-            value: CString::new(value)?,
+            envar: CString::new(envar).map_err(|_| PmixError::ErrBadParam)?,
+            value: CString::new(value).map_err(|_| PmixError::ErrBadParam)?,
             separator: separator as u8,
         })
     }
 }
 
 impl Proc {
-    pub fn new(nspace: &str, rank: u32) -> Result<Self, NulError> {
+    pub fn new(nspace: &str, rank: u32) -> Result<Self, PmixError> {
+        if nspace.len() > ffi::PMIX_MAX_NSLEN as usize {
+            return Err(PmixError::ErrBadParam);
+        }
         let mut handle: pmix_proc_t;
         unsafe {
             handle = mem::zeroed();
             PMIx_Proc_construct(&mut handle);
         }
         handle.rank = rank;
-        let c_name = CString::new(nspace)?;
+        let c_name = CString::new(nspace).map_err(|_| PmixError::ErrBadParam)?;
         unsafe {
             PMIx_Load_nspace(handle.nspace.as_mut_ptr(), c_name.as_ptr());
         }
@@ -5000,6 +5006,15 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn test_pmix_envar_new_rejects_multibyte_separator() {
+        assert!(matches!(
+            PmixEnvar::new("PATH", "/usr/bin", '€'),
+            Err(PmixError::ErrBadParam)
+        ));
+        assert_eq!(PmixEnvar::new("PATH", "/usr/bin", '=').unwrap().separator, b'=');
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // Proc — constructor and accessors
     // ──────────────────────────────────────────────────────────────────────
@@ -5021,6 +5036,15 @@ mod tests {
     fn test_proc_new_nul_error() {
         let result = Proc::new("has\0null", 0);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_proc_new_rejects_overlong_nspace() {
+        assert!(matches!(
+            Proc::new(&"x".repeat(ffi::PMIX_MAX_NSLEN as usize + 1), 0),
+            Err(PmixError::ErrBadParam)
+        ));
+        assert!(Proc::new(&"x".repeat(ffi::PMIX_MAX_NSLEN as usize), 0).is_ok());
     }
 
     #[test]
@@ -6064,15 +6088,15 @@ pub fn envar_construct() -> PmixEnvar {
         mock = unsafe { mock_ffi::mock_envar_construct(&mut raw) },
         real = unsafe { ffi::PMIx_Envar_construct(&mut raw) },
     );
-    PmixEnvar::new("", "", '\0').expect("empty strings cannot contain NUL")
+    PmixEnvar::new("", "", '=').expect("empty strings cannot contain NUL")
 }
 
 /// Apply the PMIx environment-variable load operation to a validated value.
-pub fn envar_load(envar: &str, value: &str, separator: char) -> Result<PmixEnvar, NulError> {
+pub fn envar_load(envar: &str, value: &str, separator: char) -> Result<PmixEnvar, PmixError> {
     let result = PmixEnvar::new(envar, value, separator)?;
     let mut raw = unsafe { mem::zeroed::<pmix_envar_t>() };
-    let var = CString::new(envar)?;
-    let val = CString::new(value)?;
+    let var = CString::new(envar).map_err(|_| PmixError::ErrBadParam)?;
+    let val = CString::new(value).map_err(|_| PmixError::ErrBadParam)?;
     pmix_ffi_or_mock!(
         mock = unsafe { mock_ffi::mock_envar_load(&mut raw, var.as_ptr().cast_mut(), val.as_ptr().cast_mut(), separator as c_char) },
         real = unsafe { ffi::PMIx_Envar_load(&mut raw, var.as_ptr().cast_mut(), val.as_ptr().cast_mut(), separator as c_char) },
