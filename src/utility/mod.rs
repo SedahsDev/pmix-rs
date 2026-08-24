@@ -974,7 +974,7 @@ extern "C" fn io_callback_bridge(
     _ninfo: usize,
 ) {
     // Look up the context in the registry.
-    let registry = IOF_REGISTRY.lock().unwrap();
+    let registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
     let ctx = match registry.get(&iofhdlr) {
         Some(ctx) => Arc::clone(ctx),
         None => return, // Context not found — skip.
@@ -1000,7 +1000,7 @@ extern "C" fn io_callback_bridge(
 
     let channel_flags = IOFChannelFlags(channel);
     let _ = invoke_user_callback("utility", move || {
-        let ctx = ctx.lock().unwrap();
+        let ctx = ctx.lock().unwrap_or_else(|e| e.into_inner());
         (ctx.io_cb)(iofhdlr, channel_flags, source_proc, bytes);
     });
 }
@@ -1023,13 +1023,13 @@ extern "C" fn reg_callback_bridge(
     // Register the handle in the global registry so the IO callback
     // can look it up later.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
+        let mut registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
         registry.insert(refid, Arc::clone(&ctx));
     }
 
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("utility", move || {
-        let ctx = ctx.lock().unwrap();
+        let ctx = ctx.lock().unwrap_or_else(|e| e.into_inner());
         (ctx.reg_cb)(pmix_status, refid);
     });
 }
@@ -1207,7 +1207,7 @@ where
             .recv()
             .expect("PMIx_IOF_pull succeeded without invoking its registration callback");
         if status.is_error() {
-            IOF_REGISTRY.lock().unwrap().remove(&refid);
+            IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&refid);
             Err(status)
         } else {
             Ok(refid)
@@ -1296,7 +1296,7 @@ where
     // Remove the handle from the global registry immediately so no further
     // IO callbacks will be delivered for this registration.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
+        let mut registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
         registry.remove(&handle);
     }
 
@@ -1355,7 +1355,7 @@ pub fn iof_deregister_blocking(
 ) -> Result<(), PmixStatus> {
     // Remove the handle from the global registry immediately.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
+        let mut registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
         registry.remove(&handle);
     }
 
