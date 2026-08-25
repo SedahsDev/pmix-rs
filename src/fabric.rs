@@ -3008,7 +3008,9 @@ pmix_array!(
     mock_endpoint_free,
     mock_endpoint_construct
 );
-/// 6.x-only type: `pmix_device_t` does not exist in OpenPMIx 5.0.
+// 6.x-only type: `pmix_device_t` does not exist in OpenPMIx 5.0.
+// (Plain comment: `///` on a macro invocation is flagged as an unused doc
+// comment since rustdoc does not expand macro invocations.)
 #[cfg(pmix6)]
 pmix_array!(
     PmixDeviceArray,
