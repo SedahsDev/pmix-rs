@@ -103,6 +103,7 @@ mod tests {
     }
 
     /// OpenPMIx ≥ 6.1 exposes PMIx_Progress_thread_stop — used by the safe API.
+    #[cfg(pmix6)]
     #[test]
     fn test_progress_thread_stop_symbol_linked() {
         use crate::ffi::*;

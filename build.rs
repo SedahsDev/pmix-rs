@@ -3,10 +3,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-/// Minimum OpenPMIx version required by this crate's safe API surface.
-/// Matches the OpenPMIx ≥ 6.1 threading model documented in THREADING.md.
-const MIN_MAJOR: u32 = 6;
-const MIN_MINOR: u32 = 1;
+/// Supported OpenPMIx versions.
+///
+/// - 5.x: base API surface (client/tool/server core). 6.x-only symbols
+///   (`PMIx_Progress_thread_stop`, fabric resource blocks, regattr helpers,
+///   …) are compiled out via `#[cfg(pmix6)]`.
+/// - ≥ 6.1: full API surface, including the explicit progress-thread model.
+const MIN_MAJOR: u32 = 5;
+const MIN_MINOR: u32 = 0;
+/// First version with `PMIx_Progress_thread_stop` and the full surface.
+const FULL_API_MAJOR: u32 = 6;
+const FULL_API_MINOR: u32 = 1;
 
 /// Discover PMIx install prefix.
 /// Order: PMIX_PREFIX → PMIX_INCLUDE_DIR/PMIX_LIB_DIR → pkg-config → common paths.
@@ -195,6 +202,8 @@ fn version_at_least(ver: (u32, u32, u32), min_major: u32, min_minor: u32) -> boo
 }
 
 fn main() {
+    // Silence unexpected_cfgs for the version-gated cfg emitted below.
+    println!("cargo:rustc-check-cfg=cfg(pmix6)");
     let (include_dir, lib_dir) = discover_pmix();
 
     if !include_dir.join("pmix.h").exists() {
@@ -208,16 +217,26 @@ fn main() {
 
     match read_pmix_version(&include_dir) {
         Some(ver) if version_at_least(ver, MIN_MAJOR, MIN_MINOR) => {
+            let full = version_at_least(ver, FULL_API_MAJOR, FULL_API_MINOR);
+            if full {
+                // Full 6.x API surface: explicit progress thread, fabric
+                // resource blocks, regattr helpers, etc.
+                println!("cargo:rustc-cfg=pmix6");
+            }
             println!(
-                "cargo:warning=OpenPMIx {}.{}.{} (≥ {MIN_MAJOR}.{MIN_MINOR} required)",
-                ver.0, ver.1, ver.2
+                "cargo:warning=OpenPMIx {}.{}.{} (≥ {MIN_MAJOR}.{MIN_MINOR} required; {} API surface{})",
+                ver.0,
+                ver.1,
+                ver.2,
+                if full { "full" } else { "base" },
+                if full { "" } else { " — set PMIX_PREFIX to an OpenPMIx ≥ 6.1 install for the full surface" },
             );
         }
         Some(ver) => {
             eprintln!(
                 "\nerror: OpenPMIx {}.{}.{} is too old.\n\
                  \n\
-                 pmix-rs requires OpenPMIx ≥ {MIN_MAJOR}.{MIN_MINOR} (threading model + API surface).\n\
+                 pmix-rs requires OpenPMIx ≥ {MIN_MAJOR}.{MIN_MINOR}.\n\
                  Headers found at: {}\n\
                  \n\
                  Install a newer OpenPMIx and set PMIX_PREFIX to its install prefix.\n",
@@ -277,7 +296,8 @@ fn main() {
             bindings.write_to_file(&out_path).unwrap_or_else(|e| {
                 panic!("failed to write bindings to {}: {e}", out_path.display())
             });
-            // Sanity: generated bindings must expose the 6.1-only symbol the crate calls.
+            // Sanity: on a ≥ 6.1 install, generated bindings must expose the
+            // 6.1-only symbol the crate calls.
             // This validates the *header* version (bindgen output is header-derived) —
             // it is NOT a link-time guarantee. A mismatched libpmix (e.g. headers 6.1
             // paired with a 5.0.7 library) would pass this check but fail at link or
@@ -286,10 +306,15 @@ fn main() {
             // the user is responsible for ensuring header and lib versions match.
             let generated = fs::read_to_string(&out_path)
                 .unwrap_or_else(|e| panic!("failed to read generated bindings: {e}"));
-            if !generated.contains("PMIx_Progress_thread_stop") {
+            if version_at_least(
+                read_pmix_version(&include_dir).unwrap_or((0, 0, 0)),
+                FULL_API_MAJOR,
+                FULL_API_MINOR,
+            ) && !generated.contains("PMIx_Progress_thread_stop")
+            {
                 eprintln!(
                     "\nerror: bindgen output is missing PMIx_Progress_thread_stop.\n\
-                     Headers under {} do not match OpenPMIx ≥ {MIN_MAJOR}.{MIN_MINOR}.\n",
+                     Headers under {} do not match OpenPMIx ≥ {FULL_API_MAJOR}.{FULL_API_MINOR}.\n",
                     include_dir.display()
                 );
                 process::exit(1);

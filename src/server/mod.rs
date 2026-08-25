@@ -430,12 +430,18 @@ pub struct PmixServerModule {
     ///
     /// # C type
     /// `pmix_server_tool_connection2_fn_t`
+    ///
+    /// 6.x-only: absent from the OpenPMIx 5.0 server module.
+    #[cfg(pmix6)]
     pub tool_connected2: ffi::pmix_server_tool_connection2_fn_t,
 
     /// Log v2 callback.
     ///
     /// # C type
     /// `pmix_server_log2_fn_t`
+    ///
+    /// 6.x-only: absent from the OpenPMIx 5.0 server module.
+    #[cfg(pmix6)]
     pub log2: ffi::pmix_server_log2_fn_t,
 
     /// Session control callback (PMIx 5.x).
@@ -448,6 +454,9 @@ pub struct PmixServerModule {
     ///
     /// # C type
     /// `pmix_server_resource_block_fn_t`
+    ///
+    /// 6.x-only: absent from the OpenPMIx 5.0 server module.
+    #[cfg(pmix6)]
     pub resource_block: ffi::pmix_server_resource_block_fn_t,
 }
 
@@ -2983,12 +2992,17 @@ pub fn server_generate_cpuset_string(
 
 
 
+/// 6.x-only: `PMIx_server_generate_cpuset` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 pub fn server_generate_cpuset(cpuset_string:&str,cpuset:&mut crate::fabric::PmixCpuset)->Result<(),PmixStatus>{let s=CString::new(cpuset_string).map_err(|_|PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;let raw=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_server_generate_cpuset(s.as_ptr(),cpuset.as_mut_ptr())},real=unsafe{ffi::PMIx_server_generate_cpuset(s.as_ptr(),cpuset.as_mut_ptr())});if raw==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(raw))}}
+/// 6.x-only: `PMIx_server_collect_job_info` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 pub fn server_collect_job_info(procs:&[Proc],dbuf:&mut crate::data_serialization::PmixDataBuffer)->Result<(),PmixStatus>{let mut raw=procs.iter().map(|p|p.handle).collect::<Vec<_>>();let s=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_server_collect_job_info(raw.as_mut_ptr(),raw.len(),dbuf.as_mut_ptr())},real=unsafe{ffi::PMIx_server_collect_job_info(raw.as_mut_ptr(),raw.len(),dbuf.as_mut_ptr())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
 
 #[cfg(test)]
 mod misc_wrapper_tests {
     use super::*;
+    #[cfg(pmix6)]
     #[test]
     fn server_cpuset_and_collect_job_info_wrappers() {
         let _guard = crate::mock_ffi::MockGuard::new();

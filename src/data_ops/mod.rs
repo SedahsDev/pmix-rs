@@ -1506,6 +1506,8 @@ impl PmixPdataHandle {
         }
     }
 
+    /// 6.x-only: `PMIx_Pdata_load` does not exist in OpenPMIx 5.0.
+    #[cfg(pmix6)]
     pub fn load(
         &mut self,
         proc: &Proc,
@@ -1523,6 +1525,8 @@ impl PmixPdataHandle {
         Ok(())
     }
 
+    /// 6.x-only: `PMIx_Pdata_xfer` does not exist in OpenPMIx 5.0.
+    #[cfg(pmix6)]
     pub fn xfer(&mut self, src: &PmixPdataHandle) -> Result<(), PmixStatus> {
         // SAFETY: both handles are constructed and remain alive for this call;
         // PMIx copies between the two initialized pdata objects.

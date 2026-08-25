@@ -2347,6 +2347,9 @@ pub fn check_reserved_key(key: &str) -> bool { let Ok(key) = CString::new(key) e
 /// Load a namespace and rank into a raw PMIx process object.
 pub fn load_procid(dst: &mut pmix_proc_t, nspace: &str, rank: u32) -> Result<(), NulError> { let ns = CString::new(nspace)?; /* SAFETY: `dst` is exclusively borrowed and `ns` is valid for this call. */ pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_load_procid(dst, ns.as_ptr(), rank) }, real = unsafe { ffi::PMIx_Load_procid(dst, ns.as_ptr(), rank) }); Ok(()) }
 /// Return whether a rank is valid.
+///
+/// 6.x-only: `PMIx_Rank_valid` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 pub fn rank_valid(rank: u32) -> bool { /* SAFETY: scalar argument satisfies the FFI ABI. */ pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_rank_valid(rank) }, real = unsafe { ffi::PMIx_Rank_valid(rank) }) }
 /// Return whether a namespace is invalid.
 pub fn nspace_invalid(ns: &str) -> bool { let Ok(ns) = CString::new(ns) else { return true }; /* SAFETY: `ns` is a valid NUL-terminated pointer for this call. */ pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_nspace_invalid(ns.as_ptr()) }, real = unsafe { ffi::PMIx_Nspace_invalid(ns.as_ptr()) }) }
@@ -2372,13 +2375,25 @@ impl PmixProcInfoArray { pub fn new(len: usize) -> Option<Self> { if len == 0 { 
 impl Drop for PmixProcInfoArray { fn drop(&mut self) { if !self.ptr.is_null() { /* SAFETY: pointer and length came from the matching PMIx allocator. */ pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_proc_info_free(self.ptr, self.len) }, real = unsafe { ffi::PMIx_Proc_info_free(self.ptr, self.len) }); } } }
 
 /// Owned, constructed PMIx node/pid object.
+///
+/// 6.x-only: `pmix_node_pid_t` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 pub struct PmixNodePid { raw: mem::MaybeUninit<pmix_node_pid_t>, constructed: bool, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+#[cfg(pmix6)]
+#[cfg(pmix6)]
 impl PmixNodePid { pub fn new() -> Self { let mut x = Self { raw: mem::MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData }; /* SAFETY: PMIx initializes the writable storage supplied by `x`. */ pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_node_pid_construct(x.raw.as_mut_ptr()) }, real = unsafe { ffi::PMIx_Node_pid_construct(x.raw.as_mut_ptr()) }); x.constructed = true; x } #[cfg(test)] pub fn test_new() -> Self { Self { raw: mem::MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData } } fn raw(&self) -> &pmix_node_pid_t { /* SAFETY: `new` and `test_new` initialize the storage before access. */ unsafe { self.raw.assume_init_ref() } } pub fn hostname(&self) -> Option<&str> { cstr_ref(self.raw().hostname) } pub fn nodeid(&self) -> u32 { self.raw().nodeid } pub fn pid(&self) -> i32 { self.raw().pid } }
+#[cfg(pmix6)]
 impl Default for PmixNodePid { fn default() -> Self { Self::new() } }
+#[cfg(pmix6)]
 impl Drop for PmixNodePid { fn drop(&mut self) { if self.constructed { /* SAFETY: storage was initialized and is exclusively borrowed here. */ pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_node_pid_destruct(self.raw.as_mut_ptr()) }, real = unsafe { ffi::PMIx_Node_pid_destruct(self.raw.as_mut_ptr()) }); self.constructed = false; } } }
 /// Owned array allocated by PMIx for node/pid objects.
+#[cfg(pmix6)]
 pub struct PmixNodePidArray { ptr: *mut pmix_node_pid_t, len: usize, _not_thread_safe: std::marker::PhantomData<*mut u8> }
+#[cfg(pmix6)]
+#[cfg(pmix6)]
 impl PmixNodePidArray { pub fn new(len: usize) -> Option<Self> { if len == 0 { return Some(Self { ptr: std::ptr::null_mut(), len, _not_thread_safe: std::marker::PhantomData }); } let ptr = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_node_pid_create(len) }, real = unsafe { ffi::PMIx_Node_pid_create(len) }); (!ptr.is_null()).then_some(Self { ptr, len, _not_thread_safe: std::marker::PhantomData }) } pub fn as_mut_ptr(&mut self) -> *mut pmix_node_pid_t { self.ptr } pub fn len(&self) -> usize { self.len } pub fn is_empty(&self) -> bool { self.len == 0 } }
+#[cfg(pmix6)]
+#[cfg(pmix6)]
 impl Drop for PmixNodePidArray { fn drop(&mut self) { if !self.ptr.is_null() { /* SAFETY: pointer and length came from the matching PMIx allocator. */ pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_node_pid_free(self.ptr, self.len) }, real = unsafe { ffi::PMIx_Node_pid_free(self.ptr, self.len) }); } } }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4125,11 +4140,19 @@ pub fn progress() {
 /// # C API
 /// `PMIx_Progress_thread_stop(info, ninfo)` — takes an optional Info
 /// array for future extension (pass null/0 for now).
+///
+/// 6.x-only: OpenPMIx 5.0 has no explicit progress-thread stop; the
+/// internal thread is torn down by `PMIx_Finalize`, so this is a no-op there.
+#[cfg(pmix6)]
 pub fn progress_thread_stop() {
     unsafe {
         PMIx_Progress_thread_stop(std::ptr::null(), 0);
     }
 }
+
+/// 5.0 fallback — see [`progress_thread_stop`].
+#[cfg(not(pmix6))]
+pub fn progress_thread_stop() {}
 
 /// Finalize the process-wide PMIx client session (`PMIx_Finalize`).
 ///
@@ -4142,6 +4165,7 @@ pub fn finalize(info: Option<Info>) -> Result<(), pmix_status_t> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(pmix6)]
     #[test]
     fn test_proc_utils_mock_wrappers_and_predicates() {
         let _guard = crate::mock_ffi::MockGuard::new();
@@ -4171,6 +4195,7 @@ mod tests {
         assert_eq!(dst, [b'0' as i8, b'1' as i8, b'2' as i8, b'3' as i8, b'4' as i8, b'5' as i8, b'6' as i8, 0]);
     }
 
+    #[cfg(pmix6)]
     #[test]
     fn test_proc_utils_info_node_and_arrays() {
         let _guard = crate::mock_ffi::MockGuard::new();
@@ -5940,6 +5965,9 @@ impl PmixValue {
     }
     /// Writes the requested numeric representation into `dest`. The buffer
     /// must be large enough for the requested PMIx type.
+    ///
+    /// 6.x-only: `PMIx_Value_get_number` does not exist in OpenPMIx 5.0.
+    #[cfg(pmix6)]
     pub fn value_get_number(&self, dest: &mut [u8], ty: pmix_data_type_t) -> Result<(), PmixStatus> {
         let status = pmix_ffi_or_mock!(mock = unsafe { mock_ffi::mock_value_get_number(self.as_raw(), dest.as_mut_ptr().cast(), ty) }, real = unsafe { ffi::PMIx_Value_get_number(self.as_raw(), dest.as_mut_ptr().cast(), ty) });
         (status == PMIX_SUCCESS as i32).then_some(()).ok_or_else(|| PmixStatus::from_raw(status))

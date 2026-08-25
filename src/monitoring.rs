@@ -1082,11 +1082,39 @@ mod tests {
     }
 }
 
+/// Send a heartbeat to the local server.
+///
+/// 6.x exposes `PMIx_Heartbeat` as a function; OpenPMIx 5.0 only defines it
+/// as a macro over `PMIx_Process_monitor_nb`, which we expand here instead.
 pub fn heartbeat_raw() {
-    crate::pmix_ffi_or_mock!(
-        mock = unsafe { crate::mock_ffi::mock_heartbeat() },
-        real = unsafe { ffi::PMIx_Heartbeat() }
-    );
+    #[cfg(pmix6)]
+    {
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_heartbeat() },
+            real = unsafe { ffi::PMIx_Heartbeat() }
+        );
+    }
+    #[cfg(not(pmix6))]
+    {
+        let mut info: ffi::pmix_info_t = unsafe { std::mem::zeroed() };
+        // SAFETY: `info` is exclusively owned stack storage for this call;
+        // PMIx_Info_load fills it from the NUL-terminated `PMIX_SEND_HEARTBEAT`
+        // key (the exact expansion of 5.0's PMIx_Heartbeat macro).
+        unsafe {
+            ffi::PMIx_Info_load(
+                &mut info,
+                ffi::PMIX_SEND_HEARTBEAT.as_ptr().cast(),
+                std::ptr::null(),
+                ffi::PMIX_POINTER as ffi::pmix_data_type_t,
+            )
+        };
+        // SAFETY: `info` remains valid for the synchronous monitor call.
+        let _rc = unsafe {
+            ffi::PMIx_Process_monitor_nb(&info, ffi::PMIX_SUCCESS as i32, std::ptr::null(), 0, None, std::ptr::null_mut())
+        };
+        // SAFETY: `info` was constructed by PMIx_Info_load above.
+        unsafe { ffi::PMIx_Info_destruct(&mut info) };
+    }
 }
 
 #[cfg(test)]
