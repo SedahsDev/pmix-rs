@@ -183,6 +183,7 @@ jobs:
         run: |
           cargo test --lib --features mock_ffi
           cargo test --doc --features mock_ffi
+          cargo test --features mock_ffi
 
       - name: Assert working tree stayed clean
         run: |

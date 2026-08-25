@@ -9,6 +9,7 @@
 mod daemon_helper;
 
 use pmix::groups::{
+    GroupResults,
     GroupConstructCallbackWrapper, GroupDestructCallbackWrapper, GroupInviteCallbackWrapper,
     GroupJoinCallbackWrapper, GroupLeaveCallbackWrapper, group_construct, group_construct_nb,
     group_destruct, group_destruct_nb, group_invite, group_invite_nb, group_join, group_join_nb,
@@ -23,7 +24,7 @@ use pmix::{InfoBuilder, PmixStatus, Proc};
 
 #[test]
 fn test_group_construct_type() {
-    let _f: fn(&str, &[Proc], &[pmix::Info]) -> Result<Vec<pmix::Info>, PmixStatus> =
+    let _f: fn(&str, &[Proc], &[pmix::Info]) -> Result<GroupResults, PmixStatus> =
         group_construct;
 }
 
@@ -39,7 +40,7 @@ fn test_group_construct_nb_type() {
 
 #[test]
 fn test_group_invite_type() {
-    let _f: fn(&str, &[Proc], &[pmix::Info]) -> Result<Vec<pmix::Info>, PmixStatus> = group_invite;
+    let _f: fn(&str, &[Proc], &[pmix::Info]) -> Result<GroupResults, PmixStatus> = group_invite;
 }
 
 #[test]
@@ -55,7 +56,7 @@ fn test_group_join_type() {
         &Proc,
         pmix_group_opt_t,
         &[pmix::Info],
-    ) -> Result<Vec<pmix::Info>, PmixStatus> = group_join;
+    ) -> Result<GroupResults, PmixStatus> = group_join;
 }
 
 #[test]

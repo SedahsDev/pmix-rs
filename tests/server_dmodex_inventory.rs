@@ -508,7 +508,7 @@ fn define_process_set_proc_various_ranks() {
 /// Proc::new rejects NUL bytes in nspace.
 #[test]
 fn define_process_set_nul_in_nspace_rejected() {
-    let result: Result<Proc, std::ffi::NulError> = Proc::new("test\0ns", 0);
+    let result: Result<Proc, PmixError> = Proc::new("test\0ns", 0);
     assert!(result.is_err());
 }
 
@@ -1010,7 +1010,7 @@ fn proc_construction_valid_nspaces() {
 /// Proc::new rejects NUL bytes.
 #[test]
 fn proc_construction_rejects_nul() {
-    let result: Result<Proc, std::ffi::NulError> = Proc::new("test\0ns", 0);
+    let result: Result<Proc, PmixError> = Proc::new("test\0ns", 0);
     assert!(result.is_err());
 }
 
