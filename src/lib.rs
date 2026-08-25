@@ -436,7 +436,6 @@ impl std::fmt::Display for PmixError {
     }
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixStatus — the public-facing type that wraps PmixError + Unknown(i32)
 // ─────────────────────────────────────────────────────────────────────────────
