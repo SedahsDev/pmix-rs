@@ -585,7 +585,12 @@ fn test_server_dmodex_request_with_callback() {
     let _result = server_dmodex_request(&proc, Box::new(Cb));
 }
 
+// These two callbacks are server-interaction tests: `PMIx_server_setup_application`
+// / `PMIx_server_setup_local_support` block on OpenPMIx 5.0 without a live server
+// (6.1 returns an error immediately), so they hang in the PMIx 5.0 CI job. They are
+// daemon-dependent and run via `--ignored` where a server exists.
 #[test]
+#[ignore]
 fn test_server_setup_application_with_callback() {
     struct Cb;
     impl SetupApplicationCallback for Cb {
@@ -596,6 +601,7 @@ fn test_server_setup_application_with_callback() {
 }
 
 #[test]
+#[ignore]
 fn test_server_setup_local_support_with_callback() {
     struct Cb;
     impl SetupLocalSupportCallback for Cb {
