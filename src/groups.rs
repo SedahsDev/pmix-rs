@@ -2828,6 +2828,9 @@ mod tests {
 }
 
 /// Return the static PMIx spelling for a group operation.
+///
+/// 6.x-only: `PMIx_Group_operation_string` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
     let p = crate::pmix_ffi_or_mock!(
         mock = unsafe { crate::mock_ffi::mock_group_operation_string(op) },
@@ -2840,6 +2843,7 @@ pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
 }
 
 #[cfg(test)]
+#[cfg(pmix6)]
 #[test]
 fn test_misc_group_string_wrapper() {
     let _guard = crate::mock_ffi::MockGuard::new();

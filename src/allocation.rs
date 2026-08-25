@@ -1731,6 +1731,8 @@ mod tests {
     }
 }
 
+/// 6.x-only: resource-block directives do not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 pub fn resource_block_directive_string(d: ffi::pmix_resource_block_directive_t) -> &'static str {
     let p = crate::pmix_ffi_or_mock!(
         mock = unsafe { crate::mock_ffi::mock_resource_block_directive_string(d) },
@@ -1742,6 +1744,8 @@ pub fn resource_block_directive_string(d: ffi::pmix_resource_block_directive_t) 
         unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
     }
 }
+/// 6.x-only: resource-block operations do not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 pub fn resource_block(
     d: ffi::pmix_resource_block_directive_t,
     block: &mut [u8],
@@ -1787,6 +1791,8 @@ pub fn resource_block(
 /// PMIx or another owner may still use. The `block`, `res`, and `info` storage
 /// must likewise remain valid and unmodified in ways incompatible with PMIx
 /// until the asynchronous operation has completed, as required by the PMIx API.
+/// 6.x-only: resource-block operations do not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 pub unsafe fn resource_block_nb(
     d: ffi::pmix_resource_block_directive_t,
     block: &mut [u8],
@@ -1847,6 +1853,7 @@ mod misc_wrapper_tests {
         }
     }
 
+    #[cfg(pmix6)]
     #[test]
     fn resource_block_sync_and_nb_callback() {
         let _guard = crate::mock_ffi::MockGuard::new();

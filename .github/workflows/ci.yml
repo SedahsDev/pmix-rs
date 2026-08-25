@@ -102,6 +102,97 @@ jobs:
         run: cargo test
 
   ############################################################################
+  # PMIx 5.0 tests — build OpenPMIx 5.0.7, verify the base (non-pmix6) surface
+  ############################################################################
+  # This PR adds OpenPMIx 5.0 support. The full `cargo test` (integration
+  # tests) does not compile on main for pre-existing reasons (stale test files
+  # vs the Aug-12 src reworks — GroupResults, CredentialByteObject), so this job
+  # is scoped to the lib/doctest surface that is green on both 5.0 and 6.x.
+  pmix5-tests:
+    name: PMIx 5.0 tests
+    runs-on: ubuntu-24.04
+    env:
+      OPENPMIX_VERSION: "5.0.7"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential autoconf automake libtool pkg-config \
+            libevent-dev libhwloc-dev \
+            libclang-dev clang
+
+      - name: Cache OpenPMIx ${{ env.OPENPMIX_VERSION }}
+        id: cache-openpmix
+        uses: actions/cache@v4
+        with:
+          path: ~/openpmix-${{ env.OPENPMIX_VERSION }}
+          key: openpmix-${{ env.OPENPMIX_VERSION }}-ubuntu-24.04-v2
+
+      - name: Build OpenPMIx ${{ env.OPENPMIX_VERSION }}
+        if: steps.cache-openpmix.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          PREFIX="$HOME/openpmix-${OPENPMIX_VERSION}"
+          cd /tmp
+          git clone --depth 1 --branch "v${OPENPMIX_VERSION}" --recurse-submodules \
+            https://github.com/openpmix/openpmix.git "openpmix-${OPENPMIX_VERSION}"
+          cd "openpmix-${OPENPMIX_VERSION}"
+          ./autogen.pl
+          ./configure --prefix="$PREFIX" --disable-debug CFLAGS="-O2"
+          make -j"$(nproc)"
+          make install
+
+      - name: Export PMIX_PREFIX
+        run: |
+          PREFIX="$HOME/openpmix-${OPENPMIX_VERSION}"
+          echo "PMIX_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PREFIX/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          test -f "$PREFIX/include/pmix.h"
+          grep -E 'PMIX_VERSION_MAJOR[[:space:]]+5' "$PREFIX/include/pmix_version.h"
+          grep -E 'PMIX_VERSION_MINOR[[:space:]]+0' "$PREFIX/include/pmix_version.h"
+
+      - name: Check (base surface)
+        run: |
+          cargo check --lib
+          cargo check --features mock_ffi --lib
+
+      - name: Run lib + doctests on 5.0
+        run: |
+          cargo test --lib --features mock_ffi
+          cargo test --doc --features mock_ffi
+
+      - name: Assert working tree stayed clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: cargo build dirtied the working tree:"
+            git status --porcelain
+            exit 1
+          fi
+
+  ############################################################################
   # Daemon tests — build OpenPMIx + PRTE, start daemon, run ignored tests
   ############################################################################
   daemon-tests:

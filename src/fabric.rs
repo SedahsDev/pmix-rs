@@ -2841,6 +2841,10 @@ mod tests {
 ///
 /// The C-constructed result is valid only through the raw handle. `PmixFabric`
 /// manages its Rust-owned fields separately and does not drop this raw struct.
+///
+/// 6.x-only: 5.0 has no `PMIx_Fabric_construct` (its signature there also
+/// takes a `pmix_regattr_t *`, not a fabric).
+#[cfg(pmix6)]
 pub fn fabric_construct() -> PmixFabric {
     let mut fabric = PmixFabric::new(None).expect("None cannot contain a NUL");
     let raw = fabric.raw.as_mut() as *mut ffi::pmix_fabric_t;
@@ -3004,6 +3008,10 @@ pmix_array!(
     mock_endpoint_free,
     mock_endpoint_construct
 );
+// 6.x-only type: `pmix_device_t` does not exist in OpenPMIx 5.0.
+// (Plain comment: `///` on a macro invocation is flagged as an unused doc
+// comment since rustdoc does not expand macro invocations.)
+#[cfg(pmix6)]
 pmix_array!(
     PmixDeviceArray,
     ffi::pmix_device_t,
@@ -3209,12 +3217,16 @@ impl Drop for PmixCoord {
 }
 
 /// Safe RAII wrapper around `pmix_device_t`.
+///
+/// 6.x-only type: `pmix_device_t` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
 #[derive(Debug)]
 pub struct PmixDevice {
     raw: MaybeUninit<ffi::pmix_device_t>,
     constructed: bool,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
+#[cfg(pmix6)]
 impl PmixDevice {
     /// Construct a device with PMIx defaults.
     pub fn new() -> Self {
@@ -3260,11 +3272,13 @@ impl PmixDevice {
         unsafe { self.raw.assume_init_ref().type_ }
     }
 }
+#[cfg(pmix6)]
 impl Default for PmixDevice {
     fn default() -> Self {
         Self::new()
     }
 }
+#[cfg(pmix6)]
 impl Drop for PmixDevice {
     fn drop(&mut self) {
         if self.constructed {
@@ -3388,6 +3402,7 @@ impl Drop for PmixDeviceDistanceObject {
 mod added_type_tests {
     use super::*;
 
+    #[cfg(pmix6)]
     #[test]
     fn construct_wrappers_and_arrays_use_mock_ffi() {
         let _guard = mock_ffi::MockGuard::new();
@@ -3431,6 +3446,7 @@ mod added_type_tests {
         assert_eq!(distance.max_distance(), u16::MAX);
     }
 
+    #[cfg(pmix6)]
     #[test]
     fn all_fabric_arrays_create_and_drop() {
         let _guard = mock_ffi::MockGuard::new();
@@ -3442,6 +3458,7 @@ mod added_type_tests {
         let _distance = PmixDeviceDistanceArray::create(2).unwrap();
     }
 
+    #[cfg(pmix6)]
     #[test]
     fn test_new_accessors_are_zeroed_and_safe() {
         let _guard = mock_ffi::MockGuard::new();
@@ -3461,6 +3478,7 @@ mod added_type_tests {
         assert_eq!(distance.max_distance(), 0);
     }
 
+    #[cfg(pmix6)]
     #[test]
     fn non_null_accessors_read_c_fields() {
         let _guard = mock_ffi::MockGuard::new();
@@ -3490,12 +3508,14 @@ mod added_type_tests {
 }
 
 /// An owned PMIx resource unit.
+#[cfg(pmix6)]
 pub struct PmixResourceUnit {
     raw: MaybeUninit<ffi::pmix_resource_unit_t>,
     constructed: bool,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
+#[cfg(pmix6)]
 impl PmixResourceUnit {
     pub fn new() -> Self {
         let mut this = Self {
@@ -3537,12 +3557,14 @@ impl PmixResourceUnit {
     }
 }
 
+#[cfg(pmix6)]
 impl Default for PmixResourceUnit {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(pmix6)]
 impl Drop for PmixResourceUnit {
     fn drop(&mut self) {
         if self.constructed {
@@ -3556,11 +3578,13 @@ impl Drop for PmixResourceUnit {
     }
 }
 
+#[cfg(pmix6)]
 pub struct PmixResourceUnitArray {
     ptr: *mut ffi::pmix_resource_unit_t,
     len: usize,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
+#[cfg(pmix6)]
 impl PmixResourceUnitArray {
     pub fn as_ptr(&self) -> *const ffi::pmix_resource_unit_t {
         self.ptr
@@ -3572,6 +3596,7 @@ impl PmixResourceUnitArray {
         self.len == 0
     }
 }
+#[cfg(pmix6)]
 impl Drop for PmixResourceUnitArray {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
@@ -3584,6 +3609,7 @@ impl Drop for PmixResourceUnitArray {
         }
     }
 }
+#[cfg(pmix6)]
 pub fn resource_unit_create(n: usize) -> Result<PmixResourceUnitArray, PmixError> {
     if n == 0 {
         return Ok(PmixResourceUnitArray {
@@ -3608,6 +3634,7 @@ pub fn resource_unit_create(n: usize) -> Result<PmixResourceUnitArray, PmixError
         })
     }
 }
+#[cfg(pmix6)]
 impl PmixResourceUnit {
     pub fn to_string(&self) -> Result<String, PmixError> {
         // SAFETY: self points to a live constructed resource unit; PMIx returns
@@ -3631,6 +3658,7 @@ impl PmixResourceUnit {
 mod misc_wrapper_tests {
     use super::*;
 
+    #[cfg(pmix6)]
     #[test]
     fn resource_unit_wrappers_construct_access_string_and_arrays() {
         let _guard = crate::mock_ffi::MockGuard::new();

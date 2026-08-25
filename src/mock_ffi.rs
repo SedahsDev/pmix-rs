@@ -3726,15 +3726,19 @@ pub unsafe fn mock_proc_info_create(n: usize) -> *mut crate::ffi::pmix_proc_info
     unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_proc_info_t>()) as *mut _ }
 }
 pub unsafe fn mock_proc_info_free(_p: *mut crate::ffi::pmix_proc_info_t, _n: usize) {}
+#[cfg(pmix6)]
 pub unsafe fn mock_node_pid_construct(p: *mut crate::ffi::pmix_node_pid_t) {
     if !p.is_null() {
         unsafe { std::ptr::write_bytes(p, 0, 1) };
     }
 }
+#[cfg(pmix6)]
 pub unsafe fn mock_node_pid_destruct(_p: *mut crate::ffi::pmix_node_pid_t) {}
+#[cfg(pmix6)]
 pub unsafe fn mock_node_pid_create(n: usize) -> *mut crate::ffi::pmix_node_pid_t {
     unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_node_pid_t>()) as *mut _ }
 }
+#[cfg(pmix6)]
 pub unsafe fn mock_node_pid_free(_p: *mut crate::ffi::pmix_node_pid_t, _n: usize) {}
 
 // Safe-wrapper support for PMIx data utility constructors and array APIs.
@@ -3895,18 +3899,22 @@ pub unsafe fn mock_coord_create(dims: usize, n: usize) -> *mut crate::ffi::pmix_
     p
 }
 pub unsafe fn mock_coord_free(_p: *mut crate::ffi::pmix_coord_t, _n: usize) {}
+#[cfg(pmix6)]
 pub unsafe fn mock_device_construct(p: *mut crate::ffi::pmix_device_t) {
     if !p.is_null() {
         unsafe { std::ptr::write_bytes(p, 0, 1) };
     }
 }
+#[cfg(pmix6)]
 pub unsafe fn mock_device_destruct(_p: *mut crate::ffi::pmix_device_t) {}
+#[cfg(pmix6)]
 pub unsafe fn mock_device_create(n: usize) -> *mut crate::ffi::pmix_device_t {
     if n == 0 {
         return std::ptr::null_mut();
     }
     unsafe { libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_device_t>()) as *mut _ }
 }
+#[cfg(pmix6)]
 pub unsafe fn mock_device_free(_p: *mut crate::ffi::pmix_device_t, _n: usize) {}
 pub unsafe fn mock_device_distance_destruct(_p: *mut crate::ffi::pmix_device_distance_t) {}
 pub unsafe fn mock_device_distance_construct(p: *mut crate::ffi::pmix_device_distance_t) {
@@ -4180,6 +4188,7 @@ pub unsafe fn mock_group_operation_string(
     b"unknown\0".as_ptr().cast()
 }
 #[allow(unsafe_op_in_unsafe_fn)]
+#[cfg(pmix6)]
 pub unsafe fn mock_resource_unit_construct(d: *mut crate::ffi::pmix_resource_unit_t) {
     if !d.is_null() {
         (*d).type_ = 0;
@@ -4187,28 +4196,34 @@ pub unsafe fn mock_resource_unit_construct(d: *mut crate::ffi::pmix_resource_uni
     }
 }
 #[allow(unsafe_op_in_unsafe_fn)]
+#[cfg(pmix6)]
 pub unsafe fn mock_resource_unit_destruct(_d: *mut crate::ffi::pmix_resource_unit_t) {}
 #[allow(unsafe_op_in_unsafe_fn)]
+#[cfg(pmix6)]
 pub unsafe fn mock_resource_unit_create(n: usize) -> *mut crate::ffi::pmix_resource_unit_t {
     libc::calloc(n, std::mem::size_of::<crate::ffi::pmix_resource_unit_t>()).cast()
 }
 #[allow(unsafe_op_in_unsafe_fn)]
+#[cfg(pmix6)]
 pub unsafe fn mock_resource_unit_free(d: *mut crate::ffi::pmix_resource_unit_t, _n: usize) {
     libc::free(d.cast());
 }
 #[allow(unsafe_op_in_unsafe_fn)]
+#[cfg(pmix6)]
 pub unsafe fn mock_resource_unit_string(
     _d: *const crate::ffi::pmix_resource_unit_t,
 ) -> *mut std::os::raw::c_char {
     libc::strdup(b"resource-unit\0".as_ptr().cast())
 }
 #[allow(unsafe_op_in_unsafe_fn)]
+#[cfg(pmix6)]
 pub unsafe fn mock_resource_block_directive_string(
     _d: crate::ffi::pmix_resource_block_directive_t,
 ) -> *const std::os::raw::c_char {
     b"unknown\0".as_ptr().cast()
 }
 #[allow(unsafe_op_in_unsafe_fn)]
+#[cfg(pmix6)]
 pub unsafe fn mock_resource_block(
     _d: crate::ffi::pmix_resource_block_directive_t,
     _b: *mut std::os::raw::c_char,
@@ -4220,6 +4235,7 @@ pub unsafe fn mock_resource_block(
     0
 }
 #[allow(unsafe_op_in_unsafe_fn)]
+#[cfg(pmix6)]
 pub unsafe fn mock_resource_block_nb(
     _d: crate::ffi::pmix_resource_block_directive_t,
     _b: *mut std::os::raw::c_char,

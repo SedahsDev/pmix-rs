@@ -4128,6 +4128,7 @@ use super::*;
 
 
 #[cfg(any(test, feature = "mock_ffi"))]
+#[cfg(pmix6)]
 #[test]
 fn test_misc_pdata_wrappers_construct_load_xfer_and_arrays() {
     let _guard = crate::mock_ffi::MockGuard::new();

@@ -362,12 +362,40 @@ impl PmixInfoList {
     pub fn as_ptr(&self) -> *mut std::ffi::c_void { self.handle.as_ptr() }
 
     /// Number of entries in the list.
+    ///
+    /// 6.x-only: `PMIx_Info_list_get_size` does not exist in OpenPMIx 5.0.
+    #[cfg(pmix6)]
     pub fn len(&self) -> usize {
         // SAFETY: self.handle is a live handle owned by self.
         crate::pmix_ffi_or_mock!(
             mock = unsafe { crate::mock_ffi::mock_info_list_get_size(self.as_ptr()) },
             real = unsafe { crate::ffi::PMIx_Info_list_get_size(self.as_ptr()) },
         )
+    }
+
+    /// Return whether the list has no entries.
+    ///
+    /// 5.0 fallback: without `PMIx_Info_list_get_size`, walk the list with
+    /// `PMIx_Info_list_get_info` and count entries. Implemented directly so it
+    /// does not recurse through `iter`/`is_empty`.
+    #[cfg(not(pmix6))]
+    pub fn len(&self) -> usize {
+        let mut count = 0;
+        let mut previous = std::ptr::null_mut();
+        loop {
+            let mut next = std::ptr::null_mut();
+            // SAFETY: self is live; PMIx writes next and returns an entry owned
+            // by the list, which we only count here.
+            let info = crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_info_list_get_info(self.as_ptr(), previous, &mut next) },
+                real = unsafe { crate::ffi::PMIx_Info_list_get_info(self.as_ptr(), previous, &mut next) },
+            );
+            if info.is_null() { break; }
+            count += 1;
+            if next.is_null() || next == previous { break; }
+            previous = next;
+        }
+        count
     }
 
     /// Return whether the list has no entries.
@@ -428,6 +456,8 @@ impl PmixInfoList {
 
     /// Add raw wire bytes, optionally overwriting an existing key. See [`Self::add`]
     /// for the non-empty and string/byte-object representation requirements.
+    /// 6.x-only: `PMIx_Info_list_add_unique` does not exist in OpenPMIx 5.0.
+    #[cfg(pmix6)]
     pub fn add_unique<V: AsRef<[u8]>>(&mut self, key: &str, value: V, ty: crate::ffi::pmix_data_type_t, overwrite: bool) -> Result<(), crate::PmixStatus> {
         let key = Self::key(key)?; let value = Self::raw_value(value.as_ref())?;
         // SAFETY: pointers reference live arguments for the synchronous FFI call.
@@ -438,6 +468,8 @@ impl PmixInfoList {
     }
 
     /// Add an owned PMIx value.
+    /// 6.x-only: `PMIx_Info_list_add_value` does not exist in OpenPMIx 5.0.
+    #[cfg(pmix6)]
     pub fn add_value(&mut self, key: &str, value: &crate::PmixOwnedValue) -> Result<(), crate::PmixStatus> {
         let key = Self::key(key)?;
         // SAFETY: list, key, and value are valid for this synchronous call.
@@ -448,6 +480,8 @@ impl PmixInfoList {
     }
 
     /// Add an owned PMIx value, optionally overwriting an existing key.
+    /// 6.x-only: `PMIx_Info_list_add_value_unique` does not exist in OpenPMIx 5.0.
+    #[cfg(pmix6)]
     pub fn add_value_unique(&mut self, key: &str, value: &crate::PmixOwnedValue, overwrite: bool) -> Result<(), crate::PmixStatus> {
         let key = Self::key(key)?;
         // SAFETY: list, key, and value are valid for this synchronous call.
@@ -487,6 +521,8 @@ impl PmixInfoList {
     }
 
     /// Transfer exactly one `pmix_info_t`, optionally overwriting duplicates.
+    /// 6.x-only: `PMIx_Info_list_xfer_unique` does not exist in OpenPMIx 5.0.
+    #[cfg(pmix6)]
     pub fn xfer_unique(&mut self, info: &PmixInfo, overwrite: bool) -> Result<(), crate::PmixStatus> {
         // SAFETY: both handles are valid for this synchronous single-entry copy.
         Self::status(crate::pmix_ffi_or_mock!(
@@ -565,6 +601,7 @@ impl Drop for PmixInfoList {
 mod info_list_tests {
     use super::*;
 
+    #[cfg(pmix6)]
     #[test]
     fn mock_info_list_lifecycle_and_success_paths() {
         let _guard = crate::mock_ffi::MockGuard::new();
@@ -593,6 +630,19 @@ mod info_list_tests {
         crate::mock_ffi::set_mock_info_list_size(1);
         assert_eq!(list.len(), 1);
         assert_eq!(list.iter().len(), 1);
+    }
+
+
+    #[cfg(not(pmix6))]
+    #[test]
+    fn mock_info_list_len_fallback_avoids_recursion() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let list = PmixInfoList::new().expect("mock list");
+        // Guard: the 5.0 fallback must terminate (not recurse through iter)
+        // and report the empty list size seen by the mock.
+        assert_eq!(list.len(), 0);
+        assert!(list.is_empty());
+        assert!(list.iter().is_empty());
     }
 
     #[test]
