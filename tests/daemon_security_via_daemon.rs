@@ -77,7 +77,8 @@ fn test_pmix_credential_len_type() {
 #[test]
 fn test_pmix_credential_as_raw_exists() {
     let cred = PmixCredential::from_vec(vec![1u8, 2, 3]);
-    let _raw: *const std::ffi::c_void = cred.as_raw() as *const std::ffi::c_void;
+    let raw = cred.as_raw();
+    let _raw: *const std::ffi::c_void = &*raw as *const _ as *const std::ffi::c_void;
 }
 
 #[test]
@@ -154,7 +155,7 @@ fn test_pmix_credential_as_raw() {
     let data = vec![42u8, 43, 44];
     let cred = PmixCredential::from_vec(data);
     let raw = cred.as_raw();
-    assert!(!raw.is_null());
+    assert!(!raw.bytes.is_null());
 }
 
 #[test]
@@ -201,7 +202,7 @@ fn test_security_all_ffi_via_daemon() {
     assert!(!cred.is_empty());
     assert_eq!(cred.len(), 5);
     assert_eq!(cred.as_bytes(), data.as_slice());
-    assert!(!cred.as_raw().is_null());
+    assert!(!cred.as_raw().bytes.is_null());
 
     // ── 2. get_credential ──
     {

@@ -17,7 +17,7 @@ use pmix::{PmixError, PmixStatus, Proc};
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Extract the error from a Result<Vec<Info>, PmixStatus>.
+/// Extract the error from a Result<GroupResults, PmixStatus>.
 fn extract_err<T>(result: Result<T, PmixStatus>) -> PmixStatus {
     match result {
         Err(e) => e,
@@ -222,7 +222,7 @@ fn group_invite_callback_wrapper_records_status() {
     let status = Arc::new(Mutex::new(None::<PmixStatus>));
     let status_clone = Arc::clone(&status);
 
-    let wrapper = GroupInviteCallbackWrapper::new(move |s: PmixStatus, _info: Vec<_>| {
+    let wrapper = GroupInviteCallbackWrapper::new(move |s: PmixStatus, _info: GroupResults| {
         let mut locked = status_clone.lock().unwrap();
         *locked = Some(s);
     });
@@ -238,7 +238,7 @@ fn group_invite_callback_wrapper_records_info_count() {
     let info_count = Arc::new(Mutex::new(None::<usize>));
     let info_count_clone = Arc::clone(&info_count);
 
-    let _wrapper = GroupInviteCallbackWrapper::new(move |_status: PmixStatus, info: Vec<_>| {
+    let _wrapper = GroupInviteCallbackWrapper::new(move |_status: PmixStatus, info: GroupResults| {
         let mut locked = info_count_clone.lock().unwrap();
         *locked = Some(info.len());
     });

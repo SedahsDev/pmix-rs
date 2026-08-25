@@ -635,7 +635,7 @@ fn test_pmix_data_range_from_raw_all() {
     assert_eq!(PmixDataRange::from_raw(6), PmixDataRange::Custom);
     assert_eq!(PmixDataRange::from_raw(7), PmixDataRange::ProcLocal);
     assert_eq!(PmixDataRange::from_raw(255), PmixDataRange::Invalid);
-    assert_eq!(PmixDataRange::from_raw(42), PmixDataRange::Unknown);
+    assert_eq!(PmixDataRange::from_raw(42), PmixDataRange::Unknown(42));
 }
 
 #[test]
@@ -649,14 +649,14 @@ fn test_pmix_data_range_to_raw_all() {
     assert_eq!(PmixDataRange::Custom.to_raw(), 6);
     assert_eq!(PmixDataRange::ProcLocal.to_raw(), 7);
     assert_eq!(PmixDataRange::Invalid.to_raw(), 255);
-    assert_eq!(PmixDataRange::Unknown.to_raw(), 128);
+    assert_eq!(PmixDataRange::Unknown(128).to_raw(), 128);
 }
 
 #[test]
 fn test_pmix_data_range_display() {
     assert_eq!(format!("{}", PmixDataRange::Undef), "UNDEFINED");
     assert_eq!(format!("{}", PmixDataRange::Global), "GLOBAL");
-    assert_eq!(format!("{}", PmixDataRange::Unknown), "UNKNOWN RANGE (128)");
+    assert_eq!(format!("{}", PmixDataRange::Unknown(128)), "UNKNOWN RANGE (128)");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

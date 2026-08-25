@@ -67,17 +67,17 @@ fn test_proc_type_check() {
 
 #[test]
 fn test_construct_callback_wrapper() {
-    let _cb = GroupConstructCallbackWrapper::new(|_status: PmixStatus, _info: Vec<pmix::Info>| {});
+    let _cb = GroupConstructCallbackWrapper::new(|_status: PmixStatus, _info: GroupResults| {});
 }
 
 #[test]
 fn test_invite_callback_wrapper() {
-    let _cb = GroupInviteCallbackWrapper::new(|_status: PmixStatus, _info: Vec<pmix::Info>| {});
+    let _cb = GroupInviteCallbackWrapper::new(|_status: PmixStatus, _info: GroupResults| {});
 }
 
 #[test]
 fn test_join_callback_wrapper() {
-    let _cb = GroupJoinCallbackWrapper::new(|_status: PmixStatus, _info: Vec<pmix::Info>| {});
+    let _cb = GroupJoinCallbackWrapper::new(|_status: PmixStatus, _info: GroupResults| {});
 }
 
 #[test]

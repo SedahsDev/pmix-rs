@@ -430,6 +430,12 @@ pub enum PmixError {
     //  in `from_raw`. See implementation notes below.)
 }
 
+impl std::fmt::Display for PmixError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixStatus — the public-facing type that wraps PmixError + Unknown(i32)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -502,7 +508,7 @@ impl PmixStatus {
 impl std::fmt::Display for PmixStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Known(e) => e.fmt(f),
+            Self::Known(e) => std::fmt::Display::fmt(&e, f),
             Self::Unknown(v) => write!(f, "pmix_status_t({v}) [unknown/user-defined]"),
         }
     }

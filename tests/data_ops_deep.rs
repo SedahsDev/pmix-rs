@@ -88,8 +88,8 @@ fn test_proc_new_empty_nspace() {
 #[test]
 fn test_proc_new_long_nspace() {
     let long_ns = "n".repeat(256);
-    let proc = Proc::new(&long_ns, 0).expect("create proc");
-    let _ = proc;
+    let result = Proc::new(&long_ns, 0);
+    assert!(result.is_err());
 }
 
 #[test]

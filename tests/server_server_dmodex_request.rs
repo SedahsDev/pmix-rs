@@ -318,7 +318,7 @@ fn dmodex_request_nul_in_nspace_rejected() {
     // Proc::new returns Result<_, NulError>, so it should not panic
     // but return an Err.
     // Actually, let's check the return type.
-    let proc_result: Result<Proc, std::ffi::NulError> = Proc::new("test\0nspace", 0);
+    let proc_result: Result<Proc, PmixError> = Proc::new("test\0nspace", 0);
     assert!(
         proc_result.is_err(),
         "Proc::new should reject nspace with NUL byte"
