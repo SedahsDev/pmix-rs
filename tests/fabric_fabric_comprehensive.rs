@@ -135,6 +135,14 @@ fn test_fabric_register_nb_without_init() {
     // Mirror the blocking sibling: assert the nb path fails without PMIx init.
     // Do NOT call ensure_pmix_init() — that is the DVM/client path and would
     // invert the "without init" contract this test is named for.
+    //
+    // NOTE: on real OpenPMIx 5.0 this test SEGFAULTs inside native libpmix
+    // (`PMIx_Fabric_register_nb` is not safe to call before `PMIx_Init` on 5.0;
+    // gdb backtrace: SIGSEGV in `PMIx_Fabric_register_nb () from libpmix.so.2`,
+    // reached from the clean FFI forward at src/fabric.rs). On 6.1 the same call
+    // returns an error, so this passes. It is not run by the pmix5 CI job (scoped
+    // to --lib/--doc), so the crash is harmless in CI; a local `cargo test` on 5.0
+    // will hit it.
     let mut fabric = PmixFabric::new(Some("test")).expect("fabric new failed");
     let info = InfoBuilder::new().build().expect("build info");
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
@@ -264,6 +272,14 @@ fn test_compute_distances_nb_without_init() {
     // Mirror the blocking sibling: assert the nb path fails without PMIx init.
     // Do NOT call ensure_pmix_init() — that is the DVM/client path and would
     // invert the "without init" contract this test is named for.
+    //
+    // NOTE: on real OpenPMIx 5.0 this test SEGFAULTs inside native libpmix
+    // (`PMIx_Compute_distances_nb` is not safe to call before `PMIx_Init` on 5.0;
+    // gdb backtrace: SIGSEGV in `PMIx_Compute_distances_nb () from libpmix.so.2`,
+    // reached from the clean FFI forward at src/fabric.rs). On 6.1 the same call
+    // returns an error, so this passes. It is not run by the pmix5 CI job (scoped
+    // to --lib/--doc), so the crash is harmless in CI; a local `cargo test` on 5.0
+    // will hit it.
     let mut topo = PmixTopology::new(None).expect("topology new failed");
     let mut cpuset = PmixCpuset::new();
     let info = InfoBuilder::new().build().expect("build info");
