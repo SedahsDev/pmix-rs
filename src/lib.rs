@@ -2750,7 +2750,7 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
                 let ptr = bytes.as_mut_ptr() as *mut i8;
                 std::mem::forget(bytes);
                 dst.data.bo = pmix_byte_object_t {
-                    bytes: ptr,
+                    bytes: ptr as *mut _,
                     size: len,
                 };
             }
@@ -2760,7 +2760,7 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
                 let raw = Box::new(pmix_envar_t {
                     envar: e.envar.into_raw(),
                     value: e.value.into_raw(),
-                    separator: e.separator as i8,
+                    separator: e.separator as _,
                 });
                 dst.data.envar = *Box::into_raw(raw);
             }
