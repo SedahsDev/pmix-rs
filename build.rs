@@ -23,9 +23,17 @@ fn discover_pmix() -> (PathBuf, PathBuf) {
     let candidates = ["/usr", "/usr/local", "/opt/pmix", "/opt/prrte"];
     for c in candidates {
         let p = Path::new(c);
+        // Check for PMIx 2.x layout: lib/x86_64-linux-gnu/pmix2/include/pmix/pmix.h
+        let inc_v2 = p.join("lib/x86_64-linux-gnu/pmix2/include");
+        let lib_v2 = p.join("lib/x86_64-linux-gnu/pmix2/lib");
+        if inc_v2.join("pmix").join("pmix.h").exists()
+            || lib_v2.exists() && (lib_v2.join("libpmix.so").exists() || lib_v2.join("libpmix.a").exists())
+        {
+            return (inc_v2, lib_v2);
+        }
+        // Check for traditional layout: include/pmix.h
         let inc = p.join("include");
         let lib = p.join("lib");
-        // Accept either pmix.h at include/pmix.h or include present with libpmix
         if inc.join("pmix.h").exists()
             || (lib.exists() && (lib.join("libpmix.so").exists() || lib.join("libpmix.a").exists()))
         {

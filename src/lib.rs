@@ -36,6 +36,7 @@ pub mod fabric;
 #[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
 mod ffi;
 pub mod groups;
+pub mod info_list;
 pub mod info;
 #[cfg(any(test, feature = "mock_ffi"))]
 pub mod mock_ffi;
@@ -3840,38 +3841,6 @@ pub fn get_version() -> &'static str {
 pub fn progress() {
     unsafe {
         PMIx_Progress();
-    }
-}
-
-/// Stop the internal PMIx progress thread.
-///
-/// Use this when you initialized with `external_progress(false)` (the
-/// default) and want to cleanly shut down the internal progress thread
-/// before calling [`finalize`] or exiting.
-///
-/// # When to call
-///
-/// - **External progress mode (`external_progress(true)`):** Do **not**
-///   call this — there is no internal progress thread to stop.
-/// - **Internal progress mode (default):** Call this before [`finalize`]
-///   for a clean shutdown. The progress thread will drain pending events
-///   and exit gracefully.
-/// - **Tests:** If your test calls [`init`] and then exits without
-///   calling [`finalize`], call this first to avoid the progress thread
-///   running after the test process terminates.
-///
-/// # Interaction with [`progress()`]
-///
-/// After calling `progress_thread_stop()`, do **not** call [`progress()`]
-/// anymore — the event base has been torn down and further calls have
-/// undefined behavior.
-///
-/// # C API
-/// `PMIx_Progress_thread_stop(info, ninfo)` — takes an optional Info
-/// array for future extension (pass null/0 for now).
-pub fn progress_thread_stop() {
-    unsafe {
-        PMIx_Progress_thread_stop(std::ptr::null(), 0);
     }
 }
 

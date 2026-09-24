@@ -475,17 +475,12 @@ pub const F_LOCK: u32 = 1;
 pub const F_TLOCK: u32 = 2;
 pub const F_TEST: u32 = 3;
 pub const PMIX_HAVE_VISIBILITY: u32 = 1;
-pub const PMIX_VERSION_MAJOR: u32 = 6;
-pub const PMIX_VERSION_MINOR: u32 = 1;
-pub const PMIX_VERSION_RELEASE: u32 = 0;
-pub const PMIX_NUMERIC_VERSION: u32 = 393472;
-pub const PMIX_CAP_BASE: u32 = 0;
-pub const PMIX_CAP_LTO: u32 = 1;
-pub const PMIX_CAP_INMEMHELP: u32 = 2;
-pub const PMIX_CAP_UPCALLS2: u32 = 3;
-pub const PMIX_CAP_STOP_PRGTHRD: u32 = 4;
-pub const PMIX_CAP_GET_NUMBER_FN: u32 = 5;
-pub const PMIX_CAPABILITIES: u32 = 3;
+pub const PMIX_VERSION_MAJOR: u32 = 5;
+pub const PMIX_VERSION_MINOR: u32 = 0;
+pub const PMIX_VERSION_RELEASE: u32 = 7;
+pub const PMIX_NUMERIC_VERSION: u32 = 327687;
+pub const PMIX_CAP_BASE: u32 = 1;
+pub const PMIX_CAPABILITIES: u32 = 1;
 pub const PMIX_MAX_NSLEN: u32 = 255;
 pub const PMIX_MAX_KEYLEN: u32 = 511;
 pub const PMIX_RANK_UNDEF: u32 = 4294967295;
@@ -500,12 +495,8 @@ pub const PMIX_LAUNCHER_RNDZ_FILE: &[u8; 24] = b"PMIX_LAUNCHER_RNDZ_FILE\0";
 pub const PMIX_KEEPALIVE_PIPE: &[u8; 20] = b"PMIX_KEEPALIVE_PIPE\0";
 pub const PMIX_ATTR_UNDEF: &[u8; 11] = b"pmix.undef\0";
 pub const PMIX_EXTERNAL_PROGRESS: &[u8; 11] = b"pmix.evext\0";
-pub const PMIX_PROGRESS_THREAD_FLUSH: &[u8; 13] = b"pmix.evflush\0";
-pub const PMIX_PROGRESS_THREAD_NAME: &[u8; 12] = b"pmix.evname\0";
 pub const PMIX_EXTERNAL_AUX_EVENT_BASE: &[u8; 11] = b"pmix.evaux\0";
 pub const PMIX_SERVER_TOOL_SUPPORT: &[u8; 15] = b"pmix.srvr.tool\0";
-pub const PMIX_SERVER_ALLOW_FOREIGN_TOOLS: &[u8; 17] = b"pmix.srvr.ftools\0";
-pub const PMIX_ALLOW_CLIENT_CLONES: &[u8; 18] = b"pmix.allow.clones\0";
 pub const PMIX_SERVER_REMOTE_CONNECTIONS: &[u8; 17] = b"pmix.srvr.remote\0";
 pub const PMIX_SERVER_SYSTEM_SUPPORT: &[u8; 14] = b"pmix.srvr.sys\0";
 pub const PMIX_SERVER_SESSION_SUPPORT: &[u8; 15] = b"pmix.srvr.sess\0";
@@ -546,11 +537,8 @@ pub const PMIX_NOHUP: &[u8; 11] = b"pmix.nohup\0";
 pub const PMIX_LAUNCHER_DAEMON: &[u8; 14] = b"pmix.lnch.dmn\0";
 pub const PMIX_EXEC_AGENT: &[u8; 15] = b"pmix.exec.agnt\0";
 pub const PMIX_LAUNCH_DIRECTIVES: &[u8; 15] = b"pmix.lnch.dirs\0";
-pub const PMIX_REALUID: &[u8; 10] = b"pmix.ruid\0";
 pub const PMIX_USERID: &[u8; 10] = b"pmix.euid\0";
-pub const PMIX_REALGID: &[u8; 10] = b"pmix.rgid\0";
 pub const PMIX_GRPID: &[u8; 10] = b"pmix.egid\0";
-pub const PMIX_REQUESTOR: &[u8; 15] = b"pmix.requestor\0";
 pub const PMIX_VERSION_INFO: &[u8; 13] = b"pmix.version\0";
 pub const PMIX_REQUESTOR_IS_TOOL: &[u8; 14] = b"pmix.req.tool\0";
 pub const PMIX_REQUESTOR_IS_CLIENT: &[u8; 16] = b"pmix.req.client\0";
@@ -682,7 +670,6 @@ pub const PMIX_EVENT_PROXY: &[u8; 13] = b"pmix.evproxy\0";
 pub const PMIX_EVENT_TEXT_MESSAGE: &[u8; 12] = b"pmix.evtext\0";
 pub const PMIX_EVENT_TIMESTAMP: &[u8; 14] = b"pmix.evtstamp\0";
 pub const PMIX_EVENT_ONESHOT: &[u8; 11] = b"pmix.evone\0";
-pub const PMIX_EVENT_STAYS_LOCAL: &[u8; 13] = b"pmix.evlocal\0";
 pub const PMIX_EVENT_TERMINATE_SESSION: &[u8; 17] = b"pmix.evterm.sess\0";
 pub const PMIX_EVENT_TERMINATE_JOB: &[u8; 16] = b"pmix.evterm.job\0";
 pub const PMIX_EVENT_TERMINATE_NODE: &[u8; 17] = b"pmix.evterm.node\0";
@@ -720,7 +707,6 @@ pub const PMIX_CPUS_PER_PROC: &[u8; 16] = b"pmix.cpuperproc\0";
 pub const PMIX_NO_PROCS_ON_HEAD: &[u8; 13] = b"pmix.nolocal\0";
 pub const PMIX_NO_OVERSUBSCRIBE: &[u8; 12] = b"pmix.noover\0";
 pub const PMIX_REPORT_BINDINGS: &[u8; 13] = b"pmix.repbind\0";
-pub const PMIX_REPORT_PHYSICAL_CPUS: &[u8; 18] = b"pmix.repphys.cpus\0";
 pub const PMIX_CPU_LIST: &[u8; 13] = b"pmix.cpulist\0";
 pub const PMIX_JOB_RECOVERABLE: &[u8; 13] = b"pmix.recover\0";
 pub const PMIX_JOB_CONTINUOUS: &[u8; 16] = b"pmix.continuous\0";
@@ -748,10 +734,6 @@ pub const PMIX_SHOW_LAUNCH_PROGRESS: &[u8; 14] = b"pmix.showprog\0";
 pub const PMIX_AGGREGATE_HELP: &[u8; 14] = b"pmix.agg.help\0";
 pub const PMIX_REPORT_CHILD_SEP: &[u8; 17] = b"pmix.rptchildsep\0";
 pub const PMIX_SPAWN_CHILD_SEP: &[u8; 16] = b"pmix.spchildsep\0";
-pub const PMIX_FWD_ENVIRONMENT: &[u8; 12] = b"pmix.fwdenv\0";
-pub const PMIX_SPAWN_PTY: &[u8; 15] = b"pmix.spawn.pty\0";
-pub const PMIX_PTY_TERMIO: &[u8; 16] = b"pmix.pty.termio\0";
-pub const PMIX_PTY_WSIZE: &[u8; 15] = b"pmix.pty.wsize\0";
 pub const PMIX_QUERY_SUPPORTED_KEYS: &[u8; 14] = b"pmix.qry.keys\0";
 pub const PMIX_QUERY_NAMESPACES: &[u8; 12] = b"pmix.qry.ns\0";
 pub const PMIX_QUERY_NAMESPACE_INFO: &[u8; 16] = b"pmix.qry.nsinfo\0";
@@ -781,15 +763,9 @@ pub const PMIX_HOST_FUNCTIONS: &[u8; 14] = b"pmix.host.fns\0";
 pub const PMIX_QUERY_AVAIL_SERVERS: &[u8; 16] = b"pmix.qry.asrvrs\0";
 pub const PMIX_QUERY_QUALIFIERS: &[u8; 15] = b"pmix.qry.quals\0";
 pub const PMIX_QUERY_RESULTS: &[u8; 13] = b"pmix.qry.res\0";
-pub const PMIX_QUERY_MIN_ALLOC_UNIT: &[u8; 15] = b"pmix.qry.minau\0";
-pub const PMIX_QUERY_RES_BLOCKS: &[u8; 17] = b"pmix.qry.resblks\0";
-pub const PMIX_QUERY_RES_BLOCK_DEF: &[u8; 16] = b"pmix.qry.resdef\0";
-pub const PMIX_QUERY_DEVICES: &[u8; 13] = b"pmix.qry.dev\0";
 pub const PMIX_QUERY_AVAILABLE_SLOTS: &[u8; 16] = b"pmix.qry.aslots\0";
 pub const PMIX_QUERY_RESOLVE_PEERS: &[u8; 15] = b"pmix.qry.peers\0";
 pub const PMIX_QUERY_RESOLVE_NODE: &[u8; 14] = b"pmix.qry.node\0";
-pub const PMIX_QUERY_PROC_RESOURCE_USAGE: &[u8; 14] = b"pmix.qry.pres\0";
-pub const PMIX_QUERY_NODE_RESOURCE_USAGE: &[u8; 14] = b"pmix.qry.nres\0";
 pub const PMIX_QUERY_REFRESH_CACHE: &[u8; 14] = b"pmix.qry.rfsh\0";
 pub const PMIX_QUERY_LOCAL_ONLY: &[u8; 15] = b"pmix.qry.local\0";
 pub const PMIX_QUERY_REPORT_AVG: &[u8; 13] = b"pmix.qry.avg\0";
@@ -799,7 +775,6 @@ pub const PMIX_SERVER_ATTRIBUTES: &[u8; 16] = b"pmix.srvr.attrs\0";
 pub const PMIX_HOST_ATTRIBUTES: &[u8; 16] = b"pmix.host.attrs\0";
 pub const PMIX_TOOL_ATTRIBUTES: &[u8; 16] = b"pmix.tool.attrs\0";
 pub const PMIX_QUERY_SUPPORTED_QUALIFIERS: &[u8; 15] = b"pmix.qry.quals\0";
-pub const PMIX_RESOURCE_BLOCK_NAME: &[u8; 16] = b"pmix.resblkname\0";
 pub const PMIX_SESSION_INFO: &[u8; 14] = b"pmix.ssn.info\0";
 pub const PMIX_JOB_INFO: &[u8; 14] = b"pmix.job.info\0";
 pub const PMIX_APP_INFO: &[u8; 14] = b"pmix.app.info\0";
@@ -883,13 +858,7 @@ pub const PMIX_ALLOC_SHARE: &[u8; 17] = b"pmix.alloc.share\0";
 pub const PMIX_ALLOC_NOSHELL: &[u8; 19] = b"pmix.alloc.noshell\0";
 pub const PMIX_ALLOC_DEPENDENCY: &[u8; 18] = b"pmix.alloc.depend\0";
 pub const PMIX_ALLOC_BEGIN: &[u8; 17] = b"pmix.alloc.begin\0";
-pub const PMIX_ALLOC_NOT_WAITING: &[u8; 19] = b"pmix.alloc.notwait\0";
-pub const PMIX_ALLOC_RES_BLOCK: &[u8; 15] = b"pmix.alloc.blk\0";
-pub const PMIX_ALLOC_NUM_BLOCKS: &[u8; 17] = b"pmix.alloc.nblks\0";
-pub const PMIX_ALLOC_MAU: &[u8; 15] = b"pmix.alloc.mau\0";
 pub const PMIX_ALLOC_CHILD_SEP: &[u8; 15] = b"pmix.alloc.sep\0";
-pub const PMIX_MEM_ALLOC_KIND: &[u8; 17] = b"pmix.alloc.mkind\0";
-pub const PMIX_GPU_SUPPORT: &[u8; 17] = b"pmix.gpu.support\0";
 pub const PMIX_JOB_CTRL_ID: &[u8; 14] = b"pmix.jctrl.id\0";
 pub const PMIX_JOB_CTRL_PAUSE: &[u8; 17] = b"pmix.jctrl.pause\0";
 pub const PMIX_JOB_CTRL_RESUME: &[u8; 18] = b"pmix.jctrl.resume\0";
@@ -915,10 +884,8 @@ pub const PMIX_CLEANUP_IGNORE: &[u8; 18] = b"pmix.clnup.ignore\0";
 pub const PMIX_CLEANUP_LEAVE_TOPDIR: &[u8; 17] = b"pmix.clnup.lvtop\0";
 pub const PMIX_JOB_CTRL_SEP: &[u8; 15] = b"pmix.jctrl.sep\0";
 pub const PMIX_SESSION_CTRL_ID: &[u8; 16] = b"pmix.ssnctrl.id\0";
-pub const PMIX_SESSION_INSTANTIATE: &[u8; 14] = b"pmix.ssn.inst\0";
-pub const PMIX_SESSION_RESOURCES: &[u8; 13] = b"pmix.ssn.res\0";
-pub const PMIX_SESSION_JOB: &[u8; 13] = b"pmix.ssn.job\0";
 pub const PMIX_SESSION_APP: &[u8; 13] = b"pmix.ssn.app\0";
+pub const PMIX_SESSION_PROVISION: &[u8; 13] = b"pmix.ssn.pvn\0";
 pub const PMIX_SESSION_PROVISION_NODES: &[u8; 16] = b"pmix.ssn.pvnnds\0";
 pub const PMIX_SESSION_PROVISION_IMAGE: &[u8; 16] = b"pmix.ssn.pvnimg\0";
 pub const PMIX_SESSION_PAUSE: &[u8; 15] = b"pmix.ssn.pause\0";
@@ -927,11 +894,8 @@ pub const PMIX_SESSION_TERMINATE: &[u8; 19] = b"pmix.ssn.terminate\0";
 pub const PMIX_SESSION_PREEMPT: &[u8; 17] = b"pmix.ssn.preempt\0";
 pub const PMIX_SESSION_RESTORE: &[u8; 17] = b"pmix.ssn.restore\0";
 pub const PMIX_SESSION_SIGNAL: &[u8; 13] = b"pmix.ssn.sig\0";
-pub const PMIX_SESSION_SEP: &[u8; 13] = b"pmix.ssn.sep\0";
-pub const PMIX_SESSION_EXTEND: &[u8; 15] = b"pmix.ssn.xtend\0";
 pub const PMIX_SESSION_COMPLETE: &[u8; 18] = b"pmix.ssn.complete\0";
 pub const PMIX_MONITOR_ID: &[u8; 16] = b"pmix.monitor.id\0";
-pub const PMIX_MONITOR_PROXY: &[u8; 19] = b"pmix.monitor.proxy\0";
 pub const PMIX_MONITOR_CANCEL: &[u8; 20] = b"pmix.monitor.cancel\0";
 pub const PMIX_MONITOR_APP_CONTROL: &[u8; 21] = b"pmix.monitor.appctrl\0";
 pub const PMIX_MONITOR_HEARTBEAT: &[u8; 19] = b"pmix.monitor.mbeat\0";
@@ -944,66 +908,6 @@ pub const PMIX_MONITOR_FILE_ACCESS: &[u8; 21] = b"pmix.monitor.faccess\0";
 pub const PMIX_MONITOR_FILE_MODIFY: &[u8; 18] = b"pmix.monitor.fmod\0";
 pub const PMIX_MONITOR_FILE_CHECK_TIME: &[u8; 19] = b"pmix.monitor.ftime\0";
 pub const PMIX_MONITOR_FILE_DROPS: &[u8; 19] = b"pmix.monitor.fdrop\0";
-pub const PMIX_MONITOR_RESOURCE_RATE: &[u8; 21] = b"pmix.monitor.resrate\0";
-pub const PMIX_MONITOR_TARGET_PROCS: &[u8; 21] = b"pmix.monitor.tgtproc\0";
-pub const PMIX_MONITOR_TARGET_PIDS: &[u8; 20] = b"pmix.monitor.tgtpid\0";
-pub const PMIX_MONITOR_TARGET_NODES: &[u8; 21] = b"pmix.monitor.tgtnode\0";
-pub const PMIX_MONITOR_TARGET_NODEIDS: &[u8; 22] = b"pmix.monitor.tgtndids\0";
-pub const PMIX_MONITOR_TARGET_DISKS: &[u8; 20] = b"pmix.monitor.tgtdks\0";
-pub const PMIX_MONITOR_TARGET_NETS: &[u8; 21] = b"pmix.monitor.tgtnets\0";
-pub const PMIX_MONITOR_PROC_RESOURCE_USAGE: &[u8; 21] = b"pmix.monitor.presuse\0";
-pub const PMIX_MONITOR_NODE_RESOURCE_USAGE: &[u8; 22] = b"pmix.monitor.ndresuse\0";
-pub const PMIX_MONITOR_DISK_RESOURCE_USAGE: &[u8; 22] = b"pmix.monitor.dkresuse\0";
-pub const PMIX_MONITOR_NET_RESOURCE_USAGE: &[u8; 23] = b"pmix.monitor.netresuse\0";
-pub const PMIX_MONITOR_LOCAL_ONLY: &[u8; 19] = b"pmix.monitor.local\0";
-pub const PMIX_PROC_RESOURCE_USAGE: &[u8; 14] = b"pmix.proc.res\0";
-pub const PMIX_PROC_OS_STATE: &[u8; 18] = b"pmix.proc.osstate\0";
-pub const PMIX_PROC_TIME: &[u8; 15] = b"pmix.proc.time\0";
-pub const PMIX_PROC_PERCENT_CPU: &[u8; 15] = b"pmix.proc.pcpu\0";
-pub const PMIX_PROC_PRIORITY: &[u8; 14] = b"pmix.proc.pri\0";
-pub const PMIX_PROC_NUM_THREADS: &[u8; 15] = b"pmix.proc.nthr\0";
-pub const PMIX_PROC_PSS: &[u8; 14] = b"pmix.proc.pss\0";
-pub const PMIX_PROC_VSIZE: &[u8; 16] = b"pmix.proc.vsize\0";
-pub const PMIX_PROC_RSS: &[u8; 14] = b"pmix.proc.rss\0";
-pub const PMIX_PROC_PEAK_VSIZE: &[u8; 18] = b"pmix.proc.pkvsize\0";
-pub const PMIX_PROC_CPU: &[u8; 14] = b"pmix.proc.cpu\0";
-pub const PMIX_PROC_SAMPLE_TIME: &[u8; 19] = b"pmix.proc.samptime\0";
-pub const PMIX_DISK_RESOURCE_USAGE: &[u8; 14] = b"pmix.disk.res\0";
-pub const PMIX_DISK_ID: &[u8; 13] = b"pmix.disk.id\0";
-pub const PMIX_DISK_READ_COMPLETED: &[u8; 18] = b"pmix.disk.rdscomp\0";
-pub const PMIX_DISK_READ_MERGED: &[u8; 18] = b"pmix.disk.rdsmrgd\0";
-pub const PMIX_DISK_READ_SECTORS: &[u8; 16] = b"pmix.disk.rdsct\0";
-pub const PMIX_DISK_READ_MILLISEC: &[u8; 15] = b"pmix.disk.rdms\0";
-pub const PMIX_DISK_WRITE_COMPLETED: &[u8; 18] = b"pmix.disk.wtscomp\0";
-pub const PMIX_DISK_WRITE_MERGED: &[u8; 18] = b"pmix.disk.wtsmrgd\0";
-pub const PMIX_DISK_WRITE_SECTORS: &[u8; 16] = b"pmix.disk.wtsct\0";
-pub const PMIX_DISK_WRITE_MILLISEC: &[u8; 15] = b"pmix.disk.wtms\0";
-pub const PMIX_DISK_IO_IN_PROGRESS: &[u8; 14] = b"pmix.disk.ios\0";
-pub const PMIX_DISK_IO_MILLISEC: &[u8; 15] = b"pmix.disk.ioms\0";
-pub const PMIX_DISK_IO_WEIGHTED: &[u8; 17] = b"pmix.disk.iowght\0";
-pub const PMIX_DISK_SAMPLE_TIME: &[u8; 19] = b"pmix.disk.samptime\0";
-pub const PMIX_NETWORK_RESOURCE_USAGE: &[u8; 13] = b"pmix.net.res\0";
-pub const PMIX_NETWORK_ID: &[u8; 12] = b"pmix.net.id\0";
-pub const PMIX_NET_RECVD_BYTES: &[u8; 13] = b"pmix.net.rcb\0";
-pub const PMIX_NET_RECVD_PCKTS: &[u8; 13] = b"pmix.net.rcp\0";
-pub const PMIX_NET_RECVD_ERRS: &[u8; 15] = b"pmix.net.rcerr\0";
-pub const PMIX_NET_SENT_BYTES: &[u8; 14] = b"pmix.net.sntb\0";
-pub const PMIX_NET_SENT_PCKTS: &[u8; 14] = b"pmix.net.sntp\0";
-pub const PMIX_NET_SENT_ERRS: &[u8; 16] = b"pmix.net.snterr\0";
-pub const PMIX_NET_SAMPLE_TIME: &[u8; 18] = b"pmix.net.samptime\0";
-pub const PMIX_NODE_RESOURCE_USAGE: &[u8; 14] = b"pmix.node.res\0";
-pub const PMIX_NODE_LOAD_AVG: &[u8; 13] = b"pmix.node.la\0";
-pub const PMIX_NODE_LOAD_AVG5: &[u8; 14] = b"pmix.node.la5\0";
-pub const PMIX_NODE_LOAD_AVG15: &[u8; 15] = b"pmix.node.la15\0";
-pub const PMIX_NODE_MEM_TOTAL: &[u8; 15] = b"pmix.node.mtot\0";
-pub const PMIX_NODE_MEM_FREE: &[u8; 16] = b"pmix.node.mfree\0";
-pub const PMIX_NODE_MEM_BUFFERS: &[u8; 15] = b"pmix.node.mbuf\0";
-pub const PMIX_NODE_MEM_CACHED: &[u8; 17] = b"pmix.node.mcache\0";
-pub const PMIX_NODE_MEM_SWAP_CACHED: &[u8; 16] = b"pmix.node.mswpc\0";
-pub const PMIX_NODE_SWAP_TOTAL: &[u8; 16] = b"pmix.node.mswpt\0";
-pub const PMIX_NODE_MEM_SWAP_FREE: &[u8; 19] = b"pmix.node.mswpfree\0";
-pub const PMIX_NODE_MEM_MAPPED: &[u8; 15] = b"pmix.node.mmap\0";
-pub const PMIX_NODE_SAMPLE_TIME: &[u8; 19] = b"pmix.node.samptime\0";
 pub const PMIX_CRED_TYPE: &[u8; 15] = b"pmix.sec.ctype\0";
 pub const PMIX_CRYPTO_KEY: &[u8; 13] = b"pmix.sec.key\0";
 pub const PMIX_IOF_CACHE_SIZE: &[u8; 15] = b"pmix.iof.csize\0";
@@ -1043,12 +947,8 @@ pub const PMIX_GROUP_LOCAL_ONLY: &[u8; 13] = b"pmix.grp.lcl\0";
 pub const PMIX_GROUP_ENDPT_DATA: &[u8; 15] = b"pmix.grp.endpt\0";
 pub const PMIX_GROUP_NAMES: &[u8; 13] = b"pmix.pgrp.nm\0";
 pub const PMIX_GROUP_INFO: &[u8; 14] = b"pmix.grp.info\0";
-pub const PMIX_GROUP_INFO_ARRAY: &[u8; 19] = b"pmix.grp.infoarray\0";
 pub const PMIX_GROUP_LOCAL_CID: &[u8; 15] = b"pmix.grp.lclid\0";
 pub const PMIX_GROUP_ADD_MEMBERS: &[u8; 13] = b"pmix.grp.add\0";
-pub const PMIX_GROUP_BOOTSTRAP: &[u8; 16] = b"pmix.grp.btstrp\0";
-pub const PMIX_GROUP_JOB_INFO: &[u8; 15] = b"pmix.grp.jinfo\0";
-pub const PMIX_GROUP_FINAL_MEMBERSHIP_ORDER: &[u8; 16] = b"pmix.grp.finord\0";
 pub const PMIX_QUERY_STORAGE_LIST: &[u8; 15] = b"pmix.strg.list\0";
 pub const PMIX_STORAGE_CAPACITY_LIMIT: &[u8; 14] = b"pmix.strg.cap\0";
 pub const PMIX_STORAGE_OBJECT_LIMIT: &[u8; 14] = b"pmix.strg.obj\0";
@@ -1171,7 +1071,6 @@ pub const PMIX_ERR_DUPLICATE_KEY: i32 = -53;
 pub const PMIX_ERR_EMPTY: i32 = -60;
 pub const PMIX_ERR_LOST_CONNECTION: i32 = -61;
 pub const PMIX_ERR_EXISTS_OUTSIDE_SCOPE: i32 = -62;
-pub const PMIX_ERR_NOT_AVAILABLE: i32 = -64;
 pub const PMIX_PROCESS_SET_DEFINE: i32 = -55;
 pub const PMIX_PROCESS_SET_DELETE: i32 = -56;
 pub const PMIX_DEBUGGER_RELEASE: i32 = -3;
@@ -1183,7 +1082,6 @@ pub const PMIX_JCTRL_PREEMPT_ALERT: i32 = -108;
 pub const PMIX_MONITOR_HEARTBEAT_ALERT: i32 = -109;
 pub const PMIX_MONITOR_FILE_ALERT: i32 = -110;
 pub const PMIX_PROC_TERMINATED: i32 = -111;
-pub const PMIX_MONITOR_RESUSAGE_UPDATE: i32 = -114;
 pub const PMIX_ERR_EVENT_REGISTRATION: i32 = -144;
 pub const PMIX_MODEL_DECLARED: i32 = -147;
 pub const PMIX_MODEL_RESOURCES: i32 = -151;
@@ -1249,8 +1147,6 @@ pub const PMIX_EVENT_NO_ACTION_TAKEN: i32 = -331;
 pub const PMIX_EVENT_PARTIAL_ACTION_TAKEN: i32 = -332;
 pub const PMIX_EVENT_ACTION_DEFERRED: i32 = -333;
 pub const PMIX_EVENT_ACTION_COMPLETE: i32 = -334;
-pub const PMIX_ERR_LOST_PRECISION: i32 = -400;
-pub const PMIX_ERR_CHANGE_SIGN: i32 = -401;
 pub const PMIX_EXTERNAL_ERR_BASE: i32 = -3000;
 pub const PMIX_UNDEF: u32 = 0;
 pub const PMIX_BOOL: u32 = 1;
@@ -1310,15 +1206,15 @@ pub const PMIX_DEVTYPE: u32 = 57;
 pub const PMIX_LOCTYPE: u32 = 58;
 pub const PMIX_COMPRESSED_BYTE_OBJECT: u32 = 59;
 pub const PMIX_PROC_NSPACE: u32 = 60;
+pub const PMIX_PROC_STATS: u32 = 61;
+pub const PMIX_DISK_STATS: u32 = 62;
+pub const PMIX_NET_STATS: u32 = 63;
+pub const PMIX_NODE_STATS: u32 = 64;
 pub const PMIX_DATA_BUFFER: u32 = 65;
 pub const PMIX_STOR_MEDIUM: u32 = 66;
 pub const PMIX_STOR_ACCESS: u32 = 67;
 pub const PMIX_STOR_PERSIST: u32 = 68;
 pub const PMIX_STOR_ACCESS_TYPE: u32 = 69;
-pub const PMIX_DEVICE: u32 = 70;
-pub const PMIX_RESBLOCK_DIRECTIVE: u32 = 71;
-pub const PMIX_RESOURCE_UNIT: u32 = 72;
-pub const PMIX_NODE_PID: u32 = 73;
 pub const PMIX_DATA_TYPE_MAX: u32 = 500;
 pub const PMIX_SCOPE_UNDEF: u32 = 0;
 pub const PMIX_LOCAL: u32 = 1;
@@ -1352,11 +1248,6 @@ pub const PMIX_ALLOC_RELEASE: u32 = 3;
 pub const PMIX_ALLOC_REAQUIRE: u32 = 4;
 pub const PMIX_ALLOC_REQ_CANCEL: u32 = 5;
 pub const PMIX_ALLOC_EXTERNAL: u32 = 128;
-pub const PMIX_RESOURCE_BLOCK_DEFINE: u32 = 1;
-pub const PMIX_RESOURCE_BLOCK_EXTEND: u32 = 2;
-pub const PMIX_RESOURCE_BLOCK_REMOVE: u32 = 3;
-pub const PMIX_RESOURCE_BLOCK_DELETE: u32 = 4;
-pub const PMIX_RESOURCE_BLOCK_EXTERNAL: u32 = 128;
 pub const PMIX_FWD_NO_CHANNELS: u32 = 0;
 pub const PMIX_FWD_STDIN_CHANNEL: u32 = 1;
 pub const PMIX_FWD_STDOUT_CHANNEL: u32 = 2;
@@ -1411,11 +1302,6 @@ pub const PMIX_DEVTYPE_NETWORK: u32 = 4;
 pub const PMIX_DEVTYPE_OPENFABRICS: u32 = 8;
 pub const PMIX_DEVTYPE_DMA: u32 = 16;
 pub const PMIX_DEVTYPE_COPROC: u32 = 32;
-pub const PMIX_DEVTYPE_MEMORY: u32 = 64;
-pub const PMIX_DEVTYPE_CORE: u32 = 128;
-pub const PMIX_DEVTYPE_HWT: u32 = 256;
-pub const PMIX_DEVTYPE_CPU: u32 = 512;
-pub const PMIX_DEVTYPE_NODE: u32 = 1024;
 pub const PMIX_BUFFER: u32 = 26;
 pub const PMIX_ERR_SILENT: i32 = -2;
 pub const PMIX_ERR_DEBUGGER_RELEASE: i32 = -3;
@@ -1445,6 +1331,7 @@ pub const PMIX_ERR_SERVER_NOT_AVAIL: i32 = -45;
 pub const PMIX_ERR_NOT_IMPLEMENTED: i32 = -48;
 pub const PMIX_DEBUG_WAITING_FOR_NOTIFY: i32 = -58;
 pub const PMIX_ERR_FATAL: i32 = -63;
+pub const PMIX_ERR_NOT_AVAILABLE: i32 = -64;
 pub const PMIX_ERR_VALUE_OUT_OF_BOUNDS: i32 = -65;
 pub const PMIX_ERR_FILE_OPEN_FAILURE: i32 = -67;
 pub const PMIX_ERR_FILE_READ_FAILURE: i32 = -68;
@@ -5351,7 +5238,6 @@ pub type pmix_data_range_t = u8;
 pub type pmix_persistence_t = u8;
 pub type pmix_info_directives_t = u32;
 pub type pmix_alloc_directive_t = u8;
-pub type pmix_resource_block_directive_t = u8;
 pub type pmix_iof_channel_t = u16;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -5447,38 +5333,6 @@ pub type pmix_geometry_t = pmix_geometry;
 pub type pmix_device_type_t = u64;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct pmix_device {
-    pub uuid: *mut ::std::os::raw::c_char,
-    pub osname: *mut ::std::os::raw::c_char,
-    pub type_: pmix_device_type_t,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of pmix_device"][::std::mem::size_of::<pmix_device>() - 24usize];
-    ["Alignment of pmix_device"][::std::mem::align_of::<pmix_device>() - 8usize];
-    ["Offset of field: pmix_device::uuid"][::std::mem::offset_of!(pmix_device, uuid) - 0usize];
-    ["Offset of field: pmix_device::osname"][::std::mem::offset_of!(pmix_device, osname) - 8usize];
-    ["Offset of field: pmix_device::type_"][::std::mem::offset_of!(pmix_device, type_) - 16usize];
-};
-pub type pmix_device_t = pmix_device;
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct pmix_resource_unit {
-    pub type_: pmix_device_type_t,
-    pub count: usize,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of pmix_resource_unit"][::std::mem::size_of::<pmix_resource_unit>() - 16usize];
-    ["Alignment of pmix_resource_unit"][::std::mem::align_of::<pmix_resource_unit>() - 8usize];
-    ["Offset of field: pmix_resource_unit::type_"]
-        [::std::mem::offset_of!(pmix_resource_unit, type_) - 0usize];
-    ["Offset of field: pmix_resource_unit::count"]
-        [::std::mem::offset_of!(pmix_resource_unit, count) - 8usize];
-};
-pub type pmix_resource_unit_t = pmix_resource_unit;
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct pmix_device_distance {
     pub uuid: *mut ::std::os::raw::c_char,
     pub osname: *mut ::std::os::raw::c_char,
@@ -5502,24 +5356,6 @@ const _: () = {
         [::std::mem::offset_of!(pmix_device_distance, maxdist) - 26usize];
 };
 pub type pmix_device_distance_t = pmix_device_distance;
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct pmix_node_pid {
-    pub hostname: *mut ::std::os::raw::c_char,
-    pub nodeid: u32,
-    pub pid: pid_t,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of pmix_node_pid"][::std::mem::size_of::<pmix_node_pid>() - 16usize];
-    ["Alignment of pmix_node_pid"][::std::mem::align_of::<pmix_node_pid>() - 8usize];
-    ["Offset of field: pmix_node_pid::hostname"]
-        [::std::mem::offset_of!(pmix_node_pid, hostname) - 0usize];
-    ["Offset of field: pmix_node_pid::nodeid"]
-        [::std::mem::offset_of!(pmix_node_pid, nodeid) - 8usize];
-    ["Offset of field: pmix_node_pid::pid"][::std::mem::offset_of!(pmix_node_pid, pid) - 12usize];
-};
-pub type pmix_node_pid_t = pmix_node_pid;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmix_byte_object {
@@ -5657,6 +5493,196 @@ const _: () = {
 };
 pub type pmix_data_array_t = pmix_data_array;
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct pmix_proc_stats {
+    pub node: *mut ::std::os::raw::c_char,
+    pub proc_: pmix_proc_t,
+    pub pid: pid_t,
+    pub cmd: *mut ::std::os::raw::c_char,
+    pub state: ::std::os::raw::c_char,
+    pub time: timeval,
+    pub percent_cpu: f32,
+    pub priority: i32,
+    pub num_threads: u16,
+    pub pss: f32,
+    pub vsize: f32,
+    pub rss: f32,
+    pub peak_vsize: f32,
+    pub processor: u16,
+    pub sample_time: timeval,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of pmix_proc_stats"][::std::mem::size_of::<pmix_proc_stats>() - 352usize];
+    ["Alignment of pmix_proc_stats"][::std::mem::align_of::<pmix_proc_stats>() - 8usize];
+    ["Offset of field: pmix_proc_stats::node"]
+        [::std::mem::offset_of!(pmix_proc_stats, node) - 0usize];
+    ["Offset of field: pmix_proc_stats::proc_"]
+        [::std::mem::offset_of!(pmix_proc_stats, proc_) - 8usize];
+    ["Offset of field: pmix_proc_stats::pid"]
+        [::std::mem::offset_of!(pmix_proc_stats, pid) - 268usize];
+    ["Offset of field: pmix_proc_stats::cmd"]
+        [::std::mem::offset_of!(pmix_proc_stats, cmd) - 272usize];
+    ["Offset of field: pmix_proc_stats::state"]
+        [::std::mem::offset_of!(pmix_proc_stats, state) - 280usize];
+    ["Offset of field: pmix_proc_stats::time"]
+        [::std::mem::offset_of!(pmix_proc_stats, time) - 288usize];
+    ["Offset of field: pmix_proc_stats::percent_cpu"]
+        [::std::mem::offset_of!(pmix_proc_stats, percent_cpu) - 304usize];
+    ["Offset of field: pmix_proc_stats::priority"]
+        [::std::mem::offset_of!(pmix_proc_stats, priority) - 308usize];
+    ["Offset of field: pmix_proc_stats::num_threads"]
+        [::std::mem::offset_of!(pmix_proc_stats, num_threads) - 312usize];
+    ["Offset of field: pmix_proc_stats::pss"]
+        [::std::mem::offset_of!(pmix_proc_stats, pss) - 316usize];
+    ["Offset of field: pmix_proc_stats::vsize"]
+        [::std::mem::offset_of!(pmix_proc_stats, vsize) - 320usize];
+    ["Offset of field: pmix_proc_stats::rss"]
+        [::std::mem::offset_of!(pmix_proc_stats, rss) - 324usize];
+    ["Offset of field: pmix_proc_stats::peak_vsize"]
+        [::std::mem::offset_of!(pmix_proc_stats, peak_vsize) - 328usize];
+    ["Offset of field: pmix_proc_stats::processor"]
+        [::std::mem::offset_of!(pmix_proc_stats, processor) - 332usize];
+    ["Offset of field: pmix_proc_stats::sample_time"]
+        [::std::mem::offset_of!(pmix_proc_stats, sample_time) - 336usize];
+};
+pub type pmix_proc_stats_t = pmix_proc_stats;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct pmix_disk_stats_t {
+    pub disk: *mut ::std::os::raw::c_char,
+    pub num_reads_completed: u64,
+    pub num_reads_merged: u64,
+    pub num_sectors_read: u64,
+    pub milliseconds_reading: u64,
+    pub num_writes_completed: u64,
+    pub num_writes_merged: u64,
+    pub num_sectors_written: u64,
+    pub milliseconds_writing: u64,
+    pub num_ios_in_progress: u64,
+    pub milliseconds_io: u64,
+    pub weighted_milliseconds_io: u64,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of pmix_disk_stats_t"][::std::mem::size_of::<pmix_disk_stats_t>() - 96usize];
+    ["Alignment of pmix_disk_stats_t"][::std::mem::align_of::<pmix_disk_stats_t>() - 8usize];
+    ["Offset of field: pmix_disk_stats_t::disk"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, disk) - 0usize];
+    ["Offset of field: pmix_disk_stats_t::num_reads_completed"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, num_reads_completed) - 8usize];
+    ["Offset of field: pmix_disk_stats_t::num_reads_merged"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, num_reads_merged) - 16usize];
+    ["Offset of field: pmix_disk_stats_t::num_sectors_read"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, num_sectors_read) - 24usize];
+    ["Offset of field: pmix_disk_stats_t::milliseconds_reading"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, milliseconds_reading) - 32usize];
+    ["Offset of field: pmix_disk_stats_t::num_writes_completed"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, num_writes_completed) - 40usize];
+    ["Offset of field: pmix_disk_stats_t::num_writes_merged"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, num_writes_merged) - 48usize];
+    ["Offset of field: pmix_disk_stats_t::num_sectors_written"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, num_sectors_written) - 56usize];
+    ["Offset of field: pmix_disk_stats_t::milliseconds_writing"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, milliseconds_writing) - 64usize];
+    ["Offset of field: pmix_disk_stats_t::num_ios_in_progress"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, num_ios_in_progress) - 72usize];
+    ["Offset of field: pmix_disk_stats_t::milliseconds_io"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, milliseconds_io) - 80usize];
+    ["Offset of field: pmix_disk_stats_t::weighted_milliseconds_io"]
+        [::std::mem::offset_of!(pmix_disk_stats_t, weighted_milliseconds_io) - 88usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct pmix_net_stats_t {
+    pub net_interface: *mut ::std::os::raw::c_char,
+    pub num_bytes_recvd: u64,
+    pub num_packets_recvd: u64,
+    pub num_recv_errs: u64,
+    pub num_bytes_sent: u64,
+    pub num_packets_sent: u64,
+    pub num_send_errs: u64,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of pmix_net_stats_t"][::std::mem::size_of::<pmix_net_stats_t>() - 56usize];
+    ["Alignment of pmix_net_stats_t"][::std::mem::align_of::<pmix_net_stats_t>() - 8usize];
+    ["Offset of field: pmix_net_stats_t::net_interface"]
+        [::std::mem::offset_of!(pmix_net_stats_t, net_interface) - 0usize];
+    ["Offset of field: pmix_net_stats_t::num_bytes_recvd"]
+        [::std::mem::offset_of!(pmix_net_stats_t, num_bytes_recvd) - 8usize];
+    ["Offset of field: pmix_net_stats_t::num_packets_recvd"]
+        [::std::mem::offset_of!(pmix_net_stats_t, num_packets_recvd) - 16usize];
+    ["Offset of field: pmix_net_stats_t::num_recv_errs"]
+        [::std::mem::offset_of!(pmix_net_stats_t, num_recv_errs) - 24usize];
+    ["Offset of field: pmix_net_stats_t::num_bytes_sent"]
+        [::std::mem::offset_of!(pmix_net_stats_t, num_bytes_sent) - 32usize];
+    ["Offset of field: pmix_net_stats_t::num_packets_sent"]
+        [::std::mem::offset_of!(pmix_net_stats_t, num_packets_sent) - 40usize];
+    ["Offset of field: pmix_net_stats_t::num_send_errs"]
+        [::std::mem::offset_of!(pmix_net_stats_t, num_send_errs) - 48usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct pmix_node_stats_t {
+    pub node: *mut ::std::os::raw::c_char,
+    pub la: f32,
+    pub la5: f32,
+    pub la15: f32,
+    pub total_mem: f32,
+    pub free_mem: f32,
+    pub buffers: f32,
+    pub cached: f32,
+    pub swap_cached: f32,
+    pub swap_total: f32,
+    pub swap_free: f32,
+    pub mapped: f32,
+    pub sample_time: timeval,
+    pub diskstats: *mut pmix_disk_stats_t,
+    pub ndiskstats: usize,
+    pub netstats: *mut pmix_net_stats_t,
+    pub nnetstats: usize,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of pmix_node_stats_t"][::std::mem::size_of::<pmix_node_stats_t>() - 104usize];
+    ["Alignment of pmix_node_stats_t"][::std::mem::align_of::<pmix_node_stats_t>() - 8usize];
+    ["Offset of field: pmix_node_stats_t::node"]
+        [::std::mem::offset_of!(pmix_node_stats_t, node) - 0usize];
+    ["Offset of field: pmix_node_stats_t::la"]
+        [::std::mem::offset_of!(pmix_node_stats_t, la) - 8usize];
+    ["Offset of field: pmix_node_stats_t::la5"]
+        [::std::mem::offset_of!(pmix_node_stats_t, la5) - 12usize];
+    ["Offset of field: pmix_node_stats_t::la15"]
+        [::std::mem::offset_of!(pmix_node_stats_t, la15) - 16usize];
+    ["Offset of field: pmix_node_stats_t::total_mem"]
+        [::std::mem::offset_of!(pmix_node_stats_t, total_mem) - 20usize];
+    ["Offset of field: pmix_node_stats_t::free_mem"]
+        [::std::mem::offset_of!(pmix_node_stats_t, free_mem) - 24usize];
+    ["Offset of field: pmix_node_stats_t::buffers"]
+        [::std::mem::offset_of!(pmix_node_stats_t, buffers) - 28usize];
+    ["Offset of field: pmix_node_stats_t::cached"]
+        [::std::mem::offset_of!(pmix_node_stats_t, cached) - 32usize];
+    ["Offset of field: pmix_node_stats_t::swap_cached"]
+        [::std::mem::offset_of!(pmix_node_stats_t, swap_cached) - 36usize];
+    ["Offset of field: pmix_node_stats_t::swap_total"]
+        [::std::mem::offset_of!(pmix_node_stats_t, swap_total) - 40usize];
+    ["Offset of field: pmix_node_stats_t::swap_free"]
+        [::std::mem::offset_of!(pmix_node_stats_t, swap_free) - 44usize];
+    ["Offset of field: pmix_node_stats_t::mapped"]
+        [::std::mem::offset_of!(pmix_node_stats_t, mapped) - 48usize];
+    ["Offset of field: pmix_node_stats_t::sample_time"]
+        [::std::mem::offset_of!(pmix_node_stats_t, sample_time) - 56usize];
+    ["Offset of field: pmix_node_stats_t::diskstats"]
+        [::std::mem::offset_of!(pmix_node_stats_t, diskstats) - 72usize];
+    ["Offset of field: pmix_node_stats_t::ndiskstats"]
+        [::std::mem::offset_of!(pmix_node_stats_t, ndiskstats) - 80usize];
+    ["Offset of field: pmix_node_stats_t::netstats"]
+        [::std::mem::offset_of!(pmix_node_stats_t, netstats) - 88usize];
+    ["Offset of field: pmix_node_stats_t::nnetstats"]
+        [::std::mem::offset_of!(pmix_node_stats_t, nnetstats) - 96usize];
+};
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct pmix_value {
     pub type_: pmix_data_type_t,
@@ -5697,7 +5723,6 @@ pub union pmix_value__bindgen_ty_1 {
     pub darray: *mut pmix_data_array_t,
     pub ptr: *mut ::std::os::raw::c_void,
     pub adir: pmix_alloc_directive_t,
-    pub rbdir: pmix_resource_block_directive_t,
     pub envar: pmix_envar_t,
     pub coord: *mut pmix_coord_t,
     pub linkstate: pmix_link_state_t,
@@ -5707,12 +5732,13 @@ pub union pmix_value__bindgen_ty_1 {
     pub locality: pmix_locality_t,
     pub geometry: *mut pmix_geometry_t,
     pub devtype: pmix_device_type_t,
-    pub device: *mut pmix_device_t,
     pub devdist: *mut pmix_device_distance_t,
     pub endpoint: *mut pmix_endpoint_t,
     pub dbuf: *mut pmix_data_buffer_t,
-    pub resunit: *mut pmix_resource_unit_t,
-    pub nodepid: *mut pmix_node_pid_t,
+    pub pstats: *mut pmix_proc_stats_t,
+    pub dkstats: *mut pmix_disk_stats_t,
+    pub netstats: *mut pmix_net_stats_t,
+    pub ndstats: *mut pmix_node_stats_t,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -5784,8 +5810,6 @@ const _: () = {
         [::std::mem::offset_of!(pmix_value__bindgen_ty_1, ptr) - 0usize];
     ["Offset of field: pmix_value__bindgen_ty_1::adir"]
         [::std::mem::offset_of!(pmix_value__bindgen_ty_1, adir) - 0usize];
-    ["Offset of field: pmix_value__bindgen_ty_1::rbdir"]
-        [::std::mem::offset_of!(pmix_value__bindgen_ty_1, rbdir) - 0usize];
     ["Offset of field: pmix_value__bindgen_ty_1::envar"]
         [::std::mem::offset_of!(pmix_value__bindgen_ty_1, envar) - 0usize];
     ["Offset of field: pmix_value__bindgen_ty_1::coord"]
@@ -5804,18 +5828,20 @@ const _: () = {
         [::std::mem::offset_of!(pmix_value__bindgen_ty_1, geometry) - 0usize];
     ["Offset of field: pmix_value__bindgen_ty_1::devtype"]
         [::std::mem::offset_of!(pmix_value__bindgen_ty_1, devtype) - 0usize];
-    ["Offset of field: pmix_value__bindgen_ty_1::device"]
-        [::std::mem::offset_of!(pmix_value__bindgen_ty_1, device) - 0usize];
     ["Offset of field: pmix_value__bindgen_ty_1::devdist"]
         [::std::mem::offset_of!(pmix_value__bindgen_ty_1, devdist) - 0usize];
     ["Offset of field: pmix_value__bindgen_ty_1::endpoint"]
         [::std::mem::offset_of!(pmix_value__bindgen_ty_1, endpoint) - 0usize];
     ["Offset of field: pmix_value__bindgen_ty_1::dbuf"]
         [::std::mem::offset_of!(pmix_value__bindgen_ty_1, dbuf) - 0usize];
-    ["Offset of field: pmix_value__bindgen_ty_1::resunit"]
-        [::std::mem::offset_of!(pmix_value__bindgen_ty_1, resunit) - 0usize];
-    ["Offset of field: pmix_value__bindgen_ty_1::nodepid"]
-        [::std::mem::offset_of!(pmix_value__bindgen_ty_1, nodepid) - 0usize];
+    ["Offset of field: pmix_value__bindgen_ty_1::pstats"]
+        [::std::mem::offset_of!(pmix_value__bindgen_ty_1, pstats) - 0usize];
+    ["Offset of field: pmix_value__bindgen_ty_1::dkstats"]
+        [::std::mem::offset_of!(pmix_value__bindgen_ty_1, dkstats) - 0usize];
+    ["Offset of field: pmix_value__bindgen_ty_1::netstats"]
+        [::std::mem::offset_of!(pmix_value__bindgen_ty_1, netstats) - 0usize];
+    ["Offset of field: pmix_value__bindgen_ty_1::ndstats"]
+        [::std::mem::offset_of!(pmix_value__bindgen_ty_1, ndstats) - 0usize];
 };
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -6109,9 +6135,6 @@ unsafe extern "C" {
     pub fn PMIx_Check_rank(a: pmix_rank_t, b: pmix_rank_t) -> bool;
 }
 unsafe extern "C" {
-    pub fn PMIx_Rank_valid(a: pmix_rank_t) -> bool;
-}
-unsafe extern "C" {
     pub fn PMIx_Procid_invalid(p: *const pmix_proc_t) -> bool;
 }
 unsafe extern "C" {
@@ -6139,9 +6162,10 @@ unsafe extern "C" {
     pub fn PMIx_Argv_free(argv: *mut *mut ::std::os::raw::c_char);
 }
 unsafe extern "C" {
-    pub fn PMIx_Argv_split(
+    pub fn PMIx_Argv_split_inter(
         src_string: *const ::std::os::raw::c_char,
         delimiter: ::std::os::raw::c_int,
+        include_empty: bool,
     ) -> *mut *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
@@ -6151,10 +6175,9 @@ unsafe extern "C" {
     ) -> *mut *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    pub fn PMIx_Argv_split_inter(
+    pub fn PMIx_Argv_split(
         src_string: *const ::std::os::raw::c_char,
         delimiter: ::std::os::raw::c_int,
-        include_empty: bool,
     ) -> *mut *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
@@ -6210,32 +6233,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn PMIx_Value_compare(v1: *mut pmix_value_t, v2: *mut pmix_value_t) -> pmix_value_cmp_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Value_get_number(
-        value: *const pmix_value_t,
-        dest: *mut ::std::os::raw::c_void,
-        type_: pmix_data_type_t,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Data_array_init(p: *mut pmix_data_array_t, type_: pmix_data_type_t);
-}
-unsafe extern "C" {
-    pub fn PMIx_Data_array_construct(
-        p: *mut pmix_data_array_t,
-        num: usize,
-        type_: pmix_data_type_t,
-    );
-}
-unsafe extern "C" {
-    pub fn PMIx_Data_array_destruct(d: *mut pmix_data_array_t);
-}
-unsafe extern "C" {
-    pub fn PMIx_Data_array_create(n: usize, type_: pmix_data_type_t) -> *mut pmix_data_array_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Data_array_free(p: *mut pmix_data_array_t);
 }
 unsafe extern "C" {
     pub fn PMIx_Info_construct(p: *mut pmix_info_t);
@@ -6300,87 +6297,6 @@ unsafe extern "C" {
     pub fn PMIx_Info_is_persistent(p: *const pmix_info_t) -> bool;
 }
 unsafe extern "C" {
-    pub fn PMIx_Info_list_start() -> *mut ::std::os::raw::c_void;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_add(
-        ptr: *mut ::std::os::raw::c_void,
-        key: *const ::std::os::raw::c_char,
-        value: *const ::std::os::raw::c_void,
-        type_: pmix_data_type_t,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_add_unique(
-        ptr: *mut ::std::os::raw::c_void,
-        key: *const ::std::os::raw::c_char,
-        value: *const ::std::os::raw::c_void,
-        type_: pmix_data_type_t,
-        overwrite: bool,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_add_value(
-        ptr: *mut ::std::os::raw::c_void,
-        key: *const ::std::os::raw::c_char,
-        value: *const pmix_value_t,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_add_value_unique(
-        ptr: *mut ::std::os::raw::c_void,
-        key: *const ::std::os::raw::c_char,
-        value: *const pmix_value_t,
-        overwrite: bool,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_prepend(
-        ptr: *mut ::std::os::raw::c_void,
-        key: *const ::std::os::raw::c_char,
-        value: *const ::std::os::raw::c_void,
-        type_: pmix_data_type_t,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_insert(
-        ptr: *mut ::std::os::raw::c_void,
-        info: *mut pmix_info_t,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_xfer(
-        ptr: *mut ::std::os::raw::c_void,
-        info: *const pmix_info_t,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_xfer_unique(
-        ptr: *mut ::std::os::raw::c_void,
-        info: *const pmix_info_t,
-        overwrite: bool,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_convert(
-        ptr: *mut ::std::os::raw::c_void,
-        par: *mut pmix_data_array_t,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_release(ptr: *mut ::std::os::raw::c_void);
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_get_info(
-        ptr: *mut ::std::os::raw::c_void,
-        prev: *mut ::std::os::raw::c_void,
-        next: *mut *mut ::std::os::raw::c_void,
-    ) -> *mut pmix_info_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Info_list_get_size(ptr: *mut ::std::os::raw::c_void) -> usize;
-}
-unsafe extern "C" {
     pub fn PMIx_Coord_construct(m: *mut pmix_coord_t);
 }
 unsafe extern "C" {
@@ -6405,10 +6321,10 @@ unsafe extern "C" {
     pub fn PMIx_Topology_free(t: *mut pmix_topology_t, n: usize);
 }
 unsafe extern "C" {
-    pub fn PMIx_Cpuset_construct(cpuset: *mut pmix_cpuset_t);
+    pub fn PMIx_Cpuset_construct(c: *mut pmix_cpuset_t);
 }
 unsafe extern "C" {
-    pub fn PMIx_Cpuset_destruct(cpuset: *mut pmix_cpuset_t);
+    pub fn PMIx_Cpuset_destruct(c: *mut pmix_cpuset_t);
 }
 unsafe extern "C" {
     pub fn PMIx_Cpuset_create(n: usize) -> *mut pmix_cpuset_t;
@@ -6429,42 +6345,6 @@ unsafe extern "C" {
     pub fn PMIx_Geometry_free(g: *mut pmix_geometry_t, n: usize);
 }
 unsafe extern "C" {
-    pub fn PMIx_Device_construct(d: *mut pmix_device_t);
-}
-unsafe extern "C" {
-    pub fn PMIx_Device_destruct(d: *mut pmix_device_t);
-}
-unsafe extern "C" {
-    pub fn PMIx_Device_create(n: usize) -> *mut pmix_device_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Device_free(d: *mut pmix_device_t, n: usize);
-}
-unsafe extern "C" {
-    pub fn PMIx_Node_pid_construct(d: *mut pmix_node_pid_t);
-}
-unsafe extern "C" {
-    pub fn PMIx_Node_pid_destruct(d: *mut pmix_node_pid_t);
-}
-unsafe extern "C" {
-    pub fn PMIx_Node_pid_create(n: usize) -> *mut pmix_node_pid_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Node_pid_free(d: *mut pmix_node_pid_t, n: usize);
-}
-unsafe extern "C" {
-    pub fn PMIx_Resource_unit_construct(d: *mut pmix_resource_unit_t);
-}
-unsafe extern "C" {
-    pub fn PMIx_Resource_unit_destruct(d: *mut pmix_resource_unit_t);
-}
-unsafe extern "C" {
-    pub fn PMIx_Resource_unit_create(n: usize) -> *mut pmix_resource_unit_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Resource_unit_free(d: *mut pmix_resource_unit_t, n: usize);
-}
-unsafe extern "C" {
     pub fn PMIx_Device_distance_construct(d: *mut pmix_device_distance_t);
 }
 unsafe extern "C" {
@@ -6480,13 +6360,13 @@ unsafe extern "C" {
     pub fn PMIx_Byte_object_construct(b: *mut pmix_byte_object_t);
 }
 unsafe extern "C" {
-    pub fn PMIx_Byte_object_destruct(g: *mut pmix_byte_object_t);
+    pub fn PMIx_Byte_object_destruct(b: *mut pmix_byte_object_t);
 }
 unsafe extern "C" {
     pub fn PMIx_Byte_object_create(n: usize) -> *mut pmix_byte_object_t;
 }
 unsafe extern "C" {
-    pub fn PMIx_Byte_object_free(g: *mut pmix_byte_object_t, n: usize);
+    pub fn PMIx_Byte_object_free(b: *mut pmix_byte_object_t, n: usize);
 }
 unsafe extern "C" {
     pub fn PMIx_Byte_object_load(
@@ -6599,6 +6479,54 @@ unsafe extern "C" {
     pub fn PMIx_Proc_info_free(p: *mut pmix_proc_info_t, n: usize);
 }
 unsafe extern "C" {
+    pub fn PMIx_Proc_stats_construct(p: *mut pmix_proc_stats_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Proc_stats_destruct(p: *mut pmix_proc_stats_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Proc_stats_create(n: usize) -> *mut pmix_proc_stats_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Proc_stats_free(p: *mut pmix_proc_stats_t, n: usize);
+}
+unsafe extern "C" {
+    pub fn PMIx_Disk_stats_construct(p: *mut pmix_disk_stats_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Disk_stats_destruct(p: *mut pmix_disk_stats_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Disk_stats_create(n: usize) -> *mut pmix_disk_stats_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Disk_stats_free(p: *mut pmix_disk_stats_t, n: usize);
+}
+unsafe extern "C" {
+    pub fn PMIx_Net_stats_construct(p: *mut pmix_net_stats_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Net_stats_destruct(p: *mut pmix_net_stats_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Net_stats_create(n: usize) -> *mut pmix_net_stats_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Net_stats_free(p: *mut pmix_net_stats_t, n: usize);
+}
+unsafe extern "C" {
+    pub fn PMIx_Node_stats_construct(p: *mut pmix_node_stats_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Node_stats_destruct(p: *mut pmix_node_stats_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Node_stats_create(n: usize) -> *mut pmix_node_stats_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Node_stats_free(p: *mut pmix_node_stats_t, n: usize);
+}
+unsafe extern "C" {
     pub fn PMIx_Pdata_construct(p: *mut pmix_pdata_t);
 }
 unsafe extern "C" {
@@ -6609,18 +6537,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn PMIx_Pdata_free(p: *mut pmix_pdata_t, n: usize);
-}
-unsafe extern "C" {
-    pub fn PMIx_Pdata_load(
-        dest: *mut pmix_pdata_t,
-        p: *const pmix_proc_t,
-        key: *const ::std::os::raw::c_char,
-        data: *const ::std::os::raw::c_void,
-        type_: pmix_data_type_t,
-    );
-}
-unsafe extern "C" {
-    pub fn PMIx_Pdata_xfer(dest: *mut pmix_pdata_t, src: *mut pmix_pdata_t);
 }
 unsafe extern "C" {
     pub fn PMIx_App_construct(p: *mut pmix_app_t);
@@ -6683,7 +6599,73 @@ unsafe extern "C" {
     pub fn PMIx_Regattr_xfer(dest: *mut pmix_regattr_t, src: *const pmix_regattr_t);
 }
 unsafe extern "C" {
-    pub fn PMIx_Fabric_construct(p: *mut pmix_fabric_t);
+    pub fn PMIx_Fabric_construct(p: *mut pmix_regattr_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Data_array_init(p: *mut pmix_data_array_t, type_: pmix_data_type_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Data_array_construct(
+        p: *mut pmix_data_array_t,
+        num: usize,
+        type_: pmix_data_type_t,
+    );
+}
+unsafe extern "C" {
+    pub fn PMIx_Data_array_destruct(d: *mut pmix_data_array_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Data_array_create(n: usize, type_: pmix_data_type_t) -> *mut pmix_data_array_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Data_array_free(p: *mut pmix_data_array_t);
+}
+unsafe extern "C" {
+    pub fn PMIx_Info_list_start() -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn PMIx_Info_list_add(
+        ptr: *mut ::std::os::raw::c_void,
+        key: *const ::std::os::raw::c_char,
+        value: *const ::std::os::raw::c_void,
+        type_: pmix_data_type_t,
+    ) -> pmix_status_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Info_list_prepend(
+        ptr: *mut ::std::os::raw::c_void,
+        key: *const ::std::os::raw::c_char,
+        value: *const ::std::os::raw::c_void,
+        type_: pmix_data_type_t,
+    ) -> pmix_status_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Info_list_insert(
+        ptr: *mut ::std::os::raw::c_void,
+        info: *mut pmix_info_t,
+    ) -> pmix_status_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Info_list_xfer(
+        ptr: *mut ::std::os::raw::c_void,
+        info: *const pmix_info_t,
+    ) -> pmix_status_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Info_list_convert(
+        ptr: *mut ::std::os::raw::c_void,
+        par: *mut pmix_data_array_t,
+    ) -> pmix_status_t;
+}
+unsafe extern "C" {
+    pub fn PMIx_Info_list_release(ptr: *mut ::std::os::raw::c_void);
+}
+unsafe extern "C" {
+    pub fn PMIx_Info_list_get_info(
+        ptr: *mut ::std::os::raw::c_void,
+        prev: *mut ::std::os::raw::c_void,
+        next: *mut *mut ::std::os::raw::c_void,
+    ) -> *mut pmix_info_t;
 }
 unsafe extern "C" {
     pub fn PMIx_Init(
@@ -6919,28 +6901,6 @@ unsafe extern "C" {
     ) -> pmix_status_t;
 }
 unsafe extern "C" {
-    pub fn PMIx_Resource_block(
-        directive: pmix_resource_block_directive_t,
-        block: *mut ::std::os::raw::c_char,
-        res: *const pmix_resource_unit_t,
-        nres: usize,
-        info: *const pmix_info_t,
-        ninfo: usize,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Resource_block_nb(
-        directive: pmix_resource_block_directive_t,
-        block: *mut ::std::os::raw::c_char,
-        res: *const pmix_resource_unit_t,
-        nres: usize,
-        info: *const pmix_info_t,
-        ninfo: usize,
-        cbfunc: pmix_op_cbfunc_t,
-        cbdata: *mut ::std::os::raw::c_void,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
     pub fn PMIx_Session_control(
         sessionID: u32,
         directives: *const pmix_info_t,
@@ -6988,9 +6948,6 @@ unsafe extern "C" {
         cbfunc: pmix_info_cbfunc_t,
         cbdata: *mut ::std::os::raw::c_void,
     ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_Heartbeat();
 }
 unsafe extern "C" {
     pub fn PMIx_Get_credential(
@@ -7232,9 +7189,6 @@ unsafe extern "C" {
     pub fn PMIx_Progress();
 }
 unsafe extern "C" {
-    pub fn PMIx_Progress_thread_stop(info: *const pmix_info_t, ninfo: usize);
-}
-unsafe extern "C" {
     pub fn PMIx_Error_string(status: pmix_status_t) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
@@ -7258,11 +7212,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn PMIx_Alloc_directive_string(
         directive: pmix_alloc_directive_t,
-    ) -> *const ::std::os::raw::c_char;
-}
-unsafe extern "C" {
-    pub fn PMIx_Resource_block_directive_string(
-        directive: pmix_resource_block_directive_t,
     ) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
@@ -7291,10 +7240,6 @@ unsafe extern "C" {
     pub fn PMIx_Value_comparison_string(cmp: pmix_value_cmp_t) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    pub fn PMIx_Group_operation_string(op: pmix_group_operation_t)
-    -> *const ::std::os::raw::c_char;
-}
-unsafe extern "C" {
     pub fn PMIx_Info_string(info: *const pmix_info_t) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
@@ -7310,11 +7255,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn PMIx_Proc_string(proc_: *const pmix_proc_t) -> *mut ::std::os::raw::c_char;
-}
-unsafe extern "C" {
-    pub fn PMIx_Resource_unit_string(
-        unit: *const pmix_resource_unit_t,
-    ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
     pub fn PMIx_Get_version() -> *const ::std::os::raw::c_char;
@@ -7587,14 +7527,6 @@ pub type pmix_server_tool_connection_fn_t = ::std::option::Option<
         cbdata: *mut ::std::os::raw::c_void,
     ),
 >;
-pub type pmix_server_tool_connection2_fn_t = ::std::option::Option<
-    unsafe extern "C" fn(
-        info: *mut pmix_info_t,
-        ninfo: usize,
-        cbfunc: pmix_tool_connection_cbfunc_t,
-        cbdata: *mut ::std::os::raw::c_void,
-    ) -> pmix_status_t,
->;
 pub type pmix_server_log_fn_t = ::std::option::Option<
     unsafe extern "C" fn(
         client: *const pmix_proc_t,
@@ -7605,17 +7537,6 @@ pub type pmix_server_log_fn_t = ::std::option::Option<
         cbfunc: pmix_op_cbfunc_t,
         cbdata: *mut ::std::os::raw::c_void,
     ),
->;
-pub type pmix_server_log2_fn_t = ::std::option::Option<
-    unsafe extern "C" fn(
-        client: *const pmix_proc_t,
-        data: *const pmix_info_t,
-        ndata: usize,
-        directives: *const pmix_info_t,
-        ndirs: usize,
-        cbfunc: pmix_op_cbfunc_t,
-        cbdata: *mut ::std::os::raw::c_void,
-    ) -> pmix_status_t,
 >;
 pub type pmix_server_alloc_fn_t = ::std::option::Option<
     unsafe extern "C" fn(
@@ -7723,19 +7644,6 @@ pub type pmix_server_session_control_fn_t = ::std::option::Option<
         cbdata: *mut ::std::os::raw::c_void,
     ) -> pmix_status_t,
 >;
-pub type pmix_server_resource_block_fn_t = ::std::option::Option<
-    unsafe extern "C" fn(
-        requestor: *const pmix_proc_t,
-        directive: pmix_resource_block_directive_t,
-        block: *const ::std::os::raw::c_char,
-        units: *const pmix_resource_unit_t,
-        nunit: usize,
-        info: *const pmix_info_t,
-        ninfo: usize,
-        cbfunc: pmix_op_cbfunc_t,
-        cbdata: *mut ::std::os::raw::c_void,
-    ) -> pmix_status_t,
->;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct pmix_server_module_4_0_0_t {
@@ -7767,15 +7675,12 @@ pub struct pmix_server_module_4_0_0_t {
     pub group: pmix_server_grp_fn_t,
     pub fabric: pmix_server_fabric_fn_t,
     pub client_connected2: pmix_server_client_connected2_fn_t,
-    pub tool_connected2: pmix_server_tool_connection2_fn_t,
-    pub log2: pmix_server_log2_fn_t,
     pub session_control: pmix_server_session_control_fn_t,
-    pub resource_block: pmix_server_resource_block_fn_t,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of pmix_server_module_4_0_0_t"]
-        [::std::mem::size_of::<pmix_server_module_4_0_0_t>() - 256usize];
+        [::std::mem::size_of::<pmix_server_module_4_0_0_t>() - 232usize];
     ["Alignment of pmix_server_module_4_0_0_t"]
         [::std::mem::align_of::<pmix_server_module_4_0_0_t>() - 8usize];
     ["Offset of field: pmix_server_module_4_0_0_t::client_connected"]
@@ -7834,14 +7739,8 @@ const _: () = {
         [::std::mem::offset_of!(pmix_server_module_4_0_0_t, fabric) - 208usize];
     ["Offset of field: pmix_server_module_4_0_0_t::client_connected2"]
         [::std::mem::offset_of!(pmix_server_module_4_0_0_t, client_connected2) - 216usize];
-    ["Offset of field: pmix_server_module_4_0_0_t::tool_connected2"]
-        [::std::mem::offset_of!(pmix_server_module_4_0_0_t, tool_connected2) - 224usize];
-    ["Offset of field: pmix_server_module_4_0_0_t::log2"]
-        [::std::mem::offset_of!(pmix_server_module_4_0_0_t, log2) - 232usize];
     ["Offset of field: pmix_server_module_4_0_0_t::session_control"]
-        [::std::mem::offset_of!(pmix_server_module_4_0_0_t, session_control) - 240usize];
-    ["Offset of field: pmix_server_module_4_0_0_t::resource_block"]
-        [::std::mem::offset_of!(pmix_server_module_4_0_0_t, resource_block) - 248usize];
+        [::std::mem::offset_of!(pmix_server_module_4_0_0_t, session_control) - 224usize];
 };
 pub type pmix_server_module_t = pmix_server_module_4_0_0_t;
 unsafe extern "C" {
@@ -7997,12 +7896,6 @@ unsafe extern "C" {
     ) -> pmix_status_t;
 }
 unsafe extern "C" {
-    pub fn PMIx_server_generate_cpuset(
-        cpuset_string: *const ::std::os::raw::c_char,
-        cpuset: *mut pmix_cpuset_t,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
     pub fn PMIx_server_define_process_set(
         members: *const pmix_proc_t,
         nmembers: usize,
@@ -8026,13 +7919,6 @@ unsafe extern "C" {
         ninfo: usize,
         cbfunc: pmix_op_cbfunc_t,
         cbdata: *mut ::std::os::raw::c_void,
-    ) -> pmix_status_t;
-}
-unsafe extern "C" {
-    pub fn PMIx_server_collect_job_info(
-        procs: *mut pmix_proc_t,
-        nprocs: usize,
-        dbuf: *mut pmix_data_buffer_t,
     ) -> pmix_status_t;
 }
 unsafe extern "C" {
