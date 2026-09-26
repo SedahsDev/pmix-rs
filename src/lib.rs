@@ -102,6 +102,24 @@ pub const JOB_SIZE: &[u8; 14] = PMIX_JOB_SIZE;
 pub const RANK_WILDCARD: u32 = PMIX_RANK_WILDCARD;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// String-key boolean attributes (exceed 13-byte fixed key limit)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `PMIX_GET_REFRESH_CACHE` = "pmix.get.refresh" (17 bytes with NUL).
+///
+/// Use with [`InfoBuilder::refresh_cache()`] or
+/// [`InfoBuilder::add_bool_key()`] to enable automatic cache refresh on get.
+/// This key exceeds the 13-byte fixed-key limit, so it cannot be used with
+/// [`InfoBuilder::add()`].
+pub const GET_REFRESH_CACHE: &[u8; 17] = b"pmix.get.refresh\0";
+
+/// `PMIX_QUERY_REFRESH_CACHE` = "pmix.qry.rfsh" (14 bytes with NUL).
+///
+/// Use as a qualifier in queries to force a cache refresh. This key also
+/// exceeds the 13-byte fixed-key limit.
+pub const QUERY_REFRESH_CACHE: &[u8; 14] = b"pmix.qry.rfsh\0";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PmixError enum
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3294,6 +3312,24 @@ impl InfoBuilder {
     /// `PMIX_EXTERNAL_PROGRESS` (`pmix.evext`) — `PMIX_BOOL`
     pub fn external_progress(&mut self, external: bool) -> &mut Self {
         self.add_bool_key("pmix.evext", external)
+    }
+
+    /// Set `PMIX_GET_REFRESH_CACHE` attribute.
+    ///
+    /// When `true`, instructs PMIx to automatically refresh its local cache
+    /// before returning the requested value. This is useful when you need
+    /// the most up-to-date data without manually querying again.
+    ///
+    /// # C API
+    /// `PMIX_GET_REFRESH_CACHE` (`pmix.get.refresh`) — `PMIX_BOOL`
+    ///
+    /// # Example
+    /// ```rust
+    /// use pmix::InfoBuilder;
+    /// let info = InfoBuilder::new().refresh_cache(true).build();
+    /// ```
+    pub fn refresh_cache(&mut self, refresh: bool) -> &mut Self {
+        self.add_bool_key("pmix.get.refresh", refresh)
     }
 
     /// Set `PMIX_BIND_PROGRESS_THREAD` attribute.
