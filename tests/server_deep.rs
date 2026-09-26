@@ -70,7 +70,7 @@ fn test_server_module_debug() {
 
 #[test]
 fn test_server_init_with_none_module() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_init(None, &info);
     // Without PRTE daemon, server_init fails gracefully
     assert!(result.is_err() || result.is_ok());
@@ -82,7 +82,7 @@ fn test_server_init_with_none_module() {
 #[test]
 fn test_server_init_with_default_module() {
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_init(Some(&module), &info);
     assert!(result.is_err() || result.is_ok());
     if let Ok(handle) = result {
@@ -126,7 +126,7 @@ impl RegisterNspaceCallback for TestRegisterNspaceCb {
 
 #[test]
 fn test_register_nspace_empty() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_nspace("", 0, &info, Box::new(TestRegisterNspaceCb));
     // Empty nspace should fail gracefully
     assert!(result.is_err());
@@ -134,21 +134,21 @@ fn test_register_nspace_empty() {
 
 #[test]
 fn test_register_nspace_normal() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_nspace("test_nspace", 4, &info, Box::new(TestRegisterNspaceCb));
     assert!(result.is_err() || result.is_ok());
 }
 
 #[test]
 fn test_register_nspace_zero_localprocs() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_nspace("zero_procs", 0, &info, Box::new(TestRegisterNspaceCb));
     assert!(result.is_err() || result.is_ok());
 }
 
 #[test]
 fn test_register_nspace_large_localprocs() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result =
         server_register_nspace("large_procs", 10000, &info, Box::new(TestRegisterNspaceCb));
     assert!(result.is_err() || result.is_ok());
@@ -156,7 +156,7 @@ fn test_register_nspace_large_localprocs() {
 
 #[test]
 fn test_register_nspace_unicode() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result =
         server_register_nspace("テスト_命名空間", 2, &info, Box::new(TestRegisterNspaceCb));
     assert!(result.is_err() || result.is_ok());
@@ -338,21 +338,21 @@ impl SetupApplicationCallback for TestSetupAppCb {
 
 #[test]
 fn test_setup_application_normal() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("test_ns", &info, Box::new(TestSetupAppCb));
     assert!(result.is_err() || result.is_ok());
 }
 
 #[test]
 fn test_setup_application_empty_nspace() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("", &info, Box::new(TestSetupAppCb));
     assert!(result.is_err() || result.is_ok());
 }
 
 #[test]
 fn test_setup_application_unicode_nspace() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("テスト", &info, Box::new(TestSetupAppCb));
     assert!(result.is_err() || result.is_ok());
 }
@@ -368,21 +368,21 @@ impl SetupLocalSupportCallback for TestSetupLocalCb {
 
 #[test]
 fn test_setup_local_support_normal() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_local_support("test_ns", &info, Box::new(TestSetupLocalCb));
     assert!(result.is_err() || result.is_ok());
 }
 
 #[test]
 fn test_setup_local_support_empty_nspace() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_local_support("", &info, Box::new(TestSetupLocalCb));
     assert!(result.is_err() || result.is_ok());
 }
 
 #[test]
 fn test_setup_local_support_unicode_nspace() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_local_support("テスト", &info, Box::new(TestSetupLocalCb));
     assert!(result.is_err() || result.is_ok());
 }
@@ -400,7 +400,7 @@ impl IOFDeliverCallback for TestIOFDeliverCb {
 fn test_iof_deliver_stdout() {
     let proc = Proc::new("test_ns", 0).expect("proc");
     let bo = PmixByteObject::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &proc,
         IOFChannelFlags::STDOUT,
@@ -415,7 +415,7 @@ fn test_iof_deliver_stdout() {
 fn test_iof_deliver_stderr() {
     let proc = Proc::new("test_ns", 0).expect("proc");
     let bo = PmixByteObject::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &proc,
         IOFChannelFlags::STDERR,
@@ -430,7 +430,7 @@ fn test_iof_deliver_stderr() {
 fn test_iof_deliver_stdin() {
     let proc = Proc::new("test_ns", 0).expect("proc");
     let bo = PmixByteObject::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &proc,
         IOFChannelFlags::STDIN,
@@ -445,7 +445,7 @@ fn test_iof_deliver_stdin() {
 fn test_iof_deliver_all_channels() {
     let proc = Proc::new("test_ns", 0).expect("proc");
     let bo = PmixByteObject::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &proc,
         IOFChannelFlags::ALL_CHANNELS,
@@ -460,7 +460,7 @@ fn test_iof_deliver_all_channels() {
 fn test_iof_deliver_no_channels() {
     let proc = Proc::new("test_ns", 0).expect("proc");
     let bo = PmixByteObject::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &proc,
         IOFChannelFlags::NO_CHANNELS,
@@ -475,7 +475,7 @@ fn test_iof_deliver_no_channels() {
 fn test_iof_deliver_combined_channels() {
     let proc = Proc::new("test_ns", 0).expect("proc");
     let bo = PmixByteObject::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let channel = IOFChannelFlags::STDOUT | IOFChannelFlags::STDERR;
     let result = server_iof_deliver(&proc, channel, &bo, &info, Box::new(TestIOFDeliverCb));
     assert!(result.is_err() || result.is_ok());
@@ -661,7 +661,7 @@ fn test_compile_deregister_resources_callback_wrapper() {
 
 #[test]
 fn test_server_init_does_not_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = std::panic::catch_unwind(|| server_init(None, &info));
     assert!(result.is_ok());
 }
@@ -680,7 +680,7 @@ fn test_is_server_initialized_does_not_panic() {
 
 #[test]
 fn test_register_nspace_does_not_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = std::panic::catch_unwind(|| {
         server_register_nspace("test", 0, &info, Box::new(TestRegisterNspaceCb))
     });
@@ -722,7 +722,7 @@ fn test_setup_fork_does_not_panic() {
 
 #[test]
 fn test_setup_application_does_not_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = std::panic::catch_unwind(|| {
         server_setup_application("test", &info, Box::new(TestSetupAppCb))
     });
@@ -731,7 +731,7 @@ fn test_setup_application_does_not_panic() {
 
 #[test]
 fn test_setup_local_support_does_not_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = std::panic::catch_unwind(|| {
         server_setup_local_support("test", &info, Box::new(TestSetupLocalCb))
     });
@@ -742,7 +742,7 @@ fn test_setup_local_support_does_not_panic() {
 fn test_iof_deliver_does_not_panic() {
     let proc = Proc::new("ns", 0).expect("proc");
     let bo = PmixByteObject::new();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = std::panic::catch_unwind(|| {
         server_iof_deliver(
             &proc,
@@ -770,7 +770,7 @@ impl DmodexRequestCallback for TestDmodexRequestCb {
 
 #[test]
 fn test_collect_inventory_does_not_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     struct TestCollectCb;
     impl CollectInventoryCallback for TestCollectCb {
         fn on_complete(&self, _status: PmixStatus, _inventory: CollectInventoryResults) {}
@@ -782,8 +782,8 @@ fn test_collect_inventory_does_not_panic() {
 
 #[test]
 fn test_deliver_inventory_does_not_panic() {
-    let info = InfoBuilder::new().build();
-    let directives = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
+    let directives = InfoBuilder::new().build().expect("build info");
     let result = std::panic::catch_unwind(|| server_deliver_inventory(&info, &directives, None));
     assert!(result.is_ok());
 }
@@ -802,7 +802,7 @@ fn test_delete_process_set_does_not_panic() {
 
 #[test]
 fn test_register_resources_does_not_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     struct TestRegResCb;
     impl RegisterResourcesCallback for TestRegResCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -814,7 +814,7 @@ fn test_register_resources_does_not_panic() {
 
 #[test]
 fn test_deregister_resources_does_not_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     struct TestDeregResCb;
     impl DeregisterResourcesCallback for TestDeregResCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -833,7 +833,7 @@ fn test_deregister_resources_does_not_panic() {
 fn test_server_init_then_finalize() {
     daemon_helper::ensure_pmix_init();
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init failed");
     assert!(is_server_initialized());
     server_finalize(handle).expect("server_finalize failed");
@@ -844,10 +844,10 @@ fn test_server_init_then_finalize() {
 fn test_register_nspace_then_deregister() {
     daemon_helper::ensure_pmix_init();
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init failed");
 
-    let reg_info = InfoBuilder::new().build();
+    let reg_info = InfoBuilder::new().build().expect("build info");
     server_register_nspace("test_ns", 2, &reg_info, Box::new(TestRegisterNspaceCb))
         .expect("register_nspace failed");
 
@@ -860,7 +860,7 @@ fn test_register_nspace_then_deregister() {
 fn test_register_client_then_deregister() {
     daemon_helper::ensure_pmix_init();
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init failed");
 
     let proc = Proc::new("test_ns", 0).expect("proc");
@@ -877,11 +877,11 @@ fn test_register_client_then_deregister() {
 fn test_full_server_lifecycle() {
     daemon_helper::ensure_pmix_init();
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init failed");
 
     // Register nspace
-    let reg_info = InfoBuilder::new().build();
+    let reg_info = InfoBuilder::new().build().expect("build info");
     let _ = server_register_nspace("full_ns", 4, &reg_info, Box::new(TestRegisterNspaceCb));
 
     // Register client
@@ -892,11 +892,11 @@ fn test_full_server_lifecycle() {
     let _ = server_setup_fork(&proc, Some(vec!["PATH=/usr/bin"]));
 
     // Setup application
-    let app_info = InfoBuilder::new().build();
+    let app_info = InfoBuilder::new().build().expect("build info");
     let _ = server_setup_application("full_ns", &app_info, Box::new(TestSetupAppCb));
 
     // Setup local support
-    let local_info = InfoBuilder::new().build();
+    let local_info = InfoBuilder::new().build().expect("build info");
     let _ = server_setup_local_support("full_ns", &local_info, Box::new(TestSetupLocalCb));
 
     // Deregister
@@ -920,7 +920,7 @@ fn test_server_handle_debug() {
 fn test_server_handle_default() {
     // PmixServerHandle doesn't implement Default, but we can verify
     // it's constructible from server_init result
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = server_init(None, &info);
 }
 
@@ -930,7 +930,7 @@ fn test_server_handle_default() {
 
 #[test]
 fn test_register_nspace_nul_byte() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // NUL byte in nspace should return error gracefully
     let result = server_register_nspace("test\0nspace", 0, &info, Box::new(TestRegisterNspaceCb));
     assert!(result.is_err());
@@ -944,7 +944,7 @@ fn test_deregister_nspace_nul_byte() {
 
 #[test]
 fn test_setup_application_nul_byte() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_application("test\0ns", &info, Box::new(TestSetupAppCb));
     assert!(result.is_err());
 }
@@ -955,16 +955,16 @@ fn test_setup_application_nul_byte() {
 
 #[test]
 fn test_deliver_inventory_blocking() {
-    let info = InfoBuilder::new().build();
-    let directives = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
+    let directives = InfoBuilder::new().build().expect("build info");
     let result = server_deliver_inventory(&info, &directives, None);
     assert!(result.is_err() || result.is_ok());
 }
 
 #[test]
 fn test_deliver_inventory_async() {
-    let info = InfoBuilder::new().build();
-    let directives = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
+    let directives = InfoBuilder::new().build().expect("build info");
     struct TestDeliverCb;
     impl DeliverInventoryCallback for TestDeliverCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}

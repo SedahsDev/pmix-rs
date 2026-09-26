@@ -13,8 +13,11 @@ use crate::{
     IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType,
     PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus, ffi,
 };
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
 use std::ffi::CStr;
 use std::ptr;
+use std::sync::{Arc, LazyLock, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -726,11 +729,8 @@ pub fn device_type_string(ty: PmixDeviceType) -> Result<String, PmixStatus> {
 /// compressed representation (e.g. `"pmix:node[001-003,010-011]"`) that
 /// preserves the order of the input values.
 ///
-/// The returned string is **owned by the caller** — the PMIx library
-/// allocates it with `malloc`.  This wrapper takes ownership via
-/// [`CString::from_raw`][std::ffi::CString::from_raw] and returns a Rust
-/// [`String`], so the caller does not need to worry about freeing the
-/// underlying C allocation.
+/// The returned string is copied into a Rust [`String`]. The PMIx-allocated
+/// buffer is freed with [`libc::free`] before this function returns.
 ///
 /// # C API
 /// `pmix_status_t PMIx_generate_regex(const char *input, char **regex)`
@@ -761,27 +761,22 @@ pub fn generate_regex(input: &str) -> Result<String, PmixStatus> {
     // is written by the PMIx library and points to malloc'd memory that
     // the caller owns. We check the return status before touching the
     // output pointer.
-    let status = unsafe { ffi::PMIx_generate_regex(input_cstr.as_ptr(), &mut regex_ptr) };
+    let status = crate::pmix_ffi_or_mock!(
+        mock = mock_ffi::mock_generate_regex(input_cstr.as_ptr(), &mut regex_ptr),
+        real = unsafe { ffi::PMIx_generate_regex(input_cstr.as_ptr(), &mut regex_ptr) },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
     if !pmix_status.is_success() {
         return Err(pmix_status);
     }
 
-    // SAFETY: On success, regex_ptr is non-null and points to malloc'd
-    // memory owned by the caller. We take ownership via CString::from_raw
-    // so it will be freed when the CString is dropped (and the String
-    // extracted from it is independently owned).
-    let owned = unsafe {
-        if regex_ptr.is_null() {
-            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
-        }
-        std::ffi::CString::from_raw(regex_ptr)
-    };
-
-    // Extract the string content (copies into a Rust-owned String).
-    // CString is dropped here, freeing the original C allocation.
-    Ok(owned.into_string().unwrap_or_default())
+    if regex_ptr.is_null() {
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    let result = unsafe { CStr::from_ptr(regex_ptr).to_string_lossy().into_owned() };
+    unsafe { libc::free(regex_ptr.cast()) };
+    Ok(result)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -799,10 +794,8 @@ pub fn generate_regex(input: &str) -> Result<String, PmixStatus> {
 /// `"pmix:0-10"` or `"raw:0-3;4-7;8,9,10"` depending on the registered
 /// preg module) that identifies which processes run on each node.
 ///
-/// The returned string is **owned by the caller** — the PMIx library
-/// allocates it.  This wrapper takes ownership via [`CString::from_raw`][std::ffi::CString::from_raw]
-/// and returns a Rust [`String`], so the caller does not need to worry about
-/// freeing the underlying C allocation.
+/// The returned string is copied into a Rust [`String`]. The PMIx-allocated
+/// buffer is freed with [`libc::free`] before this function returns.
 ///
 /// # C API
 /// `pmix_status_t PMIx_generate_ppn(const char *input, char **ppn)`
@@ -833,27 +826,22 @@ pub fn generate_ppn(input: &str) -> Result<String, PmixStatus> {
     // is written by the PMIx library and points to malloc'd memory that
     // the caller owns. We check the return status before touching the
     // output pointer.
-    let status = unsafe { ffi::PMIx_generate_ppn(input_cstr.as_ptr(), &mut ppn_ptr) };
+    let status = crate::pmix_ffi_or_mock!(
+        mock = mock_ffi::mock_generate_ppn(input_cstr.as_ptr(), &mut ppn_ptr),
+        real = unsafe { ffi::PMIx_generate_ppn(input_cstr.as_ptr(), &mut ppn_ptr) },
+    );
 
     let pmix_status = PmixStatus::from_raw(status);
     if !pmix_status.is_success() {
         return Err(pmix_status);
     }
 
-    // SAFETY: On success, ppn_ptr is non-null and points to malloc'd
-    // memory owned by the caller. We take ownership via CString::from_raw
-    // so it will be freed when the CString is dropped (and the String
-    // extracted from it is independently owned).
-    let owned = unsafe {
-        if ppn_ptr.is_null() {
-            return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
-        }
-        std::ffi::CString::from_raw(ppn_ptr)
-    };
-
-    // Extract the string content (copies into a Rust-owned String).
-    // CString is dropped here, freeing the original C allocation.
-    Ok(owned.into_string().unwrap_or_default())
+    if ppn_ptr.is_null() {
+        return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
+    }
+    let result = unsafe { CStr::from_ptr(ppn_ptr).to_string_lossy().into_owned() };
+    unsafe { libc::free(ppn_ptr.cast()) };
+    Ok(result)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -951,7 +939,7 @@ pub fn register_attributes(function: &str, attrs: &[&str]) -> Result<(), PmixSta
 // ─────────────────────────────────────────────────────────────────────────────
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use crate::threading::invoke_user_callback;
 
 /// Global registry mapping IOF handles to their Rust callback contexts.
 ///
@@ -959,29 +947,10 @@ use std::sync::{LazyLock, Mutex};
 /// Our bridge function looks up the handle in this registry to find the
 /// corresponding Rust closure. The registry is populated when `iof_pull`
 /// or `iof_pull_blocking` is called and cleared when deregistered.
-type Registry = HashMap<usize, SendSyncPtr<*mut IoPullContext>>;
+type Registry = HashMap<usize, Arc<Mutex<IoPullContext>>>;
 static IOF_REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Wrapper that allows raw pointers to cross thread boundaries.
-///
-/// The raw pointer itself is managed by the PMIx FFI bridge — it is
-/// allocated via `Box::into_raw` and freed via `Box::from_raw` or
-/// on deregistration. This newtype only exists so the `HashMap` inside
-/// `IOF_REGISTRY` satisfies `Send + Sync`.
-#[derive(Clone, Copy)]
-struct SendSyncPtr<T>(T);
-// SAFETY: The pointer is only accessed behind a Mutex guard, so concurrent
-// access is serialized. The lifetime of the pointed-to data is managed by
-// the caller (Box::into_raw / Box::from_raw), not by Rust's ownership rules.
-unsafe impl<T> Send for SendSyncPtr<T> {}
-unsafe impl<T> Sync for SendSyncPtr<T> {}
-
 /// Context stored per IO pull registration, carrying both callbacks.
-///
-/// Allocated on the heap via `Box::into_raw`. Freed when:
-/// - Registration fails (immediate)
-/// - `iof_deregister` is called (via registry cleanup)
-/// - Process exits (OS reclaims memory)
 ///
 /// Type aliases for the callback types used below.
 type IoDataCallback = Box<dyn Fn(usize, IOFChannelFlags, &ffi::pmix_proc_t, &[u8]) + Send>;
@@ -1005,20 +974,12 @@ extern "C" fn io_callback_bridge(
     _ninfo: usize,
 ) {
     // Look up the context in the registry.
-    let registry = IOF_REGISTRY.lock().unwrap();
-    let ctx_ptr = match registry.get(&iofhdlr) {
-        Some(wrapped) => wrapped.0,
+    let registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let ctx = match registry.get(&iofhdlr) {
+        Some(ctx) => Arc::clone(ctx),
         None => return, // Context not found — skip.
     };
     drop(registry); // Release lock before calling user code.
-
-    if ctx_ptr.is_null() {
-        return;
-    }
-
-    // SAFETY: ctx_ptr was allocated via Box::into_raw in iof_pull /
-    // iof_pull_blocking and remains valid until deregistration.
-    let ctx = unsafe { &*ctx_ptr };
 
     // SAFETY: source is valid for the duration of this callback.
     // PMIx guarantees the source pointer points to a valid pmix_proc_t.
@@ -1038,7 +999,10 @@ extern "C" fn io_callback_bridge(
     };
 
     let channel_flags = IOFChannelFlags(channel);
-    (ctx.io_cb)(iofhdlr, channel_flags, source_proc, bytes);
+    let _ = invoke_user_callback("utility", move || {
+        let ctx = ctx.lock().unwrap_or_else(|e| e.into_inner());
+        (ctx.io_cb)(iofhdlr, channel_flags, source_proc, bytes);
+    });
 }
 
 /// C bridge for the registration callback (`pmix_hdlr_reg_cbfunc_t`).
@@ -1053,20 +1017,21 @@ extern "C" fn reg_callback_bridge(
     if cbdata.is_null() {
         return;
     }
-
-    // SAFETY: cbdata is the ctx_ptr we passed to PMIx_IOF_pull.
-    // It was allocated via Box::into_raw and is valid.
-    let ctx = unsafe { &*(cbdata as *const IoPullContext) };
+    // SAFETY: cbdata points to the temporary Arc box passed to PMIx_IOF_pull.
+    let ctx = unsafe { *Box::from_raw(cbdata as *mut Arc<Mutex<IoPullContext>>) };
 
     // Register the handle in the global registry so the IO callback
     // can look it up later.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
-        registry.insert(refid, SendSyncPtr(cbdata as *mut IoPullContext));
+        let mut registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.insert(refid, Arc::clone(&ctx));
     }
 
     let pmix_status = PmixStatus::from_raw(status);
-    (ctx.reg_cb)(pmix_status, refid);
+    let _ = invoke_user_callback("utility", move || {
+        let ctx = ctx.lock().unwrap_or_else(|e| e.into_inner());
+        (ctx.reg_cb)(pmix_status, refid);
+    });
 }
 
 /// Callback trait for receiving IO data from remote processes.
@@ -1128,7 +1093,8 @@ where
         io_cb: Box::new(cb),
         reg_cb: Box::new(regcb),
     };
-    let ctx_ptr: *mut IoPullContext = Box::into_raw(Box::new(ctx));
+    let ctx = Arc::new(Mutex::new(ctx));
+    let ctx_ptr = Box::into_raw(Box::new(Arc::clone(&ctx)));
 
     // SAFETY: PMIx_IOF_pull is a documented PMIx tool API.
     // - procs: valid slice, passed as const pointer + length.
@@ -1179,7 +1145,8 @@ where
 /// * `Err(PmixStatus)` — registration failed.
 ///
 /// # C API
-/// Same as `PMIx_IOF_pull` with `regcbfunc` set to NULL (blocking mode).
+/// Same as `PMIx_IOF_pull`, using the asynchronous registration callback
+/// internally to obtain the real registration handle.
 pub fn iof_pull_blocking<F>(
     procs: &[ffi::pmix_proc_t],
     directives: &[ffi::pmix_info_t],
@@ -1189,47 +1156,62 @@ pub fn iof_pull_blocking<F>(
 where
     F: IoForwardHandler,
 {
-    // In blocking mode, regcbfunc is NULL, so we don't need a real reg_cb.
+    let (tx, rx) = std::sync::mpsc::channel::<(PmixStatus, usize)>();
     let ctx = IoPullContext {
         io_cb: Box::new(cb),
-        reg_cb: Box::new(|_, _| {
-            // Unused in blocking mode.
+        reg_cb: Box::new(move |status, refid| {
+            let _ = tx.send((status, refid));
         }),
     };
-    let ctx_ptr: *mut IoPullContext = Box::into_raw(Box::new(ctx));
+    let ctx = Arc::new(Mutex::new(ctx));
+    let ctx_ptr = Box::into_raw(Box::new(Arc::clone(&ctx)));
 
-    // SAFETY: Same as iof_pull, but regcbfunc is None (blocking mode).
+    // SAFETY: Same as iof_pull; the registration callback sends the real
+    // refid to this thread after reg_callback_bridge registers the context.
     let raw_result: ffi::pmix_status_t = unsafe {
-        ffi::PMIx_IOF_pull(
-            procs.as_ptr(),
-            procs.len(),
-            directives.as_ptr(),
-            directives.len(),
-            channel.raw(),
-            Some(io_callback_bridge),
-            None, // blocking mode — no async registration callback
-            ctx_ptr as *mut std::os::raw::c_void,
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_iof_pull(
+                procs.as_ptr(),
+                procs.len(),
+                directives.as_ptr(),
+                directives.len(),
+                channel.raw(),
+                Some(io_callback_bridge),
+                Some(reg_callback_bridge),
+                ctx_ptr as *mut std::os::raw::c_void,
+            ),
+            real = ffi::PMIx_IOF_pull(
+                procs.as_ptr(),
+                procs.len(),
+                directives.as_ptr(),
+                directives.len(),
+                channel.raw(),
+                Some(io_callback_bridge),
+                Some(reg_callback_bridge),
+                ctx_ptr as *mut std::os::raw::c_void,
+            ),
         )
     };
 
     let pmix_status = PmixStatus::from_raw(raw_result);
     if pmix_status.is_error() {
-        // Registration failed — free the context.
-        // SAFETY: ctx_ptr was not handed to PMIx since the call failed.
+        // The registration callback was not called on this error path.
+        // SAFETY: ctx_ptr remains owned by this function after the failed call.
         unsafe {
             drop(Box::from_raw(ctx_ptr));
         }
         Err(pmix_status)
     } else {
-        // In blocking mode, the return value is the registration handle.
-        let handle = raw_result as usize;
-
-        // Store the context in the registry so the IO callback can find it.
-        {
-            let mut registry = IOF_REGISTRY.lock().unwrap();
-            registry.insert(handle, SendSyncPtr(ctx_ptr));
+        // reg_callback_bridge reclaimed ctx_ptr and inserted the real refid.
+        let (status, refid) = rx
+            .recv()
+            .expect("PMIx_IOF_pull succeeded without invoking its registration callback");
+        if status.is_error() {
+            IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).remove(&refid);
+            Err(status)
+        } else {
+            Ok(refid)
         }
-        Ok(handle)
     }
 }
 
@@ -1270,7 +1252,9 @@ extern "C" fn dereg_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std
 
     // Invoke the user's deregistration callback, then the Box drops,
     // freeing both the context and the contained closure.
-    (boxed_ctx.cb)(pmix_status);
+    let _ = invoke_user_callback("utility", move || {
+        (boxed_ctx.cb)(pmix_status);
+    });
 }
 
 /// Deregister from IO forwarding previously established via `iof_pull`.
@@ -1312,19 +1296,8 @@ where
     // Remove the handle from the global registry immediately so no further
     // IO callbacks will be delivered for this registration.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
-        if let Some(ctx_wrapped) = registry.remove(&handle) {
-            let ctx_ptr = ctx_wrapped.0;
-            if !ctx_ptr.is_null() {
-                // SAFETY: ctx_ptr was allocated via Box::into_raw in
-                // iof_pull / iof_pull_blocking and has not been freed yet.
-                // We take ownership back and drop it, which frees the
-                // IoPullContext and its contained closures.
-                unsafe {
-                    drop(Box::from_raw(ctx_ptr));
-                }
-            }
-        }
+        let mut registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&handle);
     }
 
     // Box the deregistration callback context so we can pass it as `*mut c_void`.
@@ -1382,17 +1355,8 @@ pub fn iof_deregister_blocking(
 ) -> Result<(), PmixStatus> {
     // Remove the handle from the global registry immediately.
     {
-        let mut registry = IOF_REGISTRY.lock().unwrap();
-        if let Some(ctx_wrapped) = registry.remove(&handle) {
-            let ctx_ptr = ctx_wrapped.0;
-            if !ctx_ptr.is_null() {
-                // SAFETY: ctx_ptr was allocated via Box::into_raw in
-                // iof_pull / iof_pull_blocking and has not been freed yet.
-                unsafe {
-                    drop(Box::from_raw(ctx_ptr));
-                }
-            }
-        }
+        let mut registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        registry.remove(&handle);
     }
 
     // SAFETY: PMIx_IOF_deregister with NULL callback = blocking mode.
@@ -1476,21 +1440,17 @@ impl PmixByteObject {
     /// Convert to a C `pmix_byte_object_t` for FFI.
     ///
     /// Returns a heap-allocated `pmix_byte_object_t` whose `bytes` field
-    /// points to a `CString`-wrapped copy of our data. The caller must
+    /// points into this object's owned data. The caller must
     /// free the result with `PmixByteObject::free_c_ptr()`.
     ///
-    /// Note: `PMIx_IOF_push` copies the byte object's data internally,
-    /// so the C struct can be freed immediately after the call returns.
+    /// For asynchronous `PMIx_IOF_push`, PMIx retains the byte object until
+    /// the completion callback; the caller must keep both this object and
+    /// the returned C struct alive until then.
     fn as_c_mut_ptr(&self) -> *mut ffi::pmix_byte_object_t {
-        // Allocate a CString from our bytes so the C struct has a valid
-        // pointer. The CString is stored inside the C struct's bytes field.
         let c_str = if self.bytes.is_empty() {
             std::ptr::null_mut()
         } else {
-            // SAFETY: Our bytes are owned by self (Vec<u8>) and will outlive
-            // the FFI call. We create a mutable copy for the C struct.
-            let mut data = self.bytes.clone();
-            data.as_mut_ptr() as *mut std::os::raw::c_char
+            self.bytes.as_ptr() as *mut std::os::raw::c_char
         };
 
         // Build the C struct on the heap.
@@ -1541,6 +1501,8 @@ impl<F> IoForwardPushHandler for F where F: Fn(PmixStatus) + Send + 'static {}
 /// - Process exits (OS reclaims memory)
 struct IoPushContext {
     cb: Box<dyn Fn(PmixStatus) + Send>,
+    c_bo_ptr: *mut ffi::pmix_byte_object_t,
+    bytes_owner: PmixByteObject,
 }
 
 /// C bridge for the push completion callback (`pmix_op_cbfunc_t`).
@@ -1557,9 +1519,21 @@ extern "C" fn push_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std:
     let ctx_ptr = cbdata as *mut IoPushContext;
     // Take ownership back — this callback is the last reference.
     let ctx = unsafe { Box::from_raw(ctx_ptr) };
+    let IoPushContext {
+        cb,
+        c_bo_ptr,
+        bytes_owner,
+    } = *ctx;
+
+    // PMIx has finished using cb->bo before invoking this callback. The C
+    // struct and the Rust-owned bytes can therefore be released exactly once.
+    unsafe { PmixByteObject::free_c_ptr(c_bo_ptr) };
+    drop(bytes_owner);
 
     let pmix_status = PmixStatus::from_raw(status);
-    (ctx.cb)(pmix_status);
+    let _ = invoke_user_callback("utility", move || {
+        (cb)(pmix_status);
+    });
 }
 
 /// Push data collected locally (typically from stdin) to stdin of target
@@ -1596,14 +1570,18 @@ where
     // Allocate the C byte_object_t on the heap.
     let c_bo_ptr = bo.as_c_mut_ptr();
 
-    // Box the callback into a context struct.
-    let ctx = IoPushContext { cb: Box::new(cb) };
+    // Box the callback and async byte-object ownership into a context struct.
+    let ctx = IoPushContext {
+        cb: Box::new(cb),
+        c_bo_ptr,
+        bytes_owner: bo,
+    };
     let ctx_ptr: *mut IoPushContext = Box::into_raw(Box::new(ctx));
 
     // SAFETY: PMIx_IOF_push is a documented PMIx tool API.
     // - targets: valid slice, passed as const pointer + length.
-    // - bo: heap-allocated pmix_byte_object_t, valid for duration of call.
-    //   PMIx may copy or retain the data internally.
+    // - bo: heap-allocated pmix_byte_object_t, owned by the context until
+    //   the completion callback because async PMIx retains it without copying.
     // - directives: valid slice, passed as const pointer + length.
     // - cbfunc: our push_callback_bridge extern "C" function.
     // - cbdata: ctx_ptr, owned by us, reclaimed in the callback.
@@ -1619,25 +1597,32 @@ where
         )
     };
 
-    // Free the C byte_object — PMIx has already copied/retained the data
-    // internally by the time this returns.
-    // SAFETY: c_bo_ptr was allocated by as_c_mut_ptr() above.
-    unsafe { PmixByteObject::free_c_ptr(c_bo_ptr) };
-
     let pmix_status = PmixStatus::from_raw(raw_status);
 
     // Per spec: PMIX_SUCCESS means async processing (callback will fire).
     // PMIX_OPERATION_SUCCEEDED means immediate success (callback NOT called).
     // Any error means immediate failure (callback NOT called).
-    if pmix_status.is_error() {
+    if pmix_status == PmixStatus::Known(crate::PmixError::OperationSucceeded) {
+        // PMIX_OPERATION_SUCCEEDED means the request completed inline and
+        // PMIx will not invoke the callback. Reclaim all owned state here.
+        // SAFETY: ctx_ptr is not retained by PMIx for this status.
+        unsafe {
+            let ctx = Box::from_raw(ctx_ptr);
+            PmixByteObject::free_c_ptr(ctx.c_bo_ptr);
+            drop(ctx);
+        }
+        Ok(())
+    } else if pmix_status.is_error() {
         // Immediate error — callback will NOT be called. Free context.
         // SAFETY: ctx_ptr was not handed to PMIx since the call returned error.
         unsafe {
-            drop(Box::from_raw(ctx_ptr));
+            let ctx = Box::from_raw(ctx_ptr);
+            PmixByteObject::free_c_ptr(ctx.c_bo_ptr);
+            drop(ctx);
         }
         Err(pmix_status)
     } else {
-        // Either async (callback will fire) or immediate success.
+        // PMIX_SUCCESS means async processing; the callback owns reclamation.
         Ok(())
     }
 }
@@ -1703,3 +1688,156 @@ pub fn iof_push_blocking(
 
 #[cfg(test)]
 mod tests;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixRegattr — safe wrapper for pmix_regattr_t
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Safe owner of a PMIx attribute-registration descriptor.
+#[derive(Debug)]
+pub struct PmixRegattr {
+    raw: std::mem::MaybeUninit<ffi::pmix_regattr_t>,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixRegattr {
+    /// Construct an empty descriptor with PMIx's constructor.
+    pub fn new() -> Self {
+        let mut this = Self { raw: std::mem::MaybeUninit::uninit(), constructed: false, _not_thread_safe: std::marker::PhantomData };
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if crate::mock_ffi::is_mock_enabled() { // SAFETY: raw is this descriptor's uninitialized storage.
+            unsafe { crate::mock_ffi::mock_regattr_construct(this.raw.as_mut_ptr()) }
+        } else { // SAFETY: raw is this descriptor's uninitialized storage.
+            unsafe { ffi::PMIx_Regattr_construct(this.raw.as_mut_ptr()) }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        // SAFETY: raw is this descriptor's uninitialized storage.
+        unsafe { ffi::PMIx_Regattr_construct(this.raw.as_mut_ptr()) };
+        this.constructed = true;
+        this
+    }
+
+    /// Construct a zeroed descriptor without calling PMIx, for tests.
+    pub fn test_new() -> Self { Self { raw: std::mem::MaybeUninit::zeroed(), constructed: true, _not_thread_safe: std::marker::PhantomData } }
+
+    fn raw(&self) -> &ffi::pmix_regattr_t {
+        // SAFETY: construction or zero-initialization completed before access.
+        unsafe { self.raw.assume_init_ref() }
+    }
+    fn cstr(&self, ptr: *const libc::c_char) -> Option<&str> {
+        if ptr.is_null() { return None; }
+        // SAFETY: PMIx owns a NUL-terminated string for initialized fields.
+        unsafe { CStr::from_ptr(ptr).to_str().ok() }
+    }
+    /// Return the registered attribute name when valid UTF-8.
+    pub fn name(&self) -> Option<&str> { self.cstr(self.raw().name) }
+    /// Return the fixed-width registered key when valid UTF-8.
+    pub fn key(&self) -> Option<&str> {
+        // SAFETY: `string` is the PMIx fixed-size NUL-terminated key buffer.
+        if self.raw().string[0] == 0 { None } else { self.cstr(self.raw().string.as_ptr()) }
+    }
+    /// Return the PMIx data type.
+    pub fn type_(&self) -> crate::PmixDataType { crate::PmixDataType::from_raw(self.raw().type_) }
+    /// Return all description strings that are present and valid UTF-8.
+    pub fn descriptions(&self) -> Vec<&str> {
+        // SAFETY: PMIx represents descriptions as a NULL-terminated char**.
+        let descriptions = self.raw().description;
+        if descriptions.is_null() { return Vec::new(); }
+        let mut result = Vec::new();
+        let mut index = 0;
+        // SAFETY: PMIx provides a NULL-terminated char** array.
+        unsafe {
+            while !descriptions.add(index).read().is_null() {
+                if let Some(value) = self.cstr(descriptions.add(index).read()) { result.push(value); }
+                index += 1;
+            }
+        }
+        result
+    }
+    /// Return the first description string when present and valid UTF-8.
+    pub fn description(&self) -> Option<&str> { self.descriptions().into_iter().next() }
+    /// Load descriptor fields, rejecting embedded NUL bytes before FFI.
+    pub fn load(&mut self, name: &str, key: &str, ty: ffi::pmix_data_type_t, description: &str) -> Result<(), std::ffi::NulError> {
+        let name = std::ffi::CString::new(name)?;
+        let key = std::ffi::CString::new(key)?;
+        let description = std::ffi::CString::new(description)?;
+        self.drop_contents();
+        // SAFETY: all C strings live through the call and PMIx copies them.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_regattr_load(self.raw.as_mut_ptr(), name.as_ptr(), key.as_ptr(), ty, description.as_ptr()) }; } else { unsafe { ffi::PMIx_Regattr_load(self.raw.as_mut_ptr(), name.as_ptr(), key.as_ptr(), ty, description.as_ptr()) }; }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        unsafe { ffi::PMIx_Regattr_load(self.raw.as_mut_ptr(), name.as_ptr(), key.as_ptr(), ty, description.as_ptr()) };
+        Ok(())
+    }
+    /// Copy this descriptor into `self` using PMIx.
+    pub fn xfer(&mut self, src: &PmixRegattr) -> Result<(), PmixStatus> {
+        self.drop_contents();
+        // SAFETY: both descriptors are initialized and remain borrowed for the call.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_regattr_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr()) }; } else { unsafe { ffi::PMIx_Regattr_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr()) }; }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        unsafe { ffi::PMIx_Regattr_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr()) };
+        Ok(())
+    }
+    fn drop_contents(&mut self) {
+        // SAFETY: the descriptor is initialized and exclusively borrowed.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_regattr_destruct(self.raw.as_mut_ptr()) }; } else { unsafe { ffi::PMIx_Regattr_destruct(self.raw.as_mut_ptr()) }; }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        unsafe { ffi::PMIx_Regattr_destruct(self.raw.as_mut_ptr()) };
+    }
+}
+impl Default for PmixRegattr { fn default() -> Self { Self::new() } }
+impl Drop for PmixRegattr {
+    fn drop(&mut self) {
+        if !self.constructed { return; }
+        // SAFETY: this descriptor was initialized exactly once and is dropped once.
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if crate::mock_ffi::is_mock_enabled() { unsafe { crate::mock_ffi::mock_regattr_destruct(self.raw.as_mut_ptr()) }; } else { unsafe { ffi::PMIx_Regattr_destruct(self.raw.as_mut_ptr()) }; }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        unsafe { ffi::PMIx_Regattr_destruct(self.raw.as_mut_ptr()) };
+        self.constructed = false;
+    }
+}
+
+/// RAII owner for an array allocated by `PMIx_Regattr_create`.
+#[derive(Debug)]
+pub struct PmixRegattrArray { ptr: *mut ffi::pmix_regattr_t, len: usize }
+impl PmixRegattrArray {
+    /// Return the mutable PMIx array pointer.
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_regattr_t { self.ptr }
+    /// Return the number of descriptors.
+    pub fn len(&self) -> usize { self.len }
+    /// Return whether the array has no descriptors.
+    pub fn is_empty(&self) -> bool { self.len == 0 }
+}
+impl Drop for PmixRegattrArray {
+    fn drop(&mut self) {
+        if self.ptr.is_null() { return; }
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if crate::mock_ffi::is_mock_enabled() { // SAFETY: pointer and length came from the matching PMIx allocator.
+            unsafe { crate::mock_ffi::mock_regattr_free(self.ptr, self.len) }
+        } else { // SAFETY: pointer and length came from the matching PMIx allocator.
+            unsafe { ffi::PMIx_Regattr_free(self.ptr, self.len) }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        // SAFETY: pointer and length came from the matching PMIx allocator.
+        unsafe { ffi::PMIx_Regattr_free(self.ptr, self.len) };
+        self.ptr = std::ptr::null_mut();
+    }
+}
+/// Allocate an RAII-managed array of PMIx attribute-registration descriptors.
+pub fn regattr_create(n: usize) -> Result<PmixRegattrArray, crate::PmixError> {
+    if n == 0 { return Err(crate::PmixError::ErrBadParam); }
+    #[cfg(any(test, feature = "mock_ffi"))]
+    let ptr = if crate::mock_ffi::is_mock_enabled() { // SAFETY: n is positive and passed to the matching allocator.
+        unsafe { crate::mock_ffi::mock_regattr_create(n) }
+    } else { // SAFETY: n is positive and passed to the PMIx allocator.
+        unsafe { ffi::PMIx_Regattr_create(n) }
+    };
+    #[cfg(not(any(test, feature = "mock_ffi")))]
+    // SAFETY: n is positive and passed to the PMIx allocator.
+    let ptr = unsafe { ffi::PMIx_Regattr_create(n) };
+    if ptr.is_null() { Err(crate::PmixError::ErrOutOfResource) } else { Ok(PmixRegattrArray { ptr, len: n }) }
+}

@@ -159,7 +159,7 @@ fn test_unpublish_callback_is_send() {
 
 #[test]
 fn test_publish_empty_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     assert!(info.is_empty());
     let result = publish(&info);
     match result {
@@ -175,7 +175,7 @@ fn test_publish_with_directive() {
     let info = {
         let mut b = InfoBuilder::new();
         b.collect_data();
-        b.build()
+        b.build().expect("build info")
     };
     let result = publish(&info);
     match result {
@@ -188,7 +188,7 @@ fn test_publish_with_directive() {
 
 #[test]
 fn test_publish_consistent_error() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let mut first: Option<PmixStatus> = None;
     for _ in 0..10 {
         let result = publish(&info);
@@ -207,7 +207,7 @@ fn test_publish_consistent_error() {
 
 #[test]
 fn test_publish_does_not_panic() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = std::panic::catch_unwind(|| publish(&info));
     assert!(result.is_ok(), "publish should not panic");
 }
@@ -218,7 +218,7 @@ fn test_publish_does_not_panic() {
 
 #[test]
 fn test_publish_nb_empty_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let cb: Box<dyn PublishCallback> = Box::new(RecordingPublishCb {
         calls: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
     });
@@ -233,7 +233,7 @@ fn test_publish_nb_empty_info() {
 
 #[test]
 fn test_publish_nb_error_does_not_leak_callback() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     for _ in 0..20 {
         let cb: Box<dyn PublishCallback> = Box::new(RecordingPublishCb {
             calls: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -248,7 +248,7 @@ fn test_publish_nb_with_directive() {
     let info = {
         let mut b = InfoBuilder::new();
         b.collect_data();
-        b.build()
+        b.build().expect("build info")
     };
     let cb: Box<dyn PublishCallback> = Box::new(RecordingPublishCb {
         calls: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -296,7 +296,7 @@ fn test_get_with_info_directive() {
     let info = {
         let mut b = InfoBuilder::new();
         b.collect_data();
-        b.build()
+        b.build().expect("build info")
     };
     let result = get(&proc, "test_key", Some(&info));
     match result {
@@ -376,7 +376,7 @@ fn test_get_nb_with_info() {
     let info = {
         let mut b = InfoBuilder::new();
         b.collect_data();
-        b.build()
+        b.build().expect("build info")
     };
     let cb: Box<dyn GetValueCallback> = Box::new(RecordingGetCb {
         calls: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -454,7 +454,7 @@ fn test_lookup_with_info() {
     let info = {
         let mut b = InfoBuilder::new();
         b.collect_data();
-        b.build()
+        b.build().expect("build info")
     };
     let result = lookup(&mut data, Some(&info));
     match result {
@@ -605,7 +605,7 @@ fn test_unpublish_with_info() {
     let info = {
         let mut b = InfoBuilder::new();
         b.collect_data();
-        b.build()
+        b.build().expect("build info")
     };
     let result = unpublish(Some(&keys), Some(&info));
     match result {

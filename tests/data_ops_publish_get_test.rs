@@ -3,14 +3,14 @@ use pmix::data_ops::*;
 
 #[test]
 fn test_publish_without_init() {
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = publish(&info);
     println!("publish result: {:?}", result);
 }
 
 #[test]
 fn test_publish_nb_without_init() {
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     struct NoOp;
     impl PublishCallback for NoOp {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -40,7 +40,7 @@ fn test_get_nb_without_init() {
 #[test]
 fn test_get_nb_with_info_without_init() {
     let proc = pmix::Proc::new("test_ns", 0).unwrap();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     struct NoOp;
     impl GetValueCallback for NoOp {
         fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<pmix::PmixOwnedValue>) {}

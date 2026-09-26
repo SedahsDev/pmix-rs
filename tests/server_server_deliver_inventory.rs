@@ -127,7 +127,7 @@ fn test_callback_receives_error_status() {
 
 /// Helper to create an empty Info via InfoBuilder.
 fn empty_info() -> pmix::Info {
-    InfoBuilder::new().build()
+    InfoBuilder::new().build().expect("build info")
 }
 
 /// server_deliver_inventory accepts valid inventory and directives with callback.
@@ -395,7 +395,7 @@ fn test_deliver_inventory_with_builder_info() {
     }
 
     // Build inventory using InfoBuilder.
-    let inventory = InfoBuilder::new().build();
+    let inventory = InfoBuilder::new().build().expect("build info");
     let directives = empty_info();
 
     let _result = server_deliver_inventory(&inventory, &directives, Some(Box::new(BuilderCb)));
@@ -597,8 +597,8 @@ fn test_deliver_inventory_with_directives() {
     let module = PmixServerModule::default();
     let handle = server_init_minimal(Some(&module)).expect("server_init failed");
 
-    let inventory = InfoBuilder::new().build();
-    let directives = InfoBuilder::new().build();
+    let inventory = InfoBuilder::new().build().expect("build info");
+    let directives = InfoBuilder::new().build().expect("build info");
 
     let _result = server_deliver_inventory(&inventory, &directives, Some(Box::new(DirCb)));
 

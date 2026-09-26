@@ -997,10 +997,10 @@ fn compiletime_pmix_status_send_sync() {
 // 12. InfoBuilder integration with allocation functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// InfoBuilder::new().build() produces an Info that can be used with allocation_request.
+/// InfoBuilder::new().build().expect("build info") produces an Info that can be used with allocation_request.
 #[test]
 fn infobuilder_empty_build_for_allocation() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // We can't pass a single Info as &[Info] easily since Info doesn't implement
     // Deref or similar, but we verify the Info type compiles and the build works.
     let _ = info;
@@ -1011,7 +1011,7 @@ fn infobuilder_empty_build_for_allocation() {
 fn infobuilder_collect_data_for_allocation() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1257,7 +1257,7 @@ fn job_control_nb_full_lifecycle() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn allocation_request_with_info() {
     // let _ = pmix::PmixClient::connect_new(None);
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     // // Note: allocation_request takes &[Info], and InfoBuilder produces a single Info.
     // // The caller would need to wrap it in a Vec to pass as slice.
     // pmix::finalize(None).unwrap();
@@ -1268,6 +1268,6 @@ fn allocation_request_with_info() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn job_control_with_info() {
     // let _ = pmix::PmixClient::connect_new(None);
-    // let directives = InfoBuilder::new().build();
+    // let directives = InfoBuilder::new().build().expect("build info");
     // pmix::finalize(None).unwrap();
 }

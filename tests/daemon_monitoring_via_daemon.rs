@@ -66,7 +66,7 @@ fn test_monitor_callback_trait_object() {
 
 #[test]
 fn test_process_monitor_before_init() {
-    let monitor_info = InfoBuilder::new().build();
+    let monitor_info = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor_info, PmixStatus::Known(PmixError::Success), &[]);
     // Before init this returns ErrInit — after shared handle init, behavior depends on PMIx state
     assert!(
@@ -81,7 +81,7 @@ fn test_process_monitor_nb_before_init() {
     impl MonitorCallback for DummyCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
     }
-    let monitor_info = InfoBuilder::new().build();
+    let monitor_info = InfoBuilder::new().build().expect("build info");
     let cb: Box<dyn MonitorCallback> = Box::new(DummyCb);
     let result = process_monitor_nb(
         &monitor_info,
@@ -116,8 +116,8 @@ fn test_monitoring_all_ffi_operations() {
     let handle = daemon_helper::get_tool_handle().expect("shared tool handle");
     let _ = handle; // handle lives for the duration; we just need it initialized
 
-    let _info = InfoBuilder::new().build();
-    let directives = vec![InfoBuilder::new().build()];
+    let _info = InfoBuilder::new().build().expect("build info");
+    let directives = vec![InfoBuilder::new().build().expect("build info")];
 
     // ── 1. heartbeat ──
     let hb_result = heartbeat();
@@ -133,7 +133,7 @@ fn test_monitoring_all_ffi_operations() {
     }
 
     // ── 2. process_monitor with MonitorHeartbeatAlert ──
-    let monitor_info = InfoBuilder::new().build();
+    let monitor_info = InfoBuilder::new().build().expect("build info");
     let monitor_result = process_monitor(
         &monitor_info,
         PmixStatus::Known(PmixError::MonitorHeartbeatAlert),

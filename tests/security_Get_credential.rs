@@ -108,15 +108,14 @@ fn test_credential_binary_data() {
 #[test]
 fn test_credential_as_raw_non_null() {
     let cred = PmixCredential::from_bytes(&[1, 2, 3]);
-    assert!(!cred.as_raw().is_null());
+    assert!(!cred.as_raw().bytes.is_null());
 }
 
-/// Test that PmixCredential as_raw for empty credential is also non-null
-/// (the struct itself is allocated, just with zero-size bytes).
+/// Test that PmixCredential as_raw for an empty credential has zero size.
 #[test]
 fn test_credential_as_raw_empty_non_null() {
     let cred = PmixCredential::from_bytes(&[]);
-    assert!(!cred.as_raw().is_null());
+    assert_eq!(cred.as_raw().size, 0);
 }
 
 /// Test credential debug formatting does not panic.
@@ -141,9 +140,9 @@ fn test_multiple_credentials() {
     assert!(cred3.is_empty());
 
     // All should still be valid after creation.
-    assert!(!cred1.as_raw().is_null());
-    assert!(!cred2.as_raw().is_null());
-    assert!(!cred3.as_raw().is_null());
+    assert!(!cred1.as_raw().bytes.is_null());
+    assert!(!cred2.as_raw().bytes.is_null());
+    assert_eq!(cred3.as_raw().size, 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

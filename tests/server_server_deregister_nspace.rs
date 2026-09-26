@@ -372,7 +372,7 @@ fn test_deregister_nspace_full_cycle() {
     impl pmix::server::RegisterNspaceCallback for RegCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     server_register_nspace("foobar", 0, &info, Box::new(RegCb));
 
     // Deregister it.

@@ -27,7 +27,7 @@ fn test_log_data_empty() {
 /// log_data with data but no directives returns error.
 #[test]
 fn test_log_data_with_data() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let data = vec![info];
     let directives: Vec<pmix::Info> = vec![];
     let result = log_data(&data, &directives);
@@ -38,7 +38,7 @@ fn test_log_data_with_data() {
 #[test]
 fn test_log_data_with_directives() {
     let data: Vec<pmix::Info> = vec![];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let directives = vec![info];
     let result = log_data(&data, &directives);
     assert!(result.is_err());
@@ -47,8 +47,8 @@ fn test_log_data_with_directives() {
 /// log_data with both data and directives returns error.
 #[test]
 fn test_log_data_with_both() {
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let data = vec![info1];
     let directives = vec![info2];
     let result = log_data(&data, &directives);
@@ -58,8 +58,8 @@ fn test_log_data_with_both() {
 /// log_data with multiple data entries returns error.
 #[test]
 fn test_log_data_multiple_entries() {
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let data = vec![info1, info2];
     let directives: Vec<pmix::Info> = vec![];
     let result = log_data(&data, &directives);
@@ -126,7 +126,7 @@ fn test_log_data_nb_with_data() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let data = vec![info];
     let directives: Vec<pmix::Info> = vec![];
     let result = log_data_nb(
@@ -159,7 +159,7 @@ fn test_log_data_nb_with_directives() {
         }
     }
     let data: Vec<pmix::Info> = vec![];
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let directives = vec![info];
     let result = log_data_nb(
         &data,
@@ -190,8 +190,8 @@ fn test_log_data_nb_with_both() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let data = vec![info1];
     let directives = vec![info2];
     let result = log_data_nb(

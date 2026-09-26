@@ -89,14 +89,14 @@ fn test_query_drop_loop() {
 
 #[test]
 fn test_query_with_empty_qualifiers() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let query = PmixQuery::new(&["test_key"]).expect("create");
     let _query = query.with_qualifiers(info);
 }
 
 #[test]
 fn test_query_with_qualifiers_chained() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _query = PmixQuery::new(&["test_key"])
         .expect("create")
         .with_qualifiers(info);
@@ -142,7 +142,7 @@ fn test_query_new_nul_does_not_panic() {
 
 #[test]
 fn test_infobuilder_build_empty() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = info;
 }
 
@@ -150,7 +150,7 @@ fn test_infobuilder_build_empty() {
 fn test_infobuilder_collect_data() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@ fn test_query_info_result_has_len() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_query_info_with_qualifiers() {
     daemon_helper::ensure_pmix_init();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let query = PmixQuery::new(&["test_key"])
         .expect("create")
         .with_qualifiers(info);
@@ -270,7 +270,7 @@ fn test_log_data_empty() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_with_data() {
     daemon_helper::ensure_pmix_init();
-    let data = vec![InfoBuilder::new().build()];
+    let data = vec![InfoBuilder::new().build().expect("build info")];
     let result = log_data(&data, &[]);
     let _ = result;
 }
@@ -279,8 +279,8 @@ fn test_log_data_with_data() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_log_data_with_directives() {
     daemon_helper::ensure_pmix_init();
-    let data = vec![InfoBuilder::new().build()];
-    let dirs = vec![InfoBuilder::new().build()];
+    let data = vec![InfoBuilder::new().build().expect("build info")];
+    let dirs = vec![InfoBuilder::new().build().expect("build info")];
     let result = log_data(&data, &dirs);
     let _ = result;
 }
@@ -290,9 +290,9 @@ fn test_log_data_with_directives() {
 fn test_log_data_multiple_entries() {
     daemon_helper::ensure_pmix_init();
     let data = vec![
-        InfoBuilder::new().build(),
-        InfoBuilder::new().build(),
-        InfoBuilder::new().build(),
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
     ];
     let result = log_data(&data, &[]);
     let _ = result;
@@ -304,7 +304,7 @@ fn test_log_data_with_collect_info() {
     daemon_helper::ensure_pmix_init();
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let data = vec![builder.build()];
+    let data = vec![builder.build().expect("build info")];
     let result = log_data(&data, &[]);
     let _ = result;
 }
@@ -331,7 +331,7 @@ fn test_log_data_nb_with_data() {
     impl LogCallback for NoopLogCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let data = vec![InfoBuilder::new().build()];
+    let data = vec![InfoBuilder::new().build().expect("build info")];
     let result = log_data_nb(&data, &[], Box::new(NoopLogCb));
     let _ = result;
 }
@@ -344,8 +344,8 @@ fn test_log_data_nb_with_directives() {
     impl LogCallback for NoopLogCb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let data = vec![InfoBuilder::new().build()];
-    let dirs = vec![InfoBuilder::new().build()];
+    let data = vec![InfoBuilder::new().build().expect("build info")];
+    let dirs = vec![InfoBuilder::new().build().expect("build info")];
     let result = log_data_nb(&data, &dirs, Box::new(NoopLogCb));
     let _ = result;
 }
@@ -358,7 +358,7 @@ fn test_query_then_log() {
     daemon_helper::ensure_pmix_init();
     let query = PmixQuery::new(&["test_key"]).expect("create");
     let _ = query_info(&[query]);
-    let data = vec![InfoBuilder::new().build()];
+    let data = vec![InfoBuilder::new().build().expect("build info")];
     let _ = log_data(&data, &[]);
 }
 

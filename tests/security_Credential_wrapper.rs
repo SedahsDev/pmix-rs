@@ -111,7 +111,7 @@ fn test_get_credential_empty_info() {
 /// get_credential with info returns error (not initialized).
 #[test]
 fn test_get_credential_with_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = get_credential(&[info]);
     assert!(result.is_err());
 }
@@ -183,7 +183,7 @@ fn test_get_credential_nb_with_info() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = get_credential_nb(
         &[info],
         Box::new(Cb {
@@ -222,7 +222,7 @@ fn test_validate_credential_with_data() {
 /// validate_credential with info returns error.
 #[test]
 fn test_validate_credential_with_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let cred = PmixCredential::from_bytes(&[1, 2, 3]);
     let result = validate_credential(&cred, &[info]);
     assert!(result.is_err());

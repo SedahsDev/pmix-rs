@@ -265,7 +265,7 @@ fn deregister_error_codes_to_string() {
 /// InfoBuilder produces valid Info for use with event APIs.
 #[test]
 fn info_builder_for_events() {
-    let _info = InfoBuilder::new().build();
+    let _info = InfoBuilder::new().build().expect("build info");
     // Info should be creatable even without PMIx_Init.
     // We can't check .len (private field), but the fact that it compiled
     // and didn't panic is sufficient.
@@ -291,7 +291,7 @@ fn register_then_deregister_lifecycle() {
     // let _ = pmix::lifecycle::init(None, &[]);
     //
     // // Register a handler
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     // let handler_ref = register_event_handler(&[], &info, None, None)
     //     .expect("register should succeed after PMIx_Init");
     // assert!(handler_ref > 0, "handler ref should be positive");
@@ -317,7 +317,7 @@ fn register_multiple_deregister_each() {
     daemon_helper::ensure_pmix_init();
     // let _ = pmix::lifecycle::init(None, &[]);
     //
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     // let codes1 = vec![PmixStatus::Known(PmixError::ErrJobAborted)];
     // let codes2 = vec![PmixStatus::Known(PmixError::EventJobEnd)];
     //
@@ -359,7 +359,7 @@ fn deregister_nb_lifecycle() {
 
     // let _ = pmix::lifecycle::init(None, &[]);
     //
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     // let handler_ref = register_event_handler(&[], &info, None, None)
     //     .expect("register should succeed");
     //
@@ -391,7 +391,7 @@ fn deregister_before_finalize() {
     daemon_helper::ensure_pmix_init();
     // let _ = pmix::lifecycle::init(None, &[]);
     //
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     // let handler_ref = register_event_handler(&[], &info, None, None)
     //     .expect("register");
     //

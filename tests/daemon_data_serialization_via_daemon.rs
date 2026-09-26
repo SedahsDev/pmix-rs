@@ -29,7 +29,7 @@ fn test_data_serialization_all_ffi_operations() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
 
     let module = pmix::server::PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = pmix::server::server_init(Some(&module), &info).expect("server_init");
 
     // ── data_buffer_create ──

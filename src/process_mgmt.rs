@@ -36,26 +36,39 @@
 //!     .maxprocs(4)
 //!     .build()
 //!     .expect("valid app");
-//! let job_info = vec![InfoBuilder::new().build()];
+//! let job_info = vec![InfoBuilder::new().build().expect("build info")];
 //! let result = spawn(&job_info, &[app]);
 //! // result is Ok(nspace) on success
 //!
 //! // Connect to a namespace
 //! let target = Proc::new("target_namespace", RANK_WILDCARD)
 //!     .expect("valid proc");
-//! let connect_info = InfoBuilder::new().build();
+//! let connect_info = InfoBuilder::new().build().expect("build info");
 //! let result = connect(&[target.clone()], &[connect_info]);
 //!
 //! // Disconnect from a previously connected set
-//! let disconnect_info = InfoBuilder::new().build();
+//! let disconnect_info = InfoBuilder::new().build().expect("build info");
 //! let result = disconnect(&[target], &[disconnect_info]);
 //! ```
 
+use crate::cbdata::{decode_req_id, encode_req_id, Registry};
 use crate::ffi;
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
+
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
+use std::sync::{LazyLock, Mutex};
+
+/// Duplicate a Rust-owned C string with the allocator used by PMIx's `free()`.
+///
+/// The returned pointer is owned by the caller and must be released with
+/// `libc::free`, not `CString::from_raw`.
+unsafe fn libc_strdup(value: &CStr) -> *mut c_char {
+    // SAFETY: `value` is a valid NUL-terminated C string and `strdup` copies it.
+    unsafe { libc::strdup(value.as_ptr()) }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Abort
@@ -79,6 +92,8 @@ use std::ptr;
 /// # Returns
 /// * `Ok(())` — the abort request was accepted. If the caller's own
 ///   process was included, the function will not return with success.
+/// * `Err(PmixStatus::Known(PmixError::ErrBadParam))` — `msg` contains an
+///   interior NUL byte.
 /// * `Err(PmixStatus::Known(PmixError::ErrParamValueNotSupported))` — the
 ///   host environment cannot abort the requested processes (e.g., subsets
 ///   from another namespace).
@@ -101,18 +116,22 @@ pub fn abort(
     // Convert the optional message to a C string pointer.
     let (msg_ptr, _msg_cstring) = match msg {
         Some(m) => {
-            let cs = CString::new(m).expect("abort message must not contain interior NUL bytes");
+            let cs = match CString::new(m) {
+                Ok(c) => c,
+                Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+            };
             (cs.as_ptr(), Some(cs))
         }
         None => (ptr::null(), None),
     };
 
-    // Convert the optional proc array to a raw pointer + length.
+    // Convert the optional proc array to a contiguous raw pointer + length.
+    let flat;
     let (procs_ptr, nprocs) = match procs {
-        Some(procs) if !procs.is_empty() => (
-            &procs[0].handle as *const ffi::pmix_proc_t as *mut ffi::pmix_proc_t,
-            procs.len(),
-        ),
+        Some(procs) if !procs.is_empty() => {
+            flat = flat_procs(procs);
+            (flat.as_ptr() as *mut ffi::pmix_proc_t, flat.len())
+        }
         _ => (ptr::null_mut(), 0),
     };
 
@@ -122,9 +141,9 @@ pub fn abort(
     // - `msg_ptr` is either null or a valid NUL-terminated C string
     //   whose lifetime (`_msg_cstring`) is kept alive until after this
     //   call returns.
-    // - `procs_ptr` is either null or points to a valid slice of
-    //   `pmix_proc_t` handles that remain valid for the duration of
-    //   this call. PMIx does not retain these pointers after return.
+    // - `procs_ptr` is either null or points to a temporary flattened
+    //   `Vec<pmix_proc_t>` that remains alive for the duration of this call.
+    //   PMIx does not retain these pointers after return.
     // - Note: if the caller's own process is included in `procs`, this
     //   function may not return. That is documented PMIx behavior.
     let raw_status = unsafe {
@@ -364,10 +383,8 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 
     // Drop guard ensures PMIx_App_free is always called, even on error.
     // PMIx_App_free calls PMIX_APP_DESTRUCT on each element, which in turn
-    // calls pmix_free (→ free) on cmd, argv, env, cwd. Therefore we must
-    // allocate all string data and pointer arrays via C allocators so
-    // free() is valid. We use CString::into_raw() for strings and
-    // libc::calloc for pointer arrays.
+    // calls pmix_free (→ free) on cmd, argv, env, cwd. Therefore all string
+    // data and pointer arrays must use C allocators.
     struct AppArrayGuard(*mut ffi::pmix_app_t, usize);
     impl Drop for AppArrayGuard {
         fn drop(&mut self) {
@@ -379,9 +396,9 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
     for (i, app) in apps.iter().enumerate() {
         let app_ptr = unsafe { raw_apps.add(i) };
 
-        // ── cmd: transfer ownership to C via CString::into_raw ──
+        // ── cmd: transfer ownership to PMIx via libc allocation ──
         let cmd_ptr: *mut c_char = match &app.cmd {
-            Some(cs) => CString::into_raw(cs.clone()),
+            Some(cs) => unsafe { libc_strdup(cs.as_c_str()) },
             None => ptr::null_mut(),
         };
         unsafe { (*app_ptr).cmd = cmd_ptr };
@@ -397,7 +414,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
             };
             for (j, s) in app.argv.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
-                unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
+                unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             // ptrs[n] is already NULL from calloc.
             ptrs
@@ -414,7 +431,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
             };
             for (j, s) in app.env.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
-                unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
+                unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
         };
@@ -422,7 +439,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 
         // ── cwd ──
         let cwd_ptr: *mut c_char = match &app.cwd {
-            Some(cs) => CString::into_raw(cs.clone()),
+            Some(cs) => unsafe { libc_strdup(cs.as_c_str()) },
             None => ptr::null_mut(),
         };
         unsafe { (*app_ptr).cwd = cwd_ptr };
@@ -453,9 +470,7 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 
     // The AppArrayGuard will call PMIx_App_free(raw_apps, napps) which
     // calls PMIX_APP_DESTRUCT on each element, freeing cmd/argv/env/cwd
-    // via pmix_free (→ free). This is correct because we allocated all
-    // string data via CString::into_raw (which uses libc::malloc) and
-    // pointer arrays via libc::calloc.
+    // via pmix_free (→ free). String data and pointer arrays use libc allocators.
 
     let pmix_status = PmixStatus::from_raw(status);
     if pmix_status.is_success() {
@@ -473,6 +488,41 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Spawn_nb
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── One-shot completion registries (issue #67) ───────────────────────────────
+static SPAWN_REGISTRY: LazyLock<Registry<SpawnCallbackWrapper>> = LazyLock::new(Registry::new);
+static CONNECT_REGISTRY: LazyLock<Registry<ConnectCallbackWrapper>> = LazyLock::new(Registry::new);
+static DISCONNECT_REGISTRY: LazyLock<Registry<DisconnectCallbackWrapper>> = LazyLock::new(Registry::new);
+
+fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
+    procs
+        .iter()
+        .map(|proc| {
+            // SAFETY: Proc contains an initialized pmix_proc_t for this borrow.
+            unsafe { std::ptr::read(&proc.handle) }
+        })
+        .collect()
+}
+
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| {
+                        // SAFETY: entry is initialized and copied by value into local storage.
+                        unsafe { std::ptr::read(entry) }
+                    })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
 
 /// Non-blocking spawn callback wrapper.
 ///
@@ -494,6 +544,35 @@ impl SpawnCallbackWrapper {
             callback: Box::new(f),
         }
     }
+}
+
+extern "C" fn spawn_callback_bridge(
+    status: ffi::pmix_status_t,
+    nspace: *mut c_char,
+    cbdata: *mut c_void,
+) {
+    if cbdata.is_null() {
+        return;
+    }
+    let req_id = decode_req_id(cbdata);
+    let cb = {
+        let mut registry = SPAWN_REGISTRY.lock();
+        registry.remove(&req_id)
+    };
+    let Some(cb_wrapper) = cb else {
+        return;
+    };
+    let pmix_status = PmixStatus::from_raw(status);
+    let nspace_str = if pmix_status.is_success() && !nspace.is_null() {
+        // SAFETY: PMIx provides a NUL-terminated nspace on success for this call.
+        let cstr = unsafe { CStr::from_ptr(nspace) };
+        Some(cstr.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+    let _ = invoke_user_callback("process_mgmt", move || {
+        (cb_wrapper.callback)(pmix_status, nspace_str);
+    });
 }
 
 /// Non-blocking spawn with a Rust closure callback.
@@ -527,40 +606,16 @@ pub fn spawn_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Box the callback wrapper so it lives on the heap and outlives
-    // the FFI call. We pass it as cbdata and recover it in the C
-    // callback via Box::from_raw.
-    let cb_box: *mut SpawnCallbackWrapper = Box::into_raw(Box::new(callback));
-
-    // The C bridge function that PMIx calls back into.
-    // SAFETY: This extern "C" function is only called by PMIx with
-    // the cbdata pointer we provided (Box<SpawnCallbackWrapper>).
-    // It takes ownership of the box via Box::from_raw.
-    extern "C" fn spawn_callback_bridge(
-        status: ffi::pmix_status_t,
-        nspace: *mut c_char,
-        cbdata: *mut c_void,
-    ) {
-        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut SpawnCallbackWrapper) };
-
-        let pmix_status = PmixStatus::from_raw(status);
-        let nspace_str = if pmix_status.is_success() && !nspace.is_null() {
-            let cstr = unsafe { CStr::from_ptr(nspace) };
-            Some(cstr.to_string_lossy().into_owned())
-        } else {
-            None
-        };
-
-        (cb_wrapper.callback)(pmix_status, nspace_str);
-        // The box is dropped here.
-    }
+    let req_id = SPAWN_REGISTRY.insert_next(callback);
+    let cbdata = encode_req_id(req_id);
 
     let napps = apps.len();
 
     // SAFETY: PMIx_App_create allocates and constructs napps pmix_app_t.
     let raw_apps: *mut ffi::pmix_app_t = unsafe { ffi::PMIx_App_create(napps) };
     if raw_apps.is_null() {
-        unsafe { drop(Box::from_raw(cb_box)) };
+        let mut registry = SPAWN_REGISTRY.lock();
+        registry.remove(&req_id);
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_OUT_OF_RESOURCE));
     }
 
@@ -580,7 +635,7 @@ pub fn spawn_nb(
 
         // cmd
         let cmd_ptr: *mut c_char = match &app.cmd {
-            Some(cs) => CString::into_raw(cs.clone()),
+            Some(cs) => unsafe { libc_strdup(cs.as_c_str()) },
             None => ptr::null_mut(),
         };
         unsafe { (*app_ptr).cmd = cmd_ptr };
@@ -595,7 +650,7 @@ pub fn spawn_nb(
             };
             for (j, s) in app.argv.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
-                unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
+                unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
         };
@@ -611,7 +666,7 @@ pub fn spawn_nb(
             };
             for (j, s) in app.env.iter().enumerate() {
                 let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
-                unsafe { *ptrs.add(j) = CString::into_raw(cstr) };
+                unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
         };
@@ -619,7 +674,7 @@ pub fn spawn_nb(
 
         // cwd
         let cwd_ptr: *mut c_char = match &app.cwd {
-            Some(cs) => CString::into_raw(cs.clone()),
+            Some(cs) => unsafe { libc_strdup(cs.as_c_str()) },
             None => ptr::null_mut(),
         };
         unsafe { (*app_ptr).cwd = cwd_ptr };
@@ -636,7 +691,7 @@ pub fn spawn_nb(
     // - `raw_apps` is a valid array of `napps` pmix_app_t structures
     //   with C-allocated string fields.
     // - `spawn_callback_bridge` is a valid extern "C" callback.
-    // - `cb_box` is a valid heap-allocated SpawnCallbackWrapper.
+    // - `cbdata` is an opaque request ID (`encode_req_id`) for SPAWN_REGISTRY.
     // - PMIx_Spawn_nb returns immediately; the callback is invoked
     //   asynchronously by the PMIx library at a later time.
     // - PMIx copies app data internally, so our guard can free
@@ -648,7 +703,7 @@ pub fn spawn_nb(
             raw_apps,
             napps,
             Some(spawn_callback_bridge),
-            cb_box as *mut c_void,
+            cbdata,
         )
     };
 
@@ -658,8 +713,10 @@ pub fn spawn_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        // On synchronous failure, PMIx still calls the callback with
-        // the error status, so the bridge function will drop cb_box.
+        // Sync failure: OpenPMIx may still deliver the completion; if it does
+        // not, drop the parked callback so the registry does not leak.
+        let mut registry = SPAWN_REGISTRY.lock();
+        registry.remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -711,40 +768,28 @@ pub fn connect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Convert proc slice to a raw pointer.
-    // SAFETY: `procs` is a non-empty slice of `Proc` values, each
-    // containing a `pmix_proc_t` handle as its first field. We take
-    // the address of the first element's handle and cast it to the
-    // FFI type. The slice remains valid for the duration of this call.
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    // Convert info slice to a raw pointer.
-    let (info_ptr, ninfo) = if info.is_empty() {
+    // Build owned contiguous arrays for the FFI call.
+    // SAFETY: `procs_ptr` points into an owned contiguous Vec of
+    // `ffi::pmix_proc_t` values, and `info_ptr` points into an owned
+    // contiguous Vec of `ffi::pmix_info_t` values; both Vecs outlive the FFI call.
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        // SAFETY: `info` is a non-empty slice of `Info` values, each
-        // containing a pointer to a `pmix_info_t`. We take the address
-        // of the first element's handle field.
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     // SAFETY: FFI call into PMIx library.
-    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles
-    //   that remain valid for the duration of this call. PMIx does
-    //   not retain these pointers after return.
-    // - `info_ptr` is either null or points to a valid slice of
-    //   `pmix_info_t` pointers. PMIx reads but does not retain.
+    // - `procs_ptr` points into the owned contiguous `flat_procs` Vec,
+    //   which outlives this call. PMIx does not retain the pointer after return.
+    // - `info_ptr` is either null or points into the owned contiguous `flat_infos`
+    //   Vec, which outlives this call. PMIx reads but does not retain the pointer.
     // - `nprocs` and `ninfo` are the correct lengths of their arrays.
     // - This is a blocking call: it does not return until all
     //   participating processes have completed the connect operation.
-    let raw_status = unsafe { ffi::PMIx_Connect(procs_ptr, procs.len(), info_ptr, ninfo) };
+    let raw_status = unsafe { ffi::PMIx_Connect(procs_ptr, flat_procs.len(), info_ptr, ninfo) };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
     if pmix_status.is_success() {
@@ -784,6 +829,24 @@ impl ConnectCallbackWrapper {
 // PMIx_Connect_nb
 // ─────────────────────────────────────────────────────────────────────────────
 
+extern "C" fn connect_callback_bridge(status: i32, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+    let req_id = decode_req_id(cbdata);
+    let cb = {
+        let mut registry = CONNECT_REGISTRY.lock();
+        registry.remove(&req_id)
+    };
+    let Some(cb_wrapper) = cb else {
+        return;
+    };
+    let pmix_status = PmixStatus::from_raw(status);
+    let _ = invoke_user_callback("process_mgmt", move || {
+        (cb_wrapper.callback)(pmix_status);
+    });
+}
+
 /// Non-blocking connect with a Rust closure callback.
 ///
 /// Records a set of processes as "connected" without blocking. The
@@ -814,57 +877,39 @@ pub fn connect_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Box the callback wrapper so it lives on the heap and outlives
-    // the FFI call. We pass it as cbdata and recover it in the C
-    // callback via Box::from_raw.
-    let cb_box: *mut ConnectCallbackWrapper = Box::into_raw(Box::new(callback));
+    let req_id = CONNECT_REGISTRY.insert_next(callback);
+    let cbdata = encode_req_id(req_id);
 
-    // The C bridge function that PMIx calls back into.
-    // SAFETY: This extern "C" function is only called by PMIx with
-    // the cbdata pointer we provided (Box<ConnectCallbackWrapper>).
-    // It takes ownership of the box via Box::from_raw.
-    extern "C" fn connect_callback_bridge(status: i32, cbdata: *mut c_void) {
-        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut ConnectCallbackWrapper) };
-        let pmix_status = PmixStatus::from_raw(status);
-        (cb_wrapper.callback)(pmix_status);
-        // The box is dropped here.
-    }
-
-    // Convert proc slice to a raw pointer.
-    // SAFETY: `procs` is a non-empty slice of `Proc` values.
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    // Convert info slice to a raw pointer.
-    let (info_ptr, ninfo) = if info.is_empty() {
+    // Build owned contiguous arrays for the FFI call.
+    // SAFETY: `procs_ptr` points into an owned contiguous Vec of
+    // `ffi::pmix_proc_t` values, and `info_ptr` points into an owned
+    // contiguous Vec of `ffi::pmix_info_t` values; both Vecs outlive the FFI call.
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     // SAFETY: FFI call into PMIx library.
-    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles.
-    // - `info_ptr` is either null or points to a valid slice of
-    //   `pmix_info_t` pointers.
+    // - `procs_ptr` points into the owned contiguous `flat_procs` Vec,
+    //   which outlives this call.
+    // - `info_ptr` is either null or points into the owned contiguous `flat_infos`
+    //   Vec, which outlives this call.
     // - `connect_callback_bridge` is a valid extern "C" callback.
-    // - `cb_box` is a valid heap-allocated ConnectCallbackWrapper
-    //   that will be recovered in the callback via Box::from_raw.
+    // - `cbdata` is an opaque request ID for CONNECT_REGISTRY.
     // - PMIx_Connect_nb returns immediately; the callback is invoked
     //   asynchronously by the PMIx library at a later time.
     let raw_status = unsafe {
         ffi::PMIx_Connect_nb(
             procs_ptr,
-            procs.len(),
+            flat_procs.len(),
             info_ptr,
             ninfo,
             Some(connect_callback_bridge),
-            cb_box as *mut c_void,
+            cbdata,
         )
     };
 
@@ -872,9 +917,8 @@ pub fn connect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        // On synchronous failure, PMIx may or may not call the callback.
-        // To be safe, reclaim the box to avoid a memory leak.
-        unsafe { drop(Box::from_raw(cb_box)) }
+        let mut registry = CONNECT_REGISTRY.lock();
+        registry.remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -936,37 +980,28 @@ pub fn disconnect(procs: &[Proc], info: &[Info]) -> Result<(), PmixStatus> {
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Convert proc slice to a raw pointer.
-    // SAFETY: `procs` is a non-empty slice of `Proc` values, each
-    // containing a `pmix_proc_t` handle as its first field. We take
-    // the address of the first element's handle and cast it to the
-    // FFI type. The slice remains valid for the duration of this call.
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    // Convert info slice to a raw pointer.
-    let (info_ptr, ninfo) = if info.is_empty() {
+    // Build owned contiguous arrays for the FFI call.
+    // SAFETY: `procs_ptr` points into an owned contiguous Vec of
+    // `ffi::pmix_proc_t` values, and `info_ptr` points into an owned
+    // contiguous Vec of `ffi::pmix_info_t` values; both Vecs outlive the FFI call.
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     // SAFETY: FFI call into PMIx library.
-    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles
-    //   that remain valid for the duration of this call. PMIx does
-    //   not retain these pointers after return.
-    // - `info_ptr` is either null or points to a valid slice of
-    //   `pmix_info_t` pointers. PMIx reads but does not retain.
+    // - `procs_ptr` points into the owned contiguous `flat_procs` Vec,
+    //   which outlives this call. PMIx does not retain the pointer after return.
+    // - `info_ptr` is either null or points into the owned contiguous `flat_infos`
+    //   Vec, which outlives this call. PMIx reads but does not retain the pointer.
     // - `nprocs` and `ninfo` are the correct lengths of their arrays.
     // - This is a blocking call: it does not return until all
     //   participating processes have completed the disconnect operation.
-    let raw_status = unsafe { ffi::PMIx_Disconnect(procs_ptr, procs.len(), info_ptr, ninfo) };
+    let raw_status = unsafe { ffi::PMIx_Disconnect(procs_ptr, flat_procs.len(), info_ptr, ninfo) };
 
     let pmix_status = PmixStatus::from_raw(raw_status);
     if pmix_status.is_success() {
@@ -1006,6 +1041,24 @@ impl DisconnectCallbackWrapper {
 // PMIx_Disconnect_nb
 // ─────────────────────────────────────────────────────────────────────────────
 
+extern "C" fn disconnect_callback_bridge(status: i32, cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+    let req_id = decode_req_id(cbdata);
+    let cb = {
+        let mut registry = DISCONNECT_REGISTRY.lock();
+        registry.remove(&req_id)
+    };
+    let Some(cb_wrapper) = cb else {
+        return;
+    };
+    let pmix_status = PmixStatus::from_raw(status);
+    let _ = invoke_user_callback("process_mgmt", move || {
+        (cb_wrapper.callback)(pmix_status);
+    });
+}
+
 /// Non-blocking disconnect with a Rust closure callback.
 ///
 /// Disconnects a previously connected set of processes without blocking.
@@ -1036,57 +1089,39 @@ pub fn disconnect_nb(
         return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM));
     }
 
-    // Box the callback wrapper so it lives on the heap and outlives
-    // the FFI call. We pass it as cbdata and recover it in the C
-    // callback via Box::from_raw.
-    let cb_box: *mut DisconnectCallbackWrapper = Box::into_raw(Box::new(callback));
+    let req_id = DISCONNECT_REGISTRY.insert_next(callback);
+    let cbdata = encode_req_id(req_id);
 
-    // The C bridge function that PMIx calls back into.
-    // SAFETY: This extern "C" function is only called by PMIx with
-    // the cbdata pointer we provided (Box<DisconnectCallbackWrapper>).
-    // It takes ownership of the box via Box::from_raw.
-    extern "C" fn disconnect_callback_bridge(status: i32, cbdata: *mut c_void) {
-        let cb_wrapper = unsafe { Box::from_raw(cbdata as *mut DisconnectCallbackWrapper) };
-        let pmix_status = PmixStatus::from_raw(status);
-        (cb_wrapper.callback)(pmix_status);
-        // The box is dropped here.
-    }
-
-    // Convert proc slice to a raw pointer.
-    // SAFETY: `procs` is a non-empty slice of `Proc` values.
-    let procs_ptr = unsafe {
-        std::ptr::addr_of!((*(&procs[0] as *const Proc)).handle) as *const ffi::pmix_proc_t
-    };
-
-    // Convert info slice to a raw pointer.
-    let (info_ptr, ninfo) = if info.is_empty() {
+    // Build owned contiguous arrays for the FFI call.
+    // SAFETY: `procs_ptr` points into an owned contiguous Vec of
+    // `ffi::pmix_proc_t` values, and `info_ptr` points into an owned
+    // contiguous Vec of `ffi::pmix_info_t` values; both Vecs outlive the FFI call.
+    let flat_procs = flat_procs(procs);
+    let procs_ptr = flat_procs.as_ptr();
+    let flat_infos = flat_infos(info);
+    let (info_ptr, ninfo) = if flat_infos.is_empty() {
         (ptr::null(), 0)
     } else {
-        (
-            unsafe {
-                std::ptr::addr_of!((*(&info[0] as *const Info)).handle) as *const ffi::pmix_info_t
-            },
-            info.len(),
-        )
+        (flat_infos.as_ptr(), flat_infos.len())
     };
 
     // SAFETY: FFI call into PMIx library.
-    // - `procs_ptr` points to a valid slice of `pmix_proc_t` handles.
-    // - `info_ptr` is either null or points to a valid slice of
-    //   `pmix_info_t` pointers.
+    // - `procs_ptr` points into the owned contiguous `flat_procs` Vec,
+    //   which outlives this call.
+    // - `info_ptr` is either null or points into the owned contiguous `flat_infos`
+    //   Vec, which outlives this call.
     // - `disconnect_callback_bridge` is a valid extern "C" callback.
-    // - `cb_box` is a valid heap-allocated DisconnectCallbackWrapper
-    //   that will be recovered in the callback via Box::from_raw.
+    // - `cbdata` is an opaque request ID for DISCONNECT_REGISTRY.
     // - PMIx_Disconnect_nb returns immediately; the callback is invoked
     //   asynchronously by the PMIx library at a later time.
     let raw_status = unsafe {
         ffi::PMIx_Disconnect_nb(
             procs_ptr,
-            procs.len(),
+            flat_procs.len(),
             info_ptr,
             ninfo,
             Some(disconnect_callback_bridge),
-            cb_box as *mut c_void,
+            cbdata,
         )
     };
 
@@ -1094,9 +1129,8 @@ pub fn disconnect_nb(
     if pmix_status.is_success() {
         Ok(())
     } else {
-        // On synchronous failure, PMIx may or may not call the callback.
-        // To be safe, reclaim the box to avoid a memory leak.
-        unsafe { drop(Box::from_raw(cb_box)) }
+        let mut registry = DISCONNECT_REGISTRY.lock();
+        registry.remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -1126,6 +1160,8 @@ pub fn disconnect_nb(
 ///   initialized via `PMIx_Init`.
 /// * `Err(PmixStatus::Known(PmixError::ErrNotFound))` — `nspace` was
 ///   provided but no such namespace is known.
+/// * `Err(PmixStatus::Known(PmixError::ErrBadParam))` — `nodename` or
+///   `nspace` contains an interior NUL byte.
 /// * `Err(PmixStatus)` — another error in the request.
 ///
 /// # Thread Safety
@@ -1145,7 +1181,10 @@ pub fn resolve_peers(
     // Convert nodename to C string if provided.
     let (nodename_ptr, _nodename_cstring) = match nodename {
         Some(n) => {
-            let cs = CString::new(n).expect("nodename must not contain interior NUL bytes");
+            let cs = match CString::new(n) {
+                Ok(c) => c,
+                Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+            };
             (cs.as_ptr(), Some(cs))
         }
         None => (ptr::null::<c_char>(), None),
@@ -1154,7 +1193,10 @@ pub fn resolve_peers(
     // Convert nspace to C string if provided.
     let (nspace_ptr, _nspace_cstring) = match nspace {
         Some(ns) => {
-            let cs = CString::new(ns).expect("nspace must not contain interior NUL bytes");
+            let cs = match CString::new(ns) {
+                Ok(c) => c,
+                Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+            };
             (cs.as_ptr(), Some(cs))
         }
         None => (ptr::null::<c_char>(), None),
@@ -1224,6 +1266,8 @@ pub fn resolve_peers(
 ///   initialized via `PMIx_Init`.
 /// * `Err(PmixStatus::Known(PmixError::ErrNotFound))` — the specified
 ///   namespace is not known.
+/// * `Err(PmixStatus::Known(PmixError::ErrBadParam))` — `nspace` contains an
+///   interior NUL byte.
 /// * `Err(PmixStatus)` — another error in the request.
 ///
 /// # Thread Safety
@@ -1237,7 +1281,10 @@ pub fn resolve_peers(
 /// ```
 pub fn resolve_nodes(nspace: &str) -> Result<String, PmixStatus> {
     // Convert namespace to C string.
-    let nspace_cs = CString::new(nspace).expect("nspace must not contain interior NUL bytes");
+    let nspace_cs = match CString::new(nspace) {
+        Ok(c) => c,
+        Err(_) => return Err(PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM)),
+    };
 
     let mut nodelist: *mut c_char = ptr::null_mut();
 
@@ -1281,6 +1328,15 @@ mod tests {
         let app = PmixAppBuilder::new().build().unwrap();
         assert_eq!(app.cmd(), None);
         assert!(app.argv().is_empty());
+    }
+
+    #[test]
+    fn libc_strdup_result_can_be_freed_with_libc() {
+        let source = CString::new("allocator-safe").unwrap();
+        let duplicate = unsafe { libc_strdup(source.as_c_str()) };
+        assert!(!duplicate.is_null());
+        assert_eq!(unsafe { CStr::from_ptr(duplicate) }, source.as_c_str());
+        unsafe { libc::free(duplicate.cast()) };
     }
 
     #[test]
@@ -1812,7 +1868,7 @@ mod tests {
     #[test]
     fn test_spawn_with_job_info_and_empty_apps() {
         // Even with job_info, empty apps should fail
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let result = spawn(&info, &[]);
         assert!(result.is_err());
         if let Err(status) = result {
@@ -1859,7 +1915,7 @@ mod tests {
 
     #[test]
     fn test_spawn_nb_with_job_info_and_empty_apps() {
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let wrapper = SpawnCallbackWrapper::new(|_, _| {});
         let result = spawn_nb(&info, &[], wrapper);
         assert!(result.is_err());
@@ -1919,9 +1975,23 @@ mod tests {
     }
 
     #[test]
+    fn test_connect_arrays_are_flattened_for_multiple_entries() {
+        let p1 = crate::Proc::new("ns_a", 7).unwrap();
+        let p2 = crate::Proc::new("ns_b", 9).unwrap();
+        let i1 = crate::info_with_string_key("test.key.one", "one").unwrap();
+        let i2 = crate::info_with_string_key("test.key.two", "two").unwrap();
+        let procs = super::flat_procs(&[p1, p2]);
+        let infos = super::flat_infos(&[i1, i2]);
+        assert_eq!(procs.len(), 2);
+        assert_eq!(infos.len(), 2);
+        assert_eq!(procs[0].rank, 7);
+        assert_eq!(procs[1].rank, 9);
+    }
+
+    #[test]
     fn test_connect_with_info() {
         let proc = crate::Proc::new("test_ns", 0).unwrap();
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let result = connect(&[proc], &info);
         assert!(result.is_err());
         if let Err(status) = result {
@@ -1978,7 +2048,7 @@ mod tests {
     #[test]
     fn test_disconnect_with_info() {
         let proc = crate::Proc::new("test_ns", 0).unwrap();
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let result = disconnect(&[proc], &info);
         assert!(result.is_err());
         if let Err(status) = result {
@@ -2014,7 +2084,7 @@ mod tests {
     #[test]
     fn test_connect_nb_with_info() {
         let proc = crate::Proc::new("test_ns", 0).unwrap();
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let wrapper = ConnectCallbackWrapper::new(|_| {});
         let result = connect_nb(&[proc], &info, wrapper);
         assert!(result.is_err());
@@ -2055,7 +2125,7 @@ mod tests {
     #[ignore] // Requires DVM — PMIx_Disconnect_nb segfaults without init
     fn test_disconnect_nb_with_info() {
         let proc = crate::Proc::new("test_ns", 0).unwrap();
-        let info = vec![crate::InfoBuilder::new().build()];
+        let info = vec![crate::InfoBuilder::new().build().expect("build info")];
         let wrapper = DisconnectCallbackWrapper::new(|_| {});
         let result = disconnect_nb(&[proc], &info, wrapper);
         assert!(result.is_err());
@@ -2181,6 +2251,38 @@ mod tests {
     // error code varies by PMIx version and state — PMIx 5.0.7 returns
     // ErrNotFound rather than ErrInit. We assert only that an error is
     // returned, not the specific error, to avoid version-dependent failures.
+
+    #[test]
+    fn test_abort_with_nul_message_returns_bad_param() {
+        let result = abort(PmixStatus::from_raw(1), Some("boom\0"), None);
+        assert_eq!(result.unwrap_err().to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_resolve_peers_with_nul_nodename_returns_bad_param() {
+        let result = resolve_peers(Some("node\0"), None);
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("resolve_peers() should reject NUL in nodename"),
+        };
+        assert_eq!(error.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_resolve_peers_with_nul_nspace_returns_bad_param() {
+        let result = resolve_peers(None, Some("ns\0"));
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("resolve_peers() should reject NUL in nspace"),
+        };
+        assert_eq!(error.to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
+
+    #[test]
+    fn test_resolve_nodes_with_nul_nspace_returns_bad_param() {
+        let result = resolve_nodes("ns\0withnul");
+        assert_eq!(result.unwrap_err().to_raw(), ffi::PMIX_ERR_BAD_PARAM);
+    }
 
     #[test]
     fn test_resolve_peers_no_dvm() {
@@ -2334,4 +2436,132 @@ mod tests {
         }
         let _cb: SpawnCallback = dummy_spawn_cb;
     }
+}
+
+/// Safe wrapper around the PMIx utility API for a single `pmix_app_t`.
+#[derive(Debug)]
+pub struct PmixAppObject {
+    ptr: *mut ffi::pmix_app_t,
+    constructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixAppObject {
+    pub fn new() -> Self {
+        // SAFETY: calloc provides suitably aligned, zeroed storage for the C
+        // struct. The matching free is performed by `release` or `Drop`.
+        let ptr = unsafe { libc::calloc(1, std::mem::size_of::<ffi::pmix_app_t>()) }
+            as *mut ffi::pmix_app_t;
+        if !ptr.is_null() {
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_construct(ptr) },
+                real = unsafe { ffi::PMIx_App_construct(ptr) },
+            );
+        }
+        Self { ptr, constructed: !ptr.is_null(), _not_thread_safe: std::marker::PhantomData }
+    }
+
+    pub fn test_new() -> Self {
+        let ptr = unsafe { libc::calloc(1, std::mem::size_of::<ffi::pmix_app_t>()) }
+            as *mut ffi::pmix_app_t;
+        Self { ptr, constructed: !ptr.is_null(), _not_thread_safe: std::marker::PhantomData }
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_app_t { self.ptr }
+
+    fn raw(&self) -> Option<&ffi::pmix_app_t> {
+        // SAFETY: `ptr` is either null or live calloc'd storage initialized by
+        // PMIx; callers only receive a reference for the non-null case.
+        unsafe { self.ptr.as_ref() }
+    }
+    fn c_string(&self, p: *const c_char) -> Option<&str> {
+        unsafe { (!p.is_null()).then(|| CStr::from_ptr(p).to_str().ok()).flatten() }
+    }
+    pub fn cmd(&self) -> Option<&str> { self.raw().and_then(|a| self.c_string(a.cmd)) }
+    pub fn cwd(&self) -> Option<&str> { self.raw().and_then(|a| self.c_string(a.cwd)) }
+    pub fn maxprocs(&self) -> i32 { self.raw().map_or(0, |a| a.maxprocs) }
+    pub fn ninfo(&self) -> usize { self.raw().map_or(0, |a| a.ninfo) }
+    /// Returns PMIx-owned storage; do not free it. Invalid after mutation or drop.
+    ///
+    /// # Safety
+    /// The returned pointer must not be dereferenced after this object is mutated or dropped.
+    pub unsafe fn info_ptr(&self) -> *const ffi::pmix_info_t {
+        self.raw().map_or(ptr::null(), |a| a.info)
+    }
+    fn strings(&self, p: *mut *mut c_char) -> Option<Vec<String>> {
+        if p.is_null() { return None; }
+        let mut out = Vec::new(); let mut i = 0;
+        // SAFETY: PMIx supplies a NULL-terminated array; entries are copied out.
+        unsafe { while !(*p.add(i)).is_null() { out.push(CStr::from_ptr(*p.add(i)).to_str().ok()?.to_owned()); i += 1; } }
+        Some(out)
+    }
+    pub fn argv(&self) -> Option<Vec<String>> { self.raw().and_then(|a| self.strings(a.argv)) }
+    pub fn env(&self) -> Option<Vec<String>> { self.raw().and_then(|a| self.strings(a.env)) }
+    pub fn info_create(&mut self, n: usize) {
+        let Some(app) = self.raw() else { return };
+        if !app.info.is_null() {
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_destruct(self.ptr) },
+                real = unsafe { ffi::PMIx_App_destruct(self.ptr) },
+            );
+            crate::pmix_ffi_or_mock!(
+                mock = unsafe { crate::mock_ffi::mock_app_construct(self.ptr) },
+                real = unsafe { ffi::PMIx_App_construct(self.ptr) },
+            );
+        }
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_info_create(self.ptr, n) },
+            real = unsafe { ffi::PMIx_App_info_create(self.ptr, n) },
+        );
+    }
+    pub fn to_string(&self) -> Result<String, crate::PmixError> {
+        let Some(app) = self.raw() else { return Err(crate::PmixError::Error) };
+        let p = crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_string(app) },
+            real = unsafe { ffi::PMIx_App_string(app) },
+        );
+        if p.is_null() { return Err(crate::PmixError::Error); }
+        // SAFETY: copy before releasing PMIx's allocated string.
+        let result = unsafe { CStr::from_ptr(p).to_str().map(str::to_owned) };
+        unsafe { libc::free(p.cast()) };
+        result.map_err(|_| crate::PmixError::Error)
+    }
+    /// Consumes the C object. `PMIx_App_release` frees the struct pointer.
+    pub fn release(mut self) {
+        if self.ptr.is_null() || !self.constructed { return; }
+        crate::pmix_ffi_or_mock!(
+            mock = {
+                unsafe { crate::mock_ffi::mock_app_release(self.ptr) };
+                // The mock models contents but not ownership of wrapper storage.
+                unsafe { libc::free(self.ptr.cast()) };
+            },
+            real = unsafe { ffi::PMIx_App_release(self.ptr) },
+        );
+        self.ptr = ptr::null_mut();
+        self.constructed = false;
+    }
+}
+impl Default for PmixAppObject { fn default() -> Self { Self::new() } }
+impl Drop for PmixAppObject {
+    fn drop(&mut self) {
+        if self.ptr.is_null() || !self.constructed { return; }
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_app_destruct(self.ptr) },
+            real = unsafe { ffi::PMIx_App_destruct(self.ptr) },
+        );
+        // SAFETY: storage was allocated by calloc in `new`/`test_new`.
+        unsafe { libc::free(self.ptr.cast()) };
+        self.ptr = ptr::null_mut();
+        self.constructed = false;
+    }
+}
+
+#[cfg(test)]
+mod app_object_tests {
+    use super::PmixAppObject; use crate::mock_ffi::MockGuard;
+    #[test] fn construct_drop() { let _g = MockGuard::new(); drop(PmixAppObject::new()); }
+    #[test] fn zeroed_accessors() { let a = PmixAppObject::test_new(); assert_eq!(a.cmd(), None); assert_eq!(a.cwd(), None); assert_eq!(a.argv(), None); assert_eq!(a.env(), None); assert_eq!(a.maxprocs(), 0); }
+    #[test] fn info_create_ok() { let _g = MockGuard::new(); let mut a = PmixAppObject::new(); a.info_create(2); assert_eq!(a.ninfo(), 2); a.info_create(3); assert_eq!(a.ninfo(), 3); }
+    #[test] fn string_ok() { let _g = MockGuard::new(); assert_eq!(PmixAppObject::new().to_string().unwrap(), "mock_app"); }
+    #[test] fn release_no_panic() { let _g = MockGuard::new(); PmixAppObject::new().release(); }
 }

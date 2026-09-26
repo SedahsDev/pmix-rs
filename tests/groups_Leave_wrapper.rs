@@ -46,7 +46,7 @@ fn test_group_leave_no_init() {
 /// group_leave with info returns error (not initialized).
 #[test]
 fn test_group_leave_with_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_leave("test_group", &[info]));
     assert!(!err.is_success());
 }
@@ -72,8 +72,8 @@ fn test_group_leave_idempotent() {
 /// group_leave with multiple info entries returns error.
 #[test]
 fn test_group_leave_multiple_info() {
-    let i1 = InfoBuilder::new().build();
-    let i2 = InfoBuilder::new().build();
+    let i1 = InfoBuilder::new().build().expect("build info");
+    let i2 = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_leave("test_group", &[i1, i2]));
     assert!(!err.is_success());
 }
@@ -135,7 +135,7 @@ fn test_group_leave_nb_with_info() {
     let cb = GroupLeaveCallbackWrapper::new(move |_status: PmixStatus| {
         called_clone.store(true, Ordering::SeqCst);
     });
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_leave_nb("test_group", &[info], cb));
     assert!(!err.is_success());
 }
@@ -182,8 +182,8 @@ fn test_group_leave_nb_multiple_info() {
     let cb = GroupLeaveCallbackWrapper::new(move |_status: PmixStatus| {
         called_clone.store(true, Ordering::SeqCst);
     });
-    let i1 = InfoBuilder::new().build();
-    let i2 = InfoBuilder::new().build();
+    let i1 = InfoBuilder::new().build().expect("build info");
+    let i2 = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_leave_nb("test_group", &[i1, i2], cb));
     assert!(!err.is_success());
 }

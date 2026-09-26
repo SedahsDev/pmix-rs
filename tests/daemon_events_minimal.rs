@@ -11,7 +11,7 @@ use pmix::{InfoBuilder, PmixDataRange, PmixStatus, Proc};
 fn test_server_init_only() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
     eprintln!("[daemon_events_minimal] server_init succeeded");
     let _ = server_finalize(handle);
@@ -23,12 +23,12 @@ fn test_server_init_only() {
 fn test_register_event_handler_only() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
     eprintln!("[daemon_events_minimal] server_init succeeded");
 
     let codes = vec![PmixStatus::Known(pmix::PmixError::Error)];
-    let reg_info = InfoBuilder::new().build();
+    let reg_info = InfoBuilder::new().build().expect("build info");
     eprintln!("[daemon_events_minimal] calling register_event_handler...");
     let reg_result = register_event_handler(&codes, &reg_info, None, None);
     eprintln!(
@@ -50,12 +50,12 @@ fn test_register_event_handler_only() {
 fn test_notify_event_only() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
     eprintln!("[daemon_events_minimal] server_init succeeded");
 
     let source = Proc::new("test-nspace", 0).expect("proc");
-    let notify_info = InfoBuilder::new().build();
+    let notify_info = InfoBuilder::new().build().expect("build info");
 
     eprintln!("[daemon_events_minimal] calling notify_event with Session...");
     let _ = notify_event(
