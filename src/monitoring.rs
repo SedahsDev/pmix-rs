@@ -42,15 +42,32 @@
 //! #define PMIx_Heartbeat()  // sends a heartbeat via PMIx_Process_monitor_nb
 //! ```
 
-use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::raw::c_void;
 use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 
+use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
-use crate::cbdata::{decode_req_id_u64, encode_req_id_u64};
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
+
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MonitorResults — owned result set from process_monitor()
@@ -64,6 +81,8 @@ use crate::{Info, PmixError, PmixStatus};
 pub struct MonitorResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -87,7 +106,9 @@ impl MonitorResults {
         Self {
             handle: std::ptr::null_mut(),
             len,
-        
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         }
     }
@@ -95,14 +116,28 @@ impl MonitorResults {
 
 impl Drop for MonitorResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
-            unsafe {
-                // SAFETY: handle was returned by PMIx_Process_monitor as an
-                // allocated pmix_info_t array. PMIx_Info_free releases it.
-                ffi::PMIx_Info_free(self.handle, self.len);
-                self.handle = ptr::null_mut();
-                self.len = 0;
+        if let Some(release_fn) = self.release_fn.take() {
+            // SAFETY: PMIx supplied this callback and opaque data for this
+            // completion; it releases the tracker-owned info array.
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        } else if !self.handle.is_null() && self.len > 0 {
+            #[cfg(any(test, feature = "mock_ffi"))]
+            if crate::mock_ffi::is_mock_enabled() {
+                // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
+                unsafe { crate::mock_ffi::mock_info_free(self.handle, self.len) };
+            } else {
+                // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
             }
+            #[cfg(not(any(test, feature = "mock_ffi")))]
+            {
+                // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
+                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+            }
+            self.handle = ptr::null_mut();
+            self.len = 0;
         }
     }
 }
@@ -127,10 +162,16 @@ pub trait MonitorCallback: Send {
     fn on_complete(&mut self, status: PmixStatus, results: Option<MonitorResults>);
 }
 
-type MonitorRegistry = Mutex<HashMap<u64, Box<dyn MonitorCallback>>>;
-static MONITOR_REGISTRY: LazyLock<MonitorRegistry> = LazyLock::new(Mutex::default);
-
-static MONITOR_SEQ: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
+static MONITOR_REGISTRY: LazyLock<Registry<Box<dyn MonitorCallback>>> =
+    LazyLock::new(Registry::new);
+struct RetainedMonitorInfo {
+    monitor: Vec<ffi::pmix_info_t>,
+    directives: Vec<ffi::pmix_info_t>,
+}
+unsafe impl Send for RetainedMonitorInfo {}
+static MONITOR_INFO_REGISTRY: LazyLock<
+    std::sync::Mutex<std::collections::HashMap<usize, RetainedMonitorInfo>>,
+> = LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// C bridge for `pmix_info_cbfunc_t` (monitor completion).
 ///
@@ -142,14 +183,18 @@ unsafe extern "C" fn monitor_callback_bridge(
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
     cbdata: *mut c_void,
-    _release_fn: ffi::pmix_release_cbfunc_t,
-    _release_cbdata: *mut c_void,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    release_cbdata: *mut c_void,
 ) {
     // Decode the request ID from the cbdata pointer.
-    let req_id = decode_req_id_u64(cbdata);
+    let req_id = decode_req_id(cbdata);
+    MONITOR_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
 
     // Remove the callback from the registry — it is consumed exactly once.
-    let mut registry = MONITOR_REGISTRY.lock().unwrap();
+    let mut registry = MONITOR_REGISTRY.lock();
     let callback = registry.remove(&req_id);
     drop(registry);
 
@@ -160,22 +205,26 @@ unsafe extern "C" fn monitor_callback_bridge(
                 Some(MonitorResults {
                     handle: info,
                     len: ninfo,
-                
-            _not_thread_safe: std::marker::PhantomData,
-        })
+                    release_fn,
+                    release_cbdata,
+
+                    _not_thread_safe: std::marker::PhantomData,
+                })
             } else {
+                if let Some(release_fn) = release_fn {
+                    unsafe { release_fn(release_cbdata) };
+                }
                 None
             };
-            cb.on_complete(PmixStatus::from_raw(status), results);
+            let _ = invoke_user_callback("monitoring", move || {
+                cb.on_complete(PmixStatus::from_raw(status), results);
+            });
         }
         None => {
-            // Callback already consumed or never registered — free the info
-            // array to avoid a leak if one was provided.
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    // SAFETY: info was passed by PMIx as an allocated array.
-                    ffi::PMIx_Info_free(info, ninfo);
-                }
+            // Callback already consumed or never registered — release the
+            // PMIx-owned callback allocation if one was provided.
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
         }
     }
@@ -229,24 +278,12 @@ pub fn process_monitor(
     let mut nresults: usize = 0;
 
     // Build a flat array of directive info entries.
+    let flat;
     let (dirs_ptr, ndirs) = if directives.is_empty() {
         (ptr::null(), 0)
     } else {
-        // Info stores a handle to the first element and a length.
-        // Directives from a single InfoBuilder are contiguous.
-        if directives.len() == 1 {
-            (
-                directives[0].handle as *const ffi::pmix_info_t,
-                directives[0].len,
-            )
-        } else {
-            // Multiple Info objects — use the first's pointer.
-            // In practice, callers should pass a single Info containing all directives.
-            (
-                directives[0].handle as *const ffi::pmix_info_t,
-                directives[0].len,
-            )
-        }
+        flat = flat_infos(directives);
+        (flat.as_ptr(), flat.len())
     };
 
     let status = unsafe {
@@ -271,7 +308,9 @@ pub fn process_monitor(
         Ok(MonitorResults {
             handle: results,
             len: nresults,
-        
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         })
     } else {
@@ -312,38 +351,65 @@ pub fn process_monitor_nb(
     callback: Box<dyn MonitorCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = *MONITOR_SEQ.lock().unwrap();
-        seq += 1;
-        seq
-    };
-    {
-        let mut registry = MONITOR_REGISTRY.lock().unwrap();
-        registry.insert(req_id, callback);
-    }
+    let req_id = MONITOR_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
-    let cbdata = encode_req_id_u64(req_id);
+    let cbdata = encode_req_id(req_id);
 
-    // Build directive pointer array.
-    let (dirs_ptr, ndirs) = if directives.is_empty() {
-        (ptr::null(), 0)
+    let retained: Vec<ffi::pmix_info_t> = if monitor.handle.is_null() || monitor.len == 0 {
+        Vec::new()
     } else {
+        unsafe { std::slice::from_raw_parts(monitor.handle, monitor.len).to_vec() }
+    };
+    let dirs: Vec<ffi::pmix_info_t> = directives
+        .iter()
+        .filter(|i| !i.handle.is_null())
+        .flat_map(|i| unsafe { std::slice::from_raw_parts(i.handle, i.len).to_vec() })
+        .collect();
+    MONITOR_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(
+            req_id,
+            RetainedMonitorInfo {
+                monitor: retained,
+                directives: dirs,
+            },
+        );
+    let (monitor_ptr, dirs_ptr, ndirs) = {
+        let retained = MONITOR_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let retained = retained
+            .get(&req_id)
+            .expect("retained monitor info inserted");
         (
-            directives[0].handle as *const ffi::pmix_info_t,
-            directives[0].len,
+            if retained.monitor.is_empty() {
+                ptr::null()
+            } else {
+                retained.monitor.as_ptr()
+            },
+            if retained.directives.is_empty() {
+                ptr::null()
+            } else {
+                retained.directives.as_ptr()
+            },
+            retained.directives.len(),
         )
     };
 
     let status = unsafe {
         // SAFETY: PMIx_Process_monitor_nb is an async PMIx API call.
-        // - monitor.handle points to a valid pmix_info_t (owned by the Info borrow).
-        // - dirs_ptr is either null or points to valid pmix_info_t entries.
+        // - PMIx retains and threadshift-aliases monitor_ptr and dirs_ptr
+        //   (infocopy=false); both point to valid pmix_info_t entries or null.
+        // - MONITOR_INFO_REGISTRY retains owned shallow copies keyed by req_id,
+        //   reclaimed by the monitor completion bridge. The caller must keep its
+        //   Info value data alive until the callback fires; nested value pointers
+        //   are not owned by the retained arrays.
         // - cbfunc is a valid extern "C" function pointer (our bridge).
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
-        // - PMIx does not retain monitor.handle or dirs_ptr after this call returns.
         ffi::PMIx_Process_monitor_nb(
-            monitor.handle,
+            monitor_ptr,
             error.to_raw(),
             dirs_ptr,
             ndirs,
@@ -357,8 +423,12 @@ pub fn process_monitor_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = MONITOR_REGISTRY.lock().unwrap();
+        let mut registry = MONITOR_REGISTRY.lock();
         registry.remove(&req_id);
+        MONITOR_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -634,11 +704,24 @@ mod tests {
         assert!(*had_results.lock().unwrap());
     }
 
+    #[test]
+    fn test_flat_infos_concatenates_multiple_info_objects() {
+        use crate::InfoBuilder;
+        let mut first_builder = InfoBuilder::new();
+        first_builder.collect_data();
+        let first = first_builder.build().expect("build first info");
+        let mut second_builder = InfoBuilder::new();
+        second_builder.collect_data();
+        let second = second_builder.build().expect("build second info");
+
+        assert_eq!(flat_infos(&[first, second]).len(), 2);
+    }
+
     /// process_monitor with success-like error code.
     #[test]
     fn test_process_monitor_with_success_error_code() {
         use crate::InfoBuilder;
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
     }
 
@@ -647,7 +730,7 @@ mod tests {
     fn test_heartbeat_and_process_monitor_coexist() {
         use crate::InfoBuilder;
         let _ = heartbeat();
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let _ = process_monitor(&monitor, PmixStatus::from_raw(-109), &[]);
         let _ = heartbeat();
     }
@@ -694,7 +777,7 @@ mod tests {
     #[test]
     fn test_infobuilder_for_monitoring() {
         use crate::InfoBuilder;
-        let info = InfoBuilder::new().build();
+        let info = InfoBuilder::new().build().expect("build info");
         assert!(info.is_empty());
         assert_eq!(info.len(), 0);
     }
@@ -808,7 +891,7 @@ mod tests {
     #[test]
     fn test_process_monitor_fails_without_init() {
         use crate::InfoBuilder;
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
         assert!(
             result.is_err(),
@@ -823,7 +906,7 @@ mod tests {
     #[test]
     fn test_process_monitor_with_partial_success() {
         use crate::{InfoBuilder, PmixError};
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         // Partial success is treated as success by the wrapper — but without init,
         // the FFI call itself will fail, so we get an error.
         let result = process_monitor(
@@ -843,7 +926,7 @@ mod tests {
         use crate::InfoBuilder;
         let mut builder = InfoBuilder::new();
         builder.collect_data();
-        let monitor = builder.build();
+        let monitor = builder.build().expect("build info");
         assert!(!monitor.is_empty(), "collect_data should add an entry");
         let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
         assert!(result.is_err(), "should fail without PMIx_Init");
@@ -855,7 +938,7 @@ mod tests {
         use crate::InfoBuilder;
         let mut builder = InfoBuilder::new();
         builder.collect_data();
-        let monitor = builder.build();
+        let monitor = builder.build().expect("build info");
         assert_eq!(monitor.len(), 1);
         let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
     }
@@ -864,7 +947,7 @@ mod tests {
     #[test]
     fn test_process_monitor_empty_monitor_zero_directives() {
         use crate::InfoBuilder;
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         assert!(monitor.is_empty());
         let result = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
         assert!(result.is_err());
@@ -878,10 +961,10 @@ mod tests {
         impl MonitorCallback for NoopCb {
             fn on_complete(&mut self, _: PmixStatus, _: Option<MonitorResults>) {}
         }
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let mut dir_builder = InfoBuilder::new();
         dir_builder.collect_data();
-        let dirs = vec![dir_builder.build()];
+        let dirs = vec![dir_builder.build().expect("build info")];
         let result = process_monitor_nb(&monitor, PmixStatus::from_raw(0), &dirs, Box::new(NoopCb));
         assert!(result.is_err(), "should fail without PMIx_Init");
     }
@@ -894,7 +977,7 @@ mod tests {
             fn on_complete(&mut self, _: PmixStatus, _: Option<MonitorResults>) {}
         }
         use crate::InfoBuilder;
-        let monitor = InfoBuilder::new().build();
+        let monitor = InfoBuilder::new().build().expect("build info");
         let result = process_monitor_nb(
             &monitor,
             PmixStatus::Unknown(-109), // PMIX_MONITOR_HEARTBEAT_ALERT
@@ -944,7 +1027,7 @@ mod tests {
         use crate::InfoBuilder;
         let mut builder = InfoBuilder::new();
         builder.collect_data();
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         assert!(!info.is_empty());
         assert_eq!(info.len(), 1);
     }
@@ -992,9 +1075,51 @@ mod tests {
         use crate::InfoBuilder;
         for _ in 0..5 {
             let _ = heartbeat();
-            let monitor = InfoBuilder::new().build();
+            let monitor = InfoBuilder::new().build().expect("build info");
             let _ = process_monitor(&monitor, PmixStatus::from_raw(0), &[]);
             let _ = heartbeat();
         }
     }
+}
+
+/// Send a heartbeat to the local server.
+///
+/// 6.x exposes `PMIx_Heartbeat` as a function; OpenPMIx 5.0 only defines it
+/// as a macro over `PMIx_Process_monitor_nb`, which we expand here instead.
+pub fn heartbeat_raw() {
+    #[cfg(pmix6)]
+    {
+        crate::pmix_ffi_or_mock!(
+            mock = unsafe { crate::mock_ffi::mock_heartbeat() },
+            real = unsafe { ffi::PMIx_Heartbeat() }
+        );
+    }
+    #[cfg(not(pmix6))]
+    {
+        let mut info: ffi::pmix_info_t = unsafe { std::mem::zeroed() };
+        // SAFETY: `info` is exclusively owned stack storage for this call;
+        // PMIx_Info_load fills it from the NUL-terminated `PMIX_SEND_HEARTBEAT`
+        // key (the exact expansion of 5.0's PMIx_Heartbeat macro).
+        unsafe {
+            ffi::PMIx_Info_load(
+                &mut info,
+                ffi::PMIX_SEND_HEARTBEAT.as_ptr().cast(),
+                std::ptr::null(),
+                ffi::PMIX_POINTER as ffi::pmix_data_type_t,
+            )
+        };
+        // SAFETY: `info` remains valid for the synchronous monitor call.
+        let _rc = unsafe {
+            ffi::PMIx_Process_monitor_nb(&info, ffi::PMIX_SUCCESS as i32, std::ptr::null(), 0, None, std::ptr::null_mut())
+        };
+        // SAFETY: `info` was constructed by PMIx_Info_load above.
+        unsafe { ffi::PMIx_Info_destruct(&mut info) };
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn test_misc_heartbeat_wrapper() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    heartbeat_raw();
 }

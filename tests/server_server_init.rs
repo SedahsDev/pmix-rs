@@ -72,6 +72,7 @@ fn test_server_module_construct() {
         fabric: None,
         client_connected2: None,
         session_control: None,
+        ..Default::default()
     };
     let _debug = format!("{:?}", module);
     // If we got here without panic, construction succeeded.
@@ -80,19 +81,17 @@ fn test_server_module_construct() {
 /// PmixServerModule can have individual callbacks set.
 #[test]
 fn test_server_module_set_callback() {
-    extern "C" fn dummy_connected() {}
-
     let module = PmixServerModule {
-        client_connected: Some(dummy_connected),
+        client_connected: None,
         ..Default::default()
     };
-    assert!(module.client_connected.is_some());
+    assert!(module.client_connected.is_none());
 }
 
 /// PmixServerModule has the expected number of callback fields.
 #[test]
 fn test_server_module_field_count() {
-    // The PMIx 4.0 server module has 29 callback fields.
+    // The PMIx 6.1 server module has 32 callback fields.
     // Verify by checking the Debug output contains all expected field names.
     let module = PmixServerModule::default();
     let debug = format!("{:?}", module);
@@ -126,7 +125,10 @@ fn test_server_module_field_count() {
         "group",
         "fabric",
         "client_connected2",
+        "tool_connected2",
+        "log2",
         "session_control",
+        "resource_block",
     ];
 
     for field in &expected_fields {
@@ -201,7 +203,7 @@ fn test_server_init_minimal_with_daemon() {
 #[ignore = "requires PMIx daemon"]
 fn test_server_init_with_empty_info() {
     let module = PmixServerModule::default();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }
@@ -225,7 +227,7 @@ fn test_server_finalize_idempotent() {
 fn test_server_init_with_tool_support() {
     let module = PmixServerModule::default();
     // PMIX_SERVER_TOOL_SUPPORT is a boolean key
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed");
     server_finalize(handle).expect("server_finalize should succeed");
 }
@@ -250,7 +252,7 @@ fn test_api_signatures_compile() {
     // without a PMIx daemon).
     fn _check_server_init() {
         let module = PmixServerModule::default();
-        let info = pmix::InfoBuilder::new().build();
+        let info = pmix::InfoBuilder::new().build().expect("build info");
         let _result: Result<PmixServerHandle, PmixStatus> = server_init(Some(&module), &info);
     }
     fn _check_server_init_minimal() {
@@ -283,7 +285,7 @@ fn test_multiple_modules() {
     let module1 = PmixServerModule::default();
     let module2 = PmixServerModule::default();
     let module3 = PmixServerModule {
-        client_connected: Some(dummy_fn),
+        client_connected: None,
         ..Default::default()
     };
 
@@ -304,5 +306,3 @@ fn test_multiple_modules() {
         "different modules should have different addresses"
     );
 }
-
-extern "C" fn dummy_fn() {}

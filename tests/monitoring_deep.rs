@@ -66,7 +66,7 @@ fn test_monitor_callback_closure() {
 
 #[test]
 fn test_infobuilder_build_empty() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = info;
 }
 
@@ -74,7 +74,7 @@ fn test_infobuilder_build_empty() {
 fn test_infobuilder_collect_data() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ fn test_heartbeat_multiple_does_not_panic() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_empty_directives() {
     daemon_helper::ensure_pmix_init();
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),
@@ -123,8 +123,8 @@ fn test_process_monitor_empty_directives() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_with_directives() {
     daemon_helper::ensure_pmix_init();
-    let monitor = InfoBuilder::new().build();
-    let dirs = vec![InfoBuilder::new().build()];
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let dirs = vec![InfoBuilder::new().build().expect("build info")];
     let result = process_monitor(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),
@@ -137,7 +137,7 @@ fn test_process_monitor_with_directives() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_success_error_code() {
     daemon_helper::ensure_pmix_init();
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Known(pmix::PmixError::Success), &[]);
     let _ = result;
 }
@@ -146,7 +146,7 @@ fn test_process_monitor_success_error_code() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_timeout_error_code() {
     daemon_helper::ensure_pmix_init();
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrTimeout),
@@ -159,8 +159,11 @@ fn test_process_monitor_timeout_error_code() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_multiple_directives() {
     daemon_helper::ensure_pmix_init();
-    let monitor = InfoBuilder::new().build();
-    let dirs = vec![InfoBuilder::new().build(), InfoBuilder::new().build()];
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let dirs = vec![
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+    ];
     let result = process_monitor(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),
@@ -173,7 +176,7 @@ fn test_process_monitor_multiple_directives() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_result_has_len() {
     daemon_helper::ensure_pmix_init();
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),
@@ -196,7 +199,7 @@ fn test_process_monitor_with_collect_info() {
     daemon_helper::ensure_pmix_init();
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let monitor = builder.build();
+    let monitor = builder.build().expect("build info");
     let result = process_monitor(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),
@@ -215,7 +218,7 @@ fn test_process_monitor_nb_success() {
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
     }
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor_nb(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),
@@ -233,8 +236,8 @@ fn test_process_monitor_nb_with_directives() {
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
     }
-    let monitor = InfoBuilder::new().build();
-    let dirs = vec![InfoBuilder::new().build()];
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let dirs = vec![InfoBuilder::new().build().expect("build info")];
     let result = process_monitor_nb(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),
@@ -252,7 +255,7 @@ fn test_process_monitor_nb_success_error_code() {
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
     }
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor_nb(
         &monitor,
         PmixStatus::Known(pmix::PmixError::Success),
@@ -270,7 +273,7 @@ fn test_process_monitor_nb_multiple_callbacks() {
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
     }
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     for _ in 0..3 {
         let result = process_monitor_nb(
             &monitor,
@@ -321,7 +324,7 @@ fn test_monitor_then_heartbeat() {
     impl MonitorCallback for NoopMonitorCb {
         fn on_complete(&mut self, _status: PmixStatus, _results: Option<MonitorResults>) {}
     }
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let _ = process_monitor_nb(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),
@@ -335,7 +338,7 @@ fn test_monitor_then_heartbeat() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_monitor_sync_then_heartbeat() {
     daemon_helper::ensure_pmix_init();
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let _ = process_monitor(
         &monitor,
         PmixStatus::Known(pmix::PmixError::ErrNotFound),

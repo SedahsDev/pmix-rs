@@ -39,7 +39,7 @@ fn data_range_string_distinct() {
 
 #[test]
 fn data_range_string_unknown() {
-    let result = data_range_string(PmixDataRange::Unknown);
+    let result = data_range_string(PmixDataRange::Unknown(128));
     assert!(
         result.is_ok(),
         "Unknown should handle gracefully, got {:?}",

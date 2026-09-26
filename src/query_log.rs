@@ -35,16 +35,36 @@
 //!                           pmix_op_cbfunc_t cbfunc, void *cbdata);
 //! ```
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
+use crate::cbdata::Registry;
 use crate::ffi;
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixStatus};
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
+
+fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
+    infos
+        .iter()
+        .flat_map(|info| {
+            if info.handle.is_null() || info.len == 0 {
+                Vec::new()
+            } else {
+                // SAFETY: handle points to len initialized entries owned by the borrow.
+                unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+                    .iter()
+                    .map(|entry| unsafe { std::ptr::read(entry) })
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixQuery — safe Rust wrapper around `pmix_query_t`
@@ -166,7 +186,7 @@ impl PmixQuery {
             handle: query_ptr,
             _keys: c_keys,
             keys_array,
-        
+
             _not_thread_safe: std::marker::PhantomData,
         })
     }
@@ -199,9 +219,9 @@ impl PmixQuery {
                 (*self.handle).qualifiers = info.handle as *mut ffi::pmix_info_t;
                 (*self.handle).nqual = info.len;
             }
-            // Prevent the Info from freeing its allocation on drop — we've
-            // transferred ownership to the query.
-            let _ = info;
+            // Ownership of the C allocation is transferred to the query; prevent
+            // Info's Drop from freeing it (`let _ = info;` would drop immediately).
+            std::mem::forget(info);
         }
         self
     }
@@ -220,6 +240,25 @@ impl Drop for PmixQuery {
 
                 // Null out keys so PMIx_Query_free doesn't try to free them.
                 (*self.handle).keys = ptr::null_mut();
+                // Free the qualifier array transferred by with_qualifiers (allocated via
+                // PMIx_Info_create). Do this before nulling the field so PMIx_Query_free
+                // doesn't touch it.
+                if !(*self.handle).qualifiers.is_null() && (*self.handle).nqual > 0 {
+                    // SAFETY: qualifiers was allocated by PMIx_Info_create in
+                    // InfoBuilder::build and transferred to this query in with_qualifiers;
+                    // PMIx_Info_free is the matching deallocator.
+                    #[cfg(any(test, feature = "mock_ffi"))]
+                    if mock_ffi::is_mock_enabled() {
+                        mock_ffi::mock_info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    } else {
+                        ffi::PMIx_Info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    }
+                    #[cfg(not(any(test, feature = "mock_ffi")))]
+                    {
+                        ffi::PMIx_Info_free((*self.handle).qualifiers, (*self.handle).nqual);
+                    }
+                }
+
                 // Null out qualifiers so PMIx_Query_free doesn't try to free them.
                 (*self.handle).qualifiers = ptr::null_mut();
                 (*self.handle).nqual = 0;
@@ -254,6 +293,8 @@ impl Drop for PmixQuery {
 pub struct QueryResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -280,11 +321,26 @@ impl QueryResults {
 
 impl Drop for QueryResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
+        if let Some(release_fn) = self.release_fn.take() {
+            // SAFETY: PMIx supplied this callback and opaque data for this
+            // completion; it releases the tracker-owned info array.
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
+        } else if !self.handle.is_null() && self.len > 0 {
             unsafe {
                 // SAFETY: handle was returned by PMIx_Query_info as an
                 // allocated pmix_info_t array. PMIx_Info_free releases it.
-                ffi::PMIx_Info_free(self.handle, self.len);
+                #[cfg(any(test, feature = "mock_ffi"))]
+                if mock_ffi::is_mock_enabled() {
+                    mock_ffi::mock_info_free(self.handle, self.len);
+                } else {
+                    ffi::PMIx_Info_free(self.handle, self.len);
+                }
+                #[cfg(not(any(test, feature = "mock_ffi")))]
+                {
+                    ffi::PMIx_Info_free(self.handle, self.len);
+                }
                 self.handle = ptr::null_mut();
                 self.len = 0;
             }
@@ -326,16 +382,18 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
     let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
     let mut nresults: usize = 0;
 
-    // Collect raw handles — queries must outlive this call (borrowed from caller).
-    let handles: Vec<*mut ffi::pmix_query_t> = queries.iter().map(|q| q.handle).collect();
-    let queries_ptr = handles.as_ptr() as *mut ffi::pmix_query_t;
+    // Copy the query structs by value. The C API takes an array of structs, not
+    // an array of pointers to structs.
+    let raw_queries: Vec<ffi::pmix_query_t> = queries
+        .iter()
+        .map(|q| unsafe { std::ptr::read(q.handle) })
+        .collect();
+    let queries_ptr = raw_queries.as_ptr() as *mut ffi::pmix_query_t;
 
     let status = unsafe {
-        // SAFETY: PMIx_Query_info is a synchronous PMIx API call.
-        // - queries_ptr points to an array of valid pmix_query_t structs
-        //   owned by the PmixQuery borrows passed by the caller.
-        // - results and nresults are output pointers that PMIx will write to.
-        // - PMIx does not retain queries_ptr after this call returns.
+        // SAFETY: PmixQuery structs are copied by value; the underlying keys and
+        // qualifier allocations are owned by the PmixQuery borrows and outlive
+        // this synchronous call. PMIx does not retain queries_ptr after return.
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
             mock_ffi::mock_query_info(queries_ptr, nqueries, &mut results, &mut nresults)
@@ -355,7 +413,9 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
         Ok(QueryResults {
             handle: results,
             len: nresults,
-        
+            release_fn: None,
+            release_cbdata: ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         })
     } else {
@@ -392,12 +452,7 @@ pub trait QueryCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending query callbacks.
-type QueryRegistry = std::collections::HashMap<usize, Box<dyn QueryCallback>>;
-static QUERY_REGISTRY: LazyLock<Mutex<QueryRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
-/// Monotonically increasing query request ID counter.
-static QUERY_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static QUERY_REGISTRY: LazyLock<Registry<Box<dyn QueryCallback>>> = LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (query completion).
 ///
@@ -405,16 +460,15 @@ static QUERY_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 /// parameter encodes the request ID. We look up the registered closure
 /// and invoke it with the result status and info array.
 ///
-/// The PMIx 4.1 callback signature includes release_fn and release_cbdata
-/// parameters for custom memory management — we pass None/null since we
-/// use our own ownership model.
+/// The PMIx callback supplies release_fn and release_cbdata for releasing the
+/// PMIx-owned result array after the result is no longer needed.
 extern "C" fn query_callback_bridge(
     status: ffi::pmix_status_t,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
-    _release_cbdata: *mut c_void,
-    release_fn: ffi::pmix_release_cbfunc_t,
     cbdata: *mut c_void,
+    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -425,26 +479,15 @@ extern "C" fn query_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = QUERY_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
         Some(cb) => cb,
         None => {
-            // Callback already consumed — free the info array to avoid leak.
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    #[cfg(any(test, feature = "mock_ffi"))]
-                    if mock_ffi::is_mock_enabled() {
-                        mock_ffi::mock_info_free(info, ninfo);
-                    } else {
-                        ffi::PMIx_Info_free(info, ninfo);
-                    }
-                    #[cfg(not(any(test, feature = "mock_ffi")))]
-                    {
-                        ffi::PMIx_Info_free(info, ninfo);
-                    }
-                }
+            // Callback already consumed — release the PMIx-owned result array.
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
             return;
         }
@@ -454,12 +497,14 @@ extern "C" fn query_callback_bridge(
     let results = QueryResults {
         handle: info,
         len: ninfo,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        };
-    cb.on_complete(pmix_status, results);
-    // release_fn is unused — we manage our own memory via QueryResults Drop.
-    let _ = release_fn;
+        release_fn,
+        release_cbdata,
+
+        _not_thread_safe: std::marker::PhantomData,
+    };
+    let _ = invoke_user_callback("query_log", move || {
+        cb.on_complete(pmix_status, results);
+    });
 }
 
 /// Non-blocking query of the PMIx server for information.
@@ -485,27 +530,25 @@ pub fn query_info_nb(
     }
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = QUERY_SEQ.lock().expect("mutex poisoned (query_log.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = QUERY_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     let nqueries = queries.len();
-    let handles: Vec<*mut ffi::pmix_query_t> = queries.iter().map(|q| q.handle).collect();
-    let queries_ptr = handles.as_ptr() as *mut ffi::pmix_query_t;
+    // Copy the query structs by value. The C API takes an array of structs, not
+    // an array of pointers to structs.
+    let raw_queries: Vec<ffi::pmix_query_t> = queries
+        .iter()
+        .map(|q| unsafe { std::ptr::read(q.handle) })
+        .collect();
+    let queries_ptr = raw_queries.as_ptr() as *mut ffi::pmix_query_t;
 
     let status = unsafe {
-        // SAFETY: PMIx_Query_info_nb is an async PMIx API call.
-        // - queries_ptr points to valid pmix_query_t structs owned by
-        //   the PmixQuery borrows (which outlive this call).
+        // SAFETY: PmixQuery structs are copied by value; the underlying keys and
+        // qualifier allocations are owned by the PmixQuery borrows and outlive
+        // this async submission. PMIx retains its own copy of query data before
+        // returning, and does not retain queries_ptr after return.
         // - cbfunc is a valid extern "C" function pointer.
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
         // - PMIx does not retain queries_ptr after this call returns.
@@ -526,7 +569,7 @@ pub fn query_info_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = QUERY_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -573,13 +616,10 @@ pub fn query_info_nb(
 /// `pmix_status_t PMIx_Log(const pmix_info_t data[], size_t ndata,`
 /// `  const pmix_info_t directives[], size_t ndirs);`
 pub fn log_data(data: &[Info], directives: &[Info]) -> Result<(), PmixStatus> {
-    let ndata = data.len();
-    let ndirs = directives.len();
-
-    // Convert slices to raw C pointers.
-    // Collect raw handles from the Info objects.
-    let data_handles: Vec<*mut ffi::pmix_info_t> = data.iter().map(|i| i.handle).collect();
-    let dirs_handles: Vec<*mut ffi::pmix_info_t> = directives.iter().map(|i| i.handle).collect();
+    let data_handles = flat_infos(data);
+    let dirs_handles = flat_infos(directives);
+    let ndata = data_handles.len();
+    let ndirs = dirs_handles.len();
     let data_ptr = if ndata > 0 {
         data_handles.as_ptr() as *const ffi::pmix_info_t
     } else {
@@ -634,12 +674,16 @@ pub trait LogCallback: Send {
 }
 
 /// Global registry mapping log request IDs to pending callbacks.
-type LogRegistry = std::collections::HashMap<usize, Box<dyn LogCallback>>;
-static LOG_REGISTRY: LazyLock<Mutex<LogRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static LOG_REGISTRY: LazyLock<Registry<Box<dyn LogCallback>>> = LazyLock::new(Registry::new);
 
-/// Monotonically increasing log request ID counter.
-static LOG_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+/// Flattened info arrays retained until the asynchronous log callback completes.
+struct RetainedLogInfos {
+    _data: Vec<ffi::pmix_info_t>,
+    _directives: Vec<ffi::pmix_info_t>,
+}
+unsafe impl Send for RetainedLogInfos {}
+static LOG_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedLogInfos>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// C bridge for `pmix_op_cbfunc_t` (log completion).
 ///
@@ -653,10 +697,14 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
 
     // SAFETY: cbdata is the request ID we passed as a pointer cast.
     let req_id = crate::cbdata::decode_req_id(cbdata);
+    LOG_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = LOG_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -668,7 +716,9 @@ extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_voi
     };
 
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("query_log", move || {
+        cb.on_complete(pmix_status);
+    });
 }
 
 /// Non-blocking log of data to the host environment's logging service.
@@ -691,26 +741,17 @@ pub fn log_data_nb(
     directives: &[Info],
     callback: Box<dyn LogCallback>,
 ) -> Result<(), PmixStatus> {
-    let ndata = data.len();
-    let ndirs = directives.len();
+    let data_handles = flat_infos(data);
+    let dirs_handles = flat_infos(directives);
+    let ndata = data_handles.len();
+    let ndirs = dirs_handles.len();
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = LOG_SEQ.lock().expect("mutex poisoned (query_log.rs)");
-        *seq += 1;
-        *seq
-    };
-    {
-        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
-        registry.insert(req_id, callback);
-    }
+    let req_id = LOG_REGISTRY.insert_next(callback);
 
     // Encode the request ID as a non-null pointer for cbdata.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    // Collect raw handles from the Info objects.
-    let data_handles: Vec<*mut ffi::pmix_info_t> = data.iter().map(|i| i.handle).collect();
-    let dirs_handles: Vec<*mut ffi::pmix_info_t> = directives.iter().map(|i| i.handle).collect();
     let data_ptr = if ndata > 0 {
         data_handles.as_ptr() as *const ffi::pmix_info_t
     } else {
@@ -722,6 +763,17 @@ pub fn log_data_nb(
         ptr::null()
     };
 
+    LOG_INFO_REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(
+            req_id,
+            RetainedLogInfos {
+                _data: data_handles,
+                _directives: dirs_handles,
+            },
+        );
+
     let status = unsafe {
         // SAFETY: PMIx_Log_nb is an async PMIx API call.
         // - data_ptr points to a valid pmix_info_t array owned by the
@@ -730,9 +782,9 @@ pub fn log_data_nb(
         //   Info borrows (or is null if empty).
         // - cbfunc is a valid extern "C" function pointer.
         // - cbdata encodes the request ID; PMIx passes it back unchanged.
-        // - PMIx does not retain data_ptr or dirs_ptr after this call returns.
-        // - The caller must keep data and directives alive until the
-        //   callback is invoked.
+        // - PMIx may retain or alias data_ptr and dirs_ptr on the host upcall
+        //   path. LOG_INFO_REGISTRY retains owned arrays until the bridge
+        //   runs, while the caller must keep nested value data alive.
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
             mock_ffi::mock_log_nb(
@@ -771,8 +823,12 @@ pub fn log_data_nb(
         Ok(())
     } else {
         // Request rejected — remove the callback from the registry.
-        let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned (query_log.rs)");
+        let mut registry = LOG_REGISTRY.lock();
         registry.remove(&req_id);
+        LOG_INFO_REGISTRY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -840,7 +896,7 @@ mod tests {
     #[test]
     fn test_pmix_query_with_qualifiers() {
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
-        let query = query.with_qualifiers(crate::InfoBuilder::new().build());
+        let query = query.with_qualifiers(crate::InfoBuilder::new().build().expect("build info"));
         assert!(!query._keys.is_empty());
     }
 
@@ -849,7 +905,7 @@ mod tests {
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
         let mut builder = crate::InfoBuilder::new();
         builder.collect_data();
-        let info = builder.build();
+        let info = builder.build().expect("build info");
         let query = query.with_qualifiers(info);
         assert!(!query._keys.is_empty());
     }
@@ -864,7 +920,7 @@ mod tests {
     #[test]
     fn test_pmix_query_drop_after_with_qualifiers() {
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let _query = query.with_qualifiers(info);
     }
 
@@ -925,7 +981,9 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
-        
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
@@ -937,7 +995,9 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 3,
-        
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(!results.is_empty());
@@ -949,7 +1009,9 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 5,
-        
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         };
         let debug_str = format!("{:?}", results);
@@ -962,7 +1024,9 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
-        
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         };
         drop(results);
@@ -973,7 +1037,9 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 5,
-        
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         };
         drop(results);
@@ -1000,6 +1066,59 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────
     // query_callback_bridge tests (pmix_status_t is c_int, not an enum)
     // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_query_callback_bridge_uses_cbdata_parameter_four() {
+        let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        struct TestCallback {
+            called: Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl QueryCallback for TestCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, _results: QueryResults) {
+                self.called.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let req_id = QUERY_REGISTRY.insert_next(Box::new(TestCallback {
+            called: Arc::clone(&called),
+        }));
+        let cbdata = crate::cbdata::encode_req_id(req_id);
+        let release_cbdata = std::ptr::dangling_mut::<std::ffi::c_void>();
+
+        query_callback_bridge(0, std::ptr::null_mut(), 0, cbdata, None, release_cbdata);
+
+        assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_query_callback_bridge_releases_results_on_drop() {
+        unsafe extern "C" fn record_release(cbdata: *mut c_void) {
+            let called = unsafe { &*(cbdata.cast::<std::sync::atomic::AtomicUsize>()) };
+            called.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        struct TestCallback;
+        impl QueryCallback for TestCallback {
+            fn on_complete(self: Box<Self>, _status: PmixStatus, results: QueryResults) {
+                assert!(results.is_empty());
+            }
+        }
+
+        let called = std::sync::atomic::AtomicUsize::new(0);
+        let req_id = QUERY_REGISTRY.insert_next(Box::new(TestCallback));
+        let cbdata = crate::cbdata::encode_req_id(req_id);
+        query_callback_bridge(
+            0,
+            std::ptr::null_mut(),
+            0,
+            cbdata,
+            Some(record_release),
+            (&called as *const std::sync::atomic::AtomicUsize)
+                .cast_mut()
+                .cast(),
+        );
+
+        assert_eq!(called.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn test_query_callback_bridge_null_cbdata() {
@@ -1067,10 +1186,11 @@ mod tests {
                 self.called.store(true, std::sync::atomic::Ordering::SeqCst);
             }
         }
-        // Record registry size before our call
-        let size_before = {
-            let registry = QUERY_REGISTRY.lock().unwrap();
-            registry.len()
+        // Record registry IDs before our call so cleanup can remove the exact
+        // ID inserted by query_info_nb rather than advancing the sequence.
+        let ids_before: std::collections::HashSet<usize> = {
+            let registry = QUERY_REGISTRY.lock();
+            registry.keys().copied().collect()
         };
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
         let cb = Box::new(CountingCallback {
@@ -1081,18 +1201,18 @@ mod tests {
         // If Ok, the callback was NOT removed from registry (no PMIx server to
         // invoke the bridge callback). Clean it up ourselves.
         if result.is_ok() {
-            let req_id = {
-                let seq = QUERY_SEQ.lock().unwrap();
-                *seq
-            };
-            let mut registry = QUERY_REGISTRY.lock().unwrap();
-            registry.remove(&req_id);
+            let mut registry = QUERY_REGISTRY.lock();
+            let req_id = registry.keys().find(|id| !ids_before.contains(id)).copied();
+            if let Some(req_id) = req_id {
+                registry.remove(&req_id);
+            }
         }
         // The registry should be back to its pre-call size — our entry was removed.
         let size_after = {
-            let registry = QUERY_REGISTRY.lock().unwrap();
+            let registry = QUERY_REGISTRY.lock();
             registry.len()
         };
+        let size_before = ids_before.len();
         assert_eq!(
             size_after, size_before,
             "Registry should have same size after NB query (entry was cleaned up)"
@@ -1116,22 +1236,6 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // QUERY_SEQ counter tests
-    // ─────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_query_seq_monotonic() {
-        let seq1 = QUERY_SEQ.lock().unwrap();
-        let val1 = *seq1;
-        drop(seq1);
-        let mut seq2 = QUERY_SEQ.lock().unwrap();
-        *seq2 += 1;
-        let val2 = *seq2;
-        drop(seq2);
-        assert!(val2 > val1);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
     // log_data() tests
     // ─────────────────────────────────────────────────────────────────────
 
@@ -1147,7 +1251,7 @@ mod tests {
 
     #[test]
     fn test_log_data_with_empty_info() {
-        let data = vec![crate::InfoBuilder::new().build()];
+        let data = vec![crate::InfoBuilder::new().build().expect("build info")];
         let directives = vec![];
         let result = log_data(&data, &directives);
         assert!(result.is_ok() || result.is_err());
@@ -1155,7 +1259,7 @@ mod tests {
 
     #[test]
     fn test_log_data_with_string_info() {
-        let info = crate::info_with_string_key("test.key", "test.value");
+        let info = crate::info_with_string_key("test.key", "test.value").expect("string info");
         let data = vec![info];
         let directives = vec![];
         let result = log_data(&data, &directives);
@@ -1166,8 +1270,8 @@ mod tests {
 
     #[test]
     fn test_log_data_with_directives() {
-        let data_info = crate::info_with_string_key("log.data", "hello");
-        let dir_info = crate::info_with_string_key("PMIX_LOG_STDOUT", "1");
+        let data_info = crate::info_with_string_key("log.data", "hello").expect("string info");
+        let dir_info = crate::info_with_string_key("PMIX_LOG_STDOUT", "1").expect("string info");
         let result = log_data(&[data_info], &[dir_info]);
         assert!(result.is_ok() || result.is_err());
     }
@@ -1208,14 +1312,14 @@ mod tests {
         }
         // Record registry size before to detect our entry post-call
         let size_before = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         let result = log_data_nb(&[], &[], Box::new(LogNbDummy));
         assert!(result.is_err());
         // Registry should be back to pre-call size — our entry was cleaned up.
         let size_after = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         assert_eq!(
@@ -1237,17 +1341,17 @@ mod tests {
             }
         }
         let size_before = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
-        let info = crate::info_with_string_key("test.key", "test.value");
+        let info = crate::info_with_string_key("test.key", "test.value").expect("string info");
         let cb = Box::new(LogNbCounting {
             _called: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         });
         let result = log_data_nb(&[info], &[], cb);
         assert!(result.is_err());
         let size_after = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         assert_eq!(
@@ -1273,37 +1377,21 @@ mod tests {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
         let size_before = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         for _ in 0..5 {
-            let info = crate::info_with_string_key("test", "val");
+            let info = crate::info_with_string_key("test", "val").expect("string info");
             let _ = log_data_nb(&[info], &[], Box::new(LogDummy));
         }
         let size_after = {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             registry.len()
         };
         assert_eq!(
             size_after, size_before,
             "Registry size unchanged after multiple failed NB logs"
         );
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // LOG_SEQ counter tests
-    // ─────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_log_seq_monotonic() {
-        let seq1 = LOG_SEQ.lock().unwrap();
-        let val1 = *seq1;
-        drop(seq1);
-        let mut seq2 = LOG_SEQ.lock().unwrap();
-        *seq2 += 1;
-        let val2 = *seq2;
-        drop(seq2);
-        assert!(val2 > val1);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1388,7 +1476,9 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: 0,
-        
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         };
         cb.on_complete(PmixStatus::Known(PmixError::Success), results);
@@ -1461,7 +1551,7 @@ mod tests {
     #[test]
     fn test_pmix_query_with_multiple_qualifier_calls() {
         let query = PmixQuery::new(&["PMIX_QUERY_JOB_SIZE"]).unwrap();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let _query = query.with_qualifiers(info);
     }
 
@@ -1480,17 +1570,17 @@ mod tests {
         for i in 0..20 {
             let key = base + i;
             {
-                let mut registry = QUERY_REGISTRY.lock().unwrap();
+                let mut registry = QUERY_REGISTRY.lock();
                 registry.insert(key, Box::new(DummyQCb));
             }
             {
-                let mut registry = QUERY_REGISTRY.lock().unwrap();
+                let mut registry = QUERY_REGISTRY.lock();
                 registry.remove(&key);
             }
         }
         // Verify our keys are gone (don't assert is_empty — other tests may have entries)
         {
-            let registry = QUERY_REGISTRY.lock().unwrap();
+            let registry = QUERY_REGISTRY.lock();
             for i in 0..20 {
                 assert!(
                     registry.get(&(base + i)).is_none(),
@@ -1512,17 +1602,17 @@ mod tests {
         for i in 0..20 {
             let key = base + i;
             {
-                let mut registry = LOG_REGISTRY.lock().unwrap();
+                let mut registry = LOG_REGISTRY.lock();
                 registry.insert(key, Box::new(DummyLCb));
             }
             {
-                let mut registry = LOG_REGISTRY.lock().unwrap();
+                let mut registry = LOG_REGISTRY.lock();
                 registry.remove(&key);
             }
         }
         // Verify our keys are gone (don't assert is_empty — other tests may have entries)
         {
-            let registry = LOG_REGISTRY.lock().unwrap();
+            let registry = LOG_REGISTRY.lock();
             for i in 0..20 {
                 assert!(
                     registry.get(&(base + i)).is_none(),
@@ -1542,7 +1632,9 @@ mod tests {
         let results = QueryResults {
             handle: std::ptr::null_mut(),
             len: usize::MAX,
-        
+            release_fn: None,
+            release_cbdata: std::ptr::null_mut(),
+
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(!results.is_empty());
@@ -1556,19 +1648,34 @@ mod tests {
 
     #[test]
     fn test_info_builder_empty_for_log() {
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         assert!(info.is_empty());
         assert_eq!(info.len(), 0);
     }
 
     #[test]
     fn test_info_with_string_key_for_log() {
-        let info = crate::info_with_string_key("PMIX_LOG_STDOUT", "test message");
+        let info =
+            crate::info_with_string_key("PMIX_LOG_STDOUT", "test message").expect("string info");
         assert!(!info.is_empty());
         assert_eq!(info.len(), 1);
     }
 
     // ── TASK-114: New tests to improve coverage ─────────────────────────────────
+
+    #[test]
+    fn test_query_info_with_qualifiers_success_with_mock() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut builder = crate::InfoBuilder::new();
+        builder.add_bool_key("pmix.qry.rfsh", true);
+        let query = PmixQuery::new(&["pmix.version"])
+            .unwrap()
+            .with_qualifiers(builder.build().unwrap());
+
+        let result = query_info(&[query]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
 
     #[test]
     fn test_query_info_success_with_mock() {
@@ -1586,7 +1693,7 @@ mod tests {
     fn test_query_info_error_path_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_INIT)
+                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_INIT),
         );
         let query = PmixQuery::new(&["pmix.version"]).unwrap();
         let result = query_info(&[query]);
@@ -1621,7 +1728,7 @@ mod tests {
     fn test_query_info_nb_error_cleanup_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Query_info_nb", mock_ffi::PMIX_ERR_INIT)
+                .with_function_status("PMIx_Query_info_nb", mock_ffi::PMIX_ERR_INIT),
         );
         let query = PmixQuery::new(&["pmix.version"]).unwrap();
 
@@ -1646,7 +1753,8 @@ mod tests {
     #[test]
     fn test_log_data_success_with_mock() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let data =
+            vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
         let result = log_data(&data, &directives);
         assert!(result.is_ok());
@@ -1656,19 +1764,24 @@ mod tests {
     fn test_log_data_error_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Log", mock_ffi::PMIX_ERR_NOT_SUPPORTED)
+                .with_function_status("PMIx_Log", mock_ffi::PMIX_ERR_NOT_SUPPORTED),
         );
-        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let data =
+            vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
         let result = log_data(&data, &directives);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrNotSupported));
+        assert_eq!(
+            result.unwrap_err(),
+            PmixStatus::Known(PmixError::ErrNotSupported)
+        );
     }
 
     #[test]
     fn test_log_data_nb_success_with_mock() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let data =
+            vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
 
         struct TestLogCallback {
@@ -1692,9 +1805,10 @@ mod tests {
     fn test_log_data_nb_error_cleanup_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Log_nb", mock_ffi::PMIX_ERR_INIT)
+                .with_function_status("PMIx_Log_nb", mock_ffi::PMIX_ERR_INIT),
         );
-        let data = vec![crate::info_with_string_key("test.key", "test.value")];
+        let data =
+            vec![crate::info_with_string_key("test.key", "test.value").expect("string info")];
         let directives: Vec<Info> = vec![];
 
         struct TestLogCallback {
@@ -1733,16 +1847,9 @@ mod tests {
             }
         }
 
-        let req_id = {
-            let mut seq = QUERY_SEQ.lock().expect("mutex poisoned");
-            *seq += 1;
-            *seq
-        };
-
-        {
-            let mut registry = QUERY_REGISTRY.lock().expect("mutex poisoned");
-            registry.insert(req_id, Box::new(BridgeTestCallback { called: called_clone }));
-        }
+        let req_id = QUERY_REGISTRY.insert_next(Box::new(BridgeTestCallback {
+            called: called_clone,
+        }));
 
         // Simulate the callback being invoked
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1751,9 +1858,9 @@ mod tests {
                 0, // PMIX_SUCCESS
                 std::ptr::null_mut(),
                 0,
-                std::ptr::null_mut(),
-                None,
                 cbdata,
+                None,
+                std::ptr::null_mut(),
             );
         }
 
@@ -1777,16 +1884,9 @@ mod tests {
             }
         }
 
-        let req_id = {
-            let mut seq = LOG_SEQ.lock().expect("mutex poisoned");
-            *seq += 1;
-            *seq
-        };
-
-        {
-            let mut registry = LOG_REGISTRY.lock().expect("mutex poisoned");
-            registry.insert(req_id, Box::new(BridgeLogTestCallback { called: called_clone }));
-        }
+        let req_id = LOG_REGISTRY.insert_next(Box::new(BridgeLogTestCallback {
+            called: called_clone,
+        }));
 
         let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
@@ -1800,7 +1900,7 @@ mod tests {
     fn test_query_info_partial_success_with_mock() {
         let _guard = mock_ffi::MockGuard::with_config(
             mock_ffi::MockConfig::new()
-                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_PARTIAL_SUCCESS)
+                .with_function_status("PMIx_Query_info", mock_ffi::PMIX_ERR_PARTIAL_SUCCESS),
         );
         let query = PmixQuery::new(&["pmix.version"]).unwrap();
         let result = query_info(&[query]);
@@ -1811,9 +1911,176 @@ mod tests {
     #[test]
     fn test_log_data_with_both_data_and_directives() {
         let _guard = mock_ffi::MockGuard::new();
-        let data = vec![crate::info_with_string_key("log.message", "Hello, world!")];
-        let directives = vec![crate::info_with_string_key("pmix.log.stdout", "true")];
+        let data =
+            vec![crate::info_with_string_key("log.message", "Hello, world!").expect("string info")];
+        let directives =
+            vec![crate::info_with_string_key("pmix.log.stdout", "true").expect("string info")];
         let result = log_data(&data, &directives);
         assert!(result.is_ok());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmixQueryConstructed — safe wrapper for stack-style query helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A query initialized with `PMIx_Query_construct`.
+///
+/// This is separate from [`PmixQuery`], whose heap allocation is created with
+/// `PMIx_Query_create` and is released by its existing `Drop` implementation.
+/// Call [`PmixQueryConstructed::destruct`] (or let `Drop` do so) for this stack
+/// pairing; [`PmixQueryConstructed::release`] is provided for the explicit
+/// heap-style release API and must not be mixed with `destruct`.
+pub struct PmixQueryConstructed {
+    handle: *mut ffi::pmix_query_t,
+    destructed: bool,
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl PmixQueryConstructed {
+    /// Construct a zero-initialized query with `PMIx_Query_construct`.
+    pub fn construct() -> Self {
+        // SAFETY: allocation is converted to the matching `pmix_query_t` pointer
+        // and is freed by `destruct`/`release` while owned by this wrapper.
+        let handle = unsafe {
+            libc::calloc(1, std::mem::size_of::<ffi::pmix_query_t>()) as *mut ffi::pmix_query_t
+        };
+        if !handle.is_null() {
+            // SAFETY: `handle` is freshly calloc'd storage with the exact
+            // `pmix_query_t` layout, and remains owned by the returned wrapper.
+            crate::pmix_ffi_or_mock!(
+                mock = mock_ffi::mock_query_construct(handle),
+                real = unsafe { ffi::PMIx_Query_construct(handle) },
+            );
+        }
+        Self {
+            handle,
+            destructed: false,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
+    /// Return the underlying query pointer for advanced PMIx integrations.
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_query_t {
+        self.handle
+    }
+
+    /// Allocate `n` qualifier entries using `PMIx_Query_qualifiers_create`.
+    pub fn qualifiers_create(&mut self, n: usize) -> Result<(), PmixError> {
+        if self.handle.is_null() || self.destructed {
+            return Err(PmixError::ErrBadParam);
+        }
+        // `PMIx_Query_qualifiers_create` returns void, so allocation failure
+        // cannot be reported by this wrapper. Destructing and reconstructing
+        // first releases any qualifiers array left by an earlier call.
+        // SAFETY: `self.handle` is a live query allocated and initialized by
+        // `construct`; destruct resets its owned qualifiers before recreation.
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_query_destruct(self.handle),
+            real = unsafe { ffi::PMIx_Query_destruct(self.handle) },
+        );
+        // SAFETY: `self.handle` remains the wrapper-owned, valid query pointer;
+        // construct initializes its qualifiers array ownership for this call.
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_query_construct(self.handle),
+            real = unsafe { ffi::PMIx_Query_construct(self.handle) },
+        );
+        // SAFETY: the pointer is valid and initialized above; the C helper owns
+        // its qualifiers allocation and updates `qualifiers`/`nqual`.
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_query_qualifiers_create(self.handle, n),
+            real = unsafe { ffi::PMIx_Query_qualifiers_create(self.handle, n) },
+        );
+        Ok(())
+    }
+
+    /// Pair this object with `PMIx_Query_destruct`.
+    pub fn destruct(&mut self) {
+        if self.handle.is_null() || self.destructed {
+            return;
+        }
+        // SAFETY: `self.handle` came from calloc and is initialized as a PMIx
+        // query; `destructed` prevents this owned allocation from being freed twice.
+        crate::pmix_ffi_or_mock!(
+            mock = mock_ffi::mock_query_destruct(self.handle),
+            real = unsafe { ffi::PMIx_Query_destruct(self.handle) },
+        );
+        // SAFETY: the query storage was allocated by libc::calloc in construct.
+        unsafe {
+            libc::free(self.handle.cast());
+        }
+        self.handle = ptr::null_mut();
+        self.destructed = true;
+    }
+
+    /// Explicitly invoke `PMIx_Query_release` on this constructed query.
+    pub fn release(&mut self) {
+        if self.handle.is_null() || self.destructed {
+            return;
+        }
+        // SAFETY: `self.handle` is the live query allocated by construct;
+        // release consumes it, and `destructed` prevents a second release.
+        crate::pmix_ffi_or_mock!(
+            mock = {
+                mock_ffi::mock_query_release(self.handle);
+                // The mock release does not own the calloc'd wrapper storage.
+                unsafe { libc::free(self.handle.cast()) };
+            },
+            real = unsafe { ffi::PMIx_Query_release(self.handle) },
+        );
+        self.handle = ptr::null_mut();
+        self.destructed = true;
+    }
+}
+
+impl Drop for PmixQueryConstructed {
+    fn drop(&mut self) {
+        self.destruct();
+    }
+}
+
+/// Construct a stack-style query with `PMIx_Query_construct`.
+pub fn query_construct() -> PmixQueryConstructed {
+    PmixQueryConstructed::construct()
+}
+
+/// Explicitly release a query initialized by [`query_construct`].
+pub fn query_release(query: &mut PmixQueryConstructed) {
+    query.release();
+}
+
+/// Explicitly destruct a query initialized by [`query_construct`].
+pub fn query_destruct(query: &mut PmixQueryConstructed) {
+    query.destruct();
+}
+
+#[cfg(test)]
+mod query_extras_tests {
+    use super::*;
+
+    #[test]
+    fn construct_destruct_pairing_is_idempotent() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut query = query_construct();
+        assert!(!query.as_mut_ptr().is_null());
+        query_destruct(&mut query);
+        query_destruct(&mut query);
+    }
+
+    #[test]
+    fn release_is_no_panic() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut query = query_construct();
+        query_release(&mut query);
+    }
+
+    #[test]
+    fn qualifiers_create_mock_path_is_successful() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut query = query_construct();
+        assert!(query.qualifiers_create(2).is_ok());
+        assert_eq!(unsafe { (*query.as_mut_ptr()).nqual }, 2);
+        assert!(query.qualifiers_create(3).is_ok());
+        assert_eq!(unsafe { (*query.as_mut_ptr()).nqual }, 3);
     }
 }

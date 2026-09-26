@@ -10,7 +10,7 @@ fn publish_nb_compiles() {
     impl PublishCallback for TestCallback {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = publish_nb(&info, Box::new(TestCallback));
     assert!(result.is_err(), "publish_nb should fail without PMIx_Init");
     assert_eq!(result.unwrap_err().to_raw(), -31, "should be PMIX_ERR_INIT");
@@ -37,7 +37,7 @@ fn publish_nb_callback_not_invoked_on_failure() {
             INVOKED.store(true, Ordering::SeqCst);
         }
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = publish_nb(&info, Box::new(NoInvokeCallback));
     assert!(result.is_err());
     assert!(

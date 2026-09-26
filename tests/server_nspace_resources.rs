@@ -52,7 +52,7 @@ fn test_register_nspace_no_panic_valid_params() {
     impl RegisterNspaceCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| server_register_nspace("job.12345", 4, &info, Box::new(Dummy)));
     assert!(
         result.is_ok(),
@@ -67,7 +67,7 @@ fn test_register_nspace_no_panic_zero_procs() {
     impl RegisterNspaceCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| server_register_nspace("job.00000", 0, &info, Box::new(Dummy)));
     assert!(
         result.is_ok(),
@@ -82,7 +82,7 @@ fn test_register_nspace_nul_byte_returns_error() {
     impl RegisterNspaceCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| {
         let res = server_register_nspace("job\x00bad", 1, &info, Box::new(Dummy));
         assert!(res.is_err(), "NUL byte in nspace should return Err");
@@ -97,7 +97,7 @@ fn test_register_nspace_return_type() {
     impl RegisterNspaceCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> = server_register_nspace("test", 1, &info, Box::new(Dummy));
 }
 
@@ -220,7 +220,7 @@ fn test_register_resources_no_panic_valid_params() {
     impl RegisterResourcesCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| server_register_resources(&info, Box::new(Dummy)));
     assert!(
         result.is_ok(),
@@ -235,7 +235,7 @@ fn test_register_resources_return_type() {
     impl RegisterResourcesCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> = server_register_resources(&info, Box::new(Dummy));
 }
 
@@ -297,7 +297,7 @@ fn test_deregister_resources_no_panic_valid_params() {
     impl DeregisterResourcesCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| server_deregister_resources(&info, Box::new(Dummy)));
     assert!(
         result.is_ok(),
@@ -312,7 +312,7 @@ fn test_deregister_resources_return_type() {
     impl DeregisterResourcesCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> = server_deregister_resources(&info, Box::new(Dummy));
 }
 
@@ -374,7 +374,7 @@ fn test_setup_application_no_panic_valid_params() {
     impl SetupApplicationCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| server_setup_application("job.12345", &info, Box::new(Dummy)));
     assert!(
         result.is_ok(),
@@ -389,7 +389,7 @@ fn test_setup_application_return_type() {
     impl SetupApplicationCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> =
         server_setup_application("job.12345", &info, Box::new(Dummy));
 }
@@ -401,7 +401,7 @@ fn test_setup_application_nul_byte_returns_error() {
     impl SetupApplicationCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus, _info: Vec<(String, String)>) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| {
         let res = server_setup_application("bad\x00nspace", &info, Box::new(Dummy));
         assert!(res.is_err(), "NUL byte in nspace should return Err");
@@ -552,7 +552,7 @@ fn test_setup_local_support_no_panic_valid_params() {
     impl SetupLocalSupportCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| server_setup_local_support("job.12345", &info, Box::new(Dummy)));
     assert!(
         result.is_ok(),
@@ -567,7 +567,7 @@ fn test_setup_local_support_return_type() {
     impl SetupLocalSupportCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result: Result<(), PmixStatus> =
         server_setup_local_support("job.12345", &info, Box::new(Dummy));
 }
@@ -579,7 +579,7 @@ fn test_setup_local_support_nul_byte_returns_error() {
     impl SetupLocalSupportCallback for Dummy {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = catch_unwind(|| {
         let res = server_setup_local_support("bad\x00nspace", &info, Box::new(Dummy));
         assert!(res.is_err(), "NUL byte in nspace should return Err");
@@ -637,7 +637,7 @@ fn test_all_seven_functions_no_panic() {
     impl RegisterNspaceCallback for DummyRegNs {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let r = catch_unwind(|| server_register_nspace("job.12345", 4, &info, Box::new(DummyRegNs)));
     assert!(r.is_ok(), "register_nspace panicked");
 
@@ -730,7 +730,7 @@ fn test_multiple_calls_consistency() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let proc = Proc::new("job.12345", 0).expect("proc creation failed");
 
     for _ in 0..3 {

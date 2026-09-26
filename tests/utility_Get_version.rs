@@ -8,7 +8,7 @@ use pmix::get_version;
 /// `get_version` returns a non-empty version string.
 #[test]
 fn get_version_returns_non_empty() {
-    let version = get_version();
+    let version = get_version().unwrap();
     assert!(
         !version.is_empty(),
         "get_version should return non-empty string"
@@ -18,7 +18,7 @@ fn get_version_returns_non_empty() {
 /// `get_version` returns a string matching typical version format (e.g. "4.1.1").
 #[test]
 fn get_version_has_version_format() {
-    let version = get_version();
+    let version = get_version().unwrap();
     // Version strings typically contain digits and dots
     assert!(
         version.chars().any(|c| c.is_ascii_digit()),
@@ -30,13 +30,13 @@ fn get_version_has_version_format() {
 /// `get_version` returns `&'static str`, not `String`.
 #[test]
 fn get_version_return_type() {
-    let _v: &str = get_version();
+    let _v: &str = get_version().unwrap();
 }
 
 /// `get_version` is deterministic — same call returns same value.
 #[test]
 fn get_version_deterministic() {
-    let v1 = get_version();
-    let v2 = get_version();
+    let v1 = get_version().unwrap();
+    let v2 = get_version().unwrap();
     assert_eq!(v1, v2, "get_version must be deterministic");
 }

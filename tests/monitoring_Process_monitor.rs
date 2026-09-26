@@ -131,7 +131,7 @@ fn test_process_monitor_signature() {
 /// process_monitor returns Err without daemon.
 #[test]
 fn test_process_monitor_without_daemon_returns_err() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let directives: &[pmix::Info] = &[];
     let result = process_monitor(
         &monitor,
@@ -164,7 +164,7 @@ fn test_process_monitor_nb_signature() {
 /// process_monitor_nb returns Err without daemon.
 #[test]
 fn test_process_monitor_nb_without_daemon_returns_err() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let directives: &[pmix::Info] = &[];
     let cb: Box<dyn MonitorCallback> = Box::new(TestMonitorCallback);
     let result = process_monitor_nb(

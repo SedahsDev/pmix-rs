@@ -19,13 +19,36 @@
 //! use pmix::InfoBuilder;
 //!
 //! let module = PmixServerModule::default();
-//! let server = PmixServer::connect_new(Some(&module), &InfoBuilder::new().build())
+//! let server = PmixServer::connect_new(Some(&module), &InfoBuilder::new().build().expect("build info"))
 //!     .expect("server connect");
 //! // Clone is cheap (Arc); Drop does **not** finalize.
 //! let worker = server.clone();
 //! // ... serve clients ...
 //! server.disconnect().expect("server disconnect");
 //! ```
+//!
+//! # Server module upcalls (progress context)
+//!
+//! Host callbacks in [`PmixServerModule`] (`fence_nb`, `direct_modex`,
+//! `publish`, …) run on the PMIx **progress thread** (or another host
+//! progress context OpenPMIx chooses) — **not** on an application worker
+//! you pin. That has two consequences:
+//!
+//! 1. **Do not block back into PMIx from an upcall.** Waiting on a
+//!    blocking `PMIx_*` entry (or joining a thread that does) deadlocks
+//!    progress. Hop first with
+//!    [`crate::threading::spawn_from_callback`] /
+//!    [`crate::threading::CallbackChannel`], then finish the request by
+//!    invoking the provided `cbfunc` **later** from an app thread.
+//! 2. **Upcalls are not CPU-pin targets.** Pin the progress engine via
+//!    [`InitOptions::bind_progress_thread`](crate::InitOptions::bind_progress_thread)
+//!    (see [THREADING.md](../../THREADING.md) §4). Do not try to pin
+//!    which core runs `fence_nb` / `direct_modex` themselves.
+//!
+//! Full hop-off policy and forbidden APIs:
+//! [`crate::threading::ProgressContext`]. Worked fence/modex pattern:
+//! `examples/server_upcall_hop.rs`. Client `_nb` / events counterpart:
+//! `examples/callback_hop.rs` ([#51](https://github.com/SedahsDev/pmix-rs/issues/51)).
 //!
 //! # Callbacks
 //!
@@ -46,11 +69,97 @@
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::security::PmixCredential;
+use crate::cbdata::Registry;
+use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
+
+#[allow(dead_code)]
+struct RetainedServerData {
+    infos: Vec<ffi::pmix_info_t>,
+    directives: Vec<ffi::pmix_info_t>,
+    source: Option<Box<ffi::pmix_proc_t>>,
+    bo: Option<Box<ffi::pmix_byte_object_t>>,
+    bo_bytes: Option<Vec<u8>>,
+}
+
+unsafe impl Send for RetainedServerData {}
+
+static SERVER_RETAINED_DATA: LazyLock<Mutex<HashMap<usize, RetainedServerData>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn retained_info(info: &Info) -> Vec<ffi::pmix_info_t> {
+    if info.handle.is_null() || info.len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: Info owns a valid array of `len` initialized PMIx entries.
+        unsafe { std::slice::from_raw_parts(info.handle, info.len) }
+            .iter()
+            .map(|entry| unsafe { std::ptr::read(entry) })
+            .collect()
+    }
+}
+
+fn release_server_retained_data(req_id: usize) {
+    SERVER_RETAINED_DATA
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
+}
+
+fn retain_server_info(req_id: usize, info: &Info) -> (*mut ffi::pmix_info_t, usize) {
+    let infos = retained_info(info);
+    let ninfo = infos.len();
+    let ptr = if infos.is_empty() {
+        ptr::null_mut()
+    } else {
+        infos.as_ptr() as *mut _
+    };
+    SERVER_RETAINED_DATA
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedServerData {
+            infos,
+            directives: Vec::new(),
+            source: None,
+            bo: None,
+            bo_bytes: None,
+        });
+    (ptr, ninfo)
+}
+
+fn retain_server_iof(req_id: usize, source: &Proc, bo: &crate::data_serialization::PmixByteObject, info: &Info) -> (*const ffi::pmix_proc_t, *const ffi::pmix_byte_object_t, *mut ffi::pmix_info_t, usize) {
+    let infos = retained_info(info);
+    let ninfo = infos.len();
+    let bo_bytes = bo.as_slice().to_vec();
+    let source = Box::new(source.handle);
+    let bo = Box::new(ffi::pmix_byte_object_t {
+        bytes: if bo_bytes.is_empty() {
+            ptr::null_mut()
+        } else {
+            bo_bytes.as_ptr() as *mut c_char
+        },
+        size: bo_bytes.len(),
+    });
+    let source_ptr = source.as_ref() as *const _;
+    let bo_ptr = bo.as_ref() as *const _;
+    let info_ptr = if infos.is_empty() { ptr::null_mut() } else { infos.as_ptr() as *mut _ };
+    SERVER_RETAINED_DATA
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedServerData {
+            infos,
+            directives: Vec::new(),
+            source: Some(source),
+            bo: Some(bo),
+            bo_bytes: Some(bo_bytes),
+        });
+    (source_ptr, bo_ptr, info_ptr, ninfo)
+}
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
@@ -81,184 +190,277 @@ pub use pset::*;
 /// implemented by the server. The PMIx library checks for null before
 /// calling each callback, so it is safe to set only the ones you need.
 ///
+/// # Progress-thread rules (read before implementing any field)
+///
+/// OpenPMIx invokes these host upcalls from **progress context** (typically
+/// the PMIx progress / event-engine thread). They are **not** a place to
+/// pin application CPUs — pin progress separately
+/// ([THREADING.md](../../THREADING.md) §4; helpers in [`crate::threading`]).
+///
+/// | Do | Don't |
+/// |----|--------|
+/// | Return quickly from the upcall | Call blocking PMIx APIs in-handler |
+/// | Hop off with [`spawn_from_callback`](crate::threading::spawn_from_callback) or [`CallbackChannel`](crate::threading::CallbackChannel) | Join / park waiting for progress |
+/// | Invoke the provided `cbfunc` **later** when RM work finishes | Block the upcall until remote collectives complete |
+/// | Copy C buffers you need before hopping (`!Send` / lifetime ends at return) | Hold crate registry locks across user/RM code |
+///
+/// ```rust,ignore
+/// // ❌ NEVER — blocks progress on a PMIx round-trip from a server upcall
+/// let _ = pmix::data_ops::get(&proc, "pmix.job.size", None);
+///
+/// // ❌ NEVER — waits in-handler for work that needs progress
+/// handle.join().unwrap();
+///
+/// // ✅ Hop, then complete asynchronously via cbfunc
+/// let _ctx = pmix::threading::ProgressContext;
+/// let cb = cbfunc; // capture
+/// let chain = cbdata as usize; // *mut c_void is !Send
+/// let _ = pmix::threading::spawn_from_callback(move || {
+///     // RM / network work is safe here
+///     if let Some(cb) = cb {
+///         unsafe { cb(PMIX_SUCCESS, /* … */, chain as *mut _, None, std::ptr::null_mut()); }
+///     }
+/// });
+/// // return PMIX_SUCCESS from the upcall immediately
+/// ```
+///
+/// See `examples/server_upcall_hop.rs` for a complete fence_nb / direct_modex
+/// pattern, and [`crate::threading`] / `examples/callback_hop.rs` for the
+/// shared hop-off helpers used by client `_nb` completions and events.
+///
+/// # Field types
+///
+/// Fields use the exact typed callback signatures generated from the C API.
+/// The `repr(C)` layout matches `pmix_server_module_t`, allowing callbacks to
+/// be installed directly without function-pointer casts.
+///
 /// # C API
 /// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct PmixServerModule {
     /// Called when a client process connects to this server.
     ///
+    /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
+    ///
     /// # C type
     /// `pmix_server_client_connected_fn_t`
-    pub client_connected: Option<unsafe extern "C" fn()>,
+    pub client_connected: ffi::pmix_server_client_connected_fn_t,
 
     /// Called when a client process finalizes its connection.
     ///
+    /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
+    ///
     /// # C type
     /// `pmix_server_client_finalized_fn_t`
-    pub client_finalized: Option<unsafe extern "C" fn()>,
+    pub client_finalized: ffi::pmix_server_client_finalized_fn_t,
 
     /// Called when a client requests an abort.
     ///
+    /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
+    /// Complete via the provided `pmix_op_cbfunc_t` after hopping if work blocks.
+    ///
     /// # C type
     /// `pmix_server_abort_fn_t`
-    pub abort: Option<unsafe extern "C" fn()>,
+    pub abort: ffi::pmix_server_abort_fn_t,
 
-    /// Non-blocking fence callback.
+    /// Non-blocking fence / collective upcall (`PMIx_Fence` / `PMIx_Fence_nb`).
+    ///
+    /// OpenPMIx calls this once local participants have contributed. The host
+    /// must share any provided modex blob with peer daemons and complete via
+    /// `pmix_modex_cbfunc_t` — typically **after** hopping off progress
+    /// (network / collective work must not block the upcall).
+    ///
+    /// **Not a CPU-pin target** — progress pinning is separate ([THREADING.md](../../THREADING.md)).
+    /// Pattern: `examples/server_upcall_hop.rs`.
     ///
     /// # C type
     /// `pmix_server_fencenb_fn_t`
-    pub fence_nb: Option<unsafe extern "C" fn()>,
+    pub fence_nb: ffi::pmix_server_fencenb_fn_t,
 
-    /// Direct modex request callback.
+    /// Direct modex request — fetch a remote proc's modex blob via the host.
+    ///
+    /// Same progress-thread rules as [`Self::fence_nb`]: schedule the remote
+    /// fetch off-progress and invoke `pmix_modex_cbfunc_t` when the blob is
+    /// ready (or on error). See `examples/server_upcall_hop.rs`.
     ///
     /// # C type
     /// `pmix_server_dmodex_req_fn_t`
-    pub direct_modex: Option<unsafe extern "C" fn()>,
+    pub direct_modex: ffi::pmix_server_dmodex_req_fn_t,
 
     /// Publish callback — client requests to publish data.
     ///
     /// # C type
     /// `pmix_server_publish_fn_t`
-    pub publish: Option<unsafe extern "C" fn()>,
+    pub publish: ffi::pmix_server_publish_fn_t,
 
     /// Lookup callback — client requests to lookup data.
     ///
     /// # C type
     /// `pmix_server_lookup_fn_t`
-    pub lookup: Option<unsafe extern "C" fn()>,
+    pub lookup: ffi::pmix_server_lookup_fn_t,
 
     /// Unpublish callback — client requests to remove published data.
     ///
     /// # C type
     /// `pmix_server_unpublish_fn_t`
-    pub unpublish: Option<unsafe extern "C" fn()>,
+    pub unpublish: ffi::pmix_server_unpublish_fn_t,
 
     /// Spawn callback — client requests to spawn new processes.
     ///
     /// # C type
     /// `pmix_server_spawn_fn_t`
-    pub spawn: Option<unsafe extern "C" fn()>,
+    pub spawn: ffi::pmix_server_spawn_fn_t,
 
     /// Connect callback — client requests to establish a connection.
     ///
     /// # C type
     /// `pmix_server_connect_fn_t`
-    pub connect: Option<unsafe extern "C" fn()>,
+    pub connect: ffi::pmix_server_connect_fn_t,
 
     /// Disconnect callback — client requests to disconnect.
     ///
     /// # C type
     /// `pmix_server_disconnect_fn_t`
-    pub disconnect: Option<unsafe extern "C" fn()>,
+    pub disconnect: ffi::pmix_server_disconnect_fn_t,
 
     /// Register events callback.
     ///
     /// # C type
     /// `pmix_server_register_events_fn_t`
-    pub register_events: Option<unsafe extern "C" fn()>,
+    pub register_events: ffi::pmix_server_register_events_fn_t,
 
     /// Deregister events callback.
     ///
     /// # C type
     /// `pmix_server_deregister_events_fn_t`
-    pub deregister_events: Option<unsafe extern "C" fn()>,
+    pub deregister_events: ffi::pmix_server_deregister_events_fn_t,
 
     /// Listener callback — for server-to-server communication.
     ///
     /// # C type
     /// `pmix_server_listener_fn_t`
-    pub listener: Option<unsafe extern "C" fn()>,
+    pub listener: ffi::pmix_server_listener_fn_t,
 
     /// Notify event callback — deliver notifications to the server.
     ///
     /// # C type
     /// `pmix_server_notify_event_fn_t`
-    pub notify_event: Option<unsafe extern "C" fn()>,
+    pub notify_event: ffi::pmix_server_notify_event_fn_t,
 
     /// Query callback — client requests server-side query.
     ///
     /// # C type
     /// `pmix_server_query_fn_t`
-    pub query: Option<unsafe extern "C" fn()>,
+    pub query: ffi::pmix_server_query_fn_t,
 
     /// Tool connection callback — accepts tool connections.
     ///
     /// # C type
     /// `pmix_server_tool_connection_fn_t`
-    pub tool_connected: Option<unsafe extern "C" fn()>,
+    pub tool_connected: ffi::pmix_server_tool_connection_fn_t,
 
     /// Log callback — client requests logging.
     ///
     /// # C type
     /// `pmix_server_log_fn_t`
-    pub log: Option<unsafe extern "C" fn()>,
+    pub log: ffi::pmix_server_log_fn_t,
 
     /// Allocation callback — client requests resource allocation.
     ///
     /// # C type
     /// `pmix_server_alloc_fn_t`
-    pub allocate: Option<unsafe extern "C" fn()>,
+    pub allocate: ffi::pmix_server_alloc_fn_t,
 
     /// Job control callback.
     ///
     /// # C type
     /// `pmix_server_job_control_fn_t`
-    pub job_control: Option<unsafe extern "C" fn()>,
+    pub job_control: ffi::pmix_server_job_control_fn_t,
 
     /// Monitoring callback — client requests monitoring.
     ///
     /// # C type
     /// `pmix_server_monitor_fn_t`
-    pub monitor: Option<unsafe extern "C" fn()>,
+    pub monitor: ffi::pmix_server_monitor_fn_t,
 
     /// Get credential callback.
     ///
     /// # C type
     /// `pmix_server_get_cred_fn_t`
-    pub get_credential: Option<unsafe extern "C" fn()>,
+    pub get_credential: ffi::pmix_server_get_cred_fn_t,
 
     /// Validate credential callback.
     ///
     /// # C type
     /// `pmix_server_validate_cred_fn_t`
-    pub validate_credential: Option<unsafe extern "C" fn()>,
+    pub validate_credential: ffi::pmix_server_validate_cred_fn_t,
 
     /// I/O forwarding pull callback.
     ///
     /// # C type
     /// `pmix_server_iof_fn_t`
-    pub iof_pull: Option<unsafe extern "C" fn()>,
+    pub iof_pull: ffi::pmix_server_iof_fn_t,
 
     /// Push stdin callback.
     ///
     /// # C type
     /// `pmix_server_stdin_fn_t`
-    pub push_stdin: Option<unsafe extern "C" fn()>,
+    pub push_stdin: ffi::pmix_server_stdin_fn_t,
 
     /// Group operations callback.
     ///
     /// # C type
     /// `pmix_server_grp_fn_t`
-    pub group: Option<unsafe extern "C" fn()>,
+    pub group: ffi::pmix_server_grp_fn_t,
 
     /// Fabric operations callback.
     ///
     /// # C type
     /// `pmix_server_fabric_fn_t`
-    pub fabric: Option<unsafe extern "C" fn()>,
+    pub fabric: ffi::pmix_server_fabric_fn_t,
 
     /// Client connected v2 callback.
     ///
     /// # C type
     /// `pmix_server_client_connected2_fn_t`
-    pub client_connected2: Option<unsafe extern "C" fn()>,
+    pub client_connected2: ffi::pmix_server_client_connected2_fn_t,
+
+    /// Tool connection v2 callback.
+    ///
+    /// # C type
+    /// `pmix_server_tool_connection2_fn_t`
+    ///
+    /// 6.x-only: absent from the OpenPMIx 5.0 server module.
+    #[cfg(pmix6)]
+    pub tool_connected2: ffi::pmix_server_tool_connection2_fn_t,
+
+    /// Log v2 callback.
+    ///
+    /// # C type
+    /// `pmix_server_log2_fn_t`
+    ///
+    /// 6.x-only: absent from the OpenPMIx 5.0 server module.
+    #[cfg(pmix6)]
+    pub log2: ffi::pmix_server_log2_fn_t,
 
     /// Session control callback (PMIx 5.x).
     ///
     /// # C type
     /// `pmix_server_session_control_fn_t`
-    pub session_control: Option<unsafe extern "C" fn()>,
+    pub session_control: ffi::pmix_server_session_control_fn_t,
+
+    /// Resource block callback.
+    ///
+    /// # C type
+    /// `pmix_server_resource_block_fn_t`
+    ///
+    /// 6.x-only: absent from the OpenPMIx 5.0 server module.
+    #[cfg(pmix6)]
+    pub resource_block: ffi::pmix_server_resource_block_fn_t,
 }
+
+const _: () = assert!(std::mem::size_of::<PmixServerModule>() == std::mem::size_of::<ffi::pmix_server_module_t>());
 
 impl PmixServerModule {
     /// Convert this safe module into the raw C `pmix_server_module_t`.
@@ -328,7 +530,7 @@ pub use session::PmixServerHandle;
 /// use pmix::InfoBuilder;;
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
 pub fn server_init(
@@ -396,7 +598,7 @@ pub fn server_init_minimal(
 /// use pmix::InfoBuilder;;
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 /// server_finalize(handle).expect("server_finalize failed");
 /// ```
 pub fn server_finalize(handle: PmixServerHandle) -> Result<(), PmixStatus> {
@@ -417,12 +619,9 @@ pub trait RegisterNspaceCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending register_nspace callbacks.
-type RegisterNspaceRegistry = std::collections::HashMap<usize, Box<dyn RegisterNspaceCallback>>;
-static REGISTER_NS_SPACE_REGISTRY: LazyLock<Mutex<RegisterNspaceRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static REGISTER_NS_SPACE_REGISTRY: LazyLock<Registry<Box<dyn RegisterNspaceCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing register_nspace request ID counter.
-static REGISTER_NS_SPACE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (register_nspace completion).
 ///
@@ -438,9 +637,11 @@ pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_statu
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
+    release_server_retained_data(req_id);
+
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -451,7 +652,9 @@ pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_statu
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Register an nspace (job namespace) with the PMIx server library.
@@ -516,9 +719,9 @@ pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_statu
 /// }
 ///
 /// let module = PmixServerModule::default();
-/// let _handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let _handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 ///
-/// server_register_nspace("myjob.12345", 4, &InfoBuilder::new().build(), Box::new(MyNspaceCallback))
+/// server_register_nspace("myjob.12345", 4, &InfoBuilder::new().build().expect("build info"), Box::new(MyNspaceCallback))
 ///     .expect("register_nspace request rejected");
 /// ```
 pub fn server_register_nspace(
@@ -534,13 +737,9 @@ pub fn server_register_nspace(
     };
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = REGISTER_NS_SPACE_REGISTRY.next_req_id();
     {
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -548,11 +747,7 @@ pub fn server_register_nspace(
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare info parameters.
-    let (info_ptr, ninfo) = if info.len > 0 {
-        (info.handle, info.len)
-    } else {
-        (ptr::null_mut(), 0)
-    };
+    let (info_ptr, ninfo) = retain_server_info(req_id, info);
 
     // Call the FFI function.
     let status = unsafe {
@@ -580,8 +775,9 @@ pub fn server_register_nspace(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
         registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -609,7 +805,7 @@ pub fn server_register_nspace(
 /// assert!(!is_server_initialized());
 ///
 /// let module = PmixServerModule::default();
-/// let handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 /// assert!(is_server_initialized());
 ///
 /// server_finalize(handle).expect("server_finalize failed");
@@ -630,12 +826,9 @@ pub trait DeregisterNspaceCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending deregister_nspace callbacks.
-type DeregisterNspaceRegistry = std::collections::HashMap<usize, Box<dyn DeregisterNspaceCallback>>;
-static DEREGISTER_NS_SPACE_REGISTRY: LazyLock<Mutex<DeregisterNspaceRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DEREGISTER_NS_SPACE_REGISTRY: LazyLock<Registry<Box<dyn DeregisterNspaceCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing deregister_nspace request ID counter.
-static DEREGISTER_NS_SPACE_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (deregister_nspace completion).
 ///
@@ -653,7 +846,7 @@ pub(crate) extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_sta
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -664,7 +857,9 @@ pub(crate) extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_sta
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deregister an nspace (job namespace) and purge all related data.
@@ -737,13 +932,9 @@ pub fn server_deregister_nspace(nspace: &str, callback: Option<Box<dyn Deregiste
     match callback {
         Some(cb) => {
             // Non-blocking mode: register callback and pass bridge to FFI.
-            let req_id = {
-                let mut seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
-                *seq += 1;
-                *seq
-            };
+            let req_id = DEREGISTER_NS_SPACE_REGISTRY.next_req_id();
             {
-                let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+                let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock();
                 registry.insert(req_id, cb);
             }
 
@@ -791,12 +982,9 @@ pub trait RegisterClientCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending register_client callbacks.
-type RegisterClientRegistry = std::collections::HashMap<usize, Box<dyn RegisterClientCallback>>;
-static REGISTER_CLIENT_REGISTRY: LazyLock<Mutex<RegisterClientRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static REGISTER_CLIENT_REGISTRY: LazyLock<Registry<Box<dyn RegisterClientCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing register_client request ID counter.
-static REGISTER_CLIENT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (register_client completion).
 ///
@@ -814,7 +1002,7 @@ pub(crate) extern "C" fn register_client_callback_bridge(status: ffi::pmix_statu
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -825,7 +1013,9 @@ pub(crate) extern "C" fn register_client_callback_bridge(status: ffi::pmix_statu
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Register a client process with the PMIx server library.
@@ -895,13 +1085,9 @@ pub fn server_register_client(
     callback: Box<dyn RegisterClientCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = REGISTER_CLIENT_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = REGISTER_CLIENT_REGISTRY.next_req_id();
     {
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -944,7 +1130,7 @@ pub fn server_register_client(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_CLIENT_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -963,12 +1149,9 @@ pub trait DeregisterClientCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending deregister_client callbacks.
-type DeregisterClientRegistry = std::collections::HashMap<usize, Box<dyn DeregisterClientCallback>>;
-static DEREGISTER_CLIENT_REGISTRY: LazyLock<Mutex<DeregisterClientRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DEREGISTER_CLIENT_REGISTRY: LazyLock<Registry<Box<dyn DeregisterClientCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing deregister_client request ID counter.
-static DEREGISTER_CLIENT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (deregister_client completion).
 ///
@@ -986,7 +1169,7 @@ pub(crate) extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_sta
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_CLIENT_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -997,7 +1180,9 @@ pub(crate) extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_sta
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deregister a specific client process and purge all data relating to it.
@@ -1056,13 +1241,9 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
     match callback {
         Some(cb) => {
             // Non-blocking mode: register callback and pass bridge to FFI.
-            let req_id = {
-                let mut seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
-                *seq += 1;
-                *seq
-            };
+            let req_id = DEREGISTER_CLIENT_REGISTRY.next_req_id();
             {
-                let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+                let mut registry = DEREGISTER_CLIENT_REGISTRY.lock();
                 registry.insert(req_id, cb);
             }
 
@@ -1155,7 +1336,7 @@ pub fn server_deregister_client(proc: &Proc, callback: Option<Box<dyn Deregister
 /// use pmix::Proc;
 ///
 /// let module = PmixServerModule::default();
-/// let _handle = server_init(Some(&module), &InfoBuilder::new().build()).expect("server_init failed");
+/// let _handle = server_init(Some(&module), &InfoBuilder::new().build().expect("build info")).expect("server_init failed");
 ///
 /// let proc = Proc::new("myjob.12345", 0).expect("proc creation failed");
 /// let env = server_setup_fork(&proc, None).expect("setup_fork failed");
@@ -1192,11 +1373,9 @@ pub fn server_setup_fork(proc: &Proc, env: Option<Vec<&str>>) -> Result<Vec<Stri
             for (i, env_str) in initial_env.iter().enumerate() {
                 match CString::new(*env_str) {
                     Ok(cs) => {
-                        // SAFETY: arr_ptr[i] is a valid writable slot in our
-                        // calloc'd array. We store a raw pointer from CString
-                        // which will be freed later by libc::free.
+                        // SAFETY: `strdup` returns storage owned by libc::free.
                         unsafe {
-                            *arr_ptr.add(i) = cs.into_raw();
+                            *arr_ptr.add(i) = libc::strdup(cs.as_ptr());
                         }
                     }
                     Err(_) => {
@@ -1331,12 +1510,9 @@ pub trait DmodexRequestCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending dmodex_request callbacks.
-type DmodexRequestRegistry = std::collections::HashMap<usize, Box<dyn DmodexRequestCallback>>;
-static DMODEX_REQUEST_REGISTRY: LazyLock<Mutex<DmodexRequestRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DMODEX_REQUEST_REGISTRY: LazyLock<Registry<Box<dyn DmodexRequestCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing dmodex_request ID counter.
-static DMODEX_REQUEST_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_dmodex_response_fn_t` (dmodex_request completion).
 ///
@@ -1374,7 +1550,7 @@ pub(crate) extern "C" fn dmodex_request_callback_bridge(
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1385,7 +1561,9 @@ pub(crate) extern "C" fn dmodex_request_callback_bridge(
 
     // Invoke the user's Rust callback with the copied data.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status, blob);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status, blob);
+    });
 }
 
 /// Request modex data for a specific process (direct modex operation).
@@ -1461,19 +1639,15 @@ pub fn server_dmodex_request(
     callback: Box<dyn DmodexRequestCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = DMODEX_REQUEST_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = DMODEX_REQUEST_REGISTRY.next_req_id();
     {
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the proc's internal pmix_proc_t for FFI.
@@ -1500,7 +1674,7 @@ pub fn server_dmodex_request(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = DMODEX_REQUEST_REGISTRY.lock().unwrap();
+        let mut registry = DMODEX_REQUEST_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
     }
@@ -1533,12 +1707,9 @@ pub trait SetupApplicationCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending setup_application callbacks.
-type SetupApplicationRegistry = std::collections::HashMap<usize, Box<dyn SetupApplicationCallback>>;
-static SETUP_APPLICATION_REGISTRY: LazyLock<Mutex<SetupApplicationRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static SETUP_APPLICATION_REGISTRY: LazyLock<Registry<Box<dyn SetupApplicationCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing setup_application request ID counter.
-static SETUP_APPLICATION_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_setup_application_cbfunc_t`.
 ///
@@ -1566,6 +1737,8 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(provided_cbdata);
 
+    release_server_retained_data(req_id);
+
     // Copy the info array before the PMIx library frees it.
     // The info array is owned by PMIx until we call the ack callback.
     //
@@ -1580,14 +1753,16 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
             let mut entries = Vec::with_capacity(ninfo);
             for i in 0..ninfo {
                 let entry = *info.add(i);
-                let key = CStr::from_ptr(entry.key.as_ptr() as *const std::os::raw::c_char)
-                    .to_string_lossy()
-                    .into_owned();
+                let key_slice =
+                    std::slice::from_raw_parts(entry.key.as_ptr() as *const u8, entry.key.len());
+                let key = CStr::from_bytes_until_nul(key_slice)
+                    .map(|key| key.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 // Extract value as string based on type_.
                 // pmix_data_type_t is u16; match against known values.
                 let dtype = entry.value.type_;
-                let value_str = match dtype {
-                    3 => {
+                let value_str = match dtype as u32 {
+                    ffi::PMIX_STRING => {
                         // PMIX_STRING
                         if !entry.value.data.string.is_null() {
                             CStr::from_ptr(entry.value.data.string)
@@ -1597,23 +1772,23 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
                             String::new()
                         }
                     }
-                    6 => format!("{}", entry.value.data.integer), // PMIX_INT
-                    11 => format!("{}", entry.value.data.uint),   // PMIX_UINT
-                    4 => format!("{}", entry.value.data.size),    // PMIX_SIZE
-                    7 => format!("{}", entry.value.data.int8),    // PMIX_INT8
-                    8 => format!("{}", entry.value.data.int16),   // PMIX_INT16
-                    9 => format!("{}", entry.value.data.int32),   // PMIX_INT32
-                    10 => format!("{}", entry.value.data.int64),  // PMIX_INT64
-                    12 => format!("{}", entry.value.data.uint8),  // PMIX_UINT8
-                    13 => format!("{}", entry.value.data.uint16), // PMIX_UINT16
-                    14 => format!("{}", entry.value.data.uint32), // PMIX_UINT32
-                    15 => format!("{}", entry.value.data.uint64), // PMIX_UINT64
-                    16 => format!("{}", entry.value.data.fval),   // PMIX_FLOAT
-                    17 => format!("{}", entry.value.data.dval),   // PMIX_DOUBLE
-                    1 => format!("{}", entry.value.data.flag),    // PMIX_BOOL
-                    5 => format!("{}", entry.value.data.pid),     // PMIX_PID
-                    20 => format!("{}", entry.value.data.status), // PMIX_STATUS
-                    31 => format!("{}", entry.value.data.rank), // PMIX_PROC_RANK (stored as rank in union)
+                    ffi::PMIX_INT => format!("{}", entry.value.data.integer), // PMIX_INT
+                    ffi::PMIX_UINT => format!("{}", entry.value.data.uint),   // PMIX_UINT
+                    ffi::PMIX_SIZE => format!("{}", entry.value.data.size),    // PMIX_SIZE
+                    ffi::PMIX_INT8 => format!("{}", entry.value.data.int8),    // PMIX_INT8
+                    ffi::PMIX_INT16 => format!("{}", entry.value.data.int16),   // PMIX_INT16
+                    ffi::PMIX_INT32 => format!("{}", entry.value.data.int32),   // PMIX_INT32
+                    ffi::PMIX_INT64 => format!("{}", entry.value.data.int64),  // PMIX_INT64
+                    ffi::PMIX_UINT8 => format!("{}", entry.value.data.uint8),  // PMIX_UINT8
+                    ffi::PMIX_UINT16 => format!("{}", entry.value.data.uint16), // PMIX_UINT16
+                    ffi::PMIX_UINT32 => format!("{}", entry.value.data.uint32), // PMIX_UINT32
+                    ffi::PMIX_UINT64 => format!("{}", entry.value.data.uint64), // PMIX_UINT64
+                    ffi::PMIX_FLOAT => format!("{}", entry.value.data.fval),   // PMIX_FLOAT
+                    ffi::PMIX_DOUBLE => format!("{}", entry.value.data.dval),  // PMIX_DOUBLE
+                    ffi::PMIX_BOOL => format!("{}", entry.value.data.flag),    // PMIX_BOOL
+                    ffi::PMIX_PID => format!("{}", entry.value.data.pid),     // PMIX_PID
+                    ffi::PMIX_STATUS => format!("{}", entry.value.data.status), // PMIX_STATUS
+                    ffi::PMIX_PROC_RANK => format!("{}", entry.value.data.rank), // PMIX_PROC_RANK (stored as rank in union)
                     _ => format!("[type={}] ", dtype),
                 };
                 entries.push((key, value_str));
@@ -1629,12 +1804,12 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
     if let Some(ack) = cbfunc {
         // SAFETY: cbfunc and cbdata are provided by PMIx and are valid
         // for the duration of this callback invocation.
-        unsafe { ack(ffi::PMIX_SUCCESS as ffi::pmix_status_t, cbdata) };
+        unsafe { ack(status, cbdata) };
     }
 
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1645,7 +1820,9 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
 
     // Invoke the user's Rust callback with the copied data.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status, copied_info);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status, copied_info);
+    });
 }
 
 /// Request application-specific setup prior to process launch.
@@ -1712,7 +1889,7 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
 /// }
 ///
 /// // After registering the namespace...
-/// server_setup_application("myapp.ns", &InfoBuilder::new().build(), Box::new(MySetupCallback))
+/// server_setup_application("myapp.ns", &InfoBuilder::new().build().expect("build info"), Box::new(MySetupCallback))
 ///     .expect("setup_application rejected");
 /// ```
 pub fn server_setup_application(
@@ -1732,28 +1909,19 @@ pub fn server_setup_application(
     };
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = SETUP_APPLICATION_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = SETUP_APPLICATION_REGISTRY.next_req_id();
     {
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    // Get the info array pointer and length.
-    let info_ptr = if info.len > 0 {
-        info.handle
-    } else {
-        ptr::null_mut()
-    };
-    let info_len = info.len;
+    // Retain the info array while PMIx processes the threadshifted request.
+    let (info_ptr, info_len) = retain_server_info(req_id, info);
 
     // Call the FFI function.
     let status = unsafe {
@@ -1779,14 +1947,17 @@ pub fn server_setup_application(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() {
-        // Request accepted — callback will be invoked asynchronously.
+    if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+        release_server_retained_data(req_id);
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock();
+        registry.remove(&req_id);
+        Ok(())
+    } else if pmix_status.is_success() {
         Ok(())
     } else {
-        // Immediate failure — remove the registered callback so it
-        // will never be invoked.
-        let mut registry = SETUP_APPLICATION_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_APPLICATION_REGISTRY.lock();
         registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -1806,13 +1977,9 @@ pub trait SetupLocalSupportCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending setup_local_support callbacks.
-type SetupLocalSupportRegistry =
-    std::collections::HashMap<usize, Box<dyn SetupLocalSupportCallback>>;
-static SETUP_LOCAL_SUPPORT_REGISTRY: LazyLock<Mutex<SetupLocalSupportRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static SETUP_LOCAL_SUPPORT_REGISTRY: LazyLock<Registry<Box<dyn SetupLocalSupportCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing setup_local_support request ID counter.
-static SETUP_LOCAL_SUPPORT_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (setup_local_support completion).
 ///
@@ -1828,9 +1995,11 @@ pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_s
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
+    release_server_retained_data(req_id);
+
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -1841,7 +2010,9 @@ pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_s
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Setup local support for a given namespace before spawning local clients.
@@ -1900,7 +2071,7 @@ pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_s
 /// // Setup local support for a namespace
 /// server_setup_local_support(
 ///     "myapp.12345",
-///     &InfoBuilder::new().build(),
+///     &InfoBuilder::new().build().expect("build info"),
 ///     Box::new(MySetupLocalCallback),
 /// )
 /// .expect("setup_local_support rejected");
@@ -1921,27 +2092,19 @@ pub fn server_setup_local_support(
     };
 
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = SETUP_LOCAL_SUPPORT_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = SETUP_LOCAL_SUPPORT_REGISTRY.next_req_id();
     {
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Prepare info parameters.
-    let (info_ptr, ninfo) = if info.len > 0 {
-        (info.handle, info.len)
-    } else {
-        (ptr::null_mut(), 0)
-    };
+    let (info_ptr, ninfo) = retain_server_info(req_id, info);
 
     // Call the FFI function.
     let status = unsafe {
@@ -1966,25 +2129,21 @@ pub fn server_setup_local_support(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() {
-        // PMIX_SUCCESS — request accepted, callback will be invoked asynchronously.
-        // PMIX_OPERATION_SUCCEEDED (-157) — immediately processed and succeeded,
-        // callback will NOT be called.
-        if pmix_status.to_raw() == -157 {
-            // PMIX_OPERATION_SUCCEEDED — callback not called, so remove it.
-            let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
-            registry.remove(&req_id);
-            // Return success — the operation completed immediately.
-            Ok(())
-        } else {
-            // PMIX_SUCCESS — callback will be invoked asynchronously.
-            Ok(())
-        }
+    if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+        // Immediately processed and succeeded — callback was not called.
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
+        registry.remove(&req_id);
+        release_server_retained_data(req_id);
+        Ok(())
+    } else if pmix_status.is_success() {
+        // PMIX_SUCCESS — callback will be invoked asynchronously.
+        Ok(())
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock().unwrap();
+        let mut registry = SETUP_LOCAL_SUPPORT_REGISTRY.lock();
         registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -2011,12 +2170,9 @@ pub trait IOFDeliverCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending IOF_deliver callbacks.
-type IOFDeliverRegistry = std::collections::HashMap<usize, Box<dyn IOFDeliverCallback>>;
-static IOF_DELIVER_REGISTRY: LazyLock<Mutex<IOFDeliverRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static IOF_DELIVER_REGISTRY: LazyLock<Registry<Box<dyn IOFDeliverCallback>>> =
+    LazyLock::new(Registry::new);
 
-/// Monotonically increasing IOF_deliver request ID counter.
-static IOF_DELIVER_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// C bridge for `pmix_op_cbfunc_t` (IOF_deliver completion).
 ///
@@ -2033,9 +2189,11 @@ pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t,
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
+    release_server_retained_data(req_id);
+
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -2046,7 +2204,9 @@ pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t,
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deliver forwarded I/O data to the local PMIx server for distribution.
@@ -2126,7 +2286,7 @@ pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t,
 ///     &source,
 ///     channel,
 ///     &data,
-///     &InfoBuilder::new().build(),
+///     &InfoBuilder::new().build().expect("build info"),
 ///     Box::new(MyIOFCallback),
 /// ).expect("IOF_deliver rejected");
 /// ```
@@ -2138,34 +2298,19 @@ pub fn server_iof_deliver(
     callback: Box<dyn IOFDeliverCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = IOF_DELIVER_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = IOF_DELIVER_REGISTRY.next_req_id();
     {
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
     // Encode the request ID as a non-null pointer for cbdata.
-    // We shift left by 2 to ensure the pointer is properly aligned
-    // and non-null (req_id starts from 1; see crate::cbdata::encode_req_id).
+    // encode_req_id casts the request ID directly; Registry never returns 0,
+    // so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
-    // Get a pointer to the source proc's internal pmix_proc_t for FFI.
-    let source_ptr = &source.handle as *const ffi::pmix_proc_t;
-
-    // Get the byte object pointer.
-    let bo_ptr =
-        bo as *const crate::data_serialization::PmixByteObject as *const ffi::pmix_byte_object_t;
-
-    // Prepare info parameters.
-    let (info_ptr, ninfo) = if info.len > 0 {
-        (info.handle, info.len)
-    } else {
-        (ptr::null_mut(), 0)
-    };
+    // Retain all inputs PMIx may access after this call returns.
+    let (source_ptr, bo_ptr, info_ptr, ninfo) = retain_server_iof(req_id, source, bo, info);
 
     // Call the FFI function.
     let status = unsafe {
@@ -2173,10 +2318,11 @@ pub fn server_iof_deliver(
         // - source_ptr is a valid reference to the Proc's internal pmix_proc_t
         //   that remains alive for the duration of this call (PMIx copies it).
         // - channel.0 is the raw pmix_iof_channel_t bitmask.
-        // - bo_ptr is a valid reference to the PmixByteObject's internal
-        //   pmix_byte_object_t. The caller must ensure bo remains valid until
-        //   the callback fires (the PMIx spec requires the host RM to retain
-        //   the byte object until the callback is executed).
+        // - bo_ptr is obtained from PmixByteObject::as_ptr and is a valid
+        //   reference to its internal pmix_byte_object_t. The caller must
+        //   ensure bo remains valid until the callback fires (the PMIx spec
+        //   requires the host RM to retain the byte object until the callback
+        //   is executed).
         // - info_ptr is either a valid array of pmix_info_t (from Info.handle)
         //   or null (PMIx accepts null info with ninfo=0).
         // - The callback bridge has C linkage and properly handles cbdata.
@@ -2197,14 +2343,17 @@ pub fn server_iof_deliver(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() {
-        // Request accepted — callback will be invoked asynchronously.
+    if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+        release_server_retained_data(req_id);
+        let mut registry = IOF_DELIVER_REGISTRY.lock();
+        registry.remove(&req_id);
+        Ok(())
+    } else if pmix_status.is_success() {
         Ok(())
     } else {
-        // Immediate failure — remove the registered callback so it
-        // will never be invoked.
-        let mut registry = IOF_DELIVER_REGISTRY.lock().unwrap();
+        let mut registry = IOF_DELIVER_REGISTRY.lock();
         registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -2236,6 +2385,8 @@ pub trait CollectInventoryCallback: Send + 'static {
 pub struct CollectInventoryResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -2254,27 +2405,22 @@ impl CollectInventoryResults {
 
 impl Drop for CollectInventoryResults {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
-            unsafe {
-                // SAFETY: handle was returned by PMIx as an allocated
-                // pmix_info_t array. PMIx_Info_free releases it.
-                ffi::PMIx_Info_free(self.handle, self.len);
-                self.handle = ptr::null_mut();
-                self.len = 0;
-            }
+        if let Some(release_fn) = self.release_fn.take() {
+            // SAFETY: PMIx supplied this callback and opaque data for this
+            // completion; it releases the tracker-owned info array.
+            unsafe { release_fn(self.release_cbdata) };
+            self.handle = ptr::null_mut();
+            self.len = 0;
         }
     }
 }
 
-/// Monotonically increasing collect-inventory request ID counter.
-static COLLECT_INVENTORY_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// Global registry of pending collect-inventory callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static COLLECT_INVENTORY_REGISTRY: LazyLock<
-    Mutex<std::collections::HashMap<usize, Box<dyn CollectInventoryCallback>>>,
-> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static COLLECT_INVENTORY_REGISTRY: LazyLock<Registry<Box<dyn CollectInventoryCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_info_cbfunc_t` (collect inventory completion).
 ///
@@ -2286,9 +2432,9 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     status: ffi::pmix_status_t,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
-    _release_cbdata: *mut c_void,
-    release_fn: ffi::pmix_release_cbfunc_t,
     cbdata: *mut c_void,
+    release_fn: ffi::pmix_release_cbfunc_t,
+    release_cbdata: *mut c_void,
 ) {
     if cbdata.is_null() {
         return;
@@ -2298,19 +2444,19 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
+    release_server_retained_data(req_id);
+
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
         Some(cb) => cb,
         None => {
-            // Callback already consumed — free the info array to avoid leak.
-            if !info.is_null() && ninfo > 0 {
-                unsafe {
-                    ffi::PMIx_Info_free(info, ninfo);
-                }
+            // Callback already consumed — release the PMIx tracker.
+            if let Some(release_fn) = release_fn {
+                unsafe { release_fn(release_cbdata) };
             }
             return;
         }
@@ -2320,12 +2466,13 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     let inventory = CollectInventoryResults {
         handle: info,
         len: ninfo,
-    
-            _not_thread_safe: std::marker::PhantomData,
-        };
-    cb.on_complete(pmix_status, inventory);
-    // release_fn is unused — we manage our own memory via CollectInventoryResults Drop.
-    let _ = release_fn;
+        release_fn,
+        release_cbdata,
+        _not_thread_safe: std::marker::PhantomData,
+    };
+    let _ = invoke_user_callback("server", move || {
+        cb.on_complete(pmix_status, inventory);
+    });
 }
 
 /// Collect hardware and software inventory from the local system (non-blocking).
@@ -2387,7 +2534,7 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
 ///     }
 /// }
 ///
-/// let directives = InfoBuilder::new().build();
+/// let directives = InfoBuilder::new().build().expect("build info");
 /// server_collect_inventory(
 ///     &directives,
 ///     Box::new(MyInventoryCallback),
@@ -2398,27 +2545,18 @@ pub fn server_collect_inventory(
     callback: Box<dyn CollectInventoryCallback>,
 ) -> Result<(), PmixStatus> {
     // Assign a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = COLLECT_INVENTORY_REGISTRY.next_req_id();
 
-    // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-    // is never null (req_id starts at 1, so shifted value >= 4).
+    // SAFETY: encode_req_id casts the request ID directly; Registry never
+    // returns 0, so cbdata is never null.
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     {
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
-    // Convert the directives Info slice to C pointers.
-    let (directives_ptr, ndirs) = if directives.len > 0 {
-        (directives.handle, directives.len)
-    } else {
-        (ptr::null_mut(), 0)
-    };
+    let (directives_ptr, ndirs) = retain_server_info(req_id, directives);
 
     let status = unsafe {
         // SAFETY:
@@ -2443,13 +2581,17 @@ pub fn server_collect_inventory(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() {
-        // Request accepted — callback will be invoked asynchronously.
+    if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+        release_server_retained_data(req_id);
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
+        registry.remove(&req_id);
+        Ok(())
+    } else if pmix_status.is_success() {
         Ok(())
     } else {
-        // Request was rejected — remove the callback so it doesn't leak.
-        let mut registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = COLLECT_INVENTORY_REGISTRY.lock();
         registry.remove(&req_id);
+        release_server_retained_data(req_id);
         Err(pmix_status)
     }
 }
@@ -2488,15 +2630,12 @@ pub trait DeliverInventoryCallback: Send + 'static {
     fn on_complete(self: Box<Self>, status: PmixStatus);
 }
 
-/// Monotonically increasing deliver-inventory request ID counter.
-static DELIVER_INVENTORY_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
 /// Global registry of pending deliver-inventory callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
-static DELIVER_INVENTORY_REGISTRY: LazyLock<
-    Mutex<std::collections::HashMap<usize, Box<dyn DeliverInventoryCallback>>>,
-> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static DELIVER_INVENTORY_REGISTRY: LazyLock<Registry<Box<dyn DeliverInventoryCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_op_cbfunc_t` (deliver inventory completion).
 ///
@@ -2512,9 +2651,11 @@ pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_sta
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
+    release_server_retained_data(req_id);
+
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+        let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
         registry.remove(&req_id)
     };
     let cb = match cb {
@@ -2524,7 +2665,9 @@ pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_sta
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server", move || {
+            cb.on_complete(pmix_status);
+    });
 }
 
 /// Deliver collected inventory information to the PMIx server library.
@@ -2587,8 +2730,8 @@ pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_sta
 ///     }
 /// }
 ///
-/// let inventory = InfoBuilder::new().build();
-/// let directives = InfoBuilder::new().build();
+/// let inventory = InfoBuilder::new().build().expect("build info");
+/// let directives = InfoBuilder::new().build().expect("build info");
 /// server_deliver_inventory(
 ///     &inventory,
 ///     &directives,
@@ -2602,34 +2745,25 @@ pub fn server_deliver_inventory(
 ) -> Result<(), PmixStatus> {
     // If a callback is provided, register it for async completion.
     if let Some(cb) = callback {
-        let req_id = {
-            let mut seq = DELIVER_INVENTORY_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = DELIVER_INVENTORY_REGISTRY.next_req_id();
 
-        // SAFETY: We shift the request ID left by 2 bits to ensure cbdata
-        // is never null (req_id starts at 1, so shifted value >= 4).
+        // SAFETY: encode_req_id casts the request ID directly; Registry never
+        // returns 0, so cbdata is never null.
         let cbdata = crate::cbdata::encode_req_id(req_id);
 
         {
-            let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+            let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
 
-        // Convert inventory Info slice to C pointers.
-        let (info_ptr, ninfo) = if inventory.len > 0 {
-            (inventory.handle, inventory.len)
-        } else {
-            (ptr::null_mut(), 0)
-        };
-
-        // Convert directives Info slice to C pointers.
-        let (directives_ptr, ndirs) = if directives.len > 0 {
-            (directives.handle, directives.len)
-        } else {
-            (ptr::null_mut(), 0)
-        };
+        // Retain both arrays while PMIx processes this threadshifted request.
+        let retained_inventory = retained_info(inventory);
+        let retained_directives = retained_info(directives);
+        let ninfo = retained_inventory.len();
+        let ndirs = retained_directives.len();
+        let info_ptr = if ninfo == 0 { ptr::null_mut() } else { retained_inventory.as_ptr() as *mut _ };
+        let directives_ptr = if ndirs == 0 { ptr::null_mut() } else { retained_directives.as_ptr() as *mut _ };
+        SERVER_RETAINED_DATA.lock().unwrap_or_else(|e| e.into_inner()).insert(req_id, RetainedServerData { infos: retained_inventory, directives: retained_directives, source: None, bo: None, bo_bytes: None });
 
         let status = unsafe {
             // SAFETY:
@@ -2658,13 +2792,17 @@ pub fn server_deliver_inventory(
 
         let pmix_status = PmixStatus::from_raw(status);
 
-        if pmix_status.is_success() {
-            // Request accepted — callback will be invoked asynchronously.
+        if pmix_status.to_raw() == ffi::PMIX_OPERATION_SUCCEEDED {
+            release_server_retained_data(req_id);
+            let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
+            registry.remove(&req_id);
+            Ok(())
+        } else if pmix_status.is_success() {
             Ok(())
         } else {
-            // Request was rejected — remove the callback so it doesn't leak.
-            let mut registry = DELIVER_INVENTORY_REGISTRY.lock().unwrap();
+            let mut registry = DELIVER_INVENTORY_REGISTRY.lock();
             registry.remove(&req_id);
+            release_server_retained_data(req_id);
             Err(pmix_status)
         }
     } else {
@@ -2852,3 +2990,26 @@ pub fn server_generate_cpuset_string(
     Ok(cpuset_string)
 }
 
+
+
+/// 6.x-only: `PMIx_server_generate_cpuset` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
+pub fn server_generate_cpuset(cpuset_string:&str,cpuset:&mut crate::fabric::PmixCpuset)->Result<(),PmixStatus>{let s=CString::new(cpuset_string).map_err(|_|PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;let raw=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_server_generate_cpuset(s.as_ptr(),cpuset.as_mut_ptr())},real=unsafe{ffi::PMIx_server_generate_cpuset(s.as_ptr(),cpuset.as_mut_ptr())});if raw==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(raw))}}
+/// 6.x-only: `PMIx_server_collect_job_info` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
+pub fn server_collect_job_info(procs:&[Proc],dbuf:&mut crate::data_serialization::PmixDataBuffer)->Result<(),PmixStatus>{let mut raw=procs.iter().map(|p|p.handle).collect::<Vec<_>>();let s=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_server_collect_job_info(raw.as_mut_ptr(),raw.len(),dbuf.as_mut_ptr())},real=unsafe{ffi::PMIx_server_collect_job_info(raw.as_mut_ptr(),raw.len(),dbuf.as_mut_ptr())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
+
+#[cfg(test)]
+mod misc_wrapper_tests {
+    use super::*;
+    #[cfg(pmix6)]
+    #[test]
+    fn server_cpuset_and_collect_job_info_wrappers() {
+        let _guard = crate::mock_ffi::MockGuard::new();
+        let mut cpuset = crate::fabric::PmixCpuset::new();
+        assert!(server_generate_cpuset("mock:0", &mut cpuset).is_ok());
+        let proc = crate::Proc::new("test", 0).unwrap();
+        let mut buffer = crate::data_serialization::data_buffer_create().unwrap();
+        assert!(server_collect_job_info(&[proc], &mut buffer).is_ok());
+    }
+}

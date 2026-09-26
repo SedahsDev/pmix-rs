@@ -206,6 +206,9 @@ impl PmixServer {
             real = unsafe { ffi::PMIx_server_finalize() },
         );
 
+        // Drop parked event handlers that were never deregistered.
+        crate::events::clear_handler_registry();
+
         self.inner
             .state
             .store(PmixServerState::Dead as u8, Ordering::Release);

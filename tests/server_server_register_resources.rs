@@ -166,7 +166,7 @@ fn test_server_register_resources_signature() {
 /// InfoBuilder produces an Info that can be passed to server_register_resources.
 #[test]
 fn test_info_builder_produces_compatible_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     // Verify the info has the expected structure (handle + len).
     // We can't call the function without a server, but we can verify
@@ -178,7 +178,7 @@ fn test_info_builder_produces_compatible_info() {
 /// Empty info (no keys) is valid for register_resources.
 #[test]
 fn test_empty_info_for_register_resources() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // Empty info is valid — it means "no resource info to register".
     fn accepts_info(_: &pmix::Info) {}
     accepts_info(&info);
@@ -383,7 +383,7 @@ fn test_server_register_resources_empty_info() {
         status: Arc::clone(&status),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_resources(&info, cb);
 
     // Without a running server, this will fail with an error status.
@@ -412,7 +412,7 @@ fn test_server_register_resources_with_info() {
     });
 
     // Build info with keys (if InfoBuilder supports it).
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_resources(&info, cb);
 
     assert!(result.is_ok() || result.is_err(), "should return a result");
@@ -438,7 +438,7 @@ fn test_server_register_resources_callback_invoked() {
         status: Arc::clone(&status),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_resources(&info, cb);
 
     if result.is_ok() {
@@ -460,7 +460,7 @@ fn test_server_register_resources_not_initialized() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_resources(&info, Box::new(TestCb));
 
     // Without PMIx_server_init, this should return an error.
@@ -490,7 +490,7 @@ fn test_server_register_resources_immediate_error_no_callback() {
         invoked: Arc::clone(&invoked),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_resources(&info, cb);
 
     // If the FFI call returns an error immediately, the callback should
@@ -523,7 +523,7 @@ fn test_server_register_resources_callback_success_status() {
         status: Arc::clone(&status),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_register_resources(&info, cb);
 
     if result.is_ok() {
@@ -560,7 +560,7 @@ fn test_server_register_resources_multiple_calls() {
         status: Arc::clone(&status2),
     });
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _result1 = server_register_resources(&info, cb1);
     let _result2 = server_register_resources(&info, cb2);
 

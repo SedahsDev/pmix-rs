@@ -22,7 +22,7 @@ use pmix::{InfoBuilder, PmixError, PmixStatus};
 /// process_monitor with empty directives returns error.
 #[test]
 fn test_process_monitor_empty_directives() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[]);
     assert!(result.is_err());
 }
@@ -30,8 +30,8 @@ fn test_process_monitor_empty_directives() {
 /// process_monitor with directives returns error (not initialized).
 #[test]
 fn test_process_monitor_with_directives() {
-    let monitor = InfoBuilder::new().build();
-    let directive = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let directive = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(
         &monitor,
         PmixStatus::Known(PmixError::Success),
@@ -43,9 +43,9 @@ fn test_process_monitor_with_directives() {
 /// process_monitor with multiple directives returns error.
 #[test]
 fn test_process_monitor_multiple_directives() {
-    let monitor = InfoBuilder::new().build();
-    let d1 = InfoBuilder::new().build();
-    let d2 = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let d1 = InfoBuilder::new().build().expect("build info");
+    let d2 = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[d1, d2]);
     assert!(result.is_err());
 }
@@ -53,7 +53,7 @@ fn test_process_monitor_multiple_directives() {
 /// process_monitor is deterministic.
 #[test]
 fn test_process_monitor_deterministic() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let r1 = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[]);
     let r2 = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[]);
     assert_eq!(r1.is_err(), r2.is_err());
@@ -62,7 +62,7 @@ fn test_process_monitor_deterministic() {
 /// process_monitor with error status returns error.
 #[test]
 fn test_process_monitor_error_status() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
     assert!(result.is_err());
 }
@@ -70,7 +70,7 @@ fn test_process_monitor_error_status() {
 /// process_monitor repeated calls are idempotent.
 #[test]
 fn test_process_monitor_idempotent() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let r1 = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[]);
     let r2 = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[]);
     let r3 = process_monitor(&monitor, PmixStatus::Known(PmixError::Success), &[]);
@@ -97,7 +97,7 @@ fn test_process_monitor_nb_empty_directives() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor_nb(
         &monitor,
         PmixStatus::Known(PmixError::Success),
@@ -128,8 +128,8 @@ fn test_process_monitor_nb_with_directives() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let monitor = InfoBuilder::new().build();
-    let directive = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let directive = InfoBuilder::new().build().expect("build info");
     let result = process_monitor_nb(
         &monitor,
         PmixStatus::Known(PmixError::Success),
@@ -160,9 +160,9 @@ fn test_process_monitor_nb_multiple_directives() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let monitor = InfoBuilder::new().build();
-    let d1 = InfoBuilder::new().build();
-    let d2 = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let d1 = InfoBuilder::new().build().expect("build info");
+    let d2 = InfoBuilder::new().build().expect("build info");
     let result = process_monitor_nb(
         &monitor,
         PmixStatus::Known(PmixError::Success),
@@ -193,7 +193,7 @@ fn test_process_monitor_nb_deterministic() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let r1 = process_monitor_nb(
         &monitor,
         PmixStatus::Known(PmixError::Success),
@@ -231,7 +231,7 @@ fn test_process_monitor_nb_error_status() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor_nb(
         &monitor,
         PmixStatus::Known(PmixError::ErrNotFound),

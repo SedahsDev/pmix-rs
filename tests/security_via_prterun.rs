@@ -74,7 +74,7 @@ fn test_credential_debug() {
 fn test_credential_as_raw() {
     let cred = pmix::security::PmixCredential::from_bytes(&[1, 2, 3]);
     let ptr = cred.as_raw();
-    assert!(!ptr.is_null());
+    assert!(!ptr.bytes.is_null());
 }
 
 /// ValidationResults::empty creates an empty result set.

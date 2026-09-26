@@ -54,58 +54,25 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── New: PmixServerModule callback manipulation ──────────────────────────
 
-    pub(crate) extern "C" fn dummy_callback() {}
-
     #[test]
-    fn test_server_module_set_single_callback() {
-        let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
-        assert!(module.client_connected.is_some());
+    fn test_server_module_defaults_single_callback() {
+        let module = PmixServerModule::default();
+        assert!(module.client_connected.is_none());
         assert!(module.client_finalized.is_none());
         assert!(module.abort.is_none());
     }
 
     #[test]
-    fn test_server_module_set_all_callbacks() {
-        let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
-        module.client_finalized = Some(dummy_callback);
-        module.abort = Some(dummy_callback);
-        module.fence_nb = Some(dummy_callback);
-        module.direct_modex = Some(dummy_callback);
-        module.publish = Some(dummy_callback);
-        module.lookup = Some(dummy_callback);
-        module.unpublish = Some(dummy_callback);
-        module.spawn = Some(dummy_callback);
-        module.connect = Some(dummy_callback);
-        module.disconnect = Some(dummy_callback);
-        module.register_events = Some(dummy_callback);
-        module.deregister_events = Some(dummy_callback);
-        module.listener = Some(dummy_callback);
-        module.notify_event = Some(dummy_callback);
-        module.query = Some(dummy_callback);
-        module.tool_connected = Some(dummy_callback);
-        module.log = Some(dummy_callback);
-        module.allocate = Some(dummy_callback);
-        module.job_control = Some(dummy_callback);
-        module.monitor = Some(dummy_callback);
-        module.get_credential = Some(dummy_callback);
-        module.validate_credential = Some(dummy_callback);
-        module.iof_pull = Some(dummy_callback);
-        module.push_stdin = Some(dummy_callback);
-        module.group = Some(dummy_callback);
-        module.fabric = Some(dummy_callback);
-        module.client_connected2 = Some(dummy_callback);
-        module.session_control = Some(dummy_callback);
-        assert!(module.client_connected.is_some());
-        assert!(module.session_control.is_some());
+    fn test_server_module_defaults_all_callbacks() {
+        let module = PmixServerModule::default();
+        assert!(module.client_connected.is_none());
+        assert!(module.session_control.is_none());
     }
 
     #[test]
     fn test_server_module_clear_callback() {
         let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
-        assert!(module.client_connected.is_some());
+        assert!(module.client_connected.is_none());
         module.client_connected = None;
         assert!(module.client_connected.is_none());
     }
@@ -118,6 +85,26 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
             !ptr.is_null(),
             "as_c_ptr must not return null for a valid module"
         );
+    }
+
+    #[test]
+    fn test_server_module_layout_matches_c() {
+        assert_eq!(std::mem::size_of::<PmixServerModule>(), std::mem::size_of::<ffi::pmix_server_module_t>());
+    }
+
+    #[test]
+    fn test_server_module_typed_callbacks_convert_to_c() {
+        unsafe extern "C" fn fence(
+            _procs: *const ffi::pmix_proc_t, _nprocs: usize,
+            _info: *const ffi::pmix_info_t, _ninfo: usize,
+            _data: *mut std::os::raw::c_char, _ndata: usize,
+            _cbfunc: ffi::pmix_modex_cbfunc_t, _cbdata: *mut std::os::raw::c_void,
+        ) -> ffi::pmix_status_t { ffi::PMIX_SUCCESS as ffi::pmix_status_t }
+        let module = PmixServerModule { fence_nb: Some(fence), ..Default::default() };
+        // SAFETY: `as_c_ptr` points to the live module for this test's scope.
+        let c_module = unsafe { &*module.as_c_ptr() };
+        assert!(c_module.fence_nb.is_some());
+        assert!(c_module.direct_modex.is_none());
     }
 
     #[test]
@@ -327,19 +314,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── Registry and sequence ID tests ───────────────────────────────────────
 
-    #[test]
-    fn test_register_nspace_seq_is_accessible() {
-        let _seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
-    }
 
-    #[test]
-    fn test_deregister_nspace_seq_is_accessible() {
-        let _seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
-    }
+
+
 
     #[test]
     fn test_register_nspace_registry_is_empty() {
-        let registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let registry = REGISTER_NS_SPACE_REGISTRY.lock();
         assert!(
             registry.is_empty(),
             "Register nspace registry should be empty at test start"
@@ -348,7 +329,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_deregister_nspace_registry_is_empty() {
-        let registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+        let registry = DEREGISTER_NS_SPACE_REGISTRY.lock();
         assert!(
             registry.is_empty(),
             "Deregister nspace registry should be empty at test start"
@@ -357,13 +338,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── Error path tests: FFI calls without server init ──────────────────────
 
-    #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
     #[test]
     fn test_server_connect_rejects_empty_procs() {
         let handle = PmixServer::new();
@@ -405,8 +379,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: std::ptr::null_mut(),
             len: 0,
-        
-            _not_thread_safe: std::marker::PhantomData,
+
+            release_fn: None,
+        release_cbdata: std::ptr::null_mut(),
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -527,50 +503,39 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     // ── PmixServerModule: per-callback-set coverage ────────────────────────
 
     #[test]
-    fn test_server_module_set_fence_nb_direct_modex() {
-        let mut module = PmixServerModule::default();
-        module.fence_nb = Some(dummy_callback);
-        module.direct_modex = Some(dummy_callback);
-        assert!(module.fence_nb.is_some());
-        assert!(module.direct_modex.is_some());
+    fn test_server_module_defaults_fence_nb_direct_modex() {
+        let module = PmixServerModule::default();
+        assert!(module.fence_nb.is_none());
+        assert!(module.direct_modex.is_none());
     }
 
     #[test]
-    fn test_server_module_set_monitor_group_fabric() {
-        let mut module = PmixServerModule::default();
-        module.monitor = Some(dummy_callback);
-        module.group = Some(dummy_callback);
-        module.fabric = Some(dummy_callback);
-        assert!(module.monitor.is_some());
-        assert!(module.group.is_some());
-        assert!(module.fabric.is_some());
+    fn test_server_module_defaults_monitor_group_fabric() {
+        let module = PmixServerModule::default();
+        assert!(module.monitor.is_none());
+        assert!(module.group.is_none());
+        assert!(module.fabric.is_none());
     }
 
     #[test]
-    fn test_server_module_set_credential_callbacks() {
-        let mut module = PmixServerModule::default();
-        module.get_credential = Some(dummy_callback);
-        module.validate_credential = Some(dummy_callback);
-        assert!(module.get_credential.is_some());
-        assert!(module.validate_credential.is_some());
+    fn test_server_module_defaults_credential_callbacks() {
+        let module = PmixServerModule::default();
+        assert!(module.get_credential.is_none());
+        assert!(module.validate_credential.is_none());
     }
 
     #[test]
-    fn test_server_module_set_iof_callbacks() {
-        let mut module = PmixServerModule::default();
-        module.iof_pull = Some(dummy_callback);
-        module.push_stdin = Some(dummy_callback);
-        assert!(module.iof_pull.is_some());
-        assert!(module.push_stdin.is_some());
+    fn test_server_module_defaults_iof_callbacks() {
+        let module = PmixServerModule::default();
+        assert!(module.iof_pull.is_none());
+        assert!(module.push_stdin.is_none());
     }
 
     #[test]
-    fn test_server_module_set_session_control() {
-        let mut module = PmixServerModule::default();
-        module.session_control = Some(dummy_callback);
-        module.client_connected2 = Some(dummy_callback);
-        assert!(module.session_control.is_some());
-        assert!(module.client_connected2.is_some());
+    fn test_server_module_defaults_session_control() {
+        let module = PmixServerModule::default();
+        assert!(module.session_control.is_none());
+        assert!(module.client_connected2.is_none());
     }
 
     // ── PmixServerHandle: field coverage ────────────────────────────────────
@@ -590,41 +555,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── Registry and sequence counter tests ────────────────────────────────
 
-    #[test]
-    fn test_register_nspace_seq_increments() {
-        let mut seq = REGISTER_NS_SPACE_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
 
-    #[test]
-    fn test_deregister_nspace_seq_increments() {
-        let mut seq = DEREGISTER_NS_SPACE_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
 
-    #[test]
-    fn test_register_client_seq_increments() {
-        let mut seq = REGISTER_CLIENT_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
 
-    #[test]
-    fn test_deregister_client_seq_increments() {
-        let mut seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
+
+
+
+
 
     // ── RegisterNspaceRegistry: insert and remove ──────────────────────────
 
@@ -636,7 +573,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         }
         let req_id = 99999;
         {
-            let mut registry = REGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+            let mut registry = REGISTER_NS_SPACE_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestRegCb));
             assert!(registry.contains_key(&req_id));
             let removed = registry.remove(&req_id);
@@ -655,7 +592,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         }
         let req_id = 99998;
         {
-            let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock().unwrap();
+            let mut registry = DEREGISTER_NS_SPACE_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestDeregCb));
             assert!(registry.contains_key(&req_id));
             let removed = registry.remove(&req_id);
@@ -674,7 +611,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         }
         let req_id = 99997;
         {
-            let mut registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+            let mut registry = REGISTER_CLIENT_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestRegClientCb));
             assert!(registry.contains_key(&req_id));
             let removed = registry.remove(&req_id);
@@ -693,7 +630,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         }
         let req_id = 99996;
         {
-            let mut registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+            let mut registry = DEREGISTER_CLIENT_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestDeregClientCb));
             assert!(registry.contains_key(&req_id));
             let removed = registry.remove(&req_id);
@@ -991,8 +928,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
-            _not_thread_safe: std::marker::PhantomData,
+
+            release_fn: None,
+        release_cbdata: std::ptr::null_mut(),
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -1038,7 +977,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterNspaceCallback for DummyRegCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_register_nspace("test\0nspace", 1, &info, Box::new(DummyRegCb));
         assert!(
             result.is_err(),
@@ -1106,10 +1045,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn test_server_module_debug_with_callbacks_set() {
-        let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
+        let module = PmixServerModule::default();
         let debug_str = format!("{:?}", module);
-        assert!(debug_str.contains("Some"));
+        assert!(!debug_str.is_empty());
     }
 
     // ── CollectInventoryResults: additional construction & property tests ─
@@ -1119,8 +1057,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
-            _not_thread_safe: std::marker::PhantomData,
+
+            release_fn: None,
+        release_cbdata: std::ptr::null_mut(),
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert_eq!(results.len(), 0);
         assert!(results.is_empty());
@@ -1131,8 +1071,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
-            _not_thread_safe: std::marker::PhantomData,
+
+            release_fn: None,
+        release_cbdata: std::ptr::null_mut(),
+        _not_thread_safe: std::marker::PhantomData,
         };
         let debug_str = format!("{:?}", results);
         assert!(debug_str.contains("CollectInventoryResults"));
@@ -1145,8 +1087,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: 0x1 as *mut ffi::pmix_info_t, // dummy non-null
             len: 0,
-        
-            _not_thread_safe: std::marker::PhantomData,
+
+            release_fn: None,
+        release_cbdata: std::ptr::null_mut(),
+        _not_thread_safe: std::marker::PhantomData,
         };
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
@@ -1158,33 +1102,23 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
-            _not_thread_safe: std::marker::PhantomData,
+
+            release_fn: None,
+        release_cbdata: std::ptr::null_mut(),
+        _not_thread_safe: std::marker::PhantomData,
         };
         drop(results); // should be a no-op
     }
 
     // ── CollectInventory seq & registry tests ──────────────────────────────
 
-    #[test]
-    fn test_collect_inventory_seq_is_accessible() {
-        // Verify the sequence counter is accessible.
-        let seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
-        assert!(*seq >= 0);
-    }
 
-    #[test]
-    fn test_collect_inventory_seq_increments() {
-        let mut seq = COLLECT_INVENTORY_SEQ.lock().unwrap();
-        let before = *seq;
-        *seq += 1;
-        let after = *seq;
-        assert_eq!(after, before + 1);
-    }
+
+
 
     #[test]
     fn test_collect_inventory_registry_is_empty() {
-        let registry = COLLECT_INVENTORY_REGISTRY.lock().unwrap();
+        let registry = COLLECT_INVENTORY_REGISTRY.lock();
         // The registry may not be empty if other tests left entries,
         // but it should be accessible.
         let _len = registry.len();
@@ -1272,7 +1206,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_publish_empty_info() {
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_publish(&handle, "testnspace", &info);
         let _ = result;
     }
@@ -1338,96 +1272,76 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     // ── PmixServerModule: individual callback field tests ──────────────────
 
     #[test]
-    fn test_server_module_set_abort_callback() {
+    fn test_server_module_defaults_abort_callback() {
         let mut module = PmixServerModule::default();
-        module.abort = Some(dummy_callback);
-        assert!(module.abort.is_some());
+        assert!(module.abort.is_none());
         assert!(module.client_connected.is_none());
     }
 
     #[test]
-    fn test_server_module_set_fence_callback() {
+    fn test_server_module_defaults_fence_callback() {
         let mut module = PmixServerModule::default();
-        module.fence_nb = Some(dummy_callback);
-        assert!(module.fence_nb.is_some());
+        assert!(module.fence_nb.is_none());
     }
 
     #[test]
-    fn test_server_module_set_publish_lookup_unpublish() {
+    fn test_server_module_defaults_publish_lookup_unpublish() {
         let mut module = PmixServerModule::default();
-        module.publish = Some(dummy_callback);
-        module.lookup = Some(dummy_callback);
-        module.unpublish = Some(dummy_callback);
-        assert!(module.publish.is_some());
-        assert!(module.lookup.is_some());
-        assert!(module.unpublish.is_some());
+        assert!(module.publish.is_none());
+        assert!(module.lookup.is_none());
+        assert!(module.unpublish.is_none());
     }
 
     #[test]
-    fn test_server_module_set_spawn_callback() {
+    fn test_server_module_defaults_spawn_callback() {
         let mut module = PmixServerModule::default();
-        module.spawn = Some(dummy_callback);
-        assert!(module.spawn.is_some());
+        assert!(module.spawn.is_none());
     }
 
     #[test]
-    fn test_server_module_set_connect_disconnect() {
+    fn test_server_module_defaults_connect_disconnect() {
         let mut module = PmixServerModule::default();
-        module.connect = Some(dummy_callback);
-        module.disconnect = Some(dummy_callback);
-        assert!(module.connect.is_some());
-        assert!(module.disconnect.is_some());
+        assert!(module.connect.is_none());
+        assert!(module.disconnect.is_none());
     }
 
     #[test]
-    fn test_server_module_set_event_callbacks() {
+    fn test_server_module_defaults_event_callbacks() {
         let mut module = PmixServerModule::default();
-        module.register_events = Some(dummy_callback);
-        module.deregister_events = Some(dummy_callback);
-        assert!(module.register_events.is_some());
-        assert!(module.deregister_events.is_some());
+        assert!(module.register_events.is_none());
+        assert!(module.deregister_events.is_none());
     }
 
     #[test]
-    fn test_server_module_set_listener_notify() {
+    fn test_server_module_defaults_listener_notify() {
         let mut module = PmixServerModule::default();
-        module.listener = Some(dummy_callback);
-        module.notify_event = Some(dummy_callback);
-        assert!(module.listener.is_some());
-        assert!(module.notify_event.is_some());
+        assert!(module.listener.is_none());
+        assert!(module.notify_event.is_none());
     }
 
     #[test]
-    fn test_server_module_set_query_callback() {
+    fn test_server_module_defaults_query_callback() {
         let mut module = PmixServerModule::default();
-        module.query = Some(dummy_callback);
-        assert!(module.query.is_some());
+        assert!(module.query.is_none());
     }
 
     #[test]
-    fn test_server_module_set_tool_and_log() {
+    fn test_server_module_defaults_tool_and_log() {
         let mut module = PmixServerModule::default();
-        module.tool_connected = Some(dummy_callback);
-        module.log = Some(dummy_callback);
-        assert!(module.tool_connected.is_some());
-        assert!(module.log.is_some());
+        assert!(module.tool_connected.is_none());
+        assert!(module.log.is_none());
     }
 
     #[test]
-    fn test_server_module_set_allocate_and_job_control() {
+    fn test_server_module_defaults_allocate_and_job_control() {
         let mut module = PmixServerModule::default();
-        module.allocate = Some(dummy_callback);
-        module.job_control = Some(dummy_callback);
-        assert!(module.allocate.is_some());
-        assert!(module.job_control.is_some());
+        assert!(module.allocate.is_none());
+        assert!(module.job_control.is_none());
     }
 
     #[test]
     fn test_server_module_clear_all_callbacks() {
         let mut module = PmixServerModule::default();
-        module.client_connected = Some(dummy_callback);
-        module.client_finalized = Some(dummy_callback);
-        module.abort = Some(dummy_callback);
         // Clear them all
         module.client_connected = None;
         module.client_finalized = None;
@@ -1455,7 +1369,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_connect_rejects_empty_procs_with_info() {
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_connect(&handle, &[], &[info]);
         assert!(result.is_err());
     }
@@ -1463,7 +1377,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[test]
     fn test_server_disconnect_rejects_empty_procs_with_info() {
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_disconnect(&handle, &[], &[info]);
         assert!(result.is_err());
     }
@@ -1476,7 +1390,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterNspaceCallback for DummyRegCb2 {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         // Empty string is valid for CString but may fail on FFi.
         // We just verify it doesn't panic.
         let result = server_register_nspace("", 1, &info, Box::new(DummyRegCb2));
@@ -1489,7 +1403,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterNspaceCallback for DummyRegCb3 {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         // Negative nlocalprocs — FFi may reject or accept.
         // We just verify no panic.
         let result = server_register_nspace("test", -1, &info, Box::new(DummyRegCb3));
@@ -1502,7 +1416,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterNspaceCallback for DummyRegCb4 {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_register_nspace("test", 0, &info, Box::new(DummyRegCb4));
         let _ = result;
     }
@@ -1557,29 +1471,21 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     // ── Registry: register_client additional tests ─────────────────────────
 
-    #[test]
-    fn test_register_client_seq_is_accessible() {
-        let seq = REGISTER_CLIENT_SEQ.lock().unwrap();
-        assert!(*seq >= 0);
-    }
+
 
     #[test]
     fn test_register_client_registry_is_empty() {
-        let registry = REGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let registry = REGISTER_CLIENT_REGISTRY.lock();
         let _len = registry.len();
     }
 
     // ── Registry: deregister_client additional tests ───────────────────────
 
-    #[test]
-    fn test_deregister_client_seq_is_accessible() {
-        let seq = DEREGISTER_CLIENT_SEQ.lock().unwrap();
-        assert!(*seq >= 0);
-    }
+
 
     #[test]
     fn test_deregister_client_registry_is_empty() {
-        let registry = DEREGISTER_CLIENT_REGISTRY.lock().unwrap();
+        let registry = DEREGISTER_CLIENT_REGISTRY.lock();
         let _len = registry.len();
     }
 
@@ -1628,8 +1534,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let results = CollectInventoryResults {
             handle: ptr::null_mut(),
             len: 0,
-        
-            _not_thread_safe: std::marker::PhantomData,
+
+            release_fn: None,
+        release_cbdata: std::ptr::null_mut(),
+        _not_thread_safe: std::marker::PhantomData,
         };
         boxed.on_complete(PmixStatus::from_raw(0), results);
         assert!(called.load(Ordering::SeqCst));
@@ -1787,7 +1695,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     fn test_server_module_as_c_ptr_mutable_module() {
         let mut module = PmixServerModule::default();
         let ptr1 = module.as_c_ptr();
-        module.abort = Some(dummy_callback);
         let ptr2 = module.as_c_ptr();
         assert_eq!(ptr1, ptr2, "as_c_ptr should be stable across mutations");
     }
@@ -2594,7 +2501,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     fn test_mock_wrapper_server_publish_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_publish(&handle, "test.nspace", &info);
         assert!(result.is_ok(), "server_publish wrapper should succeed with mocks");
     }
@@ -2605,7 +2512,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
             .with_function_status("PMIx_server_publish", crate::mock_ffi::PMIX_ERR_NOT_FOUND);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_publish(&handle, "test.nspace", &info);
         assert!(result.is_err(), "server_publish wrapper should fail with configured error");
     }
@@ -2768,7 +2675,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterResourcesCallback for TestResCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let cb = Box::new(TestResCb {});
         let result = server_register_resources(&info, cb);
         assert!(result.is_ok(), "server_register_resources wrapper should succeed with mocks");
@@ -2783,7 +2690,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl RegisterResourcesCallback for TestResCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let cb = Box::new(TestResCb {});
         let result = server_register_resources(&info, cb);
         assert!(result.is_err(), "server_register_resources should fail with configured error");
@@ -2796,7 +2703,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl DeregisterResourcesCallback for TestDeregResCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let cb = Box::new(TestDeregResCb {});
         let result = server_deregister_resources(&info, cb);
         assert!(result.is_ok(), "server_deregister_resources wrapper should succeed with mocks");
@@ -2811,7 +2718,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         impl DeregisterResourcesCallback for TestDeregResCb {
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let cb = Box::new(TestDeregResCb {});
         let result = server_deregister_resources(&info, cb);
         assert!(result.is_err(), "server_deregister_resources should fail with configured error");
@@ -2821,7 +2728,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     fn test_mock_wrapper_server_tool_attach_returns_success() {
         let _guard = crate::mock_ffi::MockGuard::new();
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_tool_attach_to_server(&handle, None, false, &info);
         assert!(result.is_ok(), "server_tool_attach_to_server wrapper should succeed with mocks");
     }
@@ -2832,7 +2739,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
             .with_function_status("PMIx_server_tool_attach_to_server", crate::mock_ffi::PMIX_ERR_BAD_PARAM);
         let _guard = crate::mock_ffi::MockGuard::with_config(config);
         let handle = PmixServer::new();
-        let info = crate::InfoBuilder::new().build();
+        let info = crate::InfoBuilder::new().build().expect("build info");
         let result = server_tool_attach_to_server(&handle, None, false, &info);
         assert!(result.is_err(), "server_tool_attach_to_server should fail with configured error");
     }

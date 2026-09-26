@@ -101,14 +101,14 @@ fn test_query_multiple_independent() {
 
 #[test]
 fn test_query_with_empty_qualifiers() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let query = PmixQuery::new(&["test_key"]).expect("create");
     let _query = query.with_qualifiers(info);
 }
 
 #[test]
 fn test_query_with_qualifiers_chained() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _query = PmixQuery::new(&["test_key"])
         .expect("create")
         .with_qualifiers(info);
@@ -116,7 +116,7 @@ fn test_query_with_qualifiers_chained() {
 
 #[test]
 fn test_query_with_qualifiers_transfers_ownership() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let query = PmixQuery::new(&["test_key"]).expect("create");
     let _query = query.with_qualifiers(info);
     // info is consumed — can't use it anymore
@@ -241,7 +241,7 @@ fn test_log_callback_send_bound() {
 
 #[test]
 fn test_infobuilder_build_empty() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = info;
 }
 
@@ -249,7 +249,7 @@ fn test_infobuilder_build_empty() {
 fn test_infobuilder_collect_data() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 #[test]
@@ -257,7 +257,7 @@ fn test_infobuilder_multiple_collect() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

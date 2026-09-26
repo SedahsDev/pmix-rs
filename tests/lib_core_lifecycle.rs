@@ -20,7 +20,7 @@ use pmix::{InfoBuilder, PmixClient, PmixError, PmixStatus, finalize, get_version
 #[test]
 fn get_version_returns_non_empty() {
     assert!(
-        !get_version().is_empty(),
+        !get_version().unwrap().is_empty(),
         "get_version should return non-empty string"
     );
 }
@@ -28,7 +28,7 @@ fn get_version_returns_non_empty() {
 /// `get_version` returns a string containing digits (version numbers).
 #[test]
 fn get_version_contains_digits() {
-    let version = get_version();
+    let version = get_version().unwrap();
     assert!(
         version.chars().any(|c| c.is_ascii_digit()),
         "get_version should contain digits"
@@ -38,15 +38,15 @@ fn get_version_contains_digits() {
 /// `get_version` returns `&'static str` (compile-time type check).
 #[test]
 fn get_version_returns_static_str() {
-    let _v: &'static str = get_version();
+    let _v: &'static str = get_version().expect("version");
 }
 
 /// `get_version` is deterministic — repeated calls return the same value.
 #[test]
 fn get_version_is_deterministic() {
     assert_eq!(
-        get_version(),
-        get_version(),
+        get_version().unwrap(),
+        get_version().unwrap(),
         "get_version must be deterministic"
     );
 }
@@ -54,7 +54,7 @@ fn get_version_is_deterministic() {
 /// `get_version` returns printable ASCII and spaces only.
 #[test]
 fn get_version_is_printable_ascii() {
-    let version = get_version();
+    let version = get_version().unwrap();
     for (i, c) in version.chars().enumerate() {
         assert!(
             c.is_ascii_graphic() || c == ' ' || c == '\t',
@@ -70,7 +70,7 @@ fn get_version_is_printable_ascii() {
 #[test]
 fn get_version_starts_with_openpmix() {
     assert!(
-        get_version().starts_with("OpenPMIx"),
+        get_version().unwrap().starts_with("OpenPMIx"),
         "get_version should start with 'OpenPMIx'"
     );
 }
@@ -79,7 +79,7 @@ fn get_version_starts_with_openpmix() {
 #[test]
 fn get_version_has_space_separator() {
     assert!(
-        get_version().contains(' '),
+        get_version().unwrap().contains(' '),
         "get_version should contain a space between name and version"
     );
 }
@@ -88,7 +88,7 @@ fn get_version_has_space_separator() {
 /// The format is "OpenPMIx 5.0.7a1 ..." — split on space, then find the first numeric segment.
 #[test]
 fn get_version_can_extract_major_version() {
-    let version = get_version();
+    let version = get_version().unwrap();
     let version_part = version.split(' ').nth(1).unwrap_or("");
     let major = version_part
         .split(|c: char| !c.is_ascii_digit())
@@ -106,7 +106,7 @@ fn get_version_can_extract_major_version() {
 /// Can extract a full "major.minor" version from `get_version` output.
 #[test]
 fn get_version_can_extract_major_minor_version() {
-    let version = get_version();
+    let version = get_version().unwrap();
     let version_part = version.split(' ').nth(1).unwrap_or("");
     let mut dot_count = 0;
     let mut segment = String::new();
@@ -141,7 +141,7 @@ fn get_version_can_extract_major_minor_version() {
 /// `get_version` string length is reasonable (not absurdly long).
 #[test]
 fn get_version_reasonable_length() {
-    let version = get_version();
+    let version = get_version().unwrap();
     assert!(
         version.len() > 5 && version.len() < 256,
         "get_version has suspicious length {}",
@@ -152,7 +152,7 @@ fn get_version_reasonable_length() {
 /// `get_version` contains version metadata like "PMIx Standard" or "ABI".
 #[test]
 fn get_version_contains_metadata() {
-    let version = get_version();
+    let version = get_version().unwrap();
     // The version string from OpenPMIx includes metadata like
     // "OpenPMIx 5.0.7a1 (PMIx Standard: 5.1, Stable ABI: 5.0, ...)"
     assert!(
@@ -224,7 +224,7 @@ fn init_without_dvm_returns_err() {
 /// `PmixClient::connect_new(Some(info))` without DVM returns `Err`.
 #[test]
 fn init_with_info_without_dvm_returns_err() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     assert!(
         PmixClient::connect_new(Some(info)).is_err(),
         "PmixClient::connect_new(Some(info)) without DVM should return Err"
@@ -260,7 +260,7 @@ fn init_does_not_panic_on_error() {
 /// `init` with empty InfoBuilder also returns error without DVM.
 #[test]
 fn init_with_empty_info_returns_err() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     assert!(
         PmixClient::connect_new(Some(info)).is_err(),
         "init with empty InfoBuilder should fail without DVM"
@@ -272,7 +272,7 @@ fn init_with_empty_info_returns_err() {
 fn init_with_collect_data_info_returns_err() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     assert!(
         PmixClient::connect_new(Some(info)).is_err(),
         "init with collect_data info should fail without DVM"
@@ -339,7 +339,11 @@ fn init_error_is_known_pmixerror() {
     }
 }
 
-/// `init` error is an error (not success) — raw value is negative.
+/// `init` error (when returned) is an error status — raw value is negative.
+///
+/// OpenPMIx ≥ 6.1 may successfully start a local/singleton client without an
+/// external DVM, so success is also acceptable here. When init *does* fail,
+/// the status must be a real error (not success).
 #[test]
 fn init_error_is_error_not_success() {
     match PmixClient::connect_new(None) {
@@ -355,7 +359,10 @@ fn init_error_is_error_not_success() {
                 e
             );
         }
-        Ok(_) => panic!("init should fail without DVM"),
+        Ok(client) => {
+            // Singleton / local init succeeded — clean up.
+            let _ = client.disconnect(None);
+        }
     }
 }
 
@@ -399,7 +406,7 @@ fn multiple_finalize_without_init_safe() {
 /// `finalize(Some(info))` without prior init completes without crashing.
 #[test]
 fn finalize_with_info_without_init_safe() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = finalize(Some(info));
 }
 
@@ -474,8 +481,8 @@ fn initialized_consistent_after_failed_lifecycle() {
 /// init with info, then finalize with info: init fails, finalize completes.
 #[test]
 fn init_with_info_then_finalize_with_info() {
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
 
     let init_result = PmixClient::connect_new(Some(info1));
     assert!(
@@ -585,7 +592,7 @@ fn concurrent_get_version_safe() {
         handles.push(std::thread::spawn(|| {
             let mut results = Vec::new();
             for _ in 0..CALLS_PER_THREAD {
-                results.push(get_version().to_string());
+                results.push(get_version().unwrap().to_string());
             }
             results
         }));
@@ -626,7 +633,7 @@ fn mixed_concurrent_safe_calls() {
                 if id % 2 == 0 {
                     let _ = initialized();
                 } else {
-                    let _ = get_version();
+                    let _ = get_version().unwrap();
                 }
             }
         }));
@@ -641,7 +648,7 @@ fn mixed_concurrent_safe_calls() {
 #[test]
 fn safe_functions_work_before_any_lifecycle() {
     // These should work even at the very start, before any init/finalize
-    let version = get_version();
+    let version = get_version().unwrap();
     let _is_init = initialized();
 
     assert!(!version.is_empty(), "version should be non-empty");
@@ -652,7 +659,7 @@ fn safe_functions_work_before_any_lifecycle() {
 fn get_version_works_after_failed_init() {
     let _ = PmixClient::connect_new(None);
     assert!(
-        !get_version().is_empty(),
+        !get_version().unwrap().is_empty(),
         "get_version should work after failed init"
     );
 }
@@ -687,7 +694,7 @@ fn get_version_thread_consistent_under_contention() {
         let v = versions.clone();
         handles.push(std::thread::spawn(move || {
             b.wait(); // synchronize all threads
-            let ver = get_version().to_string();
+            let ver = get_version().unwrap().to_string();
             v.lock().unwrap().push(ver);
         }));
     }

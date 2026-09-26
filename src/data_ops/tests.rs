@@ -4,6 +4,22 @@ use super::*;
 
     use super::*;
 
+    #[test]
+    fn lookup_rejects_over_length_key_before_ffi() {
+        mock_ffi::enable_mock_ffi();
+        let mut data = [PmixPdata::new(
+            &"k".repeat(ffi::PMIX_MAX_KEYLEN as usize + 1),
+        )];
+
+        let result = lookup(&mut data, None);
+
+        mock_ffi::disable_mock_ffi();
+        assert!(matches!(
+            result,
+            Err(PmixStatus::Known(PmixError::ErrBadParam))
+        ));
+    }
+
     // ─── PmixPdata construction tests ───────────────────────────────────────
 
     #[test]
@@ -196,80 +212,40 @@ use super::*;
         assert_eq!(*received_count.lock().unwrap().as_ref().unwrap(), 2);
     }
 
-    // ─── Registry and sequence counter tests ────────────────────────────────
+    // ─── Registry request ID tests ───────────────────────────────────────────
 
     #[test]
-    fn test_publish_seq_increments() {
-        let seq1 = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_publish_request_ids_increase() {
+        let seq1 = PUBLISH_REGISTRY.next_req_id();
+        let seq2 = PUBLISH_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
     #[test]
-    fn test_get_seq_increments() {
-        let seq1 = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_get_request_ids_increase() {
+        let seq1 = GET_REGISTRY.next_req_id();
+        let seq2 = GET_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
     #[test]
-    fn test_unpublish_seq_increments() {
-        let seq1 = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_unpublish_request_ids_increase() {
+        let seq1 = UNPUBLISH_REGISTRY.next_req_id();
+        let seq2 = UNPUBLISH_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
     #[test]
-    fn test_fence_seq_increments() {
-        let seq1 = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_fence_request_ids_increase() {
+        let seq1 = FENCE_REGISTRY.next_req_id();
+        let seq2 = FENCE_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
     #[test]
-    fn test_lookup_seq_increments() {
-        let seq1 = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
-        let seq2 = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+    fn test_lookup_request_ids_increase() {
+        let seq1 = LOOKUP_REGISTRY.next_req_id();
+        let seq2 = LOOKUP_REGISTRY.next_req_id();
         assert!(seq2 > seq1);
     }
 
@@ -283,7 +259,7 @@ use super::*;
         }
         let req_id = 999;
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyPublish));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -299,7 +275,7 @@ use super::*;
         }
         let req_id = 888;
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyGet));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -315,7 +291,7 @@ use super::*;
         }
         let req_id = 777;
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyLookupCb));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -331,7 +307,7 @@ use super::*;
         }
         let req_id = 666;
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyUnpublishCb));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -347,7 +323,7 @@ use super::*;
         }
         let req_id = 555;
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyFenceCb));
             assert!(registry.contains_key(&req_id));
             registry.remove(&req_id);
@@ -450,14 +426,13 @@ use super::*;
 
     #[test]
     fn test_rank_wildcard_value() {
-        assert_eq!(PMIX_RANK_WILDCARD, -1);
+        assert_eq!(ffi::PMIX_RANK_WILDCARD, 0xFFFF_FFFEu32);
+        assert_ne!(ffi::PMIX_RANK_WILDCARD, u32::MAX);
     }
 
     #[test]
     fn test_rank_wildcast_as_u32() {
-        // PMIX_RANK_WILDCARD as u32 wraps to MAX
-        let rank: u32 = PMIX_RANK_WILDCARD as u32;
-        assert_eq!(rank, u32::MAX);
+        assert_eq!(ffi::PMIX_RANK_WILDCARD, 0xFFFF_FFFEu32);
     }
 
     // ─── PmixStatus roundtrip tests for data_ops context ────────────────────
@@ -759,6 +734,22 @@ use super::*;
                 assert!(raw < 0, "Expected error without DVM, got {}", raw);
             }
         }
+    }
+
+    #[test]
+    fn test_lookup_mock_success_returns_status_and_results() {
+        let _guard = MockGuard::new();
+        MockConfig::new()
+            .with_function_status("PMIx_Lookup", PMIX_SUCCESS)
+            .apply();
+
+        let mut data = vec![PmixPdata::new("test.key")];
+        let result = lookup(&mut data, None).expect("mock lookup should succeed");
+
+        assert_eq!(result.0, PmixStatus::Known(PmixError::Success));
+        assert_eq!(result.1.len(), 1);
+        assert_eq!(result.1[0].key, "test.key");
+        assert!(result.1[0].value.is_none());
     }
 
     // ─── lookup_nb: FFI call path tests ─────────────────────────────────────
@@ -1234,7 +1225,7 @@ use super::*;
 
         let req_id = 77777usize;
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1264,7 +1255,7 @@ use super::*;
 
         let req_id = 66666usize;
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1294,7 +1285,7 @@ use super::*;
 
         let req_id = 55555usize;
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1328,7 +1319,7 @@ use super::*;
 
         let req_id = 44444usize;
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1360,7 +1351,7 @@ use super::*;
 
         let req_id = 33333usize;
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, cb);
         }
         let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -1581,9 +1572,17 @@ use super::*;
 
     #[test]
     fn test_proc_new_long_namespace() {
-        let long_ns = "a".repeat(256);
-        let proc = Proc::new(&long_ns, 0).unwrap();
-        assert_eq!(proc.get_rank(), 0);
+        // Over-length nspace (> PMIX_MAX_NSLEN) is rejected, not truncated.
+        assert!(matches!(
+            Proc::new(&"a".repeat(ffi::PMIX_MAX_NSLEN as usize + 1), 0),
+            Err(PmixError::ErrBadParam)
+        ));
+        // A valid-length namespace still succeeds.
+        assert!(Proc::new(
+            &"a".repeat(ffi::PMIX_MAX_NSLEN as usize),
+            0
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1607,10 +1606,22 @@ use super::*;
         // This verifies the Drop implementation doesn't panic on zeroed data
         let val = PmixOwnedValue {
             inner: unsafe { std::mem::zeroed() },
-        
+            pmix_owned: false,
             _not_thread_safe: std::marker::PhantomData,
         };
         // Drop happens at end of scope — should not panic
+        drop(val);
+    }
+
+    #[test]
+    fn test_pmix_owned_value_pmix_owned_drop() {
+        let val = PmixOwnedValue {
+            // SAFETY: The zeroed value is valid for the mock destruct path,
+            // which owns no nested C allocations.
+            inner: unsafe { std::mem::zeroed() },
+            pmix_owned: true,
+            _not_thread_safe: std::marker::PhantomData,
+        };
         drop(val);
     }
 
@@ -1732,6 +1743,17 @@ use super::*;
     };
     use crate::InfoBuilder;
 
+    #[test]
+    fn test_mock_unpublish_with_multiple_keys_returns_mock_status() {
+        let _guard = MockGuard::new();
+        MockConfig::new()
+            .with_function_status("PMIx_Unpublish", PMIX_SUCCESS)
+            .apply();
+
+        let keys = ["k1", "k2"];
+        assert_eq!(unpublish(Some(&keys), None), Ok(()));
+    }
+
     // ─── Mock FFI framework self-tests ──────────────────────────────────────
 
     #[test]
@@ -1851,7 +1873,7 @@ use super::*;
     fn test_publish_error_path_with_mock() {
         let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 let err = publish(&info).expect_err("publish should fail under mock ErrInit");
                 assert_eq!(err, PmixStatus::Known(PmixError::ErrInit));
     }
@@ -1862,7 +1884,7 @@ use super::*;
         let config =
                     MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_DUPLICATE_KEY);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 let err = publish(&info).expect_err("publish should fail under mock duplicate");
                 assert_eq!(err, PmixStatus::Known(PmixError::ErrDuplicateKey));
     }
@@ -1980,13 +2002,9 @@ use super::*;
         }
 
         // Register callback
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestPublishCb));
         }
 
@@ -2010,13 +2028,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestPublishCb));
         }
 
@@ -2050,25 +2064,25 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestGetCb));
         }
 
-        // Create a mock pmix_value_t for the callback
-        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
+        // Create a heap-allocated mock pmix_value_t for the callback.
+        // SAFETY: pmix_value_t is a C representation and zero is a valid
+        // initialization state before setting the type field.
+        let mut mock_value = Box::new(unsafe { std::mem::zeroed::<ffi::pmix_value_t>() });
         mock_value.type_ = PMIX_STRING_U16;
 
         let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
+            // SAFETY: The bridge takes ownership of the heap-allocated value,
+            // mirroring the real PMIx_Get_nb callback contract.
             get_value_callback_bridge(
                 PMIX_SUCCESS,
-                &mut mock_value as *mut ffi::pmix_value_t,
+                Box::into_raw(mock_value),
                 cbdata,
             );
         }
@@ -2092,13 +2106,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestGetCb2));
         }
 
@@ -2115,7 +2125,106 @@ use super::*;
         get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), std::ptr::null_mut());
     }
 
+    /// An immediate PMIx_Get_nb failure must reclaim the qualified marker.
+    #[test]
+    fn test_get_nb_failure_removes_qualified_marker() {
+        struct DummyGet;
+        impl GetValueCallback for DummyGet {
+            fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
+        }
+
+        let config = MockConfig::new().with_function_status("PMIx_Get_nb", PMIX_ERR_INIT);
+        let _guard = MockGuard::with_config(config);
+        let proc = Proc::new("mock.ns", 0).unwrap();
+        let mut builder = InfoBuilder::new();
+        builder
+            .add_string_key("pmix.qual.val", "true", PMIX_STRING as _)
+            .expect("string info");
+        let info = builder.build().expect("build info");
+
+        let result = get_nb(&proc, "qualified.key", Some(&info), Box::new(DummyGet));
+
+        assert_eq!(result, Err(PmixStatus::Known(PmixError::ErrInit)));
+        assert!(QUALIFIED_GETS.lock().unwrap().is_empty());
+        assert!(GET_REGISTRY.lock().is_empty());
+    }
+
+    /// A successful qualified callback uses mock value transfer and clears its marker.
+    #[test]
+    fn test_get_nb_qualified_success_uses_value_xfer() {
+        use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+        static CB_STATUS: AtomicI32 = AtomicI32::new(-999);
+        static CB_HAS_VALUE: AtomicBool = AtomicBool::new(false);
+
+        struct QualifiedGet;
+        impl GetValueCallback for QualifiedGet {
+            fn on_result(self: Box<Self>, status: PmixStatus, value: Option<PmixOwnedValue>) {
+                CB_STATUS.store(status.to_raw(), Ordering::SeqCst);
+                CB_HAS_VALUE.store(value.is_some(), Ordering::SeqCst);
+            }
+        }
+
+        let _guard = MockGuard::new();
+        let req_id = GET_REGISTRY.next_req_id();
+        GET_REGISTRY
+            .lock()
+            .insert(req_id, Box::new(QualifiedGet));
+        QUALIFIED_GETS.lock().unwrap().insert(req_id);
+
+        let mut mock_value = Box::new(unsafe { std::mem::zeroed::<ffi::pmix_value_t>() });
+        mock_value.type_ = PMIX_STRING_U16;
+        get_value_callback_bridge(
+            PMIX_SUCCESS,
+            Box::into_raw(mock_value),
+            crate::cbdata::encode_req_id(req_id),
+        );
+
+        assert_eq!(CB_STATUS.load(Ordering::SeqCst), PMIX_SUCCESS);
+        assert!(CB_HAS_VALUE.load(Ordering::SeqCst));
+        assert!(!QUALIFIED_GETS.lock().unwrap().contains(&req_id));
+    }
+
     // ─── Mock-aware lookup_nb callback tests ────────────────────────────────
+
+    /// Verify lookup callback ownership survives PMIx freeing the pdata array.
+    #[test]
+    fn test_lookup_callback_bridge_transfers_value_before_pdata_free() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static RECEIVED: AtomicBool = AtomicBool::new(false);
+
+        struct Callback;
+        impl LookupCallback for Callback {
+            fn on_result(self: Box<Self>, _status: PmixStatus, mut data: Vec<PmixPdata>) {
+                RECEIVED.store(
+                    data.pop().and_then(|pdata| pdata.value).is_some(),
+                    Ordering::SeqCst,
+                );
+            }
+        }
+
+        RECEIVED.store(false, Ordering::SeqCst);
+        let req_id = LOOKUP_REGISTRY.next_req_id();
+        LOOKUP_REGISTRY.lock().insert(req_id, Box::new(Callback));
+
+        let data = unsafe {
+            let data = libc::calloc(1, std::mem::size_of::<ffi::pmix_pdata_t>())
+                as *mut ffi::pmix_pdata_t;
+            assert!(!data.is_null());
+            (*data).value.type_ = crate::ffi::PMIX_STRING as _;
+            let string = std::ffi::CString::new("value").unwrap();
+            (*data).value.data.string = libc::strdup(string.as_ptr());
+            assert!(!(*data).value.data.string.is_null());
+            data
+        };
+
+        lookup_callback_bridge(
+            PMIX_SUCCESS,
+            data,
+            1,
+            crate::cbdata::encode_req_id(req_id),
+        );
+        assert!(RECEIVED.load(Ordering::SeqCst));
+    }
 
     /// Test lookup_nb callback bridge with success status.
     #[test]
@@ -2132,13 +2241,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestLookupCb));
         }
 
@@ -2163,13 +2268,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestLookupCb2));
         }
 
@@ -2194,13 +2295,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestFenceCb));
         }
 
@@ -2223,13 +2320,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestFenceCb2));
         }
 
@@ -2254,13 +2347,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(TestUnpublishCb));
         }
 
@@ -2308,7 +2397,7 @@ use super::*;
     #[test]
     fn test_mock_publish_get_unpublish_lifecycle() {
         let _guard = MockGuard::new();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).expect("publish");
                 let proc = Proc::new("mock.ns", 0).unwrap();
                 let _ = get(&proc, "lifecycle", None).expect("get");
@@ -2324,7 +2413,7 @@ use super::*;
                     .with_function_status("PMIx_Fence", PMIX_ERR_TIMEOUT)
                     .with_function_status("PMIx_Unpublish", PMIX_ERR_INIT);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 assert!(matches!(
                     publish(&info),
                     Err(PmixStatus::Known(PmixError::ErrDuplicateKey))
@@ -2422,9 +2511,9 @@ use super::*;
     #[test]
     fn test_mock_proc_wildcard_rank() {
         let _guard = MockGuard::new();
-        let proc =
-            Proc::new("", PMIX_RANK_WILDCARD as u32).unwrap_or_else(|_| Proc::new("", 0).unwrap());
-        assert_eq!(proc.get_rank(), PMIX_RANK_WILDCARD as u32);
+        let proc = Proc::new("", ffi::PMIX_RANK_WILDCARD)
+            .unwrap_or_else(|_| Proc::new("", 0).unwrap());
+        assert_eq!(proc.get_rank(), ffi::PMIX_RANK_WILDCARD);
     }
 
     // ─── PmixPdata mock-aware tests ─────────────────────────────────────────
@@ -2435,6 +2524,7 @@ use super::*;
         let _guard = MockGuard::new();
         let pdata = PmixPdata::new("test.lookup.key");
         assert_eq!(pdata.key, "test.lookup.key");
+        assert_eq!(pdata.proc.get_rank(), ffi::PMIX_RANK_WILDCARD);
         assert!(pdata.value.is_none());
     }
 
@@ -2474,13 +2564,9 @@ use super::*;
         }
 
         // Register and immediately remove
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyCb));
             assert_eq!(registry.len(), 1);
         }
@@ -2490,7 +2576,7 @@ use super::*;
             publish_callback_bridge(PMIX_SUCCESS, cbdata);
         }
         // Registry should be empty now
-        let registry = PUBLISH_REGISTRY.lock().unwrap();
+        let registry = PUBLISH_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2502,13 +2588,9 @@ use super::*;
             fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyGetCb));
         }
 
@@ -2517,7 +2599,7 @@ use super::*;
             get_value_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), cbdata);
         }
 
-        let registry = GET_REGISTRY.lock().unwrap();
+        let registry = GET_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2529,13 +2611,9 @@ use super::*;
             fn on_result(self: Box<Self>, _status: PmixStatus, _data: Vec<PmixPdata>) {}
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyLookupCb));
         }
 
@@ -2544,7 +2622,7 @@ use super::*;
             lookup_callback_bridge(PMIX_SUCCESS, std::ptr::null_mut(), 0, cbdata);
         }
 
-        let registry = LOOKUP_REGISTRY.lock().unwrap();
+        let registry = LOOKUP_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2556,13 +2634,9 @@ use super::*;
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyFenceCb));
         }
 
@@ -2571,7 +2645,7 @@ use super::*;
             fence_callback_bridge(PMIX_SUCCESS, cbdata);
         }
 
-        let registry = FENCE_REGISTRY.lock().unwrap();
+        let registry = FENCE_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2583,13 +2657,9 @@ use super::*;
             fn on_complete(self: Box<Self>, _status: PmixStatus) {}
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(DummyUnpublishCb));
         }
 
@@ -2598,7 +2668,7 @@ use super::*;
             unpublish_callback_bridge(PMIX_SUCCESS, cbdata);
         }
 
-        let registry = UNPUBLISH_REGISTRY.lock().unwrap();
+        let registry = UNPUBLISH_REGISTRY.lock();
         assert!(!registry.contains_key(&req_id));
     }
 
@@ -2750,13 +2820,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(CaptureCb));
         }
 
@@ -2785,25 +2851,25 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(StringValueCb));
         }
 
-        // Create a mock pmix_value_t with PMIX_STRING type
-        let mut mock_value: ffi::pmix_value_t = unsafe { std::mem::zeroed() };
+        // Create a heap-allocated mock pmix_value_t with PMIX_STRING type.
+        // SAFETY: pmix_value_t is a C representation and zero is a valid
+        // initialization state before setting the type field.
+        let mut mock_value = Box::new(unsafe { std::mem::zeroed::<ffi::pmix_value_t>() });
         mock_value.type_ = PMIX_STRING_U16;
 
         let cbdata = crate::cbdata::encode_req_id(req_id);
         unsafe {
+            // SAFETY: The bridge takes ownership of the heap-allocated value,
+            // mirroring the real PMIx_Get_nb callback contract.
             get_value_callback_bridge(
                 PMIX_SUCCESS,
-                &mut mock_value as *mut ffi::pmix_value_t,
+                Box::into_raw(mock_value),
                 cbdata,
             );
         }
@@ -2864,7 +2930,7 @@ use super::*;
     #[test]
     fn test_mock_publish_raw_success_conversion() {
         let _guard = MockGuard::new();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).expect("publish success under mock");
     }
 
@@ -2873,7 +2939,7 @@ use super::*;
     fn test_mock_publish_error_result() {
         let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERROR);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 let err = publish(&info).unwrap_err();
                 assert_eq!(err, PmixStatus::Known(PmixError::Error));
     }
@@ -2883,7 +2949,7 @@ use super::*;
     fn test_mock_publish_timeout_error() {
         let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_TIMEOUT);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 assert_eq!(
                     publish(&info).unwrap_err(),
                     PmixStatus::Known(PmixError::ErrTimeout)
@@ -2895,7 +2961,7 @@ use super::*;
     fn test_mock_publish_stores_key_in_mock_store() {
         let _guard = MockGuard::new();
                 // Wrapper path: publish success; store is separate helper used by store_internal mock.
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).expect("publish");
                 mock_ffi::mock_store_value("pub.key", b"v", PMIX_STRING);
                 assert!(mock_ffi::mock_key_exists("pub.key"));
@@ -2915,13 +2981,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(TimeoutPublishCb));
         }
 
@@ -2943,13 +3005,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(NotFoundPublishCb));
         }
 
@@ -2975,13 +3033,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(ErrorGetCb));
         }
 
@@ -3004,13 +3058,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(TimeoutGetCb));
         }
 
@@ -3066,13 +3116,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(InitErrorGetCb));
         }
 
@@ -3098,13 +3144,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(DataLookupCb));
         }
 
@@ -3126,13 +3168,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(TimeoutLookupCb));
         }
 
@@ -3182,13 +3220,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(InitErrorLookupCb));
         }
 
@@ -3224,13 +3258,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(UnpubNotFoundCb));
         }
 
@@ -3252,13 +3282,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(UnpubTimeoutCb));
         }
 
@@ -3304,13 +3330,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(FenceNotFoundCb));
         }
 
@@ -3373,7 +3395,7 @@ use super::*;
     fn test_mock_fence_procs_and_info() {
         let _guard = MockGuard::new();
                 let proc = Proc::new("f", 0).unwrap();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 crate::fence(&proc, Some(info)).expect("fence with info");
     }
 
@@ -3606,7 +3628,7 @@ use super::*;
     #[test]
     fn test_mock_full_publish_get_unpublish_workflow() {
         let _guard = MockGuard::new();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).unwrap();
                 let proc = Proc::new("wf", 0).unwrap();
                 let _v = get(&proc, "wf.key", None).unwrap();
@@ -3618,7 +3640,7 @@ use super::*;
     fn test_mock_error_workflow_all_fail() {
         let config = MockConfig::new().with_default_status(PMIX_ERR_INIT);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 assert!(publish(&info).is_err());
                 let proc = Proc::new("wf", 0).unwrap();
                 assert!(get(&proc, "k", None).is_err());
@@ -3668,7 +3690,7 @@ use super::*;
                     .with_function_status("PMIx_Publish", PMIX_SUCCESS)
                     .with_function_status("PMIx_Get", PMIX_ERR_NOT_FOUND);
                 let _guard = MockGuard::with_config(config);
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).unwrap();
                 let proc = Proc::new("m", 0).unwrap();
                 assert!(get(&proc, "x", None).is_err());
@@ -3730,13 +3752,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = UNPUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = UNPUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = UNPUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = UNPUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(UnpubInitCb));
         }
 
@@ -3758,13 +3776,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(FenceDupCb));
         }
 
@@ -3786,13 +3800,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(GetDupCb));
         }
 
@@ -3814,13 +3824,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(LookupInitCb2));
         }
 
@@ -3833,7 +3839,7 @@ use super::*;
     #[test]
     fn test_mock_operation_cycle_status_checks() {
         let _guard = MockGuard::new();
-                let info = InfoBuilder::new().build();
+                let info = InfoBuilder::new().build().expect("build info");
                 publish(&info).unwrap();
                 let proc = Proc::new("c", 0).unwrap();
                 let _ = get(&proc, "k", None).unwrap();
@@ -3893,13 +3899,9 @@ use super::*;
         let handles: Vec<_> = vec![
             // Thread 1: publish callback
             thread::spawn(|| {
-                let req_id = {
-                    let mut seq = PUBLISH_SEQ.lock().unwrap();
-                    *seq += 1;
-                    *seq
-                };
+                let req_id = PUBLISH_REGISTRY.next_req_id();
                 {
-                    let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+                    let mut registry = PUBLISH_REGISTRY.lock();
                     registry.insert(req_id, Box::new(ConcPubCb));
                 }
                 let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -3907,13 +3909,9 @@ use super::*;
             }),
             // Thread 2: get callback
             thread::spawn(|| {
-                let req_id = {
-                    let mut seq = GET_SEQ.lock().unwrap();
-                    *seq += 1;
-                    *seq
-                };
+                let req_id = GET_REGISTRY.next_req_id();
                 {
-                    let mut registry = GET_REGISTRY.lock().unwrap();
+                    let mut registry = GET_REGISTRY.lock();
                     registry.insert(req_id, Box::new(ConcGetCb));
                 }
                 let cbdata = crate::cbdata::encode_req_id(req_id);
@@ -4021,12 +4019,12 @@ use super::*;
         {
                     let config = MockConfig::new().with_function_status("PMIx_Publish", PMIX_ERR_INIT);
                     let _guard = MockGuard::with_config(config);
-                    let info = InfoBuilder::new().build();
+                    let info = InfoBuilder::new().build().expect("build info");
                     assert!(publish(&info).is_err());
                 }
                 {
                     let _guard = MockGuard::new();
-                    let info = InfoBuilder::new().build();
+                    let info = InfoBuilder::new().build().expect("build info");
                     publish(&info).unwrap();
                 }
     }
@@ -4044,13 +4042,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = FENCE_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = FENCE_REGISTRY.next_req_id();
         {
-            let mut registry = FENCE_REGISTRY.lock().unwrap();
+            let mut registry = FENCE_REGISTRY.lock();
             registry.insert(req_id, Box::new(FencePartialCb));
         }
 
@@ -4072,13 +4066,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = LOOKUP_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = LOOKUP_REGISTRY.next_req_id();
         {
-            let mut registry = LOOKUP_REGISTRY.lock().unwrap();
+            let mut registry = LOOKUP_REGISTRY.lock();
             registry.insert(req_id, Box::new(LookupPartialCb));
         }
 
@@ -4100,13 +4090,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = GET_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = GET_REGISTRY.next_req_id();
         {
-            let mut registry = GET_REGISTRY.lock().unwrap();
+            let mut registry = GET_REGISTRY.lock();
             registry.insert(req_id, Box::new(GetPartialCb));
         }
 
@@ -4128,13 +4114,9 @@ use super::*;
             }
         }
 
-        let req_id = {
-            let mut seq = PUBLISH_SEQ.lock().unwrap();
-            *seq += 1;
-            *seq
-        };
+        let req_id = PUBLISH_REGISTRY.next_req_id();
         {
-            let mut registry = PUBLISH_REGISTRY.lock().unwrap();
+            let mut registry = PUBLISH_REGISTRY.lock();
             registry.insert(req_id, Box::new(PubPartialCb));
         }
 
@@ -4143,3 +4125,21 @@ use super::*;
         assert_eq!(PUB_CB_PARTIAL.load(Ordering::SeqCst), -52);
     }
 
+
+
+#[cfg(any(test, feature = "mock_ffi"))]
+#[cfg(pmix6)]
+#[test]
+fn test_misc_pdata_wrappers_construct_load_xfer_and_arrays() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let proc = crate::Proc::new("test", 0).unwrap();
+    let mut dst = super::PmixPdataHandle::new();
+    let src = super::PmixPdataHandle::new();
+    assert!(dst.load(&proc, "key", &[], crate::ffi::PMIX_BYTE as u16).is_ok());
+    assert!(dst.load(&proc, "bad\0key", &[], crate::ffi::PMIX_BYTE as u16).is_err());
+    assert!(dst.xfer(&src).is_ok());
+    let array = super::pdata_create(2).unwrap();
+    drop(array);
+    let empty = super::pdata_create(0).unwrap();
+    assert!(empty.ptr.is_null());
+}

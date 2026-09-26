@@ -76,7 +76,7 @@ fn test_query_new_deterministic() {
 #[test]
 fn test_query_with_qualifiers() {
     let query = PmixQuery::new(&["test_key"]).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _query_with_qual = query.with_qualifiers(info);
 }
 
@@ -84,7 +84,7 @@ fn test_query_with_qualifiers() {
 #[test]
 fn test_query_with_empty_qualifiers() {
     let query = PmixQuery::new(&["test_key"]).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _query_with_qual = query.with_qualifiers(info);
 }
 

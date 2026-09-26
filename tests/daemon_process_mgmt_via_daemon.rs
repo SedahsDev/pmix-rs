@@ -147,7 +147,7 @@ fn test_process_mgmt_all_ffi_operations() {
 
     let proc = Proc::new("test-nspace", 0).expect("proc");
     let procs = vec![proc];
-    let directives = vec![InfoBuilder::new().build()];
+    let directives = vec![InfoBuilder::new().build().expect("build info")];
     let nspace = "test-nspace";
 
     // ── 1. connect_nb (non-blocking — returns immediately, callback may fire in-place) ──
