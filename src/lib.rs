@@ -4073,6 +4073,33 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
     }
 }
 
+/// Get a value with `PMIX_GET_REFRESH_CACHE` set to bypass the local cache.
+///
+/// This is useful when you need the most up-to-date value from a peer,
+/// especially in scenarios where multiple rounds of data exchange occur
+/// (e.g., allgather patterns). Without this, `PMIx_Get` may return a cached
+/// value from a previous round.
+///
+/// # Example
+/// ```rust
+/// use pmix::{Proc, get_value_refresh_cache};
+///
+/// let proc = Proc::new("myapp", 0, 0);
+/// let value = get_value_refresh_cache(&proc, b"my.key\0")?;
+/// ```
+pub fn get_value_refresh_cache(
+    proc: &Proc,
+    key: &[u8],
+) -> Result<PmixOwnedValue, PmixError> {
+    let mut info = InfoBuilder::new();
+    info.refresh_cache(true);
+    let info = match info.build() {
+        Ok(i) => i,
+        Err(_) => return Err(PmixError::Error),
+    };
+    get_value(proc, key, Some(info))
+}
+
 pub fn put_value(
     scope: pmix_scope_t,
     key: &CStr,
