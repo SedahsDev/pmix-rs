@@ -33,6 +33,7 @@ pub mod data_ops;
 pub mod data_serialization;
 pub mod events;
 pub mod fabric;
+pub mod info_list;
 #[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
 mod ffi;
 pub mod groups;
