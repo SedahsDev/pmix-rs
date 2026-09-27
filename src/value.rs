@@ -159,43 +159,43 @@ pub enum PmixPayload {
 }
 
 impl PmixPayload {
-    /// Return the `pmix_data_type_t` constant that matches this variant.
-    pub fn type_tag(&self) -> pmix_data_type_t {
-        (match self {
-            Self::Undef => PMIX_UNDEF,
-            Self::Bool(_) => PMIX_BOOL,
-            Self::Byte(_) => PMIX_BYTE,
-            Self::String(_) => PMIX_STRING,
-            Self::Size(_) => PMIX_SIZE,
-            Self::Pid(_) => PMIX_PID,
-            Self::Int(_) => PMIX_INT,
-            Self::Int8(_) => PMIX_INT8,
-            Self::Int16(_) => PMIX_INT16,
-            Self::Int32(_) => PMIX_INT32,
-            Self::Int64(_) => PMIX_INT64,
-            Self::Uint(_) => PMIX_UINT,
-            Self::Uint8(_) => PMIX_UINT8,
-            Self::Uint16(_) => PMIX_UINT16,
-            Self::Uint32(_) => PMIX_UINT32,
-            Self::Uint64(_) => PMIX_UINT64,
-            Self::Float(_) => PMIX_FLOAT,
-            Self::Double(_) => PMIX_DOUBLE,
-            Self::Timeval(_) => PMIX_TIMEVAL,
-            Self::Status(_) => PMIX_STATUS,
-            Self::Rank(_) => PMIX_PROC_RANK,
-            Self::Persist(_) => PMIX_PERSIST,
-            Self::Scope(_) => PMIX_SCOPE,
-            Self::DataRange(_) => PMIX_DATA_RANGE,
-            Self::ProcState(_) => PMIX_PROC_STATE,
-            Self::AllocDirective(_) => PMIX_ALLOC_DIRECTIVE,
-            Self::IofChannel(_) => PMIX_IOF_CHANNEL,
-            Self::InfoDirectives(_) => PMIX_INFO_DIRECTIVES,
-            Self::Proc(_) => PMIX_PROC,
-            Self::ByteObject(_) => PMIX_BYTE_OBJECT,
-            Self::Envar(_) => PMIX_ENVAR,
-            Self::Pointer(_) => PMIX_POINTER,
-            Self::DataArray { .. } => PMIX_DATA_ARRAY,
-        }) as pmix_data_type_t
+    /// Return the `PmixDataType` that matches this variant.
+    pub fn type_tag(&self) -> PmixDataType {
+        match self {
+            Self::Undef => PmixDataType::Undef,
+            Self::Bool(_) => PmixDataType::Bool,
+            Self::Byte(_) => PmixDataType::Byte,
+            Self::String(_) => PmixDataType::String,
+            Self::Size(_) => PmixDataType::Size,
+            Self::Pid(_) => PmixDataType::Pid,
+            Self::Int(_) => PmixDataType::Int,
+            Self::Int8(_) => PmixDataType::Int8,
+            Self::Int16(_) => PmixDataType::Int16,
+            Self::Int32(_) => PmixDataType::Int32,
+            Self::Int64(_) => PmixDataType::Int64,
+            Self::Uint(_) => PmixDataType::Uint,
+            Self::Uint8(_) => PmixDataType::Uint8,
+            Self::Uint16(_) => PmixDataType::Uint16,
+            Self::Uint32(_) => PmixDataType::Uint32,
+            Self::Uint64(_) => PmixDataType::Uint64,
+            Self::Float(_) => PmixDataType::Float,
+            Self::Double(_) => PmixDataType::Double,
+            Self::Timeval(_) => PmixDataType::Timeval,
+            Self::Status(_) => PmixDataType::Status,
+            Self::Rank(_) => PmixDataType::Proc,
+            Self::Persist(_) => PmixDataType::Persist,
+            Self::Scope(_) => PmixDataType::Scope,
+            Self::DataRange(_) => PmixDataType::DataRange,
+            Self::ProcState(_) => PmixDataType::ProcState,
+            Self::AllocDirective(_) => PmixDataType::AllocDirective,
+            Self::IofChannel(_) => PmixDataType::IofChannel,
+            Self::InfoDirectives(_) => PmixDataType::InfoDirectives,
+            Self::Proc(_) => PmixDataType::Proc,
+            Self::ByteObject(_) => PmixDataType::ByteObject,
+            Self::Envar(_) => PmixDataType::Envar,
+            Self::Pointer(_) => PmixDataType::Pointer,
+            Self::DataArray { .. } => PmixDataType::DataArray,
+        }
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -658,9 +658,9 @@ impl PmixOwnedValue {
         &mut self.inner
     }
 
-    /// Return the `pmix_data_type_t` tag.
-    pub fn type_tag(&self) -> pmix_data_type_t {
-        self.inner.type_
+    /// Return the `PmixDataType` tag.
+    pub fn type_tag(&self) -> PmixDataType {
+        PmixDataType::from_raw(self.inner.type_)
     }
 
     /// Transfer ownership out of RAII; caller must free via `PMIX_VALUE_RELEASE`
