@@ -102,6 +102,24 @@ pub const JOB_SIZE: &[u8; 14] = PMIX_JOB_SIZE;
 pub const RANK_WILDCARD: u32 = PMIX_RANK_WILDCARD;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// String-key boolean attributes (exceed 13-byte fixed key limit)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `PMIX_GET_REFRESH_CACHE` = "pmix.get.refresh" (17 bytes with NUL).
+///
+/// Use with [`InfoBuilder::refresh_cache()`] or
+/// [`InfoBuilder::add_bool_key()`] to enable automatic cache refresh on get.
+/// This key exceeds the 13-byte fixed-key limit, so it cannot be used with
+/// [`InfoBuilder::add()`].
+pub const GET_REFRESH_CACHE: &[u8; 17] = b"pmix.get.refresh\0";
+
+/// `PMIX_QUERY_REFRESH_CACHE` = "pmix.qry.rfsh" (14 bytes with NUL).
+///
+/// Use as a qualifier in queries to force a cache refresh. This key also
+/// exceeds the 13-byte fixed-key limit.
+pub const QUERY_REFRESH_CACHE: &[u8; 14] = b"pmix.qry.rfsh\0";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PmixError enum
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2870,10 +2888,11 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
             PmixPayload::ByteObject(mut bytes) => {
                 bytes.shrink_to_fit();
                 let len = bytes.len();
-                let ptr = bytes.as_mut_ptr() as *mut i8;
+                let ptr = bytes.as_mut_ptr();
                 std::mem::forget(bytes);
                 dst.data.bo = pmix_byte_object_t {
-                    bytes: ptr,
+                    // Bindgen emits *mut u8 or *mut i8 depending on the host headers.
+                    bytes: ptr as *mut _,
                     size: len,
                 };
             }
@@ -2883,7 +2902,8 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
                 dst.data.envar = pmix_envar_t {
                     envar: e.envar.into_raw(),
                     value: e.value.into_raw(),
-                    separator: e.separator as i8,
+                    // Bindgen emits u8 or i8 depending on the host headers.
+                    separator: e.separator as _,
                 };
             }
 
@@ -3294,6 +3314,27 @@ impl InfoBuilder {
     /// `PMIX_EXTERNAL_PROGRESS` (`pmix.evext`) — `PMIX_BOOL`
     pub fn external_progress(&mut self, external: bool) -> &mut Self {
         self.add_bool_key("pmix.evext", external)
+    }
+
+    /// Set `PMIX_GET_REFRESH_CACHE` attribute.
+    ///
+    /// When `true`, instructs PMIx to automatically refresh its local cache
+    /// before returning the requested value. This is useful when you need
+    /// the most up-to-date data without manually querying again.
+    ///
+    /// # C API
+    /// `PMIX_GET_REFRESH_CACHE` (`pmix.get.refresh`) — `PMIX_BOOL`
+    ///
+    /// # Example
+    /// ```rust
+    /// use pmix::InfoBuilder;
+    /// let mut builder = InfoBuilder::new();
+    /// builder.refresh_cache(true);
+    /// let info = builder.build().expect("info");
+    /// assert_eq!(info.len(), 1);
+    /// ```
+    pub fn refresh_cache(&mut self, refresh: bool) -> &mut Self {
+        self.add_bool_key("pmix.get.refresh", refresh)
     }
 
     /// Set `PMIX_BIND_PROGRESS_THREAD` attribute.
@@ -4037,6 +4078,33 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
     }
 }
 
+/// Get a value with `PMIX_GET_REFRESH_CACHE` set to bypass the local cache.
+///
+/// This is useful when you need the most up-to-date value from a peer,
+/// especially in scenarios where multiple rounds of data exchange occur
+/// (e.g., allgather patterns). Without this, `PMIx_Get` may return a cached
+/// value from a previous round.
+///
+/// # Example
+/// ```no_run
+/// use pmix::{Proc, get_value_refresh_cache};
+///
+/// let proc = Proc::new("myapp", 0).expect("proc");
+/// let _value = get_value_refresh_cache(&proc, b"my.key\0").expect("fresh get");
+/// ```
+pub fn get_value_refresh_cache(
+    proc: &Proc,
+    key: &[u8],
+) -> Result<PmixOwnedValue, PmixError> {
+    let mut info = InfoBuilder::new();
+    info.refresh_cache(true);
+    let info = match info.build() {
+        Ok(i) => i,
+        Err(_) => return Err(PmixError::Error),
+    };
+    get_value(proc, key, Some(info))
+}
+
 pub fn put_value(
     scope: pmix_scope_t,
     key: &CStr,
@@ -4292,6 +4360,13 @@ mod tests {
     fn test_get_value_rejects_empty_key() {
         let proc = synthetic_proc();
         let result = get_value(&proc, b"", None);
+        assert!(matches!(result, Err(PmixError::ErrBadParam)));
+    }
+
+    #[test]
+    fn test_get_value_refresh_cache_rejects_empty_key() {
+        let proc = synthetic_proc();
+        let result = get_value_refresh_cache(&proc, b"");
         assert!(matches!(result, Err(PmixError::ErrBadParam)));
     }
 

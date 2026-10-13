@@ -2064,7 +2064,7 @@ pub unsafe fn mock_value_string(
 ) -> *mut std::os::raw::c_char {
     // SAFETY: strdup allocates with malloc, matching PMIx_Value_string's
     // contract and the wrapper's libc::free call.
-    unsafe { libc::strdup(c"mock") }
+    unsafe { libc::strdup(c"mock".as_ptr()) }
 }
 pub unsafe fn mock_value_true(
     _value: *const crate::ffi::pmix_value_t,
@@ -2123,7 +2123,7 @@ pub unsafe fn mock_info_processed(_p: *mut crate::ffi::pmix_info_t) {}
 pub unsafe fn mock_info_set_end(_p: *mut crate::ffi::pmix_info_t) {}
 pub unsafe fn mock_info_string(_p: *const crate::ffi::pmix_info_t) -> *mut std::os::raw::c_char {
     // SAFETY: strdup allocates with malloc, matching the wrapper's libc::free.
-    unsafe { libc::strdup(c"mock info") }
+    unsafe { libc::strdup(c"mock info".as_ptr()) }
 }
 #[cfg(test)]
 mod tests {
@@ -3540,7 +3540,7 @@ pub unsafe fn mock_argv_join(
     _argv: *mut *mut std::ffi::c_char,
     _delimiter: std::ffi::c_int,
 ) -> *mut std::ffi::c_char {
-    unsafe { libc::strdup(c"joined") }
+    unsafe { libc::strdup(c"joined".as_ptr()) }
 }
 pub unsafe fn mock_argv_copy(argv: *mut *mut std::ffi::c_char) -> *mut *mut std::ffi::c_char {
     let count = unsafe { mock_argv_count(argv) } as usize;
@@ -3634,7 +3634,7 @@ pub unsafe fn mock_argv_prepend_nosize(
 }
 
 fn mock_argv_one() -> *mut *mut std::ffi::c_char {
-    let entry = unsafe { libc::strdup(c"a") };
+    let entry = unsafe { libc::strdup(c"a".as_ptr()) };
     // SAFETY: calloc allocates space for two pointer slots, which are initialized
     // before returning; the allocation is released by libc::free in mock_argv_free.
     let argv = unsafe {
@@ -4073,7 +4073,7 @@ pub unsafe fn mock_app_release(p: *mut crate::ffi::pmix_app_t) {
 }
 pub unsafe fn mock_app_string(_p: *const crate::ffi::pmix_app_t) -> *mut libc::c_char {
     // SAFETY: strdup allocates with malloc, matching the wrapper's libc::free.
-    unsafe { libc::strdup(c"mock_app") }
+    unsafe { libc::strdup(c"mock_app".as_ptr()) }
 }
 
 // PMIx_Envar_*, PMIx_Setenv, and multicluster namespace mocks.

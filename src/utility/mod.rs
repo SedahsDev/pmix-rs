@@ -458,19 +458,25 @@ pub fn alloc_directive_string(directive: PmixAllocDirective) -> Result<String, P
 /// assert!(!desc.is_empty());
 /// ```
 pub fn iof_channel_string(channel: IOFChannelFlags) -> Result<String, PmixStatus> {
+    // PMIx_IOF_channel_string writes a process-global static buffer and is
+    // explicitly not thread-safe. Hold the lock across the call and the copy
+    // so parallel tests (and callers) cannot observe a torn or overwritten string.
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let raw = channel.raw();
     // SAFETY: PMIx_IOF_channel_string takes a single pmix_iof_channel_t
     // (u16 bitmask) and returns a pointer to a static, null-terminated string
     // owned by the library. No memory is allocated or freed by this call. The
-    // returned pointer is valid for the lifetime of the process (it points to
-    // read-only data inside the PMIx shared library).
+    // returned pointer is valid until the next call; we copy it before releasing
+    // the lock.
     let c_ptr = unsafe { ffi::PMIx_IOF_channel_string(raw) };
     if c_ptr.is_null() {
         // Should not happen for any valid pmix_iof_channel_t, but guard anyway.
         return Err(PmixStatus::from_raw(-1)); // PMIX_ERROR
     }
     // SAFETY: The pointer is non-null and points to a valid null-terminated
-    // C string owned by the PMIx library (static lifetime).
+    // C string owned by the PMIx library. Copied before the lock is dropped.
     let cstr = unsafe { std::ffi::CStr::from_ptr(c_ptr) };
     Ok(cstr.to_string_lossy().into_owned())
 }
