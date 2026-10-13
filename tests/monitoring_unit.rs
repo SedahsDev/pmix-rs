@@ -197,7 +197,7 @@ fn test_monitor_callback_box_dyn_is_sized() {
 #[test]
 fn test_process_monitor_empty_monitor_empty_directives() {
     // Both monitor and directives are empty Info objects.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     assert!(monitor.is_empty());
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
     assert!(result.is_err(), "should fail without PMIx_Init");
@@ -205,11 +205,11 @@ fn test_process_monitor_empty_monitor_empty_directives() {
 
 #[test]
 fn test_process_monitor_with_single_directive() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let dirs = vec![{
         let mut b = InfoBuilder::new();
         b.collect_data();
-        b.build()
+        b.build().expect("build info")
     }];
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrTimeout), &dirs);
     assert!(result.is_err());
@@ -217,15 +217,15 @@ fn test_process_monitor_with_single_directive() {
 
 #[test]
 fn test_process_monitor_with_multiple_directives() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let dirs = vec![
         {
             let mut b = InfoBuilder::new();
             b.collect_data();
-            b.build()
+            b.build().expect("build info")
         },
-        InfoBuilder::new().build(),
-        InfoBuilder::new().build(),
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
     ];
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &dirs);
     assert!(result.is_err());
@@ -233,7 +233,7 @@ fn test_process_monitor_with_multiple_directives() {
 
 #[test]
 fn test_process_monitor_with_various_error_codes() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let error_codes = vec![
         PmixStatus::Known(PmixError::Success),
         PmixStatus::Known(PmixError::Error),
@@ -259,7 +259,7 @@ fn test_process_monitor_with_various_error_codes() {
 
 #[test]
 fn test_process_monitor_error_status_value() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
     match result {
         Err(status) => {
@@ -273,7 +273,7 @@ fn test_process_monitor_error_status_value() {
 #[test]
 fn test_process_monitor_repeated_calls_same_error() {
     // Multiple calls should produce the same error consistently.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let mut first_error: Option<PmixStatus> = None;
     for _ in 0..10 {
         let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
@@ -297,7 +297,7 @@ fn test_process_monitor_repeated_calls_same_error() {
 
 #[test]
 fn test_process_monitor_nb_empty_monitor_no_directives() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let cb = Box::new(CounterMonitorCb {
         counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     });
@@ -307,8 +307,8 @@ fn test_process_monitor_nb_empty_monitor_no_directives() {
 
 #[test]
 fn test_process_monitor_nb_with_directives() {
-    let monitor = InfoBuilder::new().build();
-    let dirs = vec![InfoBuilder::new().build()];
+    let monitor = InfoBuilder::new().build().expect("build info");
+    let dirs = vec![InfoBuilder::new().build().expect("build info")];
     let cb = Box::new(CounterMonitorCb {
         counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     });
@@ -326,7 +326,7 @@ fn test_process_monitor_nb_error_does_not_leak_callback() {
     // When process_monitor_nb fails, the callback should be cleaned up from
     // the registry. We verify this by making many calls — if callbacks leaked,
     // the registry would grow unbounded.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     for _ in 0..20 {
         let cb = Box::new(CounterMonitorCb {
             counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -339,7 +339,7 @@ fn test_process_monitor_nb_error_does_not_leak_callback() {
 
 #[test]
 fn test_process_monitor_nb_various_error_codes() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let error_codes = vec![
         PmixStatus::Known(PmixError::Success),
         PmixStatus::Known(PmixError::Error),
@@ -360,7 +360,7 @@ fn test_process_monitor_nb_various_error_codes() {
 #[test]
 fn test_process_monitor_nb_multiple_different_callbacks() {
     // Each call uses a different callback implementation.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
 
     // Call 1: CounterMonitorCb
     let cb1 = Box::new(CounterMonitorCb {
@@ -481,7 +481,7 @@ fn test_monitor_seq_increments_with_each_nb_call() {
     // request IDs would collide and callbacks could interfere.
     // Since all calls fail (no init), each callback is cleaned up,
     // and we can make many calls without issues.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     for _ in 0..50 {
         let cb = Box::new(CounterMonitorCb {
             counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -496,7 +496,7 @@ fn test_monitor_seq_increments_with_each_nb_call() {
 #[test]
 fn test_monitor_seq_no_collision_with_many_calls() {
     // Stress test: many rapid calls should all produce unique request IDs.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let num_calls = 100;
     for i in 0..num_calls {
         let cb = Box::new(CounterMonitorCb {
@@ -540,7 +540,7 @@ fn test_process_monitor_with_collect_data_monitor() {
     // Use a monitor with collect_data set.
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let monitor = builder.build();
+    let monitor = builder.build().expect("build info");
     assert!(!monitor.is_empty());
     let result = process_monitor(&monitor, PmixStatus::Known(PmixError::ErrNotFound), &[]);
     assert!(result.is_err());
@@ -550,7 +550,7 @@ fn test_process_monitor_with_collect_data_monitor() {
 fn test_process_monitor_nb_with_collect_data_monitor() {
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let monitor = builder.build();
+    let monitor = builder.build().expect("build info");
     let cb = Box::new(CounterMonitorCb {
         counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     });
@@ -560,8 +560,8 @@ fn test_process_monitor_nb_with_collect_data_monitor() {
 
 #[test]
 fn test_process_monitor_empty_info_len() {
-    // Verify InfoBuilder::new().build() produces an empty Info (len=0).
-    let info = InfoBuilder::new().build();
+    // Verify InfoBuilder::new().build().expect("build info") produces an empty Info (len=0).
+    let info = InfoBuilder::new().build().expect("build info");
     assert_eq!(info.len(), 0);
     assert!(info.is_empty());
 }
@@ -571,7 +571,7 @@ fn test_process_monitor_nonempty_info_len() {
     // Verify InfoBuilder with entries produces a non-empty Info.
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     assert_eq!(info.len(), 1);
     assert!(!info.is_empty());
 }
@@ -582,7 +582,7 @@ fn test_process_monitor_nonempty_info_len() {
 
 #[test]
 fn test_process_monitor_with_unknown_status() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     // Use an unknown/unrecognized status code.
     let result = process_monitor(&monitor, PmixStatus::Unknown(-12345), &[]);
     assert!(result.is_err());
@@ -590,7 +590,7 @@ fn test_process_monitor_with_unknown_status() {
 
 #[test]
 fn test_process_monitor_nb_with_unknown_status() {
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let cb = Box::new(CounterMonitorCb {
         counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     });
@@ -601,7 +601,7 @@ fn test_process_monitor_nb_with_unknown_status() {
 #[test]
 fn test_process_monitor_with_positive_status() {
     // Positive status codes are informational/success range.
-    let monitor = InfoBuilder::new().build();
+    let monitor = InfoBuilder::new().build().expect("build info");
     let result = process_monitor(&monitor, PmixStatus::Unknown(42), &[]);
     assert!(result.is_err()); // Still fails without init
 }

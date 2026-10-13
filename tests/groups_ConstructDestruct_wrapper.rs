@@ -56,7 +56,7 @@ fn test_group_construct_no_init() {
 #[test]
 fn test_group_construct_with_directives() {
     let proc = Proc::new("test_ns", 0).expect("create proc");
-    let directive = InfoBuilder::new().build();
+    let directive = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_construct("test_group", &[proc], &[directive]));
     assert!(!err.is_success());
 }
@@ -111,7 +111,7 @@ fn test_group_construct_nb_empty_group_id() {
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
     let cb = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: Vec<pmix::Info>| {
+        move |_status: PmixStatus, _results: GroupResults| {
             called_clone.store(true, Ordering::SeqCst);
         },
     );
@@ -132,7 +132,7 @@ fn test_group_construct_nb_empty_procs() {
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
     let cb = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: Vec<pmix::Info>| {
+        move |_status: PmixStatus, _results: GroupResults| {
             called_clone.store(true, Ordering::SeqCst);
         },
     );
@@ -153,7 +153,7 @@ fn test_group_construct_nb_no_init() {
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
     let cb = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: Vec<pmix::Info>| {
+        move |_status: PmixStatus, _results: GroupResults| {
             called_clone.store(true, Ordering::SeqCst);
         },
     );
@@ -171,12 +171,12 @@ fn test_group_construct_nb_with_info() {
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
     let cb = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: Vec<pmix::Info>| {
+        move |_status: PmixStatus, _results: GroupResults| {
             called_clone.store(true, Ordering::SeqCst);
         },
     );
     let proc = Proc::new("test_ns", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_construct_nb("test_group", &[proc], &[info], cb));
     assert!(!err.is_success());
 }
@@ -190,7 +190,7 @@ fn test_group_construct_nb_deterministic() {
     let called1 = Arc::new(AtomicBool::new(false));
     let c1 = Arc::clone(&called1);
     let cb1 = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: Vec<pmix::Info>| {
+        move |_status: PmixStatus, _results: GroupResults| {
             c1.store(true, Ordering::SeqCst);
         },
     );
@@ -199,7 +199,7 @@ fn test_group_construct_nb_deterministic() {
     let called2 = Arc::new(AtomicBool::new(false));
     let c2 = Arc::clone(&called2);
     let cb2 = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: Vec<pmix::Info>| {
+        move |_status: PmixStatus, _results: GroupResults| {
             c2.store(true, Ordering::SeqCst);
         },
     );
@@ -214,7 +214,7 @@ fn test_group_construct_nb_deterministic() {
 #[test]
 fn test_group_construct_callback_wrapper_new() {
     let _cb =
-        GroupConstructCallbackWrapper::new(|_status: PmixStatus, _results: Vec<pmix::Info>| {});
+        GroupConstructCallbackWrapper::new(|_status: PmixStatus, _results: GroupResults| {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -238,7 +238,7 @@ fn test_group_destruct_no_init() {
 /// group_destruct with info returns error (not initialized).
 #[test]
 fn test_group_destruct_with_info() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_destruct("test_group", &[info]));
     assert!(!err.is_success());
 }
@@ -264,8 +264,8 @@ fn test_group_destruct_idempotent() {
 /// group_destruct with multiple info entries returns error.
 #[test]
 fn test_group_destruct_multiple_info() {
-    let i1 = InfoBuilder::new().build();
-    let i2 = InfoBuilder::new().build();
+    let i1 = InfoBuilder::new().build().expect("build info");
+    let i2 = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_destruct("test_group", &[i1, i2]));
     assert!(!err.is_success());
 }
@@ -319,7 +319,7 @@ fn test_group_destruct_nb_with_info() {
     let cb = GroupDestructCallbackWrapper::new(move |_status: PmixStatus| {
         called_clone.store(true, Ordering::SeqCst);
     });
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_destruct_nb("test_group", &[info], cb));
     assert!(!err.is_success());
 }

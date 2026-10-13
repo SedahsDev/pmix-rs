@@ -25,7 +25,7 @@ use pmix::{PmixError, PmixStatus, get_version};
 /// `get_version` returns a non-empty version string.
 #[test]
 fn test_get_version_non_empty() {
-    let version = get_version();
+    let version = get_version().unwrap();
     assert!(
         !version.is_empty(),
         "get_version should return a non-empty string"
@@ -35,7 +35,7 @@ fn test_get_version_non_empty() {
 /// `get_version` returns a string containing digits (typical semver format).
 #[test]
 fn test_get_version_contains_digits() {
-    let version = get_version();
+    let version = get_version().unwrap();
     assert!(
         version.chars().any(|c| c.is_ascii_digit()),
         "get_version('{}') should contain at least one digit",
@@ -49,21 +49,21 @@ fn test_get_version_contains_digits() {
 /// an owned `String`.
 #[test]
 fn test_get_version_returns_static_str() {
-    let _v: &str = get_version();
+    let _v: &str = get_version().unwrap();
 }
 
 /// `get_version` is deterministic — multiple calls return the same value.
 #[test]
 fn test_get_version_deterministic() {
-    let v1 = get_version();
-    let v2 = get_version();
+    let v1 = get_version().unwrap();
+    let v2 = get_version().unwrap();
     assert_eq!(v1, v2, "get_version must be deterministic");
 }
 
 /// `get_version` follows a version-like format (digits and dots/hyphens).
 #[test]
 fn test_get_version_format() {
-    let version = get_version();
+    let version = get_version().unwrap();
     // Typical PMIx version: "4.1.1" or "5.0.0" — contains at least one dot
     // or hyphen separating version components, or is purely numeric.
     let has_separator = version.contains('.') || version.contains('-');
@@ -78,7 +78,7 @@ fn test_get_version_format() {
 /// `get_version` output is printable ASCII.
 #[test]
 fn test_get_version_printable() {
-    let version = get_version();
+    let version = get_version().unwrap();
     for c in version.chars() {
         assert!(
             c.is_ascii_graphic() || c.is_ascii_whitespace(),
@@ -91,7 +91,7 @@ fn test_get_version_printable() {
 /// `get_version` contains a parseable version number.
 #[test]
 fn test_get_version_major_version() {
-    let version = get_version();
+    let version = get_version().unwrap();
     // Version is e.g. "OpenPMIx 5.0.7a1..." — find first digit sequence
     let major = version
         .split(|c: char| c.is_whitespace() || c == '.' || c == '-')
@@ -1185,7 +1185,7 @@ fn test_register_attributes_tool_functions() {
 #[test]
 fn test_all_utility_functions_coexist() {
     // get_version — always works, safe to call
-    let version = get_version();
+    let version = get_version().unwrap();
     assert!(!version.is_empty());
 
     // Compile-time type checks for all utility functions — they coexist

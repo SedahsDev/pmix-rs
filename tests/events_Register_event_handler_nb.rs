@@ -8,7 +8,7 @@ use pmix::events::{HandlerRegCbFn, NotificationFn, register_event_handler_nb};
 /// `register_event_handler_nb` compiles with correct signature.
 #[test]
 fn register_event_handler_nb_compiles() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler_nb(
         &[],
         &info,

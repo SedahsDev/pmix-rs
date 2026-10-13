@@ -28,7 +28,7 @@ fn test_process_monitor_only() {
     let _lock = daemon_helper::daemon_lock().expect("daemon lock");
     let _handle = daemon_helper::get_tool_handle().expect("shared tool handle");
     eprintln!("[monitoring_minimal] calling process_monitor...");
-    let monitor_info = pmix::InfoBuilder::new().build();
+    let monitor_info = pmix::InfoBuilder::new().build().expect("build info");
     let result = process_monitor(
         &monitor_info,
         pmix::PmixStatus::Known(pmix::PmixError::MonitorHeartbeatAlert),

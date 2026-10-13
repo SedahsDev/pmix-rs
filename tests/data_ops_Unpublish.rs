@@ -128,7 +128,7 @@ fn unpublish_multiple_keys_before_init() {
 /// Test that the info parameter is accepted (even though the call fails).
 #[test]
 fn unpublish_with_info_before_init() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = unpublish(Some(&["FOOBAR"]), Some(&info));
     assert!(result.is_err(), "unpublish should fail without PMIx_Init");
     assert_eq!(
@@ -392,7 +392,7 @@ fn publish_unpublish_cycle() {
     let ctx = daemon_helper::ensure_pmix_init();
 
     // Publish data (simplified — real test would use proper InfoBuilder).
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let publish_result = publish(&info);
     assert!(publish_result.is_ok(), "publish should succeed");
 

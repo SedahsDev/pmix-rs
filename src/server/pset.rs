@@ -1,8 +1,12 @@
 //! Server submodule: pset
 
 use super::*;
+use crate::cbdata::Registry;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
+use crate::threading::invoke_user_callback;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_server_define_process_set
@@ -62,43 +66,43 @@ pub fn server_define_process_set(members: &[Proc], pset_name: &str) -> Result<()
             }
         }
         // Call FFI while arr is still valid (or mock).
-                let status;
+        let status;
         #[cfg(any(test, feature = "mock_ffi"))]
         {
             status = if mock_ffi::is_mock_enabled() {
                 unsafe {
-                mock_ffi::mock_server_define_process_set(
-                    arr as *const std::ffi::c_void,
-                    nmembers,
-                    pset_name_c.as_ptr(),
-                )
-            }
+                    mock_ffi::mock_server_define_process_set(
+                        arr as *const std::ffi::c_void,
+                        nmembers,
+                        pset_name_c.as_ptr(),
+                    )
+                }
             } else {
                 unsafe {
-                // SAFETY:
-                // - arr is a valid pointer to a contiguous array of pmix_proc_t
-                //   values, alive for the duration of this call (PMIx copies the
-                //   proc identifiers internally).
-                // - pset_name_c.as_ptr() is a valid null-terminated string for the
-                //   duration of this call (PMIx copies it internally).
-                // - PMIx_server_define_process_set is a synchronous server API.
-                ffi::PMIx_server_define_process_set(arr, nmembers, pset_name_c.as_ptr())
-            }
+                    // SAFETY:
+                    // - arr is a valid pointer to a contiguous array of pmix_proc_t
+                    //   values, alive for the duration of this call (PMIx copies the
+                    //   proc identifiers internally).
+                    // - pset_name_c.as_ptr() is a valid null-terminated string for the
+                    //   duration of this call (PMIx copies it internally).
+                    // - PMIx_server_define_process_set is a synchronous server API.
+                    ffi::PMIx_server_define_process_set(arr, nmembers, pset_name_c.as_ptr())
+                }
             };
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
         {
             status = {
                 unsafe {
-                // SAFETY:
-                // - arr is a valid pointer to a contiguous array of pmix_proc_t
-                //   values, alive for the duration of this call (PMIx copies the
-                //   proc identifiers internally).
-                // - pset_name_c.as_ptr() is a valid null-terminated string for the
-                //   duration of this call (PMIx copies it internally).
-                // - PMIx_server_define_process_set is a synchronous server API.
-                ffi::PMIx_server_define_process_set(arr, nmembers, pset_name_c.as_ptr())
-            }
+                    // SAFETY:
+                    // - arr is a valid pointer to a contiguous array of pmix_proc_t
+                    //   values, alive for the duration of this call (PMIx copies the
+                    //   proc identifiers internally).
+                    // - pset_name_c.as_ptr() is a valid null-terminated string for the
+                    //   duration of this call (PMIx copies it internally).
+                    // - PMIx_server_define_process_set is a synchronous server API.
+                    ffi::PMIx_server_define_process_set(arr, nmembers, pset_name_c.as_ptr())
+                }
             };
         }
         // Free the temporary C array.
@@ -114,37 +118,37 @@ pub fn server_define_process_set(members: &[Proc], pset_name: &str) -> Result<()
     };
 
     // Empty members case — call with null pointer (or mock).
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_define_process_set(
-                ptr::null(),
-                nmembers,
-                pset_name_c.as_ptr(),
-            )
-        }
+                mock_ffi::mock_server_define_process_set(
+                    ptr::null(),
+                    nmembers,
+                    pset_name_c.as_ptr(),
+                )
+            }
         } else {
             unsafe {
-            // SAFETY:
-            // - members_ptr is null (empty slice) — PMIx handles this gracefully.
-            // - pset_name_c.as_ptr() is a valid null-terminated string.
-            // - PMIx_server_define_process_set is a synchronous server API.
-            ffi::PMIx_server_define_process_set(members_ptr, nmembers, pset_name_c.as_ptr())
-        }
+                // SAFETY:
+                // - members_ptr is null (empty slice) — PMIx handles this gracefully.
+                // - pset_name_c.as_ptr() is a valid null-terminated string.
+                // - PMIx_server_define_process_set is a synchronous server API.
+                ffi::PMIx_server_define_process_set(members_ptr, nmembers, pset_name_c.as_ptr())
+            }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
             unsafe {
-            // SAFETY:
-            // - members_ptr is null (empty slice) — PMIx handles this gracefully.
-            // - pset_name_c.as_ptr() is a valid null-terminated string.
-            // - PMIx_server_define_process_set is a synchronous server API.
-            ffi::PMIx_server_define_process_set(members_ptr, nmembers, pset_name_c.as_ptr())
-        }
+                // SAFETY:
+                // - members_ptr is null (empty slice) — PMIx handles this gracefully.
+                // - pset_name_c.as_ptr() is a valid null-terminated string.
+                // - PMIx_server_define_process_set is a synchronous server API.
+                ffi::PMIx_server_define_process_set(members_ptr, nmembers, pset_name_c.as_ptr())
+            }
         };
     }
 
@@ -194,37 +198,43 @@ pub fn server_delete_process_set(pset_name: &str) -> Result<(), PmixStatus> {
     // The C API takes `char *` (non-const) even though it doesn't modify the
     // string. We use `as_ptr() as *mut` to match the FFI signature; this is
     // safe because PMIx only reads the string and copies it internally.
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_delete_process_set(pset_name_c.as_ptr() as *mut std::os::raw::c_char)
-        }
+                mock_ffi::mock_server_delete_process_set(
+                    pset_name_c.as_ptr() as *mut std::os::raw::c_char
+                )
+            }
         } else {
             unsafe {
-            // SAFETY:
-            // - pset_name_c is a valid null-terminated string for the duration of
-            //   this call (PMIx copies it internally, does not retain the pointer).
-            // - The cast from *const to *mut is safe because PMIx does not write
-            //   to the string — the non-const signature is a C API convention.
-            // - PMIx_server_delete_process_set is a synchronous server API.
-            ffi::PMIx_server_delete_process_set(pset_name_c.as_ptr() as *mut std::os::raw::c_char)
-        }
+                // SAFETY:
+                // - pset_name_c is a valid null-terminated string for the duration of
+                //   this call (PMIx copies it internally, does not retain the pointer).
+                // - The cast from *const to *mut is safe because PMIx does not write
+                //   to the string — the non-const signature is a C API convention.
+                // - PMIx_server_delete_process_set is a synchronous server API.
+                ffi::PMIx_server_delete_process_set(
+                    pset_name_c.as_ptr() as *mut std::os::raw::c_char
+                )
+            }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
             unsafe {
-            // SAFETY:
-            // - pset_name_c is a valid null-terminated string for the duration of
-            //   this call (PMIx copies it internally, does not retain the pointer).
-            // - The cast from *const to *mut is safe because PMIx does not write
-            //   to the string — the non-const signature is a C API convention.
-            // - PMIx_server_delete_process_set is a synchronous server API.
-            ffi::PMIx_server_delete_process_set(pset_name_c.as_ptr() as *mut std::os::raw::c_char)
-        }
+                // SAFETY:
+                // - pset_name_c is a valid null-terminated string for the duration of
+                //   this call (PMIx copies it internally, does not retain the pointer).
+                // - The cast from *const to *mut is safe because PMIx does not write
+                //   to the string — the non-const signature is a C API convention.
+                // - PMIx_server_delete_process_set is a synchronous server API.
+                ffi::PMIx_server_delete_process_set(
+                    pset_name_c.as_ptr() as *mut std::os::raw::c_char
+                )
+            }
         };
     }
 
@@ -250,20 +260,18 @@ pub trait RegisterResourcesCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending register_resources callbacks.
-type RegisterResourcesRegistry =
-    std::collections::HashMap<usize, Box<dyn RegisterResourcesCallback>>;
-static REGISTER_RESOURCES_REGISTRY: LazyLock<Mutex<RegisterResourcesRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
-/// Monotonically increasing register_resources request ID counter.
-static REGISTER_RESOURCES_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static REGISTER_RESOURCES_REGISTRY: LazyLock<Registry<Box<dyn RegisterResourcesCallback>>> =
+    LazyLock::new(Registry::new);
 
 /// C bridge for `pmix_op_cbfunc_t` (register_resources completion).
 ///
 /// Called by PMIx when the non-blocking resource registration completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered closure and invoke it with the result status.
-pub(crate) extern "C" fn register_resources_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn register_resources_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -272,9 +280,16 @@ pub(crate) extern "C" fn register_resources_callback_bridge(status: ffi::pmix_st
     // We reconstruct the usize from the pointer address.
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
+    // Release the retained info array on every completion, including when the
+    // callback was already consumed or was never registered.
+    REGISTER_RESOURCE_INFO
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
+
     // Look up and remove the callback from the registry.
     let cb = {
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -285,7 +300,9 @@ pub(crate) extern "C" fn register_resources_callback_bridge(status: ffi::pmix_st
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server::pset", move || {
+        cb.on_complete(pmix_status);
+    });
 }
 
 /// Register non-namespace related resource information with the PMIx server.
@@ -337,7 +354,7 @@ pub(crate) extern "C" fn register_resources_callback_bridge(status: ffi::pmix_st
 /// }
 ///
 /// // Register with no info keys (e.g., to clear previous registration)
-/// let info = InfoBuilder::new().build();
+/// let info = InfoBuilder::new().build().expect("build info");
 /// server_register_resources(&info, Box::new(MyResourceCallback))
 ///     .expect("register_resources request rejected");
 /// ```
@@ -346,13 +363,9 @@ pub fn server_register_resources(
     callback: Box<dyn RegisterResourcesCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = REGISTER_RESOURCES_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = REGISTER_RESOURCES_REGISTRY.next_req_id();
     {
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -360,64 +373,83 @@ pub fn server_register_resources(
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the info array for FFI.
-    let info_ptr = if info.len > 0 {
-        info.handle as *const ffi::pmix_info_t
+    let retained = if info.handle.is_null() || info.len == 0 {
+        Vec::new()
     } else {
-        ptr::null()
+        unsafe { std::slice::from_raw_parts(info.handle, info.len).to_vec() }
     };
-    let info_len = info.len;
+    let info_len = retained.len();
+    REGISTER_RESOURCE_INFO
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedResourceInfo(retained));
+    let info_ptr = {
+        let registry = REGISTER_RESOURCE_INFO
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let retained = &registry[&req_id].0;
+        if retained.is_empty() {
+            ptr::null()
+        } else {
+            retained.as_ptr()
+        }
+    };
 
     // Call the FFI function (or mock).
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_register_resources(
-                info_ptr as *mut std::ffi::c_void,
-                info_len,
-                Some(register_resources_callback_bridge),
-                cbdata,
-            )
-        }
+                mock_ffi::mock_server_register_resources(
+                    info_ptr as *mut std::ffi::c_void,
+                    info_len,
+                    Some(register_resources_callback_bridge),
+                    cbdata,
+                )
+            }
         } else {
             unsafe {
-            // SAFETY: PMIx_server_register_resources is a non-blocking server API.
-            // - info_ptr is either a valid pointer to an array of pmix_info_t
-            //   (owned by the Info handle, which remains alive for the duration
-            //   of this call — PMIx copies the info internally), or null when
-            //   info_len is 0.
-            // - info_len is the number of elements in the info array.
-            // - The callback bridge has C linkage and properly handles cbdata.
-            // - cbdata is an opaque pointer that we control and decode in the bridge.
-            ffi::PMIx_server_register_resources(
-                info_ptr as *mut ffi::pmix_info_t,
-                info_len,
-                Some(register_resources_callback_bridge),
-                cbdata,
-            )
-        }
+                // SAFETY: PMIx_server_register_resources is a non-blocking server API.
+                // - PMIx retains/aliases info_ptr across its threadshift and does
+                //   not copy the info array. REGISTER_RESOURCE_INFO keeps an owned
+                //   shallow copy of that array alive, keyed by req_id, until the
+                //   completion bridge reclaims it; the caller must keep the Info
+                //   value data alive until the callback fires (the retained array
+                //   does not own its nested value pointers), or null when empty.
+                // - info_len is the number of elements in the info array.
+                // - The callback bridge has C linkage and properly handles cbdata.
+                // - cbdata is an opaque pointer that we control and decode in the bridge.
+                ffi::PMIx_server_register_resources(
+                    info_ptr as *mut ffi::pmix_info_t,
+                    info_len,
+                    Some(register_resources_callback_bridge),
+                    cbdata,
+                )
+            }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
             unsafe {
-            // SAFETY: PMIx_server_register_resources is a non-blocking server API.
-            // - info_ptr is either a valid pointer to an array of pmix_info_t
-            //   (owned by the Info handle, which remains alive for the duration
-            //   of this call — PMIx copies the info internally), or null when
-            //   info_len is 0.
-            // - info_len is the number of elements in the info array.
-            // - The callback bridge has C linkage and properly handles cbdata.
-            // - cbdata is an opaque pointer that we control and decode in the bridge.
-            ffi::PMIx_server_register_resources(
-                info_ptr as *mut ffi::pmix_info_t,
-                info_len,
-                Some(register_resources_callback_bridge),
-                cbdata,
-            )
-        }
+                // SAFETY: PMIx_server_register_resources is a non-blocking server API.
+                // - PMIx retains/aliases info_ptr across its threadshift and does
+                //   not copy the info array. REGISTER_RESOURCE_INFO keeps an owned
+                //   shallow copy of that array alive, keyed by req_id, until the
+                //   completion bridge reclaims it; the caller must keep the Info
+                //   value data alive until the callback fires (the retained array
+                //   does not own its nested value pointers), or null when empty.
+                // - info_len is the number of elements in the info array.
+                // - The callback bridge has C linkage and properly handles cbdata.
+                // - cbdata is an opaque pointer that we control and decode in the bridge.
+                ffi::PMIx_server_register_resources(
+                    info_ptr as *mut ffi::pmix_info_t,
+                    info_len,
+                    Some(register_resources_callback_bridge),
+                    cbdata,
+                )
+            }
         };
     }
 
@@ -429,8 +461,12 @@ pub fn server_register_resources(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = REGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = REGISTER_RESOURCES_REGISTRY.lock();
         registry.remove(&req_id);
+        REGISTER_RESOURCE_INFO
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         Err(pmix_status)
     }
 }
@@ -448,13 +484,14 @@ pub trait DeregisterResourcesCallback: Send {
 }
 
 /// Global registry mapping request IDs to pending deregister_resources callbacks.
-type DeregisterResourcesRegistry =
-    std::collections::HashMap<usize, Box<dyn DeregisterResourcesCallback>>;
-static DEREGISTER_RESOURCES_REGISTRY: LazyLock<Mutex<DeregisterResourcesRegistry>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
-/// Monotonically increasing deregister_resources request ID counter.
-static DEREGISTER_RESOURCES_SEQ: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
+static DEREGISTER_RESOURCES_REGISTRY: LazyLock<Registry<Box<dyn DeregisterResourcesCallback>>> =
+    LazyLock::new(Registry::new);
+struct RetainedResourceInfo(Vec<ffi::pmix_info_t>);
+unsafe impl Send for RetainedResourceInfo {}
+static REGISTER_RESOURCE_INFO: LazyLock<Mutex<HashMap<usize, RetainedResourceInfo>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static DEREGISTER_RESOURCE_INFO: LazyLock<Mutex<HashMap<usize, RetainedResourceInfo>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// C bridge for `pmix_op_cbfunc_t` (deregister_resources completion).
 ///
@@ -474,8 +511,13 @@ pub(crate) extern "C" fn deregister_resources_callback_bridge(
     let req_id = crate::cbdata::decode_req_id(cbdata);
 
     // Look up and remove the callback from the registry.
+    DEREGISTER_RESOURCE_INFO
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&req_id);
+
     let cb = {
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock();
         registry.remove(&req_id)
     };
 
@@ -486,7 +528,9 @@ pub(crate) extern "C" fn deregister_resources_callback_bridge(
 
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
-    cb.on_complete(pmix_status);
+    let _ = invoke_user_callback("server::pset", move || {
+        cb.on_complete(pmix_status);
+    });
 }
 
 /// Deregister non-namespace related resource information from the PMIx server.
@@ -538,7 +582,7 @@ pub(crate) extern "C" fn deregister_resources_callback_bridge(
 /// }
 ///
 /// // Deregister all previously registered non-namespace resources
-/// let info = InfoBuilder::new().build();
+/// let info = InfoBuilder::new().build().expect("build info");
 /// server_deregister_resources(&info, Box::new(MyResourceCallback))
 ///     .expect("deregister_resources request rejected");
 /// ```
@@ -547,13 +591,9 @@ pub fn server_deregister_resources(
     callback: Box<dyn DeregisterResourcesCallback>,
 ) -> Result<(), PmixStatus> {
     // Allocate a unique request ID and register the callback.
-    let req_id = {
-        let mut seq = DEREGISTER_RESOURCES_SEQ.lock().unwrap();
-        *seq += 1;
-        *seq
-    };
+    let req_id = DEREGISTER_RESOURCES_REGISTRY.next_req_id();
     {
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock();
         registry.insert(req_id, callback);
     }
 
@@ -561,64 +601,83 @@ pub fn server_deregister_resources(
     let cbdata = crate::cbdata::encode_req_id(req_id);
 
     // Get a pointer to the info array for FFI.
-    let info_ptr = if info.len > 0 {
-        info.handle as *const ffi::pmix_info_t
+    let retained = if info.handle.is_null() || info.len == 0 {
+        Vec::new()
     } else {
-        ptr::null()
+        unsafe { std::slice::from_raw_parts(info.handle, info.len).to_vec() }
     };
-    let info_len = info.len;
+    let info_len = retained.len();
+    DEREGISTER_RESOURCE_INFO
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(req_id, RetainedResourceInfo(retained));
+    let info_ptr = {
+        let registry = DEREGISTER_RESOURCE_INFO
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let retained = &registry[&req_id].0;
+        if retained.is_empty() {
+            ptr::null()
+        } else {
+            retained.as_ptr()
+        }
+    };
 
     // Call the FFI function (or mock).
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_deregister_resources(
-                info_ptr as *mut std::ffi::c_void,
-                info_len,
-                Some(deregister_resources_callback_bridge),
-                cbdata,
-            )
-        }
+                mock_ffi::mock_server_deregister_resources(
+                    info_ptr as *mut std::ffi::c_void,
+                    info_len,
+                    Some(deregister_resources_callback_bridge),
+                    cbdata,
+                )
+            }
         } else {
             unsafe {
-            // SAFETY: PMIx_server_deregister_resources is a non-blocking server API.
-            // - info_ptr is either a valid pointer to an array of pmix_info_t
-            //   (owned by the Info handle, which remains alive for the duration
-            //   of this call — PMIx copies the info internally), or null when
-            //   info_len is 0.
-            // - info_len is the number of elements in the info array.
-            // - The callback bridge has C linkage and properly handles cbdata.
-            // - cbdata is an opaque pointer that we control and decode in the bridge.
-            ffi::PMIx_server_deregister_resources(
-                info_ptr as *mut ffi::pmix_info_t,
-                info_len,
-                Some(deregister_resources_callback_bridge),
-                cbdata,
-            )
-        }
+                // SAFETY: PMIx_server_deregister_resources is a non-blocking server API.
+                // - PMIx retains/aliases info_ptr across its threadshift and does
+                //   not copy the info array. DEREGISTER_RESOURCE_INFO keeps an
+                //   owned shallow copy of that array alive, keyed by req_id, until
+                //   the completion bridge reclaims it; the caller must keep the
+                //   Info value data alive until the callback fires (the retained
+                //   array does not own its nested value pointers), or null when empty.
+                // - info_len is the number of elements in the info array.
+                // - The callback bridge has C linkage and properly handles cbdata.
+                // - cbdata is an opaque pointer that we control and decode in the bridge.
+                ffi::PMIx_server_deregister_resources(
+                    info_ptr as *mut ffi::pmix_info_t,
+                    info_len,
+                    Some(deregister_resources_callback_bridge),
+                    cbdata,
+                )
+            }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
             unsafe {
-            // SAFETY: PMIx_server_deregister_resources is a non-blocking server API.
-            // - info_ptr is either a valid pointer to an array of pmix_info_t
-            //   (owned by the Info handle, which remains alive for the duration
-            //   of this call — PMIx copies the info internally), or null when
-            //   info_len is 0.
-            // - info_len is the number of elements in the info array.
-            // - The callback bridge has C linkage and properly handles cbdata.
-            // - cbdata is an opaque pointer that we control and decode in the bridge.
-            ffi::PMIx_server_deregister_resources(
-                info_ptr as *mut ffi::pmix_info_t,
-                info_len,
-                Some(deregister_resources_callback_bridge),
-                cbdata,
-            )
-        }
+                // SAFETY: PMIx_server_deregister_resources is a non-blocking server API.
+                // - PMIx retains/aliases info_ptr across its threadshift and does
+                //   not copy the info array. DEREGISTER_RESOURCE_INFO keeps an
+                //   owned shallow copy of that array alive, keyed by req_id, until
+                //   the completion bridge reclaims it; the caller must keep the
+                //   Info value data alive until the callback fires (the retained
+                //   array does not own its nested value pointers), or null when empty.
+                // - info_len is the number of elements in the info array.
+                // - The callback bridge has C linkage and properly handles cbdata.
+                // - cbdata is an opaque pointer that we control and decode in the bridge.
+                ffi::PMIx_server_deregister_resources(
+                    info_ptr as *mut ffi::pmix_info_t,
+                    info_len,
+                    Some(deregister_resources_callback_bridge),
+                    cbdata,
+                )
+            }
         };
     }
 
@@ -630,10 +689,12 @@ pub fn server_deregister_resources(
     } else {
         // Immediate failure — remove the registered callback so it
         // will never be invoked.
-        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock().unwrap();
+        let mut registry = DEREGISTER_RESOURCES_REGISTRY.lock();
         registry.remove(&req_id);
+        DEREGISTER_RESOURCE_INFO
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&req_id);
         Err(pmix_status)
     }
 }
-
-

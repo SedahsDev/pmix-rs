@@ -8,7 +8,7 @@
 
 mod daemon_helper;
 
-use pmix::tool::{
+use pmix::tool::{PmixTool,
     is_tool_initialized, tool_attach_to_server, tool_connect_to_server, tool_disconnect,
     tool_finalize, tool_get_servers, tool_init, tool_init_minimal, tool_is_connected,
     tool_set_server,
@@ -26,20 +26,20 @@ fn test_is_tool_initialized_type() {
 
 #[test]
 fn test_tool_init_type() {
-    use pmix::tool::PmixToolHandle;
-    let _f: fn(Option<&Proc>, &pmix::Info) -> Result<PmixToolHandle, PmixStatus> = tool_init;
+    use pmix::tool::PmixTool;
+    let _f: fn(Option<&Proc>, &pmix::Info) -> Result<PmixTool, PmixStatus> = tool_init;
 }
 
 #[test]
 fn test_tool_init_minimal_type() {
-    use pmix::tool::PmixToolHandle;
-    let _f: fn() -> Result<PmixToolHandle, PmixStatus> = tool_init_minimal;
+    use pmix::tool::PmixTool;
+    let _f: fn() -> Result<PmixTool, PmixStatus> = tool_init_minimal;
 }
 
 #[test]
 fn test_tool_finalize_type() {
-    use pmix::tool::PmixToolHandle;
-    let _f: fn(PmixToolHandle) -> Result<(), PmixStatus> = tool_finalize;
+    use pmix::tool::PmixTool;
+    let _f: fn(PmixTool) -> Result<(), PmixStatus> = tool_finalize;
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn test_tool_all_ffi_operations() {
     // Ensure shared handle is initialized — this gives us the daemon connection
     let _shared = daemon_helper::get_tool_handle().expect("shared tool handle");
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
 
     // ── is_tool_initialized ──
     let initialized = is_tool_initialized();

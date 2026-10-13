@@ -2,13 +2,13 @@
 
 Low-level Rust bindings for [PMIx](https://pmix.github.io/) (Process Management Interface for Exascale).
 
-Safe-ish wrappers over the PMIx 5.x C API via `bindgen`, plus modular helpers for client, server, and tool usage.
+Safe-ish wrappers over the OpenPMIx **≥ 6.1** C API via `bindgen`, plus modular helpers for client, server, and tool usage.
 
 **Status:** Active development. Suitable for other Rust HPC projects (OSU micro-benchmarks port, GUPS, custom launchers).
 
 ## Features
 
-- Full generated bindings (client / server / tool)
+- Full **build-time** generated bindings (client / server / tool) — written only to `OUT_DIR`
 - `PmixError` / `PmixStatus` two-tier status model
 - Modules: `data_ops`, `events`, `fabric`, `groups`, `process_mgmt`, `server`, `tool`, …
 - `PmixValueBuilder` / `info` helpers
@@ -26,20 +26,75 @@ OpenPMIx **≥ 6.1** threadshifts C API entry. Rust side:
 
 Full model, type inventory, progress/pinning, and roadmap: **[THREADING.md](./THREADING.md)**.
 
-## Build
+## Build prerequisites
 
-Requires a PMIx install (headers + `libpmix`) and optionally `libclang` for bindgen.
+| Dependency | Why |
+|---|---|
+| **OpenPMIx ≥ 6.1** (`libpmix` + headers) | C library this crate binds; minimum matches the documented threading model |
+| **libclang** (`libclang-dev` / `clang-devel`) | Required by `bindgen` at **build time** |
+| **pkg-config** (optional) | Helps locate PMIx when `PMIX_*` env vars are unset |
+
+There is **no** committed `src/bindings.rs`. Bindings are generated into Cargo’s `OUT_DIR` on every build and never touch the working tree.
+
+### Selecting an OpenPMIx installation
+
+The crate requires OpenPMIx **≥ 6.1**. On systems where `pkg-config pmix` finds an older system installation (for example, PMIx 5.0.7), set `PMIX_PREFIX` to a suitable OpenPMIx installation before each clean build:
 
 ```bash
-export PMIX_PREFIX=/path/to/pmix-or-prrte-install
+export PMIX_PREFIX=/path/to/openpmix-6.1.0
+export PKG_CONFIG_PATH=$PMIX_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+export LD_LIBRARY_PATH=$PMIX_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+```
+
+`PKG_CONFIG_PATH` and `LD_LIBRARY_PATH` may be omitted when the installation is already discoverable by the system. To pin the prefix once per checkout instead, create `.cargo/config.toml` with:
+
+```toml
+[env]
+PMIX_PREFIX = { value = "/opt/openpmix-6.1.0", force = true }
+```
+
+This configuration is local to the checkout and must be adjusted separately on each machine. The `PMIX_PREFIX` setting takes precedence over `pkg-config` discovery, so it avoids repeatedly selecting an older system installation after `cargo clean`.
+
+### Debian / Ubuntu
+
+```bash
+sudo apt-get install -y libclang-dev clang pkg-config
+# System libpmix is often < 6.1 — prefer building OpenPMIx yourself (see below).
+```
+
+### Fedora / RHEL
+
+```bash
+sudo dnf install -y clang-devel clang pkg-config
+```
+
+### OpenPMIx ≥ 6.1
+
+If your distro package is older than 6.1, install from source:
+
+```bash
+git clone --depth 1 --branch v6.1.0 --recurse-submodules \
+  https://github.com/openpmix/openpmix.git
+cd openpmix
+./autogen.pl
+./configure --prefix=$HOME/.local/openpmix-6.1.0
+make -j"$(nproc)" && make install
+export PMIX_PREFIX=$HOME/.local/openpmix-6.1.0
+export LD_LIBRARY_PATH=$PMIX_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+```
+
+## Build
+
+```bash
+export PMIX_PREFIX=/path/to/openpmix-install   # required if not on default paths
 export LD_LIBRARY_PATH=$PMIX_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 cargo build
 cargo test --lib
 ```
 
-Also supported: `PMIX_INCLUDE_DIR` + `PMIX_LIB_DIR`. Fallbacks: `/usr`, `/usr/local`, `/opt/pmix`. Offline fallback: pre-generated `src/bindings.rs`.
+Also supported: `PMIX_INCLUDE_DIR` + `PMIX_LIB_DIR`. Discovery order: env vars → `pkg-config pmix` → `/usr`, `/usr/local`, `/opt/pmix`, `/opt/prrte`.
 
-See also: [`../BUILDING.md`](../BUILDING.md).
+`build.rs` refuses OpenPMIx older than **6.1** and fails with a clear message if libclang is missing (bindgen’s panic is caught). A successful `cargo build` leaves `git status` clean.
 
 ## Simple API: put / get / commit / fence
 
@@ -83,12 +138,23 @@ cargo run --example tool_attach
 cargo run --example simple_put_get
 cargo run --example simple_fence
 cargo run --example data_packing
+cargo run --example callback_hop          # client _nb / events hop-off (#51)
+cargo run --example server_upcall_hop     # server fence/modex upcall hop (#52)
+cargo run --example external_progress_mt  # host progress + MT put (#54)
 ```
 
 Under a PMIx DVM:
 
 ```bash
 prterun -np 2 ./target/debug/examples/simple_put_get
+```
+
+Multi-thread + external-progress integration tests (issue #54):
+
+```bash
+./scripts/run_daemon_tests.sh THREADING
+# or:
+prterun -np 1 cargo test --test threading_mt_via_prterun -- --ignored --test-threads=1
 # or
 ./scripts/run_daemon_tests.sh
 ```

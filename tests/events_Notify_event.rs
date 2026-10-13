@@ -28,7 +28,7 @@ use std::ptr;
 #[test]
 fn notify_event_without_init_fails() {
     let proc = Proc::new("", 0).expect("create wildcard proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrJobAborted),
         &proc,
@@ -48,7 +48,7 @@ fn notify_event_without_init_fails() {
 #[test]
 fn notify_event_namespace_range_without_init_fails() {
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrJobCanceled),
         &proc,
@@ -64,7 +64,7 @@ fn notify_event_namespace_range_without_init_fails() {
 #[test]
 fn notify_event_local_range_without_init_fails() {
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::EventProcTerminated),
         &proc,
@@ -80,7 +80,7 @@ fn notify_event_local_range_without_init_fails() {
 #[test]
 fn notify_event_proc_local_range_without_init_fails() {
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::EventJobEnd),
         &proc,
@@ -94,7 +94,7 @@ fn notify_event_proc_local_range_without_init_fails() {
 #[test]
 fn notify_event_global_range_without_init_fails() {
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrProcFailedToStart),
         &proc,
@@ -108,7 +108,7 @@ fn notify_event_global_range_without_init_fails() {
 #[test]
 fn notify_event_rm_range_without_init_fails() {
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrLostConnection),
         &proc,
@@ -122,7 +122,7 @@ fn notify_event_rm_range_without_init_fails() {
 #[test]
 fn notify_event_custom_range_without_init_fails() {
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrTimeout),
         &proc,
@@ -145,7 +145,7 @@ fn notify_event_nb_without_init_fails() {
     extern "C" fn dummy_op_cb(_status: i32, _cbdata: *mut c_void) {}
 
     let proc = Proc::new("", 0).expect("create wildcard proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event_nb(
         PmixStatus::Known(PmixError::EventJobEnd),
         &proc,
@@ -167,7 +167,7 @@ fn notify_event_nb_namespace_range_without_init_fails() {
     extern "C" fn dummy_op_cb(_status: i32, _cbdata: *mut c_void) {}
 
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event_nb(
         PmixStatus::Known(PmixError::ErrJobAborted),
         &proc,
@@ -185,7 +185,7 @@ fn notify_event_nb_proc_local_without_init_fails() {
     extern "C" fn dummy_op_cb(_status: i32, _cbdata: *mut c_void) {}
 
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event_nb(
         PmixStatus::Known(PmixError::EventJobStart),
         &proc,
@@ -208,7 +208,7 @@ fn notify_event_nb_proc_local_without_init_fails() {
 fn notify_event_unknown_code_without_init_fails() {
     let user_code = PmixStatus::Unknown(-5000);
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(user_code, &proc, PmixDataRange::Session, &info);
     assert!(result.is_err(), "should fail without init for unknown code");
 }
@@ -227,7 +227,7 @@ fn notify_event_various_codes_without_init_fail() {
         PmixStatus::Known(PmixError::ErrProcRequestedAbort),
     ];
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     for code in &codes {
         let result = notify_event(*code, &proc, PmixDataRange::Session, &info);
         assert!(
@@ -247,7 +247,7 @@ fn notify_event_various_codes_without_init_fail() {
 #[test]
 fn notify_event_wildcard_proc_without_init_fails() {
     let proc = Proc::new("", 0).expect("create wildcard proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrJobAborted),
         &proc,
@@ -261,7 +261,7 @@ fn notify_event_wildcard_proc_without_init_fails() {
 #[test]
 fn notify_event_named_proc_without_init_fails() {
     let proc = Proc::new("my_job", 42).expect("create named proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrJobCanceled),
         &proc,
@@ -275,7 +275,7 @@ fn notify_event_named_proc_without_init_fails() {
 #[test]
 fn notify_event_rank_zero_without_init_fails() {
     let proc = Proc::new("job_12345", 0).expect("create proc at rank 0");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::EventProcTerminated),
         &proc,
@@ -289,7 +289,7 @@ fn notify_event_rank_zero_without_init_fails() {
 #[test]
 fn notify_event_high_rank_without_init_fails() {
     let proc = Proc::new("large_job", 1024).expect("create high rank proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrJobAborted),
         &proc,
@@ -307,7 +307,7 @@ fn notify_event_high_rank_without_init_fails() {
 #[test]
 fn notify_event_empty_info_without_init_fails() {
     let proc = Proc::new("test_namespace", 0).expect("create proc");
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     // Info built with empty builder should have no entries
     let result = notify_event(
         PmixStatus::Known(PmixError::ErrJobAborted),
@@ -375,7 +375,7 @@ fn notify_event_full_lifecycle() {
     daemon_helper::ensure_pmix_init();
     // let _ = pmix::lifecycle::init(None, &[]);
     // let proc = pmix::Proc::new("test_job", 0).unwrap();
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     //
     // // Register a handler first
     // let handler_ref = register_event_handler(
@@ -421,7 +421,7 @@ fn notify_event_nb_lifecycle() {
     //
     // let mut done = false;
     // let proc = pmix::Proc::new("test_job", 0).unwrap();
-    // let info = InfoBuilder::new().build();
+    // let info = InfoBuilder::new().build().expect("build info");
     //
     // notify_event_nb(
     //     PmixStatus::Known(PmixError::EventJobEnd),

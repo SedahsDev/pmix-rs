@@ -1,8 +1,8 @@
 //! utility unit tests
 
 use super::*;
+use std::sync::{Arc, Mutex};
 
-    use super::*;
 
     // ──────────────────────────────────────────────────────────────────────
     // PmixByteObject tests
@@ -59,8 +59,35 @@ use super::*;
         let bo = PmixByteObject::from_slice(b"roundtrip test");
         let c_ptr = bo.as_c_mut_ptr();
         assert!(!c_ptr.is_null());
+        // The C pointer must refer to the byte object while the FFI call is
+        // in progress, not to a temporary buffer that has already dropped.
+        let c_bo = unsafe { &*c_ptr };
+        let bytes = unsafe { std::slice::from_raw_parts(c_bo.bytes as *const u8, c_bo.size) };
+        assert_eq!(bytes, b"roundtrip test");
         // SAFETY: c_ptr was returned by as_c_mut_ptr and has not been freed.
         unsafe { PmixByteObject::free_c_ptr(c_ptr) };
+    }
+
+    #[test]
+    fn test_io_registry_context_survives_removal() {
+        let context = Arc::new(Mutex::new(IoPullContext {
+            io_cb: Box::new(|_, _, _, _| {}),
+            reg_cb: Box::new(|_, _| {}),
+        }));
+        let handle = 0x445usize;
+        IOF_REGISTRY
+            .lock()
+            .unwrap()
+            .insert(handle, Arc::clone(&context));
+        let callback_context = IOF_REGISTRY
+            .lock()
+            .unwrap()
+            .get(&handle)
+            .unwrap()
+            .clone();
+        IOF_REGISTRY.lock().unwrap().remove(&handle);
+        let guard = callback_context.lock().unwrap();
+        (guard.reg_cb)(PmixStatus::from_raw(0), handle);
     }
 
     /// Empty byte object converts to C and back without issues.
@@ -706,7 +733,7 @@ use super::*;
     #[test]
     fn test_data_range_string_unknown() {
         use crate::PmixDataRange::Unknown;
-        let range = Unknown;
+        let range = Unknown(99);
         let result = data_range_string(range);
         assert!(
             result.is_ok(),
@@ -774,7 +801,7 @@ use super::*;
         assert_eq!(PmixDataRange::from_raw(6), Custom);
         assert_eq!(PmixDataRange::from_raw(7), ProcLocal);
         assert_eq!(PmixDataRange::from_raw(255), Invalid);
-        assert!(matches!(PmixDataRange::from_raw(200), Unknown));
+        assert!(matches!(PmixDataRange::from_raw(200), Unknown(_)));
     }
 
     /// `PmixDataRange::to_raw` returns the expected raw values.
@@ -791,7 +818,7 @@ use super::*;
         assert_eq!(Custom.to_raw(), 6);
         assert_eq!(ProcLocal.to_raw(), 7);
         assert_eq!(Invalid.to_raw(), 255);
-        assert_eq!(Unknown.to_raw(), 128);
+        assert_eq!(Unknown(128).to_raw(), 128);
     }
 
     /// `PmixDataRange` implements Display.
@@ -808,7 +835,7 @@ use super::*;
         assert_eq!(format!("{}", Custom), "CUSTOM");
         assert_eq!(format!("{}", ProcLocal), "PROC LOCAL");
         assert_eq!(format!("{}", Invalid), "INVALID");
-        assert_eq!(format!("{}", Unknown), "UNKNOWN RANGE (128)");
+        assert_eq!(format!("{}", Unknown(128)), "UNKNOWN RANGE (128)");
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -2354,6 +2381,13 @@ use super::*;
 
     use crate::mock_ffi;
 
+    #[test]
+    fn test_generate_regex_and_ppn_copy_and_free_mock_outputs() {
+        let _guard = mock_ffi::MockGuard::new();
+        assert_eq!(generate_regex("node001,node002").unwrap(), "pmix:mock_regex");
+        assert_eq!(generate_ppn("0-3;4-7").unwrap(), "pmix:mock_ppn");
+    }
+
     // ── mock_generate_regex tests ──────────────────────────────────────────
 
     /// Mock generate_regex returns PMIX_SUCCESS when mock is enabled.
@@ -2370,9 +2404,7 @@ use super::*;
         );
         // Clean up the mock-allocated string
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                regex_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(regex_ptr.cast());
         }
     }
 
@@ -2423,9 +2455,7 @@ use super::*;
                 result.starts_with("pmix:"),
                 "mock regex should start with pmix:"
             );
-            drop(std::ffi::CString::from_raw(
-                regex_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(regex_ptr.cast());
         }
     }
 
@@ -2444,9 +2474,7 @@ use super::*;
             "ppn output should be non-null on success"
         );
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2497,9 +2525,7 @@ use super::*;
                 result.starts_with("pmix:"),
                 "mock ppn should start with pmix:"
             );
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2512,9 +2538,7 @@ use super::*;
         let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
         assert_eq!(status, mock_ffi::PMIX_SUCCESS);
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2527,9 +2551,7 @@ use super::*;
         let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
         assert_eq!(status, mock_ffi::PMIX_SUCCESS);
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2542,9 +2564,7 @@ use super::*;
         let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
         assert_eq!(status, mock_ffi::PMIX_SUCCESS);
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2557,9 +2577,7 @@ use super::*;
         let status = mock_ffi::mock_generate_ppn(input.as_ptr(), &mut ppn_ptr);
         assert_eq!(status, mock_ffi::PMIX_SUCCESS);
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
     }
 
@@ -2709,9 +2727,7 @@ use super::*;
             mock_ffi::PMIX_SUCCESS
         );
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                regex_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(regex_ptr.cast());
         }
         // generate_ppn
         let input = std::ffi::CString::new("0-3").unwrap();
@@ -2721,9 +2737,7 @@ use super::*;
             mock_ffi::PMIX_SUCCESS
         );
         unsafe {
-            drop(std::ffi::CString::from_raw(
-                ppn_ptr as *mut std::ffi::c_char,
-            ));
+            libc::free(ppn_ptr.cast());
         }
         // get_attribute_string
         let attr = std::ffi::CString::new("pmix.host").unwrap();
@@ -3041,10 +3055,28 @@ use super::*;
     }
 
     /// register_attributes with empty attrs array (extended test).
+    ///
+    /// When PMIx is not initialized, this returns `Err` (PMIX_ERR_INIT).
+    /// When PMIx is already initialized (e.g. full test suite), the C library
+    /// returns `PMIX_SUCCESS` (openpmix `pmix_attributes.c` checks
+    /// `pmix_globals.initialized`). Both outcomes are valid — see sibling tests
+    /// (`test_register_attributes_requires_init`, `test_register_attributes_empty_attrs`)
+    /// which tolerate both for the same reason.
     #[test]
     fn test_register_attributes_empty_attrs_extended() {
         let result = register_attributes("PMIx_Get", &[]);
-        assert!(result.is_err());
+        match result {
+            Err(status) => {
+                assert!(
+                    status.is_error(),
+                    "register_attributes error should be an error status, got raw {}",
+                    status.to_raw()
+                );
+            }
+            Ok(()) => {
+                // PMIx is already initialized (e.g. full test suite).
+            }
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -3064,6 +3096,21 @@ use super::*;
             |_, _| {},
         );
         assert!(result.is_err());
+    }
+
+    /// iof_pull_blocking returns the registration callback's real refid.
+    #[test]
+    fn test_iof_pull_blocking_returns_real_refid() {
+        let _guard = mock_ffi::MockGuard::new();
+        mock_ffi::mock_reset_iof_registry();
+        mock_ffi::mock_set_iof_handle(42);
+        IOF_REGISTRY.lock().unwrap().clear();
+
+        let result = iof_pull_blocking(&[], &[], IOFChannelFlags::STDOUT, |_, _, _, _| {});
+
+        assert_eq!(result, Ok(42));
+        assert!(IOF_REGISTRY.lock().unwrap().contains_key(&42));
+        IOF_REGISTRY.lock().unwrap().remove(&42);
     }
 
     /// iof_pull_blocking returns error without daemon.
@@ -3130,3 +3177,54 @@ use super::*;
         assert!(result.is_err());
     }
 
+
+
+#[test]
+fn regattr_construct_and_drop_use_mock() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let attr = PmixRegattr::new();
+    assert!(attr.name().is_none());
+}
+
+#[test]
+fn regattr_test_new_is_zeroed() {
+    let attr = PmixRegattr::test_new();
+    assert!(attr.name().is_none());
+    assert!(attr.key().is_none());
+    assert!(attr.description().is_none());
+}
+
+#[test]
+fn regattr_load_accepts_valid_and_rejects_nul() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let mut attr = PmixRegattr::new();
+    assert!(attr.load("name", "key", 0, "description").is_ok());
+    assert!(attr.load("bad\0name", "key", 0, "description").is_err());
+}
+
+#[test]
+fn regattr_repeated_load_replaces_previous_contents() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let mut attr = PmixRegattr::new();
+    attr.load("first", "key", 0, "one").unwrap();
+    attr.load("second", "key", 1, "two").unwrap();
+    assert_eq!(attr.name(), Some("second"));
+    assert_eq!(attr.descriptions(), vec!["two"]);
+    assert_eq!(attr.type_(), PmixDataType::Bool);
+}
+
+#[test]
+fn regattr_array_is_raii_managed() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let mut array = regattr_create(2).unwrap();
+    assert_eq!(array.len(), 2);
+    assert!(!array.as_mut_ptr().is_null());
+}
+
+#[test]
+fn regattr_xfer_uses_mock() {
+    let _guard = crate::mock_ffi::MockGuard::new();
+    let mut dest = PmixRegattr::new();
+    let src = PmixRegattr::new();
+    assert!(dest.xfer(&src).is_ok());
+}

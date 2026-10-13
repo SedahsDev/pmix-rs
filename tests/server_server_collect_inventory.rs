@@ -187,7 +187,7 @@ fn collect_inventory_without_init_returns_err_init() {
         fn on_complete(&self, _status: PmixStatus, _inventory: CollectInventoryResults) {}
     }
 
-    let directives = InfoBuilder::new().build();
+    let directives = InfoBuilder::new().build().expect("build info");
     let result = server_collect_inventory(&directives, Box::new(NopCallback));
 
     // Should return Err(PMIX_ERR_INIT) because PMIx_server_init was not called.
@@ -208,8 +208,8 @@ fn collect_inventory_empty_directives() {
         fn on_complete(&self, _status: PmixStatus, _inventory: CollectInventoryResults) {}
     }
 
-    let directives = InfoBuilder::new().build();
-    // InfoBuilder::new().build() creates an empty info list (len == 0).
+    let directives = InfoBuilder::new().build().expect("build info");
+    // InfoBuilder::new().build().expect("build info") creates an empty info list (len == 0).
     let result = server_collect_inventory(&directives, Box::new(NopCallback));
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), PmixStatus::Known(PmixError::ErrInit));
@@ -309,10 +309,10 @@ fn collect_inventory_with_server_init() {
 
     // Initialize the PMIx server.
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _handle = server_init(Some(&module), &info).expect("PMIx_server_init failed");
 
-    let directives = InfoBuilder::new().build();
+    let directives = InfoBuilder::new().build().expect("build info");
     let result = server_collect_inventory(&directives, Box::new(TestCallback));
     assert!(
         result.is_ok(),
@@ -338,13 +338,13 @@ fn collect_inventory_with_directives() {
     }
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _handle = server_init(Some(&module), &info).expect("PMIx_server_init failed");
 
     // We cannot easily construct non-empty Info from test code because
     // Info's internal handle is a raw pointer. The C API accepts null
     // for directives, which is equivalent to an empty slice.
-    let directives = InfoBuilder::new().build();
+    let directives = InfoBuilder::new().build().expect("build info");
     let result = server_collect_inventory(&directives, Box::new(TestCallback));
     assert!(result.is_ok());
 }
@@ -363,10 +363,10 @@ fn collect_inventory_concurrent_requests() {
     }
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _handle = server_init(Some(&module), &info).expect("PMIx_server_init failed");
 
-    let directives = InfoBuilder::new().build();
+    let directives = InfoBuilder::new().build().expect("build info");
     let results: Vec<_> = (0..3)
         .map(|_| server_collect_inventory(&directives, Box::new(TestCallback)))
         .collect();
@@ -415,8 +415,8 @@ fn collect_inventory_status_error_variants() {
 /// Info type is usable as the directives parameter.
 #[test]
 fn collect_inventory_info_directives_type() {
-    let directives = InfoBuilder::new().build();
-    // InfoBuilder::new().build() creates an empty info list.
+    let directives = InfoBuilder::new().build().expect("build info");
+    // InfoBuilder::new().build().expect("build info") creates an empty info list.
 
     // The function accepts &Info.
     struct Nop;

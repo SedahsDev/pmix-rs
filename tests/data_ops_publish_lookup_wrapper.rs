@@ -26,7 +26,7 @@ use pmix::{PmixStatus, Proc};
 /// publish without PMIx init returns error.
 #[test]
 fn test_publish_no_init() {
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = publish(&info);
     assert!(result.is_err());
 }
@@ -34,7 +34,7 @@ fn test_publish_no_init() {
 /// publish with empty Info returns error (not initialized).
 #[test]
 fn test_publish_empty_info() {
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = publish(&info);
     assert!(result.is_err());
 }
@@ -42,7 +42,7 @@ fn test_publish_empty_info() {
 /// publish returns consistent error on repeated calls.
 #[test]
 fn test_publish_repeated_calls() {
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let r1 = publish(&info);
     let r2 = publish(&info);
     assert_eq!(r1.is_err(), r2.is_err());
@@ -67,7 +67,7 @@ fn test_publish_nb_no_init() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = publish_nb(
         &info,
         Box::new(Cb {
@@ -88,7 +88,7 @@ fn test_publish_nb_empty_info() {
     impl PublishCallback for Cb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = publish_nb(&info, Box::new(Cb));
     assert!(result.is_err());
 }
@@ -109,7 +109,7 @@ fn test_get_no_init() {
 #[test]
 fn test_get_with_info() {
     let proc = Proc::new("test_ns", 0).unwrap();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = get(&proc, "test_key", Some(&info));
     assert!(result.is_err());
 }
@@ -197,7 +197,7 @@ fn test_get_nb_no_init() {
 #[test]
 fn test_get_nb_with_info() {
     let proc = Proc::new("test_ns", 0).unwrap();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     struct Cb;
     impl GetValueCallback for Cb {
         fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<pmix::PmixOwnedValue>) {}
@@ -278,7 +278,7 @@ fn test_lookup_no_init() {
 #[test]
 fn test_lookup_with_info() {
     let mut data: Vec<pmix::data_ops::PmixPdata> = Vec::new();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = lookup(&mut data, Some(&info));
     assert!(result.is_err());
 }
@@ -344,7 +344,7 @@ fn test_lookup_nb_no_init() {
 #[test]
 fn test_lookup_nb_with_info() {
     let keys = vec!["test_key"];
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     struct Cb;
     impl LookupCallback for Cb {
         fn on_result(
@@ -406,7 +406,7 @@ fn test_unpublish_no_init() {
 /// unpublish with Info returns error.
 #[test]
 fn test_unpublish_with_info() {
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = unpublish(Some(&["test_key"]), Some(&info));
     assert!(result.is_err());
 }
@@ -477,7 +477,7 @@ fn test_unpublish_nb_no_init() {
 /// unpublish_nb with Info returns error.
 #[test]
 fn test_unpublish_nb_with_info() {
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     struct Cb;
     impl UnpublishCallback for Cb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -535,7 +535,7 @@ fn test_fence_nb_no_init() {
 #[test]
 fn test_fence_nb_with_info() {
     let procs: Vec<Proc> = Vec::new();
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     struct Cb;
     impl FenceCallback for Cb {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
