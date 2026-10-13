@@ -15,6 +15,15 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![allow(unnecessary_transmutes)]
+// Generated bindings: don't fail CI when clippy grows a new lint for bindgen output.
+#![allow(clippy::all)]
+// OpenPMIx headers pull in libc prototypes (memcpy, strlen, ...) whose size
+// argument is c_ulong rather than usize. Newer rustc flags those #[link_name]
+// imports as suspicious runtime-symbol definitions, and CI clippy uses
+// `-D warnings`. The ABI matches on LP64 and ILP32; these are unused imports,
+// not definitions we provide. `unknown_lints` keeps older rustc quiet.
+#![allow(unknown_lints)]
+#![allow(suspicious_runtime_symbol_definitions)]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 

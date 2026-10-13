@@ -2888,10 +2888,11 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
             PmixPayload::ByteObject(mut bytes) => {
                 bytes.shrink_to_fit();
                 let len = bytes.len();
-                let ptr = bytes.as_mut_ptr() as *mut i8;
+                let ptr = bytes.as_mut_ptr();
                 std::mem::forget(bytes);
                 dst.data.bo = pmix_byte_object_t {
-                    bytes: ptr,
+                    // Bindgen emits *mut u8 or *mut i8 depending on the host headers.
+                    bytes: ptr as *mut _,
                     size: len,
                 };
             }
@@ -2901,7 +2902,8 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
                 dst.data.envar = pmix_envar_t {
                     envar: e.envar.into_raw(),
                     value: e.value.into_raw(),
-                    separator: e.separator as i8,
+                    // Bindgen emits u8 or i8 depending on the host headers.
+                    separator: e.separator as _,
                 };
             }
 
@@ -3326,7 +3328,10 @@ impl InfoBuilder {
     /// # Example
     /// ```rust
     /// use pmix::InfoBuilder;
-    /// let info = InfoBuilder::new().refresh_cache(true).build();
+    /// let mut builder = InfoBuilder::new();
+    /// builder.refresh_cache(true);
+    /// let info = builder.build().expect("info");
+    /// assert_eq!(info.len(), 1);
     /// ```
     pub fn refresh_cache(&mut self, refresh: bool) -> &mut Self {
         self.add_bool_key("pmix.get.refresh", refresh)
@@ -4081,11 +4086,11 @@ pub fn get_value(proc: &Proc, key: &[u8], info: Option<Info>) -> Result<PmixOwne
 /// value from a previous round.
 ///
 /// # Example
-/// ```rust
+/// ```no_run
 /// use pmix::{Proc, get_value_refresh_cache};
 ///
-/// let proc = Proc::new("myapp", 0, 0);
-/// let value = get_value_refresh_cache(&proc, b"my.key\0")?;
+/// let proc = Proc::new("myapp", 0).expect("proc");
+/// let _value = get_value_refresh_cache(&proc, b"my.key\0").expect("fresh get");
 /// ```
 pub fn get_value_refresh_cache(
     proc: &Proc,
@@ -4355,6 +4360,13 @@ mod tests {
     fn test_get_value_rejects_empty_key() {
         let proc = synthetic_proc();
         let result = get_value(&proc, b"", None);
+        assert!(matches!(result, Err(PmixError::ErrBadParam)));
+    }
+
+    #[test]
+    fn test_get_value_refresh_cache_rejects_empty_key() {
+        let proc = synthetic_proc();
+        let result = get_value_refresh_cache(&proc, b"");
         assert!(matches!(result, Err(PmixError::ErrBadParam)));
     }
 
