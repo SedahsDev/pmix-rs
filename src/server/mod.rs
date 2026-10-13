@@ -1079,8 +1079,8 @@ pub(crate) extern "C" fn register_client_callback_bridge(status: ffi::pmix_statu
 /// ```
 pub fn server_register_client(
     proc: &Proc,
-    uid: ffi::uid_t,
-    gid: ffi::gid_t,
+    uid: u32,
+    gid: u32,
     server_object: Option<*mut c_void>,
     callback: Box<dyn RegisterClientCallback>,
 ) -> Result<(), PmixStatus> {
