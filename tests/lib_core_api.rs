@@ -413,15 +413,15 @@ fn test_pmix_payload_variants() {
         PmixPayload::Envar(PmixEnvar::new("FOO", "bar", '=').unwrap()),
     ];
     for p in payloads {
-        let _ = p.type_tag();
+        let _ = p.type_tag().to_raw();
     }
 }
 
 #[test]
 fn test_pmix_payload_type_tag() {
-    assert_eq!(PmixPayload::Bool(true).type_tag(), 1);
-    assert_eq!(PmixPayload::Int(42).type_tag(), 6);
-    assert_eq!(PmixPayload::Size(1024).type_tag(), 4);
+    assert_eq!(PmixPayload::Bool(true).type_tag().to_raw(), 1);
+    assert_eq!(PmixPayload::Int(42).type_tag().to_raw(), 6);
+    assert_eq!(PmixPayload::Size(1024).type_tag().to_raw(), 4);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -497,7 +497,7 @@ fn test_value_builder_new() {
 #[test]
 fn test_value_builder_bool() {
     let value = PmixValueBuilder::new().bool(true).build().unwrap();
-    assert_eq!(value.type_tag(), 1);
+    assert_eq!(value.type_tag().to_raw(), 1);
 }
 
 #[test]
@@ -508,35 +508,35 @@ fn test_value_builder_string() {
         .build()
         .unwrap();
     // PMIX_STRING
-    assert_eq!(value.type_tag(), 3);
+    assert_eq!(value.type_tag().to_raw(), 3);
 }
 
 #[test]
 fn test_value_builder_u32() {
     let value = PmixValueBuilder::new().uint32(42).build().unwrap();
     // PMIX_UINT32
-    assert_eq!(value.type_tag(), 14);
+    assert_eq!(value.type_tag().to_raw(), 14);
 }
 
 #[test]
 fn test_value_builder_i32() {
     let value = PmixValueBuilder::new().int32(-42).build().unwrap();
     // PMIX_INT32
-    assert_eq!(value.type_tag(), 9);
+    assert_eq!(value.type_tag().to_raw(), 9);
 }
 
 #[test]
 fn test_value_builder_f64() {
     let value = PmixValueBuilder::new().double(3.14).build().unwrap();
     // PMIX_DOUBLE
-    assert_eq!(value.type_tag(), 17);
+    assert_eq!(value.type_tag().to_raw(), 17);
 }
 
 #[test]
 fn test_value_builder_size() {
     let value = PmixValueBuilder::new().size(1024).build().unwrap();
     // PMIX_SIZE
-    assert_eq!(value.type_tag(), 4);
+    assert_eq!(value.type_tag().to_raw(), 4);
 }
 
 #[test]
@@ -547,7 +547,7 @@ fn test_value_builder_scope() {
         .build()
         .unwrap();
     // PMIX_SCOPE
-    assert_eq!(value.type_tag(), 32);
+    assert_eq!(value.type_tag().to_raw(), 32);
 }
 
 #[test]
@@ -558,7 +558,7 @@ fn test_value_builder_data_range() {
         .build()
         .unwrap();
     // PMIX_DATA_RANGE
-    assert_eq!(value.type_tag(), 33);
+    assert_eq!(value.type_tag().to_raw(), 33);
 }
 
 #[test]
@@ -569,7 +569,7 @@ fn test_value_builder_persistence() {
         .build()
         .unwrap();
     // PMIX_PERSISTENCE
-    assert_eq!(value.type_tag(), 30);
+    assert_eq!(value.type_tag().to_raw(), 30);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

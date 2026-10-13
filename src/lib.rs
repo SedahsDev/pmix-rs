@@ -2527,43 +2527,43 @@ pub enum PmixPayload {
 }
 
 impl PmixPayload {
-    /// Return the `pmix_data_type_t` constant that matches this variant.
-    pub fn type_tag(&self) -> pmix_data_type_t {
-        (match self {
-            Self::Undef => PMIX_UNDEF,
-            Self::Bool(_) => PMIX_BOOL,
-            Self::Byte(_) => PMIX_BYTE,
-            Self::String(_) => PMIX_STRING,
-            Self::Size(_) => PMIX_SIZE,
-            Self::Pid(_) => PMIX_PID,
-            Self::Int(_) => PMIX_INT,
-            Self::Int8(_) => PMIX_INT8,
-            Self::Int16(_) => PMIX_INT16,
-            Self::Int32(_) => PMIX_INT32,
-            Self::Int64(_) => PMIX_INT64,
-            Self::Uint(_) => PMIX_UINT,
-            Self::Uint8(_) => PMIX_UINT8,
-            Self::Uint16(_) => PMIX_UINT16,
-            Self::Uint32(_) => PMIX_UINT32,
-            Self::Uint64(_) => PMIX_UINT64,
-            Self::Float(_) => PMIX_FLOAT,
-            Self::Double(_) => PMIX_DOUBLE,
-            Self::Timeval(_) => PMIX_TIMEVAL,
-            Self::Status(_) => PMIX_STATUS,
-            Self::Rank(_) => PMIX_PROC_RANK,
-            Self::Persist(_) => PMIX_PERSIST,
-            Self::Scope(_) => PMIX_SCOPE,
-            Self::DataRange(_) => PMIX_DATA_RANGE,
-            Self::ProcState(_) => PMIX_PROC_STATE,
-            Self::AllocDirective(_) => PMIX_ALLOC_DIRECTIVE,
-            Self::IofChannel(_) => PMIX_IOF_CHANNEL,
-            Self::InfoDirectives(_) => PMIX_INFO_DIRECTIVES,
-            Self::Proc(_) => PMIX_PROC,
-            Self::ByteObject(_) => PMIX_BYTE_OBJECT,
-            Self::Envar(_) => PMIX_ENVAR,
-            Self::Pointer(_) => PMIX_POINTER,
-            Self::DataArray { .. } => PMIX_DATA_ARRAY,
-        }) as pmix_data_type_t
+    /// Return the `PmixDataType` that matches this variant.
+    pub fn type_tag(&self) -> PmixDataType {
+        match self {
+            Self::Undef => PmixDataType::Undef,
+            Self::Bool(_) => PmixDataType::Bool,
+            Self::Byte(_) => PmixDataType::Byte,
+            Self::String(_) => PmixDataType::String,
+            Self::Size(_) => PmixDataType::Size,
+            Self::Pid(_) => PmixDataType::Pid,
+            Self::Int(_) => PmixDataType::Int,
+            Self::Int8(_) => PmixDataType::Int8,
+            Self::Int16(_) => PmixDataType::Int16,
+            Self::Int32(_) => PmixDataType::Int32,
+            Self::Int64(_) => PmixDataType::Int64,
+            Self::Uint(_) => PmixDataType::Uint,
+            Self::Uint8(_) => PmixDataType::Uint8,
+            Self::Uint16(_) => PmixDataType::Uint16,
+            Self::Uint32(_) => PmixDataType::Uint32,
+            Self::Uint64(_) => PmixDataType::Uint64,
+            Self::Float(_) => PmixDataType::Float,
+            Self::Double(_) => PmixDataType::Double,
+            Self::Timeval(_) => PmixDataType::Timeval,
+            Self::Status(_) => PmixDataType::Status,
+            Self::Rank(_) => PmixDataType::ProcRank,
+            Self::Persist(_) => PmixDataType::Persist,
+            Self::Scope(_) => PmixDataType::Scope,
+            Self::DataRange(_) => PmixDataType::DataRange,
+            Self::ProcState(_) => PmixDataType::ProcState,
+            Self::AllocDirective(_) => PmixDataType::AllocDirective,
+            Self::IofChannel(_) => PmixDataType::IofChannel,
+            Self::InfoDirectives(_) => PmixDataType::InfoDirectives,
+            Self::Proc(_) => PmixDataType::Proc,
+            Self::ByteObject(_) => PmixDataType::ByteObject,
+            Self::Envar(_) => PmixDataType::Envar,
+            Self::Pointer(_) => PmixDataType::Pointer,
+            Self::DataArray { .. } => PmixDataType::DataArray,
+        }
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2818,7 +2818,7 @@ impl PmixValueBuilder {
         // SAFETY: zeroed gives a valid starting state for every scalar field
         // and every pointer field (NULL).
         let mut v: pmix_value_t = unsafe { std::mem::zeroed() };
-        v.type_ = payload.type_tag();
+        v.type_ = payload.type_tag().to_raw();
         write_payload(&mut v, payload);
         Ok(v)
     }
@@ -3057,9 +3057,9 @@ impl PmixOwnedValue {
         &mut self.inner
     }
 
-    /// Return the `pmix_data_type_t` tag.
-    pub fn type_tag(&self) -> pmix_data_type_t {
-        self.inner.type_
+    /// Return the `PmixDataType` tag.
+    pub fn type_tag(&self) -> PmixDataType {
+        PmixDataType::from_raw(self.inner.type_)
     }
 
     /// Transfer ownership out of RAII; caller must free via `PMIX_VALUE_RELEASE`
@@ -4996,35 +4996,35 @@ mod tests {
 
     #[test]
     fn test_pmix_payload_type_tag_scalars() {
-        assert_eq!(PmixPayload::Undef.type_tag(), PMIX_UNDEF as u16);
-        assert_eq!(PmixPayload::Bool(true).type_tag(), PMIX_BOOL as u16);
-        assert_eq!(PmixPayload::Byte(42).type_tag(), PMIX_BYTE as u16);
-        assert_eq!(PmixPayload::Size(100).type_tag(), PMIX_SIZE as u16);
-        assert_eq!(PmixPayload::Pid(1234).type_tag(), PMIX_PID as u16);
-        assert_eq!(PmixPayload::Int(42).type_tag(), PMIX_INT as u16);
-        assert_eq!(PmixPayload::Int8(8).type_tag(), PMIX_INT8 as u16);
-        assert_eq!(PmixPayload::Int16(16).type_tag(), PMIX_INT16 as u16);
-        assert_eq!(PmixPayload::Int32(32).type_tag(), PMIX_INT32 as u16);
-        assert_eq!(PmixPayload::Int64(64).type_tag(), PMIX_INT64 as u16);
-        assert_eq!(PmixPayload::Uint(42).type_tag(), PMIX_UINT as u16);
-        assert_eq!(PmixPayload::Uint8(8).type_tag(), PMIX_UINT8 as u16);
-        assert_eq!(PmixPayload::Uint16(16).type_tag(), PMIX_UINT16 as u16);
-        assert_eq!(PmixPayload::Uint32(32).type_tag(), PMIX_UINT32 as u16);
-        assert_eq!(PmixPayload::Uint64(64).type_tag(), PMIX_UINT64 as u16);
-        assert_eq!(PmixPayload::Float(1.0).type_tag(), PMIX_FLOAT as u16);
-        assert_eq!(PmixPayload::Double(1.0).type_tag(), PMIX_DOUBLE as u16);
+        assert_eq!(PmixPayload::Undef.type_tag().to_raw(), PMIX_UNDEF as u16);
+        assert_eq!(PmixPayload::Bool(true).type_tag().to_raw(), PMIX_BOOL as u16);
+        assert_eq!(PmixPayload::Byte(42).type_tag().to_raw(), PMIX_BYTE as u16);
+        assert_eq!(PmixPayload::Size(100).type_tag().to_raw(), PMIX_SIZE as u16);
+        assert_eq!(PmixPayload::Pid(1234).type_tag().to_raw(), PMIX_PID as u16);
+        assert_eq!(PmixPayload::Int(42).type_tag().to_raw(), PMIX_INT as u16);
+        assert_eq!(PmixPayload::Int8(8).type_tag().to_raw(), PMIX_INT8 as u16);
+        assert_eq!(PmixPayload::Int16(16).type_tag().to_raw(), PMIX_INT16 as u16);
+        assert_eq!(PmixPayload::Int32(32).type_tag().to_raw(), PMIX_INT32 as u16);
+        assert_eq!(PmixPayload::Int64(64).type_tag().to_raw(), PMIX_INT64 as u16);
+        assert_eq!(PmixPayload::Uint(42).type_tag().to_raw(), PMIX_UINT as u16);
+        assert_eq!(PmixPayload::Uint8(8).type_tag().to_raw(), PMIX_UINT8 as u16);
+        assert_eq!(PmixPayload::Uint16(16).type_tag().to_raw(), PMIX_UINT16 as u16);
+        assert_eq!(PmixPayload::Uint32(32).type_tag().to_raw(), PMIX_UINT32 as u16);
+        assert_eq!(PmixPayload::Uint64(64).type_tag().to_raw(), PMIX_UINT64 as u16);
+        assert_eq!(PmixPayload::Float(1.0).type_tag().to_raw(), PMIX_FLOAT as u16);
+        assert_eq!(PmixPayload::Double(1.0).type_tag().to_raw(), PMIX_DOUBLE as u16);
     }
 
     #[test]
     fn test_pmix_payload_type_tag_composite() {
-        assert_eq!(PmixPayload::Status(0).type_tag(), PMIX_STATUS as u16);
-        assert_eq!(PmixPayload::Rank(0).type_tag(), PMIX_PROC_RANK as u16);
+        assert_eq!(PmixPayload::Status(0).type_tag().to_raw(), PMIX_STATUS as u16);
+        assert_eq!(PmixPayload::Rank(0).type_tag().to_raw(), PMIX_PROC_RANK as u16);
         assert_eq!(
-            PmixPayload::ByteObject(vec![1, 2, 3]).type_tag(),
+            PmixPayload::ByteObject(vec![1, 2, 3]).type_tag().to_raw(),
             PMIX_BYTE_OBJECT as u16
         );
         assert_eq!(
-            PmixPayload::Pointer(std::ptr::null_mut()).type_tag(),
+            PmixPayload::Pointer(std::ptr::null_mut()).type_tag().to_raw(),
             PMIX_POINTER as u16
         );
     }
@@ -5032,7 +5032,7 @@ mod tests {
     #[test]
     fn test_pmix_payload_type_tag_string() {
         let payload = PmixPayload::String(CString::new("hello").unwrap());
-        assert_eq!(payload.type_tag(), PMIX_STRING as u16);
+        assert_eq!(payload.type_tag().to_raw(), PMIX_STRING as u16);
     }
 
     #[test]
@@ -5041,7 +5041,7 @@ mod tests {
             elem_type: PMIX_INT as u16,
             elements: vec![],
         };
-        assert_eq!(payload.type_tag(), PMIX_DATA_ARRAY as u16);
+        assert_eq!(payload.type_tag().to_raw(), PMIX_DATA_ARRAY as u16);
     }
 
     // ──────────────────────────────────────────────────────────────────────
