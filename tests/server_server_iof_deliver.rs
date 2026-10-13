@@ -100,7 +100,7 @@ fn iof_deliver_before_init_no_panic() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"hello".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &source,
         IOFChannelFlags::STDOUT,
@@ -124,7 +124,7 @@ fn iof_deliver_with_stdout_channel() {
 
     let source = Proc::new("test.nspace", 1).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"stdout data".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &source,
         IOFChannelFlags::STDOUT,
@@ -147,7 +147,7 @@ fn iof_deliver_with_stderr_channel() {
 
     let source = Proc::new("test.nspace", 2).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"stderr data".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &source,
         IOFChannelFlags::STDERR,
@@ -169,7 +169,7 @@ fn iof_deliver_with_stdin_channel() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"stdin data".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &source,
         IOFChannelFlags::STDIN,
@@ -191,7 +191,7 @@ fn iof_deliver_with_empty_byte_object() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(Vec::new());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &source,
         IOFChannelFlags::STDOUT,
@@ -214,7 +214,7 @@ fn iof_deliver_with_large_byte_object() {
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let large_data: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
     let bo = PmixByteObject::from(large_data);
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let result = server_iof_deliver(
         &source,
         IOFChannelFlags::STDOUT,
@@ -237,7 +237,7 @@ fn iof_deliver_different_source_procs() {
     let source1 = Proc::new("job1.12345", 0).expect("Proc::new should succeed");
     let source2 = Proc::new("job2.67890", 42).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"data".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
 
     let result1 = server_iof_deliver(
         &source1,
@@ -269,7 +269,7 @@ fn iof_deliver_consistent_result_type() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"data".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
 
     // Call multiple times — all should return the same result type.
     let first = server_iof_deliver(
@@ -317,7 +317,7 @@ fn iof_deliver_callback_with_state() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"data".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let _result = server_iof_deliver(
         &source,
         IOFChannelFlags::STDOUT,
@@ -340,7 +340,7 @@ fn iof_deliver_combined_channel_flags() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"data".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
 
     // Combine STDOUT | STDERR using BitOr
     let combined = IOFChannelFlags::STDOUT | IOFChannelFlags::STDERR;
@@ -369,7 +369,7 @@ fn iof_deliver_various_nspace_formats() {
         let source =
             Proc::new(nspace, 0).expect(&format!("Proc::new should succeed for {}", nspace));
         let bo = PmixByteObject::from(b"data".to_vec());
-        let info = pmix::InfoBuilder::new().build();
+        let info = pmix::InfoBuilder::new().build().expect("build info");
         let _result = server_iof_deliver(
             &source,
             IOFChannelFlags::STDOUT,
@@ -393,7 +393,7 @@ fn iof_deliver_various_ranks() {
         let source = Proc::new("test.nspace", *rank)
             .expect(&format!("Proc::new should succeed for rank {}", rank));
         let bo = PmixByteObject::from(b"data".to_vec());
-        let info = pmix::InfoBuilder::new().build();
+        let info = pmix::InfoBuilder::new().build().expect("build info");
         let _result = server_iof_deliver(
             &source,
             IOFChannelFlags::STDOUT,
@@ -440,7 +440,7 @@ fn iof_deliver_after_server_init() {
     use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build()) {
+    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build().expect("build info")) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -455,7 +455,7 @@ fn iof_deliver_after_server_init() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"test output".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
 
     let result = server_iof_deliver(
         &source,
@@ -495,7 +495,7 @@ fn iof_deliver_callback_fires_on_success() {
     use std::time::Duration;
 
     let module = PmixServerModule::default();
-    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build()) {
+    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build().expect("build info")) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -517,7 +517,7 @@ fn iof_deliver_callback_fires_on_success() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"integration test".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
 
     let result = server_iof_deliver(
         &source,
@@ -549,7 +549,7 @@ fn iof_deliver_with_complete_flag() {
     use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build()) {
+    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build().expect("build info")) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -564,7 +564,7 @@ fn iof_deliver_with_complete_flag() {
 
     let source = Proc::new("test.nspace", 0).expect("Proc::new should succeed");
     let bo = PmixByteObject::from(b"final output".to_vec());
-    let info = pmix::InfoBuilder::new().build();
+    let info = pmix::InfoBuilder::new().build().expect("build info");
 
     let result = server_iof_deliver(
         &source,
@@ -593,7 +593,7 @@ fn iof_deliver_concurrent_calls() {
     use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build()) {
+    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build().expect("build info")) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -610,7 +610,7 @@ fn iof_deliver_concurrent_calls() {
     for i in 0..10 {
         let source = Proc::new(&format!("test.{}", i), 0).expect("Proc::new should succeed");
         let bo = PmixByteObject::from(format!("data {}", i).into_bytes());
-        let info = pmix::InfoBuilder::new().build();
+        let info = pmix::InfoBuilder::new().build().expect("build info");
 
         let result = server_iof_deliver(
             &source,

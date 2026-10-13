@@ -217,7 +217,7 @@ fn test_cpuset_drop_does_not_panic() {
 
 #[test]
 fn test_infobuilder_build_empty() {
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let _ = info;
 }
 
@@ -227,7 +227,7 @@ fn test_infobuilder_collect_data() {
     // — just verify the type compiles
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let _info = builder.build();
+    let _info = builder.build().expect("build info");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

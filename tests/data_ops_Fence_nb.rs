@@ -123,7 +123,7 @@ fn fence_nb_with_info_before_init_returns_err_init() {
 
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let procs: &[Proc] = &[];
 
     let result = fence_nb(procs, Some(&info), Box::new(InfoCheckCallback));
@@ -207,7 +207,7 @@ fn fence_nb_empty_params() {
         }
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let procs: &[Proc] = &[];
 
     let result = fence_nb(procs, Some(&info), Box::new(EmptyCallback));
@@ -276,7 +276,7 @@ fn fence_nb_collect_data_before_init() {
 
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let proc = Proc::new("test_namespace", 0).expect("should create proc");
     let procs = vec![proc];
 
@@ -291,6 +291,7 @@ fn fence_nb_collect_data_before_init() {
 /// a different thread by the PMIx library.
 #[test]
 fn fence_callback_is_send() {
+    #[allow(dead_code)]
     struct SendCallback;
     impl FenceCallback for SendCallback {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
@@ -363,7 +364,7 @@ fn fence_nb_with_collect_data() {
 
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let _ctx = daemon_helper::ensure_pmix_init();
     let proc = _ctx.require_proc();
     let procs = vec![proc];
@@ -473,7 +474,7 @@ fn fence_nb_full_params() {
 
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let _ctx = daemon_helper::ensure_pmix_init();
     let proc = _ctx.require_proc();
     let procs = vec![proc];
@@ -506,7 +507,7 @@ fn fence_nb_put_commit_fence_pattern() {
 
     let mut builder = InfoBuilder::new();
     builder.collect_data();
-    let info = builder.build();
+    let info = builder.build().expect("build info");
     let result = fence_nb(&procs, Some(&info), Box::new(PatternCallback));
     assert!(
         result.is_ok(),

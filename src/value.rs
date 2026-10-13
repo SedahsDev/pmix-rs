@@ -182,7 +182,7 @@ impl PmixPayload {
             Self::Double(_) => PmixDataType::Double,
             Self::Timeval(_) => PmixDataType::Timeval,
             Self::Status(_) => PmixDataType::Status,
-            Self::Rank(_) => PmixDataType::Proc,
+            Self::Rank(_) => PmixDataType::ProcRank,
             Self::Persist(_) => PmixDataType::Persist,
             Self::Scope(_) => PmixDataType::Scope,
             Self::DataRange(_) => PmixDataType::DataRange,
@@ -448,7 +448,7 @@ impl PmixValueBuilder {
         // SAFETY: zeroed gives a valid starting state for every scalar field
         // and every pointer field (NULL).
         let mut v: pmix_value_t = unsafe { std::mem::zeroed() };
-        v.type_ = payload.type_tag();
+        v.type_ = payload.type_tag().to_raw();
         write_payload(&mut v, payload);
         Ok(v)
     }
@@ -570,9 +570,9 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
 /// After this call `v` is zeroed and safe to drop or reuse.
 ///
 /// # Safety
-/// `v` must have been produced by this crate's builder (or have equivalent
-/// allocation discipline).  Calling this on a `pmix_value_t` produced by the C
-/// library (and therefore managed by `PMIX_VALUE_RELEASE`) is a double-free.
+/// `v` must have been produced by this crate's builder, or be a Rust-owned copy
+/// whose nested payloads follow the same allocation discipline. It must not be
+/// a value still owned by PMIx or a borrowed copy of a C-owned info array.
 pub fn free_value(v: &mut pmix_value_t) {
     // SAFETY: type_ was set by write_payload; we access only the matching arm.
     unsafe {

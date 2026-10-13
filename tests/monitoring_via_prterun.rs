@@ -44,7 +44,7 @@ fn test_monitor_results_empty() {
 #[test]
 fn test_process_monitor_fails_without_init() {
     if !is_dvm_launched() {
-        let monitor_info = pmix::InfoBuilder::new().build();
+        let monitor_info = pmix::InfoBuilder::new().build().expect("build info");
         let result =
             pmix::monitoring::process_monitor(&monitor_info, PmixStatus::from_raw(-46), &[]);
         assert!(result.is_err());
@@ -86,7 +86,7 @@ fn test_heartbeat_via_dvm() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_process_monitor_via_dvm() {
     daemon_helper::ensure_pmix_init();
-    let monitor_info = pmix::InfoBuilder::new().build();
+    let monitor_info = pmix::InfoBuilder::new().build().expect("build info");
     let result = pmix::monitoring::process_monitor(&monitor_info, PmixStatus::from_raw(-46), &[]);
     match result {
         Ok(results) => {
@@ -107,6 +107,6 @@ fn test_monitoring_lifecycle_via_dvm() {
     let _ = pmix::monitoring::heartbeat();
 
     // Process monitor
-    let monitor_info = pmix::InfoBuilder::new().build();
+    let monitor_info = pmix::InfoBuilder::new().build().expect("build info");
     let _ = pmix::monitoring::process_monitor(&monitor_info, PmixStatus::from_raw(-46), &[]);
 }

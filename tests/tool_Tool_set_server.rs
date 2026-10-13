@@ -9,7 +9,7 @@ use pmix::{Info, InfoBuilder, Proc, tool::tool_set_server};
 #[test]
 fn tool_set_server_without_init_returns_error() {
     let server = Proc::new("test-nspace", 0).unwrap();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = tool_set_server(&server, &info);
     assert!(
         result.is_err(),

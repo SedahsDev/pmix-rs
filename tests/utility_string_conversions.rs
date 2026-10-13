@@ -305,7 +305,7 @@ fn data_range_string_all_defined() {
 
 #[test]
 fn data_range_string_unknown() {
-    let result = data_range_string(PmixDataRange::Unknown);
+    let result = data_range_string(PmixDataRange::Unknown(128));
     assert!(
         result.is_ok(),
         "data_range_string(Unknown) should handle gracefully, got {:?}",

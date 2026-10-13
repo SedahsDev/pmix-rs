@@ -74,8 +74,8 @@ fn test_validation_results_is_empty_true() {
 /// get_credential with multiple info entries returns error.
 #[test]
 fn test_get_credential_multiple_info() {
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let result = get_credential(&[info1, info2]);
     assert!(result.is_err());
 }
@@ -98,8 +98,8 @@ fn test_get_credential_idempotent() {
 /// validate_credential with multiple info entries returns error.
 #[test]
 fn test_validate_credential_multiple_info() {
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let cred = PmixCredential::from_bytes(&[1, 2, 3]);
     let result = validate_credential(&cred, &[info1, info2]);
     assert!(result.is_err());
@@ -150,8 +150,8 @@ fn test_get_credential_nb_multiple_info() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let result = get_credential_nb(
         &[info1, info2],
         Box::new(Cb {
@@ -181,8 +181,8 @@ fn test_validate_credential_nb_multiple_info() {
             self.c.store(true, Ordering::SeqCst);
         }
     }
-    let info1 = InfoBuilder::new().build();
-    let info2 = InfoBuilder::new().build();
+    let info1 = InfoBuilder::new().build().expect("build info");
+    let info2 = InfoBuilder::new().build().expect("build info");
     let cred = PmixCredential::from_bytes(&[1, 2, 3]);
     let result = validate_credential_nb(
         &cred,

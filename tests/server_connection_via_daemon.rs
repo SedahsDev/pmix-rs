@@ -75,7 +75,7 @@ fn test_server_connect_empty_procs_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_connect(&handle, &[], &[]);
@@ -95,7 +95,7 @@ fn test_server_connect_with_proc_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let procs = vec![Proc::new("test_nspace", 0).expect("invalid nspace")];
@@ -113,11 +113,11 @@ fn test_server_connect_with_info_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let procs = vec![Proc::new("info_connect_test", 0).expect("invalid nspace")];
-    let connect_info = vec![InfoBuilder::new().build()];
+    let connect_info = vec![InfoBuilder::new().build().expect("build info")];
     let result = server_connect(&handle, &procs, &connect_info);
     let _ = result;
 
@@ -132,7 +132,7 @@ fn test_server_connect_nb_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let procs = vec![Proc::new("nb_connect_test", 0).expect("invalid nspace")];
@@ -151,7 +151,7 @@ fn test_server_disconnect_empty_procs_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let result = server_disconnect(&handle, &[], &[]);
@@ -171,7 +171,7 @@ fn test_server_disconnect_with_proc_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let procs = vec![Proc::new("disconnect_test", 0).expect("invalid nspace")];
@@ -189,11 +189,11 @@ fn test_server_disconnect_with_info_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let procs = vec![Proc::new("info_disconnect_test", 0).expect("invalid nspace")];
-    let disconnect_info = vec![InfoBuilder::new().build()];
+    let disconnect_info = vec![InfoBuilder::new().build().expect("build info")];
     let result = server_disconnect(&handle, &procs, &disconnect_info);
     let _ = result;
 
@@ -208,7 +208,7 @@ fn test_server_disconnect_nb_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let procs = vec![Proc::new("nb_disconnect_test", 0).expect("invalid nspace")];
@@ -227,7 +227,7 @@ fn test_server_connect_disconnect_cycle_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     let procs = vec![Proc::new("connect_disconnect_cycle", 0).expect("invalid nspace")];

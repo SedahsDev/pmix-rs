@@ -22,8 +22,7 @@ use pmix::server::{PmixServerModule, server_finalize, server_get_credential, ser
 use pmix::{InfoBuilder, PmixStatus};
 
 // Dummy callbacks for testing module with callbacks set.
-// All PmixServerModule callbacks are Option<unsafe extern "C" fn()>
-extern "C" fn dummy_callback() {}
+// PmixServerModule fields use typed OpenPMIx callback signatures.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Standalone tests (always run — verify compile-time type correctness)
@@ -114,7 +113,7 @@ fn test_server_get_credential_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Get credential — returns error without auth setup.
@@ -135,11 +134,11 @@ fn test_server_get_credential_with_info_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // Get credential with info directives — still returns error without auth.
-    let cred_info = vec![InfoBuilder::new().build()];
+    let cred_info = vec![InfoBuilder::new().build().expect("build info")];
     let result = server_get_credential(&handle, &cred_info);
     assert!(
         result.is_err(),
@@ -157,7 +156,7 @@ fn test_server_get_credential_returns_credential_type_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let result: Result<pmix::security::PmixCredential, PmixStatus> =
@@ -178,10 +177,8 @@ fn test_server_get_credential_with_callbacks_module_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let mut module = PmixServerModule::default();
-    module.abort = Some(dummy_callback);
-    module.fence_nb = Some(dummy_callback);
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     let result = server_get_credential(&handle, &[]);
@@ -201,7 +198,7 @@ fn test_server_get_credential_multiple_attempts_with_daemon() {
     let _guard = daemon_helper::connect_to_daemon().expect("daemon available");
 
     let module = PmixServerModule::default();
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let handle = server_init(Some(&module), &info).expect("server_init should succeed with daemon");
 
     // First attempt — empty info.
@@ -209,12 +206,15 @@ fn test_server_get_credential_multiple_attempts_with_daemon() {
     assert!(result1.is_err(), "first get_credential should return Err");
 
     // Second attempt — with info directives.
-    let cred_info = vec![InfoBuilder::new().build()];
+    let cred_info = vec![InfoBuilder::new().build().expect("build info")];
     let result2 = server_get_credential(&handle, &cred_info);
     assert!(result2.is_err(), "second get_credential should return Err");
 
     // Third attempt — with multiple info directives.
-    let cred_info2 = vec![InfoBuilder::new().build(), InfoBuilder::new().build()];
+    let cred_info2 = vec![
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+    ];
     let result3 = server_get_credential(&handle, &cred_info2);
     assert!(result3.is_err(), "third get_credential should return Err");
 

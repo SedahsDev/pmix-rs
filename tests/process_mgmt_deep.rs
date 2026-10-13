@@ -212,7 +212,7 @@ fn test_spawn_empty_apps_rejected() {
 
 #[test]
 fn test_spawn_empty_apps_with_info_rejected() {
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = spawn(&info, &[]);
     assert!(result.is_err());
 }
@@ -343,7 +343,7 @@ fn test_spawn_single_app() {
 fn test_spawn_with_info() {
     daemon_helper::ensure_pmix_init();
     let app = PmixApp::builder().cmd("/bin/true").build().expect("build");
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = spawn(&info, &[app]);
     let _ = result;
 }
@@ -404,7 +404,7 @@ fn test_connect_multiple_procs() {
 fn test_connect_with_info() {
     daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = connect(&[proc], &info);
     let _ = result;
 }
@@ -437,7 +437,7 @@ fn test_disconnect_single_proc() {
 fn test_disconnect_with_info() {
     daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
-    let info = vec![InfoBuilder::new().build()];
+    let info = vec![InfoBuilder::new().build().expect("build info")];
     let result = disconnect(&[proc], &info);
     let _ = result;
 }

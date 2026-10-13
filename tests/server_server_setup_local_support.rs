@@ -120,7 +120,7 @@ fn test_setup_local_support_without_server() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = InfoBuilder::new().build();
+    let info = InfoBuilder::new().build().expect("build info");
     let result = server_setup_local_support("valid_nspace", &info, Box::new(TestCb));
 
     // Without a PMIx server initialized, this should return an error.
@@ -138,8 +138,8 @@ fn test_setup_local_support_empty_info() {
         fn on_complete(self: Box<Self>, _status: PmixStatus) {}
     }
 
-    let info = InfoBuilder::new().build();
-    // Info.len is private; we trust InfoBuilder::new().build() produces an empty array.
+    let info = InfoBuilder::new().build().expect("build info");
+    // Info.len is private; we trust InfoBuilder::new().build().expect("build info") produces an empty array.
 
     let result = server_setup_local_support("test_nspace", &info, Box::new(TestCb));
 
