@@ -29,24 +29,24 @@ pub fn server_get_credential(
     _handle: &PmixServerHandle,
     info: &[Info],
 ) -> Result<PmixCredential, PmixStatus> {
-        #[cfg(any(test, feature = "mock_ffi"))]
+    #[cfg(any(test, feature = "mock_ffi"))]
     {
         if mock_ffi::is_mock_enabled() {
             let mut cred = unsafe { std::mem::zeroed::<ffi::pmix_byte_object_t>() };
-        let status = unsafe {
-            mock_ffi::mock_server_get_credential(
-                ptr::null_mut(),
-                0,
-                ptr::null_mut(),
-                ptr::null_mut(),
-            )
-        };
-        let pmix_status = PmixStatus::from_raw(status);
-        if pmix_status.is_success() {
-            Ok(PmixCredential::empty())
-        } else {
-            Err(pmix_status)
-        }
+            let status = unsafe {
+                mock_ffi::mock_server_get_credential(
+                    ptr::null_mut(),
+                    0,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                )
+            };
+            let pmix_status = PmixStatus::from_raw(status);
+            if pmix_status.is_success() {
+                Ok(PmixCredential::empty())
+            } else {
+                Err(pmix_status)
+            }
         } else {
             crate::security::get_credential(info)
         }
@@ -56,4 +56,3 @@ pub fn server_get_credential(
         crate::security::get_credential(info)
     }
 }
-

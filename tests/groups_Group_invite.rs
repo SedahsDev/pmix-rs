@@ -238,10 +238,11 @@ fn group_invite_callback_wrapper_records_info_count() {
     let info_count = Arc::new(Mutex::new(None::<usize>));
     let info_count_clone = Arc::clone(&info_count);
 
-    let _wrapper = GroupInviteCallbackWrapper::new(move |_status: PmixStatus, info: GroupResults| {
-        let mut locked = info_count_clone.lock().unwrap();
-        *locked = Some(info.len());
-    });
+    let _wrapper =
+        GroupInviteCallbackWrapper::new(move |_status: PmixStatus, info: GroupResults| {
+            let mut locked = info_count_clone.lock().unwrap();
+            *locked = Some(info.len());
+        });
 }
 
 /// GroupInviteCallbackWrapper is Send (required for cross-thread callbacks).

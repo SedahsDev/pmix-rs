@@ -359,7 +359,7 @@ pub fn tool_init_minimal() -> Result<PmixTool, PmixStatus> {
         &Info {
             handle: ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         },
     )
 }
@@ -1045,7 +1045,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let info_ptr = if info.len > 0 {
             info.handle
@@ -1157,7 +1157,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         assert!(info.handle.is_null());
         assert_eq!(info.len, 0);
@@ -1242,7 +1242,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_connect_to_server(Some(&server), &info);
         match result {
@@ -1276,7 +1276,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_set_server(&server, &info);
         match result {
@@ -1318,7 +1318,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_init(Some(&proc), &info);
         match result {
@@ -1335,7 +1335,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_init(None, &info);
         match result {
@@ -1368,7 +1368,7 @@ mod tests {
         let info = Info {
             handle: std::ptr::null_mut(),
             len: 0,
-        _not_thread_safe: std::marker::PhantomData,
+            _not_thread_safe: std::marker::PhantomData,
         };
         let result = tool_attach_to_server(None, false, &info);
         match result {
@@ -1460,9 +1460,18 @@ mod tests {
     }
 }
 
-
-pub fn tool_set_server_module(module:&crate::server::PmixServerModule)->Result<(),PmixStatus>{let s=crate::pmix_ffi_or_mock!(mock=unsafe{crate::mock_ffi::mock_tool_set_server_module(module.as_c_ptr().cast_mut())},real=unsafe{ffi::PMIx_tool_set_server_module(module.as_c_ptr().cast_mut())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
-
+pub fn tool_set_server_module(module: &crate::server::PmixServerModule) -> Result<(), PmixStatus> {
+    let s = crate::pmix_ffi_or_mock!(
+        mock =
+            unsafe { crate::mock_ffi::mock_tool_set_server_module(module.as_c_ptr().cast_mut()) },
+        real = unsafe { ffi::PMIx_tool_set_server_module(module.as_c_ptr().cast_mut()) }
+    );
+    if s == ffi::PMIX_SUCCESS as i32 {
+        Ok(())
+    } else {
+        Err(PmixStatus::from_raw(s))
+    }
+}
 
 #[cfg(test)]
 #[test]

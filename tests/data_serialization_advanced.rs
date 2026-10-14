@@ -25,7 +25,7 @@ mod daemon_helper;
 use std::sync::OnceLock;
 
 use pmix::data_serialization::*;
-use pmix::{PmixDataType, PmixError, PmixStatus, PmixClient};
+use pmix::{PmixClient, PmixDataType, PmixError, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton PMIx init — PMIx can only be initialized once per process.
@@ -33,7 +33,9 @@ use pmix::{PmixDataType, PmixError, PmixStatus, PmixClient};
 static PMIX_CTX: OnceLock<pmix::PmixClient> = OnceLock::new();
 
 fn ensure_init() -> &'static pmix::PmixClient {
-    PMIX_CTX.get_or_init(|| PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun"))
+    PMIX_CTX.get_or_init(|| {
+        PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun")
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

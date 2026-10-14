@@ -53,7 +53,7 @@ use std::sync::Mutex;
 
 use std::sync::LazyLock;
 
-use crate::cbdata::{decode_req_id, encode_req_id, Registry};
+use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
@@ -1842,8 +1842,8 @@ pub unsafe fn resource_block_nb(
 mod misc_wrapper_tests {
     use super::*;
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
@@ -1863,17 +1863,19 @@ mod misc_wrapper_tests {
         let called = AtomicUsize::new(0);
         // SAFETY: callback has the PMIx ABI and called remains live through the
         // synchronous mock invocation; a real caller must extend that lifetime.
-        assert!(unsafe {
-            resource_block_nb(
-                0,
-                &mut block,
-                &units,
-                &[],
-                Some(callback),
-                (&called as *const AtomicUsize).cast_mut().cast(),
-            )
-        }
-        .is_ok());
+        assert!(
+            unsafe {
+                resource_block_nb(
+                    0,
+                    &mut block,
+                    &units,
+                    &[],
+                    Some(callback),
+                    (&called as *const AtomicUsize).cast_mut().cast(),
+                )
+            }
+            .is_ok()
+        );
         assert_eq!(called.load(Ordering::SeqCst), 1);
     }
 }

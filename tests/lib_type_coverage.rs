@@ -656,7 +656,10 @@ fn test_pmix_data_range_to_raw_all() {
 fn test_pmix_data_range_display() {
     assert_eq!(format!("{}", PmixDataRange::Undef), "UNDEFINED");
     assert_eq!(format!("{}", PmixDataRange::Global), "GLOBAL");
-    assert_eq!(format!("{}", PmixDataRange::Unknown(128)), "UNKNOWN RANGE (128)");
+    assert_eq!(
+        format!("{}", PmixDataRange::Unknown(128)),
+        "UNKNOWN RANGE (128)"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1097,7 +1100,10 @@ fn test_info_flags_bitor_assign() {
 #[test]
 fn test_pmix_payload_type_tag_all_variants() {
     // Undef
-    assert_eq!(PmixPayload::Undef.type_tag().to_raw(), PmixDataType::Undef as u16);
+    assert_eq!(
+        PmixPayload::Undef.type_tag().to_raw(),
+        PmixDataType::Undef as u16
+    );
 
     // Bool
     assert_eq!(
@@ -1106,11 +1112,16 @@ fn test_pmix_payload_type_tag_all_variants() {
     );
 
     // Byte
-    assert_eq!(PmixPayload::Byte(42).type_tag().to_raw(), PmixDataType::Byte as u16);
+    assert_eq!(
+        PmixPayload::Byte(42).type_tag().to_raw(),
+        PmixDataType::Byte as u16
+    );
 
     // String
     assert_eq!(
-        PmixPayload::String(CString::new("hello").unwrap()).type_tag().to_raw(),
+        PmixPayload::String(CString::new("hello").unwrap())
+            .type_tag()
+            .to_raw(),
         PmixDataType::String as u16
     );
 
@@ -1121,13 +1132,22 @@ fn test_pmix_payload_type_tag_all_variants() {
     );
 
     // Pid
-    assert_eq!(PmixPayload::Pid(1234).type_tag().to_raw(), PmixDataType::Pid as u16);
+    assert_eq!(
+        PmixPayload::Pid(1234).type_tag().to_raw(),
+        PmixDataType::Pid as u16
+    );
 
     // Int
-    assert_eq!(PmixPayload::Int(-42).type_tag().to_raw(), PmixDataType::Int as u16);
+    assert_eq!(
+        PmixPayload::Int(-42).type_tag().to_raw(),
+        PmixDataType::Int as u16
+    );
 
     // Int8
-    assert_eq!(PmixPayload::Int8(-5).type_tag().to_raw(), PmixDataType::Int8 as u16);
+    assert_eq!(
+        PmixPayload::Int8(-5).type_tag().to_raw(),
+        PmixDataType::Int8 as u16
+    );
 
     // Int16
     assert_eq!(
@@ -1148,7 +1168,10 @@ fn test_pmix_payload_type_tag_all_variants() {
     );
 
     // Uint
-    assert_eq!(PmixPayload::Uint(42).type_tag().to_raw(), PmixDataType::Uint as u16);
+    assert_eq!(
+        PmixPayload::Uint(42).type_tag().to_raw(),
+        PmixDataType::Uint as u16
+    );
 
     // Uint8
     assert_eq!(
@@ -1170,7 +1193,9 @@ fn test_pmix_payload_type_tag_all_variants() {
 
     // Uint64
     assert_eq!(
-        PmixPayload::Uint64(18446744073709551615).type_tag().to_raw(),
+        PmixPayload::Uint64(18446744073709551615)
+            .type_tag()
+            .to_raw(),
         PmixDataType::Uint64 as u16
     );
 
@@ -1192,7 +1217,8 @@ fn test_pmix_payload_type_tag_all_variants() {
             tv_sec: 1,
             tv_usec: 500
         })
-        .type_tag().to_raw(),
+        .type_tag()
+        .to_raw(),
         PmixDataType::Timeval as u16
     );
 
@@ -1215,7 +1241,10 @@ fn test_pmix_payload_type_tag_all_variants() {
     );
 
     // Scope
-    assert_eq!(PmixPayload::Scope(3).type_tag().to_raw(), PmixDataType::Scope as u16);
+    assert_eq!(
+        PmixPayload::Scope(3).type_tag().to_raw(),
+        PmixDataType::Scope as u16
+    );
 
     // DataRange
     assert_eq!(
@@ -1269,7 +1298,9 @@ fn test_pmix_payload_type_tag_all_variants() {
 
     // Pointer
     assert_eq!(
-        PmixPayload::Pointer(std::ptr::null_mut()).type_tag().to_raw(),
+        PmixPayload::Pointer(std::ptr::null_mut())
+            .type_tag()
+            .to_raw(),
         PmixDataType::Pointer as u16
     );
 
@@ -1279,7 +1310,8 @@ fn test_pmix_payload_type_tag_all_variants() {
             elem_type: PmixDataType::Int as u16,
             elements: vec![],
         }
-        .type_tag().to_raw(),
+        .type_tag()
+        .to_raw(),
         PmixDataType::DataArray as u16
     );
 }

@@ -440,7 +440,10 @@ fn iof_deliver_after_server_init() {
     use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build().expect("build info")) {
+    let handle = match server_init(
+        Some(&module),
+        &pmix::InfoBuilder::new().build().expect("build info"),
+    ) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -495,7 +498,10 @@ fn iof_deliver_callback_fires_on_success() {
     use std::time::Duration;
 
     let module = PmixServerModule::default();
-    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build().expect("build info")) {
+    let handle = match server_init(
+        Some(&module),
+        &pmix::InfoBuilder::new().build().expect("build info"),
+    ) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -549,7 +555,10 @@ fn iof_deliver_with_complete_flag() {
     use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build().expect("build info")) {
+    let handle = match server_init(
+        Some(&module),
+        &pmix::InfoBuilder::new().build().expect("build info"),
+    ) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);
@@ -593,7 +602,10 @@ fn iof_deliver_concurrent_calls() {
     use pmix::server::{PmixServerModule, server_finalize, server_init};
 
     let module = PmixServerModule::default();
-    let handle = match server_init(Some(&module), &pmix::InfoBuilder::new().build().expect("build info")) {
+    let handle = match server_init(
+        Some(&module),
+        &pmix::InfoBuilder::new().build().expect("build info"),
+    ) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("Skipping: server_init failed: {:?}", e);

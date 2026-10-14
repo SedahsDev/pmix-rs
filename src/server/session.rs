@@ -5,9 +5,9 @@
 //! **Drop does not finalize.** Call [`PmixServer::disconnect`] or [`super::server_finalize`].
 
 use crate::{Info, PmixStatus, ffi};
+use std::ptr;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::ptr;
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
@@ -91,10 +91,7 @@ impl PmixServer {
     }
 
     /// `new()` + [`connect`](Self::connect).
-    pub fn connect_new(
-        module: Option<&PmixServerModule>,
-        info: &Info,
-    ) -> Result<Self, PmixStatus> {
+    pub fn connect_new(module: Option<&PmixServerModule>, info: &Info) -> Result<Self, PmixStatus> {
         let s = Self::new();
         s.connect(module, info)?;
         Ok(s)

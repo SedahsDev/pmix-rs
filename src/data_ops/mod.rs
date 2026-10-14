@@ -59,9 +59,7 @@ pub fn publish(info: &Info) -> Result<(), PmixStatus> {
     // the Info parameter). PMIx does not retain the pointer after
     // this call returns.
     let status = crate::pmix_ffi_or_mock!(
-        mock = unsafe {
-            mock_ffi::mock_publish(info_ptr as *const std::ffi::c_void, ninfo)
-        },
+        mock = unsafe { mock_ffi::mock_publish(info_ptr as *const std::ffi::c_void, ninfo) },
         real = unsafe { ffi::PMIx_Publish(info_ptr, ninfo) },
     );
 
@@ -84,7 +82,6 @@ pub trait PublishCallback: Send {
 /// Global registry mapping request IDs to pending publish callbacks.
 type PublishRegistry = Registry<Box<dyn PublishCallback>>;
 static PUBLISH_REGISTRY: LazyLock<PublishRegistry> = LazyLock::new(PublishRegistry::new);
-
 
 /// C bridge for `pmix_op_cbfunc_t` (publish completion).
 ///
@@ -114,7 +111,7 @@ extern "C" fn publish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("data_ops", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -167,9 +164,8 @@ pub fn publish_nb(info: &Info, callback: Box<dyn PublishCallback>) -> Result<(),
                 cbdata,
             )
         },
-        real = unsafe {
-            ffi::PMIx_Publish_nb(info_ptr, ninfo, Some(publish_callback_bridge), cbdata)
-        },
+        real =
+            unsafe { ffi::PMIx_Publish_nb(info_ptr, ninfo, Some(publish_callback_bridge), cbdata) },
     );
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -207,8 +203,7 @@ pub trait GetValueCallback: Send {
 type GetRegistry = Registry<Box<dyn GetValueCallback>>;
 static GET_REGISTRY: LazyLock<GetRegistry> = LazyLock::new(GetRegistry::new);
 type GetRetainedInputs = (CString, usize, usize);
-static GET_RETAINED_INPUTS: LazyLock<Registry<GetRetainedInputs>> =
-    LazyLock::new(Registry::new);
+static GET_RETAINED_INPUTS: LazyLock<Registry<GetRetainedInputs>> = LazyLock::new(Registry::new);
 static QUALIFIED_GETS: LazyLock<Mutex<std::collections::HashSet<usize>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
 
@@ -226,7 +221,6 @@ fn release_retained_get_inputs(req_id: usize) {
         }
     }
 }
-
 
 /// C bridge for `pmix_value_cbfunc_t`.
 ///
@@ -369,7 +363,11 @@ pub fn get_nb(
             };
             let ninfo = copied.len();
             let raw = Box::into_raw(copied.into_boxed_slice());
-            (raw as *mut ffi::pmix_info_t, ninfo, (raw as *mut ffi::pmix_info_t as usize, ninfo))
+            (
+                raw as *mut ffi::pmix_info_t,
+                ninfo,
+                (raw as *mut ffi::pmix_info_t as usize, ninfo),
+            )
         }
         _ => (ptr::null_mut(), 0, (0, 0)),
     };
@@ -701,7 +699,8 @@ pub fn lookup(
                 .into_owned()
         };
         let rank = pdata.proc_.rank;
-        let proc = Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).expect("invariant: unwrap in data_ops.rs"));
+        let proc = Proc::new(&nspace_str, rank)
+            .unwrap_or_else(|_| Proc::new("", 0).expect("invariant: unwrap in data_ops.rs"));
 
         // Extract the value if the type is not PMIX_UNDEF.
         let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
@@ -756,7 +755,6 @@ pub trait LookupCallback: Send {
 /// Global registry for pending lookup_nb callbacks.
 type LookupRegistry = Registry<Box<dyn LookupCallback>>;
 static LOOKUP_REGISTRY: LazyLock<LookupRegistry> = LazyLock::new(LookupRegistry::new);
-
 
 /// C bridge for `pmix_lookup_cbfunc_t`.
 ///
@@ -817,8 +815,9 @@ extern "C" fn lookup_callback_bridge(
                     .into_owned();
                 let rank = pdata_ref.proc_.rank;
 
-                let proc =
-                    Proc::new(&nspace_str, rank).unwrap_or_else(|_| Proc::new("", 0).expect("invariant: unwrap in data_ops.rs"));
+                let proc = Proc::new(&nspace_str, rank).unwrap_or_else(|_| {
+                    Proc::new("", 0).expect("invariant: unwrap in data_ops.rs")
+                });
 
                 // Take ownership of the value.
                 let pmix_undef: ffi::pmix_data_type_t = ffi::PMIX_UNDEF as u16;
@@ -986,7 +985,6 @@ pub trait UnpublishCallback: Send {
 type UnpublishRegistry = Registry<Box<dyn UnpublishCallback>>;
 static UNPUBLISH_REGISTRY: LazyLock<UnpublishRegistry> = LazyLock::new(UnpublishRegistry::new);
 
-
 /// C bridge for `pmix_op_cbfunc_t` (unpublish completion).
 ///
 /// Called by PMIx when the non-blocking unpublish completes. The `cbdata`
@@ -1015,7 +1013,7 @@ extern "C" fn unpublish_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("data_ops", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -1323,7 +1321,6 @@ pub trait FenceCallback: Send {
 type FenceRegistry = Registry<Box<dyn FenceCallback>>;
 static FENCE_REGISTRY: LazyLock<FenceRegistry> = LazyLock::new(FenceRegistry::new);
 
-
 /// C bridge for `pmix_op_cbfunc_t` (fence completion).
 ///
 /// Called by PMIx when the non-blocking fence completes. The `cbdata`
@@ -1352,7 +1349,7 @@ extern "C" fn fence_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_v
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("data_ops", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -1466,12 +1463,8 @@ pub fn fence_nb(
     }
 }
 
-
 #[cfg(test)]
 mod tests;
-
-
-
 
 /// Owned RAII wrapper for a standalone PMIx pdata object.
 pub struct PmixPdataHandle {
@@ -1519,8 +1512,24 @@ impl PmixPdataHandle {
         // SAFETY: self and proc are live owned/borrowed PMIx objects; key and
         // data remain valid for the synchronous call, including empty data.
         crate::pmix_ffi_or_mock!(
-            mock = unsafe { mock_ffi::mock_pdata_load(self.raw.as_mut_ptr(), &proc.handle, key.as_ptr(), data.as_ptr().cast(), ty) },
-            real = unsafe { ffi::PMIx_Pdata_load(self.raw.as_mut_ptr(), &proc.handle, key.as_ptr(), data.as_ptr().cast(), ty) },
+            mock = unsafe {
+                mock_ffi::mock_pdata_load(
+                    self.raw.as_mut_ptr(),
+                    &proc.handle,
+                    key.as_ptr(),
+                    data.as_ptr().cast(),
+                    ty,
+                )
+            },
+            real = unsafe {
+                ffi::PMIx_Pdata_load(
+                    self.raw.as_mut_ptr(),
+                    &proc.handle,
+                    key.as_ptr(),
+                    data.as_ptr().cast(),
+                    ty,
+                )
+            },
         );
         Ok(())
     }
@@ -1531,15 +1540,20 @@ impl PmixPdataHandle {
         // SAFETY: both handles are constructed and remain alive for this call;
         // PMIx copies between the two initialized pdata objects.
         crate::pmix_ffi_or_mock!(
-            mock = unsafe { mock_ffi::mock_pdata_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr().cast_mut()) },
-            real = unsafe { ffi::PMIx_Pdata_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr().cast_mut()) },
+            mock = unsafe {
+                mock_ffi::mock_pdata_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr().cast_mut())
+            },
+            real =
+                unsafe { ffi::PMIx_Pdata_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr().cast_mut()) },
         );
         Ok(())
     }
 }
 
 impl Default for PmixPdataHandle {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Drop for PmixPdataHandle {
@@ -1564,7 +1578,11 @@ pub struct PmixPdataArray {
 
 pub fn pdata_create(n: usize) -> Result<PmixPdataArray, PmixError> {
     if n == 0 {
-        return Ok(PmixPdataArray { ptr: ptr::null_mut(), len: 0, _not_thread_safe: std::marker::PhantomData });
+        return Ok(PmixPdataArray {
+            ptr: ptr::null_mut(),
+            len: 0,
+            _not_thread_safe: std::marker::PhantomData,
+        });
     }
     // SAFETY: PMIx allocates an array of n pdata objects; the returned pointer
     // is owned by this RAII value and freed with the matching PMIx function.
@@ -1575,7 +1593,11 @@ pub fn pdata_create(n: usize) -> Result<PmixPdataArray, PmixError> {
     if p.is_null() {
         Err(PmixError::ErrNomem)
     } else {
-        Ok(PmixPdataArray { ptr: p, len: n, _not_thread_safe: std::marker::PhantomData })
+        Ok(PmixPdataArray {
+            ptr: p,
+            len: n,
+            _not_thread_safe: std::marker::PhantomData,
+        })
     }
 }
 

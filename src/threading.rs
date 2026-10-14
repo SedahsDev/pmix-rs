@@ -250,16 +250,18 @@ impl CallbackPool {
             let receiver = Arc::clone(&receiver);
             std::thread::Builder::new()
                 .name("pmix-callback-hop".to_string())
-                .spawn(move || loop {
-                    let task = {
-                        let receiver = receiver
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        receiver.recv()
-                    };
-                    match task {
-                        Ok(task) => run_callback_task(task),
-                        Err(_) => break,
+                .spawn(move || {
+                    loop {
+                        let task = {
+                            let receiver = receiver
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            receiver.recv()
+                        };
+                        match task {
+                            Ok(task) => run_callback_task(task),
+                            Err(_) => break,
+                        }
                     }
                 })?;
         }

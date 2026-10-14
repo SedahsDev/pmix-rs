@@ -5,9 +5,9 @@
 //! they do NOT require a running daemon.
 
 use pmix::fabric::{
+    ComputeDistancesCallback, FabricCallback, PmixCpuset, PmixFabric, PmixTopology,
     compute_distances, compute_distances_nb, fabric_deregister, fabric_deregister_nb,
     fabric_register, fabric_register_nb, fabric_update, fabric_update_nb, load_topology,
-    ComputeDistancesCallback, FabricCallback, PmixCpuset, PmixFabric, PmixTopology,
 };
 use pmix::{InfoBuilder, PmixStatus};
 

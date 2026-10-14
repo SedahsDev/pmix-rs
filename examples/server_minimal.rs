@@ -7,8 +7,8 @@
 //! Uses a default [`PmixServerModule`] (all callbacks `None`). Real RMs set
 //! the callbacks they implement before calling `PmixServer::connect_new`.
 
-use pmix::server::{PmixServer, PmixServerModule};
 use pmix::InfoBuilder;
+use pmix::server::{PmixServer, PmixServerModule};
 
 fn main() {
     println!("pmix-rs server_minimal");

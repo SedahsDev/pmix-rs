@@ -9,7 +9,7 @@
 //! server is available.
 
 use pmix::info::empty;
-use pmix::tool::{tool_attach_to_server, tool_is_connected, PmixTool};
+use pmix::tool::{PmixTool, tool_attach_to_server, tool_is_connected};
 
 fn main() {
     println!("pmix-rs tool_attach");

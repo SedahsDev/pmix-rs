@@ -28,9 +28,9 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use pmix::info_with_string_key;
-use pmix::tool::{tool_init, PmixTool};
 use pmix::Info;
+use pmix::info_with_string_key;
+use pmix::tool::{PmixTool, tool_init};
 
 /// Default timeout for `tool_init` FFI calls (in seconds).
 ///

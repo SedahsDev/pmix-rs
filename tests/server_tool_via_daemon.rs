@@ -21,8 +21,8 @@
 mod daemon_helper;
 
 use pmix::server::{PmixServerModule, server_finalize, server_init, server_tool_attach_to_server};
-use pmix::{InfoBuilder, PmixStatus, Proc};
 use pmix::tool::PmixTool;
+use pmix::{InfoBuilder, PmixStatus, Proc};
 
 // Dummy callbacks for testing module with callbacks set.
 // PmixServerModule fields use typed OpenPMIx callback signatures.

@@ -1,12 +1,12 @@
 //! Server submodule: data
 
 use super::*;
-use crate::cbdata::{decode_req_id, encode_req_id, Registry};
+use crate::cbdata::{Registry, decode_req_id, encode_req_id};
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
 use crate::threading::invoke_user_callback;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
-#[cfg(any(test, feature = "mock_ffi"))]
-use crate::mock_ffi;
 
 fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
     procs
@@ -70,37 +70,37 @@ pub fn server_publish(
         (ptr::null(), 0)
     };
 
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_publish(
-                ptr::null(),
-                ptr::null(),
-                ptr::null(),
-                info_ptr as *mut std::ffi::c_void,
-                ninfo,
-            )
-        }
+                mock_ffi::mock_server_publish(
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null(),
+                    info_ptr as *mut std::ffi::c_void,
+                    ninfo,
+                )
+            }
         } else {
             unsafe {
-            // SAFETY: PMIx_Publish is a synchronous PMIx API call. The info
-            // pointer is valid for the duration of the call. PMIx does not
-            // retain the pointer after this call returns.
-            ffi::PMIx_Publish(info_ptr, ninfo)
-        }
+                // SAFETY: PMIx_Publish is a synchronous PMIx API call. The info
+                // pointer is valid for the duration of the call. PMIx does not
+                // retain the pointer after this call returns.
+                ffi::PMIx_Publish(info_ptr, ninfo)
+            }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
             unsafe {
-            // SAFETY: PMIx_Publish is a synchronous PMIx API call. The info
-            // pointer is valid for the duration of the call. PMIx does not
-            // retain the pointer after this call returns.
-            ffi::PMIx_Publish(info_ptr, ninfo)
-        }
+                // SAFETY: PMIx_Publish is a synchronous PMIx API call. The info
+                // pointer is valid for the duration of the call. PMIx does not
+                // retain the pointer after this call returns.
+                ffi::PMIx_Publish(info_ptr, ninfo)
+            }
         };
     }
 
@@ -168,31 +168,39 @@ pub fn server_lookup(
     };
 
     // Call the FFI function (or mock).
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_lookup(ptr::null(), ptr::null(), ptr::null(), 0, ptr::null_mut(), 0, ptr::null_mut())
-        }
+                mock_ffi::mock_server_lookup(
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null(),
+                    0,
+                    ptr::null_mut(),
+                    0,
+                    ptr::null_mut(),
+                )
+            }
         } else {
             unsafe {
-            // SAFETY: PMIx_Lookup is a synchronous PMIx API call. The pdata
-            // is valid for the duration of the call. PMIx writes the proc
-            // and value fields.
-            ffi::PMIx_Lookup(&mut pdata, 1, info_ptr, ninfo)
-        }
+                // SAFETY: PMIx_Lookup is a synchronous PMIx API call. The pdata
+                // is valid for the duration of the call. PMIx writes the proc
+                // and value fields.
+                ffi::PMIx_Lookup(&mut pdata, 1, info_ptr, ninfo)
+            }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
             unsafe {
-            // SAFETY: PMIx_Lookup is a synchronous PMIx API call. The pdata
-            // is valid for the duration of the call. PMIx writes the proc
-            // and value fields.
-            ffi::PMIx_Lookup(&mut pdata, 1, info_ptr, ninfo)
-        }
+                // SAFETY: PMIx_Lookup is a synchronous PMIx API call. The pdata
+                // is valid for the duration of the call. PMIx writes the proc
+                // and value fields.
+                ffi::PMIx_Lookup(&mut pdata, 1, info_ptr, ninfo)
+            }
         };
     }
 
@@ -259,29 +267,29 @@ pub fn server_delete(
     key_ptrs.push(cstring.as_ptr() as *mut std::os::raw::c_char);
     key_ptrs.push(ptr::null_mut());
 
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_delete(ptr::null(), cstring.as_ptr(), ptr::null_mut(), 0)
-        }
+                mock_ffi::mock_server_delete(ptr::null(), cstring.as_ptr(), ptr::null_mut(), 0)
+            }
         } else {
             unsafe {
-            // SAFETY: PMIx_Unpublish is a synchronous PMIx API call.
-            // keys_ptr is a valid NULL-terminated array of C strings.
-            ffi::PMIx_Unpublish(key_ptrs.as_mut_ptr(), ptr::null(), 0)
-        }
+                // SAFETY: PMIx_Unpublish is a synchronous PMIx API call.
+                // keys_ptr is a valid NULL-terminated array of C strings.
+                ffi::PMIx_Unpublish(key_ptrs.as_mut_ptr(), ptr::null(), 0)
+            }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
             unsafe {
-            // SAFETY: PMIx_Unpublish is a synchronous PMIx API call.
-            // keys_ptr is a valid NULL-terminated array of C strings.
-            ffi::PMIx_Unpublish(key_ptrs.as_mut_ptr(), ptr::null(), 0)
-        }
+                // SAFETY: PMIx_Unpublish is a synchronous PMIx API call.
+                // keys_ptr is a valid NULL-terminated array of C strings.
+                ffi::PMIx_Unpublish(key_ptrs.as_mut_ptr(), ptr::null(), 0)
+            }
         };
     }
 
@@ -326,29 +334,36 @@ pub fn server_fence(
         (ptr::null(), 0)
     };
 
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_fence(ptr::null(), 0, info_ptr as *mut std::ffi::c_void, ninfo, ptr::null_mut(), ptr::null_mut())
-        }
+                mock_ffi::mock_server_fence(
+                    ptr::null(),
+                    0,
+                    info_ptr as *mut std::ffi::c_void,
+                    ninfo,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                )
+            }
         } else {
             unsafe {
-            // SAFETY: PMIx_Fence is a synchronous PMIx API call.
-            // We pass null procs and 0 nprocs to fence all processes.
-            ffi::PMIx_Fence(ptr::null(), 0, info_ptr, ninfo)
-        }
+                // SAFETY: PMIx_Fence is a synchronous PMIx API call.
+                // We pass null procs and 0 nprocs to fence all processes.
+                ffi::PMIx_Fence(ptr::null(), 0, info_ptr, ninfo)
+            }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
         status = {
             unsafe {
-            // SAFETY: PMIx_Fence is a synchronous PMIx API call.
-            // We pass null procs and 0 nprocs to fence all processes.
-            ffi::PMIx_Fence(ptr::null(), 0, info_ptr, ninfo)
-        }
+                // SAFETY: PMIx_Fence is a synchronous PMIx API call.
+                // We pass null procs and 0 nprocs to fence all processes.
+                ffi::PMIx_Fence(ptr::null(), 0, info_ptr, ninfo)
+            }
         };
     }
 
@@ -478,7 +493,6 @@ pub fn server_fence_nb(
     }
     let cbdata = encode_req_id(req_id);
 
-
     let (info_ptr, ninfo) = if !_info.is_empty() && _info[0].len > 0 {
         (_info[0].handle as *const ffi::pmix_info_t, _info[0].len)
     } else {
@@ -546,29 +560,27 @@ pub fn server_connect(
         (flat_infos.as_ptr(), flat_infos.len())
     };
 
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_fence(
-                procs_ptr as *const std::ffi::c_void,
-                flat_procs.len(),
-                info_ptr as *mut std::ffi::c_void,
-                ninfo,
-                ptr::null_mut(),
-                ptr::null_mut(),
-            )
-        }
+                mock_ffi::mock_server_fence(
+                    procs_ptr as *const std::ffi::c_void,
+                    flat_procs.len(),
+                    info_ptr as *mut std::ffi::c_void,
+                    ninfo,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                )
+            }
         } else {
             unsafe { ffi::PMIx_Connect(procs_ptr, flat_procs.len(), info_ptr, ninfo) }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = {
-            unsafe { ffi::PMIx_Connect(procs_ptr, flat_procs.len(), info_ptr, ninfo) }
-        };
+        status = unsafe { ffi::PMIx_Connect(procs_ptr, flat_procs.len(), info_ptr, ninfo) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -603,7 +615,6 @@ pub fn server_connect_nb(
         registry.insert(req_id, callback);
     }
     let cbdata = encode_req_id(req_id);
-
 
     let flat_procs = flat_procs(procs);
     let procs_ptr = flat_procs.as_ptr();
@@ -673,29 +684,27 @@ pub fn server_disconnect(
         (flat_infos.as_ptr(), flat_infos.len())
     };
 
-        let status;
+    let status;
     #[cfg(any(test, feature = "mock_ffi"))]
     {
         status = if mock_ffi::is_mock_enabled() {
             unsafe {
-            mock_ffi::mock_server_fence(
-                procs_ptr as *const std::ffi::c_void,
-                flat_procs.len(),
-                info_ptr as *mut std::ffi::c_void,
-                ninfo,
-                ptr::null_mut(),
-                ptr::null_mut(),
-            )
-        }
+                mock_ffi::mock_server_fence(
+                    procs_ptr as *const std::ffi::c_void,
+                    flat_procs.len(),
+                    info_ptr as *mut std::ffi::c_void,
+                    ninfo,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                )
+            }
         } else {
             unsafe { ffi::PMIx_Disconnect(procs_ptr, flat_procs.len(), info_ptr, ninfo) }
         };
     }
     #[cfg(not(any(test, feature = "mock_ffi")))]
     {
-        status = {
-            unsafe { ffi::PMIx_Disconnect(procs_ptr, flat_procs.len(), info_ptr, ninfo) }
-        };
+        status = unsafe { ffi::PMIx_Disconnect(procs_ptr, flat_procs.len(), info_ptr, ninfo) };
     }
 
     let pmix_status = PmixStatus::from_raw(status);
@@ -728,7 +737,6 @@ pub fn server_disconnect_nb(
         registry.insert(req_id, callback);
     }
     let cbdata = encode_req_id(req_id);
-
 
     let flat_procs = flat_procs(procs);
     let procs_ptr = flat_procs.as_ptr();
@@ -859,25 +867,25 @@ pub fn server_tool_attach_to_server(
     ),
     PmixStatus,
 > {
-        #[cfg(any(test, feature = "mock_ffi"))]
+    #[cfg(any(test, feature = "mock_ffi"))]
     {
         if mock_ffi::is_mock_enabled() {
             let status = unsafe {
-            mock_ffi::mock_server_tool_attach_to_server(
-                0u32,
-                0u32,
-                ptr::null(),
-                0,
-                ptr::null_mut(),
-                0,
-            )
-        };
-        let pmix_status = PmixStatus::from_raw(status);
-        if pmix_status.is_success() {
-            Ok((None, None))
-        } else {
-            Err(pmix_status)
-        }
+                mock_ffi::mock_server_tool_attach_to_server(
+                    0u32,
+                    0u32,
+                    ptr::null(),
+                    0,
+                    ptr::null_mut(),
+                    0,
+                )
+            };
+            let pmix_status = PmixStatus::from_raw(status);
+            if pmix_status.is_success() {
+                Ok((None, None))
+            } else {
+                Err(pmix_status)
+            }
         } else {
             crate::tool::tool_attach_to_server(myproc, want_server, info)
         }
@@ -887,5 +895,3 @@ pub fn server_tool_attach_to_server(
         crate::tool::tool_attach_to_server(myproc, want_server, info)
     }
 }
-
-

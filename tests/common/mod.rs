@@ -15,8 +15,8 @@
 //! - [`skip_without_server`] — returns `false` when server init is unavailable
 //! - [`with_server`] — run a closure only when server init succeeds
 
-use pmix::server::PmixServerHandle;
 use pmix::PmixStatus;
+use pmix::server::PmixServerHandle;
 
 /// Initialize a minimal PMIx server or panic.
 ///

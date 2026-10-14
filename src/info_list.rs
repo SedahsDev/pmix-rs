@@ -29,8 +29,8 @@ use std::ffi::CString;
 use std::marker::PhantomData;
 use std::ptr;
 
-use crate::ffi;
 use crate::PmixStatus;
+use crate::ffi;
 
 /// A PMIx Info list for managing collections of key-value pairs.
 ///
@@ -212,9 +212,7 @@ impl std::fmt::Debug for InfoList {
         if self.ptr.is_null() {
             f.debug_struct("InfoList").field("ptr", &"null").finish()
         } else {
-            f.debug_struct("InfoList")
-                .field("ptr", &self.ptr)
-                .finish()
+            f.debug_struct("InfoList").field("ptr", &self.ptr).finish()
         }
     }
 }

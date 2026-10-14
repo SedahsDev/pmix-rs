@@ -90,7 +90,10 @@ fn test_register_nb_single_directive() {
 fn test_register_nb_multiple_directives() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let directives = vec![InfoBuilder::new().build().expect("build info"), InfoBuilder::new().build().expect("build info")];
+    let directives = vec![
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+    ];
     let result = fabric_register_nb(&mut fabric, &directives, Box::new(NopCallback));
     assert!(result.is_err() || result.is_ok());
 }

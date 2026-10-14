@@ -59,8 +59,8 @@ use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use crate::ffi;

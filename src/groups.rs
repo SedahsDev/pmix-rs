@@ -1035,11 +1035,12 @@ mod tests {
     fn group_construct_bridge_releases_tracker_on_result_drop() {
         let called = AtomicUsize::new(0);
         let req_id = 9_001usize;
-        GROUP_CONSTRUCT_REGISTRY
-            .lock()
-            .insert(req_id, GroupConstructCallbackWrapper::new(|_, results| {
+        GROUP_CONSTRUCT_REGISTRY.lock().insert(
+            req_id,
+            GroupConstructCallbackWrapper::new(|_, results| {
                 assert!(results.is_empty());
-            }));
+            }),
+        );
         unsafe {
             group_construct_callback_bridge(
                 ffi::PMIX_SUCCESS as i32,

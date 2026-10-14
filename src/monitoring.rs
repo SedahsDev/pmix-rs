@@ -1110,7 +1110,14 @@ pub fn heartbeat_raw() {
         };
         // SAFETY: `info` remains valid for the synchronous monitor call.
         let _rc = unsafe {
-            ffi::PMIx_Process_monitor_nb(&info, ffi::PMIX_SUCCESS as i32, std::ptr::null(), 0, None, std::ptr::null_mut())
+            ffi::PMIx_Process_monitor_nb(
+                &info,
+                ffi::PMIX_SUCCESS as i32,
+                std::ptr::null(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            )
         };
         // SAFETY: `info` was constructed by PMIx_Info_load above.
         unsafe { ffi::PMIx_Info_destruct(&mut info) };

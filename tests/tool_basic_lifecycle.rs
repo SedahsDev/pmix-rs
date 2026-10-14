@@ -111,8 +111,7 @@ fn test_tool_init_minimal_return_type() {
 /// tool_init_minimal() result is consistent across multiple calls.
 #[test]
 fn test_tool_init_minimal_consistent_result() {
-    let results: Vec<Result<PmixTool, PmixStatus>> =
-        (0..5).map(|_| tool_init_minimal()).collect();
+    let results: Vec<Result<PmixTool, PmixStatus>> = (0..5).map(|_| tool_init_minimal()).collect();
 
     let first_ok = results[0].is_ok();
     for (i, result) in results.iter().enumerate().skip(1) {

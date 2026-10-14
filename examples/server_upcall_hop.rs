@@ -35,14 +35,14 @@
 
 use std::os::raw::c_void;
 use std::ptr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use pmix::InfoBuilder;
 use pmix::ffi;
 use pmix::server::{PmixServer, PmixServerModule};
-use pmix::threading::{spawn_from_callback, CallbackChannel, ProgressContext};
-use pmix::InfoBuilder;
+use pmix::threading::{CallbackChannel, ProgressContext, spawn_from_callback};
 
 /// Counts successful async completions from hopped-off upcall work.
 static COMPLETIONS: AtomicUsize = AtomicUsize::new(0);

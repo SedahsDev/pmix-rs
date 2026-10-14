@@ -3,9 +3,9 @@
 //! Focus on code paths not yet exercised by the in-module tests.
 //! All tests run WITHOUT PMIx_Init — they test the Rust wrapper layer only.
 
+use pmix::tool::PmixTool;
 use pmix::tool::*;
 use pmix::{InfoBuilder, PmixStatus};
-use pmix::tool::PmixTool;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // tool_init — parameter variation tests

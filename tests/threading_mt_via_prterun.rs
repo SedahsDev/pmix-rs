@@ -43,7 +43,7 @@ use std::sync::{Arc, Barrier, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use pmix::data_ops::{fence_nb, FenceCallback};
+use pmix::data_ops::{FenceCallback, fence_nb};
 use pmix::{InitOptions, PmixClient, PmixError, PmixScope, PmixStatus, PmixValueBuilder};
 
 // ─── helpers ────────────────────────────────────────────────────────────────

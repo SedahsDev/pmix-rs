@@ -198,7 +198,10 @@ fn test_group_leave_with_directives() {
 
 #[test]
 fn test_group_leave_with_multiple_directives() {
-    let directives = vec![InfoBuilder::new().build().expect("build info"), InfoBuilder::new().build().expect("build info")];
+    let directives = vec![
+        InfoBuilder::new().build().expect("build info"),
+        InfoBuilder::new().build().expect("build info"),
+    ];
     let result = group_leave("leave_grp", &directives);
     match result {
         Ok(_) => {}

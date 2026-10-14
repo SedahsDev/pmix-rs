@@ -67,9 +67,9 @@
 //! pmix_status_t PMIx_server_finalize(void);
 //! ```
 
+use crate::cbdata::Registry;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::security::PmixCredential;
-use crate::cbdata::Registry;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
 use std::collections::HashMap;
@@ -122,17 +122,30 @@ fn retain_server_info(req_id: usize, info: &Info) -> (*mut ffi::pmix_info_t, usi
     SERVER_RETAINED_DATA
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(req_id, RetainedServerData {
-            infos,
-            directives: Vec::new(),
-            source: None,
-            bo: None,
-            bo_bytes: None,
-        });
+        .insert(
+            req_id,
+            RetainedServerData {
+                infos,
+                directives: Vec::new(),
+                source: None,
+                bo: None,
+                bo_bytes: None,
+            },
+        );
     (ptr, ninfo)
 }
 
-fn retain_server_iof(req_id: usize, source: &Proc, bo: &crate::data_serialization::PmixByteObject, info: &Info) -> (*const ffi::pmix_proc_t, *const ffi::pmix_byte_object_t, *mut ffi::pmix_info_t, usize) {
+fn retain_server_iof(
+    req_id: usize,
+    source: &Proc,
+    bo: &crate::data_serialization::PmixByteObject,
+    info: &Info,
+) -> (
+    *const ffi::pmix_proc_t,
+    *const ffi::pmix_byte_object_t,
+    *mut ffi::pmix_info_t,
+    usize,
+) {
     let infos = retained_info(info);
     let ninfo = infos.len();
     let bo_bytes = bo.as_slice().to_vec();
@@ -147,27 +160,33 @@ fn retain_server_iof(req_id: usize, source: &Proc, bo: &crate::data_serializatio
     });
     let source_ptr = source.as_ref() as *const _;
     let bo_ptr = bo.as_ref() as *const _;
-    let info_ptr = if infos.is_empty() { ptr::null_mut() } else { infos.as_ptr() as *mut _ };
+    let info_ptr = if infos.is_empty() {
+        ptr::null_mut()
+    } else {
+        infos.as_ptr() as *mut _
+    };
     SERVER_RETAINED_DATA
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(req_id, RetainedServerData {
-            infos,
-            directives: Vec::new(),
-            source: Some(source),
-            bo: Some(bo),
-            bo_bytes: Some(bo_bytes),
-        });
+        .insert(
+            req_id,
+            RetainedServerData {
+                infos,
+                directives: Vec::new(),
+                source: Some(source),
+                bo: Some(bo),
+                bo_bytes: Some(bo_bytes),
+            },
+        );
     (source_ptr, bo_ptr, info_ptr, ninfo)
 }
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 
-
-mod pset;
-mod data;
 mod cred;
+mod data;
+mod pset;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -460,7 +479,9 @@ pub struct PmixServerModule {
     pub resource_block: ffi::pmix_server_resource_block_fn_t,
 }
 
-const _: () = assert!(std::mem::size_of::<PmixServerModule>() == std::mem::size_of::<ffi::pmix_server_module_t>());
+const _: () = assert!(
+    std::mem::size_of::<PmixServerModule>() == std::mem::size_of::<ffi::pmix_server_module_t>()
+);
 
 impl PmixServerModule {
     /// Convert this safe module into the raw C `pmix_server_module_t`.
@@ -622,13 +643,15 @@ pub trait RegisterNspaceCallback: Send {
 static REGISTER_NS_SPACE_REGISTRY: LazyLock<Registry<Box<dyn RegisterNspaceCallback>>> =
     LazyLock::new(Registry::new);
 
-
 /// C bridge for `pmix_op_cbfunc_t` (register_nspace completion).
 ///
 /// Called by PMIx when the non-blocking nspace registration completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered closure and invoke it with the result status.
-pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn register_nspace_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -653,7 +676,7 @@ pub(crate) extern "C" fn register_nspace_callback_bridge(status: ffi::pmix_statu
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -829,13 +852,15 @@ pub trait DeregisterNspaceCallback: Send {
 static DEREGISTER_NS_SPACE_REGISTRY: LazyLock<Registry<Box<dyn DeregisterNspaceCallback>>> =
     LazyLock::new(Registry::new);
 
-
 /// C bridge for `pmix_op_cbfunc_t` (deregister_nspace completion).
 ///
 /// Called by PMIx when the non-blocking nspace deregistration completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered closure and invoke it with the result status.
-pub(crate) extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn deregister_nspace_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -858,7 +883,7 @@ pub(crate) extern "C" fn deregister_nspace_callback_bridge(status: ffi::pmix_sta
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -985,13 +1010,15 @@ pub trait RegisterClientCallback: Send {
 static REGISTER_CLIENT_REGISTRY: LazyLock<Registry<Box<dyn RegisterClientCallback>>> =
     LazyLock::new(Registry::new);
 
-
 /// C bridge for `pmix_op_cbfunc_t` (register_client completion).
 ///
 /// Called by PMIx when the non-blocking client registration completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered closure and invoke it with the result status.
-pub(crate) extern "C" fn register_client_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn register_client_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -1014,7 +1041,7 @@ pub(crate) extern "C" fn register_client_callback_bridge(status: ffi::pmix_statu
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -1152,13 +1179,15 @@ pub trait DeregisterClientCallback: Send {
 static DEREGISTER_CLIENT_REGISTRY: LazyLock<Registry<Box<dyn DeregisterClientCallback>>> =
     LazyLock::new(Registry::new);
 
-
 /// C bridge for `pmix_op_cbfunc_t` (deregister_client completion).
 ///
 /// Called by PMIx when the non-blocking client deregistration completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered closure and invoke it with the result status.
-pub(crate) extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn deregister_client_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -1181,7 +1210,7 @@ pub(crate) extern "C" fn deregister_client_callback_bridge(status: ffi::pmix_sta
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -1513,7 +1542,6 @@ pub trait DmodexRequestCallback: Send {
 static DMODEX_REQUEST_REGISTRY: LazyLock<Registry<Box<dyn DmodexRequestCallback>>> =
     LazyLock::new(Registry::new);
 
-
 /// C bridge for `pmix_dmodex_response_fn_t` (dmodex_request completion).
 ///
 /// Called by PMIx when the direct modex request completes. The `data`
@@ -1562,7 +1590,7 @@ pub(crate) extern "C" fn dmodex_request_callback_bridge(
     // Invoke the user's Rust callback with the copied data.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status, blob);
+        cb.on_complete(pmix_status, blob);
     });
 }
 
@@ -1710,7 +1738,6 @@ pub trait SetupApplicationCallback: Send {
 static SETUP_APPLICATION_REGISTRY: LazyLock<Registry<Box<dyn SetupApplicationCallback>>> =
     LazyLock::new(Registry::new);
 
-
 /// C bridge for `pmix_setup_application_cbfunc_t`.
 ///
 /// Called by PMIx when the setup_application operation completes. The
@@ -1774,18 +1801,18 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
                     }
                     ffi::PMIX_INT => format!("{}", entry.value.data.integer), // PMIX_INT
                     ffi::PMIX_UINT => format!("{}", entry.value.data.uint),   // PMIX_UINT
-                    ffi::PMIX_SIZE => format!("{}", entry.value.data.size),    // PMIX_SIZE
-                    ffi::PMIX_INT8 => format!("{}", entry.value.data.int8),    // PMIX_INT8
-                    ffi::PMIX_INT16 => format!("{}", entry.value.data.int16),   // PMIX_INT16
-                    ffi::PMIX_INT32 => format!("{}", entry.value.data.int32),   // PMIX_INT32
-                    ffi::PMIX_INT64 => format!("{}", entry.value.data.int64),  // PMIX_INT64
-                    ffi::PMIX_UINT8 => format!("{}", entry.value.data.uint8),  // PMIX_UINT8
+                    ffi::PMIX_SIZE => format!("{}", entry.value.data.size),   // PMIX_SIZE
+                    ffi::PMIX_INT8 => format!("{}", entry.value.data.int8),   // PMIX_INT8
+                    ffi::PMIX_INT16 => format!("{}", entry.value.data.int16), // PMIX_INT16
+                    ffi::PMIX_INT32 => format!("{}", entry.value.data.int32), // PMIX_INT32
+                    ffi::PMIX_INT64 => format!("{}", entry.value.data.int64), // PMIX_INT64
+                    ffi::PMIX_UINT8 => format!("{}", entry.value.data.uint8), // PMIX_UINT8
                     ffi::PMIX_UINT16 => format!("{}", entry.value.data.uint16), // PMIX_UINT16
                     ffi::PMIX_UINT32 => format!("{}", entry.value.data.uint32), // PMIX_UINT32
                     ffi::PMIX_UINT64 => format!("{}", entry.value.data.uint64), // PMIX_UINT64
-                    ffi::PMIX_FLOAT => format!("{}", entry.value.data.fval),   // PMIX_FLOAT
-                    ffi::PMIX_DOUBLE => format!("{}", entry.value.data.dval),  // PMIX_DOUBLE
-                    ffi::PMIX_BOOL => format!("{}", entry.value.data.flag),    // PMIX_BOOL
+                    ffi::PMIX_FLOAT => format!("{}", entry.value.data.fval),  // PMIX_FLOAT
+                    ffi::PMIX_DOUBLE => format!("{}", entry.value.data.dval), // PMIX_DOUBLE
+                    ffi::PMIX_BOOL => format!("{}", entry.value.data.flag),   // PMIX_BOOL
                     ffi::PMIX_PID => format!("{}", entry.value.data.pid),     // PMIX_PID
                     ffi::PMIX_STATUS => format!("{}", entry.value.data.status), // PMIX_STATUS
                     ffi::PMIX_PROC_RANK => format!("{}", entry.value.data.rank), // PMIX_PROC_RANK (stored as rank in union)
@@ -1821,7 +1848,7 @@ pub(crate) extern "C" fn setup_application_callback_bridge(
     // Invoke the user's Rust callback with the copied data.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status, copied_info);
+        cb.on_complete(pmix_status, copied_info);
     });
 }
 
@@ -1980,13 +2007,15 @@ pub trait SetupLocalSupportCallback: Send {
 static SETUP_LOCAL_SUPPORT_REGISTRY: LazyLock<Registry<Box<dyn SetupLocalSupportCallback>>> =
     LazyLock::new(Registry::new);
 
-
 /// C bridge for `pmix_op_cbfunc_t` (setup_local_support completion).
 ///
 /// Called by PMIx when the non-blocking setup_local_support operation completes.
 /// The `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered Rust callback and invoke it with the result status.
-pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn setup_local_support_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -2011,7 +2040,7 @@ pub(crate) extern "C" fn setup_local_support_callback_bridge(status: ffi::pmix_s
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -2173,14 +2202,16 @@ pub trait IOFDeliverCallback: Send {
 static IOF_DELIVER_REGISTRY: LazyLock<Registry<Box<dyn IOFDeliverCallback>>> =
     LazyLock::new(Registry::new);
 
-
 /// C bridge for `pmix_op_cbfunc_t` (IOF_deliver completion).
 ///
 /// Called by PMIx when the I/O forwarding delivery completes. The
 /// `cbdata` parameter is a raw pointer encoding the request ID.
 /// We look up the registered Rust callback and invoke it with the
 /// result status.
-pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn iof_deliver_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -2205,7 +2236,7 @@ pub(crate) extern "C" fn iof_deliver_callback_bridge(status: ffi::pmix_status_t,
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -2414,7 +2445,6 @@ impl Drop for CollectInventoryResults {
         }
     }
 }
-
 
 /// Global registry of pending collect-inventory callbacks.
 ///
@@ -2630,7 +2660,6 @@ pub trait DeliverInventoryCallback: Send + 'static {
     fn on_complete(self: Box<Self>, status: PmixStatus);
 }
 
-
 /// Global registry of pending deliver-inventory callbacks.
 ///
 /// Maps request ID -> callback. Entries are removed when the callback fires.
@@ -2642,7 +2671,10 @@ static DELIVER_INVENTORY_REGISTRY: LazyLock<Registry<Box<dyn DeliverInventoryCal
 /// Called by PMIx when the inventory delivery request completes.
 /// The `cbdata` parameter encodes the request ID. We look up the
 /// registered Rust callback and invoke it with the result status.
-pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn deliver_inventory_callback_bridge(
+    status: ffi::pmix_status_t,
+    cbdata: *mut c_void,
+) {
     if cbdata.is_null() {
         return;
     }
@@ -2666,7 +2698,7 @@ pub(crate) extern "C" fn deliver_inventory_callback_bridge(status: ffi::pmix_sta
     // Invoke the user's Rust callback.
     let pmix_status = PmixStatus::from_raw(status);
     let _ = invoke_user_callback("server", move || {
-            cb.on_complete(pmix_status);
+        cb.on_complete(pmix_status);
     });
 }
 
@@ -2761,9 +2793,29 @@ pub fn server_deliver_inventory(
         let retained_directives = retained_info(directives);
         let ninfo = retained_inventory.len();
         let ndirs = retained_directives.len();
-        let info_ptr = if ninfo == 0 { ptr::null_mut() } else { retained_inventory.as_ptr() as *mut _ };
-        let directives_ptr = if ndirs == 0 { ptr::null_mut() } else { retained_directives.as_ptr() as *mut _ };
-        SERVER_RETAINED_DATA.lock().unwrap_or_else(|e| e.into_inner()).insert(req_id, RetainedServerData { infos: retained_inventory, directives: retained_directives, source: None, bo: None, bo_bytes: None });
+        let info_ptr = if ninfo == 0 {
+            ptr::null_mut()
+        } else {
+            retained_inventory.as_ptr() as *mut _
+        };
+        let directives_ptr = if ndirs == 0 {
+            ptr::null_mut()
+        } else {
+            retained_directives.as_ptr() as *mut _
+        };
+        SERVER_RETAINED_DATA
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                req_id,
+                RetainedServerData {
+                    infos: retained_inventory,
+                    directives: retained_directives,
+                    source: None,
+                    bo: None,
+                    bo_bytes: None,
+                },
+            );
 
         let status = unsafe {
             // SAFETY:
@@ -2990,14 +3042,45 @@ pub fn server_generate_cpuset_string(
     Ok(cpuset_string)
 }
 
-
-
 /// 6.x-only: `PMIx_server_generate_cpuset` does not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
-pub fn server_generate_cpuset(cpuset_string:&str,cpuset:&mut crate::fabric::PmixCpuset)->Result<(),PmixStatus>{let s=CString::new(cpuset_string).map_err(|_|PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;let raw=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_server_generate_cpuset(s.as_ptr(),cpuset.as_mut_ptr())},real=unsafe{ffi::PMIx_server_generate_cpuset(s.as_ptr(),cpuset.as_mut_ptr())});if raw==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(raw))}}
+pub fn server_generate_cpuset(
+    cpuset_string: &str,
+    cpuset: &mut crate::fabric::PmixCpuset,
+) -> Result<(), PmixStatus> {
+    let s =
+        CString::new(cpuset_string).map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+    let raw = crate::pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_server_generate_cpuset(s.as_ptr(), cpuset.as_mut_ptr()) },
+        real = unsafe { ffi::PMIx_server_generate_cpuset(s.as_ptr(), cpuset.as_mut_ptr()) }
+    );
+    if raw == ffi::PMIX_SUCCESS as i32 {
+        Ok(())
+    } else {
+        Err(PmixStatus::from_raw(raw))
+    }
+}
 /// 6.x-only: `PMIx_server_collect_job_info` does not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
-pub fn server_collect_job_info(procs:&[Proc],dbuf:&mut crate::data_serialization::PmixDataBuffer)->Result<(),PmixStatus>{let mut raw=procs.iter().map(|p|p.handle).collect::<Vec<_>>();let s=crate::pmix_ffi_or_mock!(mock=unsafe{mock_ffi::mock_server_collect_job_info(raw.as_mut_ptr(),raw.len(),dbuf.as_mut_ptr())},real=unsafe{ffi::PMIx_server_collect_job_info(raw.as_mut_ptr(),raw.len(),dbuf.as_mut_ptr())});if s==ffi::PMIX_SUCCESS as i32{Ok(())}else{Err(PmixStatus::from_raw(s))}}
+pub fn server_collect_job_info(
+    procs: &[Proc],
+    dbuf: &mut crate::data_serialization::PmixDataBuffer,
+) -> Result<(), PmixStatus> {
+    let mut raw = procs.iter().map(|p| p.handle).collect::<Vec<_>>();
+    let s = crate::pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_server_collect_job_info(raw.as_mut_ptr(), raw.len(), dbuf.as_mut_ptr())
+        },
+        real = unsafe {
+            ffi::PMIx_server_collect_job_info(raw.as_mut_ptr(), raw.len(), dbuf.as_mut_ptr())
+        }
+    );
+    if s == ffi::PMIX_SUCCESS as i32 {
+        Ok(())
+    } else {
+        Err(PmixStatus::from_raw(s))
+    }
+}
 
 #[cfg(test)]
 mod misc_wrapper_tests {

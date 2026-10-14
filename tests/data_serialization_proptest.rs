@@ -10,7 +10,7 @@
 
 mod daemon_helper;
 
-use pmix::{PmixDataType, data_serialization::*, PmixClient};
+use pmix::{PmixClient, PmixDataType, data_serialization::*};
 use proptest::prelude::*;
 use std::sync::OnceLock;
 
@@ -22,7 +22,9 @@ use std::sync::OnceLock;
 static PMIX_CTX: OnceLock<pmix::PmixClient> = OnceLock::new();
 
 fn ensure_init() -> &'static pmix::PmixClient {
-    PMIX_CTX.get_or_init(|| PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun"))
+    PMIX_CTX.get_or_init(|| {
+        PmixClient::connect_new(None).expect("PMIx_Init failed — run under prterun")
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1465,11 +1465,7 @@ mod tests {
             _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
             _cbdata: *mut std::os::raw::c_void,
         ) {
-            if let Some(tx) = ENTER_TX
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-            {
+            if let Some(tx) = ENTER_TX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 let _ = tx.send(());
             }
             if let Some(rx) = RELEASE_RX

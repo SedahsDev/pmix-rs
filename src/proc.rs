@@ -48,4 +48,3 @@ pub struct Proc {
     pub(crate) handle: pmix_proc_t,
     pub(crate) len: usize,
 }
-

@@ -9,11 +9,10 @@
 mod daemon_helper;
 
 use pmix::groups::{
-    GroupResults,
     GroupConstructCallbackWrapper, GroupDestructCallbackWrapper, GroupInviteCallbackWrapper,
-    GroupJoinCallbackWrapper, GroupLeaveCallbackWrapper, group_construct, group_construct_nb,
-    group_destruct, group_destruct_nb, group_invite, group_invite_nb, group_join, group_join_nb,
-    group_leave, group_leave_nb, pmix_group_opt_t,
+    GroupJoinCallbackWrapper, GroupLeaveCallbackWrapper, GroupResults, group_construct,
+    group_construct_nb, group_destruct, group_destruct_nb, group_invite, group_invite_nb,
+    group_join, group_join_nb, group_leave, group_leave_nb, pmix_group_opt_t,
 };
 use pmix::server::{PmixServerModule, server_finalize, server_init};
 use pmix::{InfoBuilder, PmixStatus, Proc};
@@ -24,8 +23,7 @@ use pmix::{InfoBuilder, PmixStatus, Proc};
 
 #[test]
 fn test_group_construct_type() {
-    let _f: fn(&str, &[Proc], &[pmix::Info]) -> Result<GroupResults, PmixStatus> =
-        group_construct;
+    let _f: fn(&str, &[Proc], &[pmix::Info]) -> Result<GroupResults, PmixStatus> = group_construct;
 }
 
 #[test]
@@ -51,12 +49,8 @@ fn test_group_invite_nb_type() {
 
 #[test]
 fn test_group_join_type() {
-    let _f: fn(
-        &str,
-        &Proc,
-        pmix_group_opt_t,
-        &[pmix::Info],
-    ) -> Result<GroupResults, PmixStatus> = group_join;
+    let _f: fn(&str, &Proc, pmix_group_opt_t, &[pmix::Info]) -> Result<GroupResults, PmixStatus> =
+        group_join;
 }
 
 #[test]

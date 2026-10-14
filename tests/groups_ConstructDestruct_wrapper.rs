@@ -110,11 +110,10 @@ fn test_group_construct_nb_empty_group_id() {
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: GroupResults| {
+    let cb =
+        GroupConstructCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
             called_clone.store(true, Ordering::SeqCst);
-        },
-    );
+        });
     let err = extract_err(group_construct_nb("", &[], &[], cb));
     assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
     assert!(
@@ -131,11 +130,10 @@ fn test_group_construct_nb_empty_procs() {
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: GroupResults| {
+    let cb =
+        GroupConstructCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
             called_clone.store(true, Ordering::SeqCst);
-        },
-    );
+        });
     let err = extract_err(group_construct_nb("test_group", &[], &[], cb));
     assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
     assert!(
@@ -152,11 +150,10 @@ fn test_group_construct_nb_no_init() {
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: GroupResults| {
+    let cb =
+        GroupConstructCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
             called_clone.store(true, Ordering::SeqCst);
-        },
-    );
+        });
     let proc = Proc::new("test_ns", 0).expect("create proc");
     let err = extract_err(group_construct_nb("test_group", &[proc], &[], cb));
     assert!(!err.is_success());
@@ -170,11 +167,10 @@ fn test_group_construct_nb_with_info() {
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: GroupResults| {
+    let cb =
+        GroupConstructCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
             called_clone.store(true, Ordering::SeqCst);
-        },
-    );
+        });
     let proc = Proc::new("test_ns", 0).expect("create proc");
     let info = InfoBuilder::new().build().expect("build info");
     let err = extract_err(group_construct_nb("test_group", &[proc], &[info], cb));
@@ -189,20 +185,18 @@ fn test_group_construct_nb_deterministic() {
 
     let called1 = Arc::new(AtomicBool::new(false));
     let c1 = Arc::clone(&called1);
-    let cb1 = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: GroupResults| {
+    let cb1 =
+        GroupConstructCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
             c1.store(true, Ordering::SeqCst);
-        },
-    );
+        });
     let err1 = extract_err(group_construct_nb("", &[], &[], cb1));
 
     let called2 = Arc::new(AtomicBool::new(false));
     let c2 = Arc::clone(&called2);
-    let cb2 = GroupConstructCallbackWrapper::new(
-        move |_status: PmixStatus, _results: GroupResults| {
+    let cb2 =
+        GroupConstructCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
             c2.store(true, Ordering::SeqCst);
-        },
-    );
+        });
     let err2 = extract_err(group_construct_nb("", &[], &[], cb2));
 
     assert_eq!(err1, err2);
@@ -213,8 +207,7 @@ fn test_group_construct_nb_deterministic() {
 /// GroupConstructCallbackWrapper::new works.
 #[test]
 fn test_group_construct_callback_wrapper_new() {
-    let _cb =
-        GroupConstructCallbackWrapper::new(|_status: PmixStatus, _results: GroupResults| {});
+    let _cb = GroupConstructCallbackWrapper::new(|_status: PmixStatus, _results: GroupResults| {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

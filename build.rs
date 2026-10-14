@@ -229,7 +229,11 @@ fn main() {
                 ver.1,
                 ver.2,
                 if full { "full" } else { "base" },
-                if full { "" } else { " — set PMIX_PREFIX to an OpenPMIx ≥ 6.1 install for the full surface" },
+                if full {
+                    ""
+                } else {
+                    " — set PMIX_PREFIX to an OpenPMIx ≥ 6.1 install for the full surface"
+                },
             );
         }
         Some(ver) => {

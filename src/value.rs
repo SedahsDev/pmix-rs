@@ -1,8 +1,8 @@
 //! PMIx value builders and owned values.
 
 use crate::ffi::*;
-use cstring_array::CStringArray;
 use crate::{Info, Proc};
+use cstring_array::CStringArray;
 use std::ffi::{CStr, CString, NulError};
 use std::os::raw::{c_char, c_void};
 use std::{fmt, mem, ptr};

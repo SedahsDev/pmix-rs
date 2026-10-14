@@ -16,8 +16,8 @@
 
 mod daemon_helper;
 
-use std::sync::OnceLock;
 use pmix::tool::PmixTool;
+use std::sync::OnceLock;
 static PMIX_CONTEXT: OnceLock<Option<pmix::PmixClient>> = OnceLock::new();
 
 fn ensure_pmix_init() -> bool {

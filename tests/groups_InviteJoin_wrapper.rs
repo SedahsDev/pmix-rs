@@ -102,10 +102,9 @@ fn test_group_invite_nb_empty_group_id() {
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb =
-        GroupInviteCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            called_clone.store(true, Ordering::SeqCst);
-        });
+    let cb = GroupInviteCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        called_clone.store(true, Ordering::SeqCst);
+    });
     let err = unwrap_err_result(group_invite_nb("", &[], &[], cb));
     assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
     assert!(
@@ -122,10 +121,9 @@ fn test_group_invite_nb_empty_procs() {
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb =
-        GroupInviteCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            called_clone.store(true, Ordering::SeqCst);
-        });
+    let cb = GroupInviteCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        called_clone.store(true, Ordering::SeqCst);
+    });
     let err = unwrap_err_result(group_invite_nb("test_group", &[], &[], cb));
     assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
     assert!(
@@ -142,10 +140,9 @@ fn test_group_invite_nb_no_init() {
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb =
-        GroupInviteCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            called_clone.store(true, Ordering::SeqCst);
-        });
+    let cb = GroupInviteCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        called_clone.store(true, Ordering::SeqCst);
+    });
     let proc = Proc::new("test_ns", 0).expect("create proc");
     let err = unwrap_err_result(group_invite_nb("test_group", &[proc], &[], cb));
     assert!(!err.is_success());
@@ -159,10 +156,9 @@ fn test_group_invite_nb_with_info() {
 
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb =
-        GroupInviteCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            called_clone.store(true, Ordering::SeqCst);
-        });
+    let cb = GroupInviteCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        called_clone.store(true, Ordering::SeqCst);
+    });
     let proc = Proc::new("test_ns", 0).expect("create proc");
     let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_invite_nb("test_group", &[proc], &[info], cb));
@@ -332,10 +328,9 @@ fn test_group_join_nb_empty_group_id() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb =
-        GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            called_clone.store(true, Ordering::SeqCst);
-        });
+    let cb = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        called_clone.store(true, Ordering::SeqCst);
+    });
     let err = unwrap_err_result(group_join_nb(
         "",
         &leader,
@@ -359,10 +354,9 @@ fn test_group_join_nb_no_init() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb =
-        GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            called_clone.store(true, Ordering::SeqCst);
-        });
+    let cb = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        called_clone.store(true, Ordering::SeqCst);
+    });
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,
@@ -382,10 +376,9 @@ fn test_group_join_nb_with_info() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb =
-        GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            called_clone.store(true, Ordering::SeqCst);
-        });
+    let cb = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        called_clone.store(true, Ordering::SeqCst);
+    });
     let info = InfoBuilder::new().build().expect("build info");
     let err = unwrap_err_result(group_join_nb(
         "test_group",
@@ -406,10 +399,9 @@ fn test_group_join_nb_deterministic() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
     let called1 = Arc::new(AtomicBool::new(false));
     let c1 = Arc::clone(&called1);
-    let cb1 =
-        GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            c1.store(true, Ordering::SeqCst);
-        });
+    let cb1 = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        c1.store(true, Ordering::SeqCst);
+    });
     let err1 = unwrap_err_result(group_join_nb(
         "",
         &leader,
@@ -420,10 +412,9 @@ fn test_group_join_nb_deterministic() {
 
     let called2 = Arc::new(AtomicBool::new(false));
     let c2 = Arc::clone(&called2);
-    let cb2 =
-        GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            c2.store(true, Ordering::SeqCst);
-        });
+    let cb2 = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        c2.store(true, Ordering::SeqCst);
+    });
     let err2 = unwrap_err_result(group_join_nb(
         "",
         &leader,
@@ -452,10 +443,9 @@ fn test_group_join_nb_join_and_construct() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = Arc::clone(&called);
-    let cb =
-        GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
-            called_clone.store(true, Ordering::SeqCst);
-        });
+    let cb = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
+        called_clone.store(true, Ordering::SeqCst);
+    });
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,

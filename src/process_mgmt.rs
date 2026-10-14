@@ -51,7 +51,7 @@
 //! let result = disconnect(&[target], &[disconnect_info]);
 //! ```
 
-use crate::cbdata::{decode_req_id, encode_req_id, Registry};
+use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
@@ -413,7 +413,9 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
                 libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| {
+                    CString::new("").expect("CString::new interior NUL (process_mgmt.rs)")
+                });
                 unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             // ptrs[n] is already NULL from calloc.
@@ -430,7 +432,9 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
                 libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| {
+                    CString::new("").expect("CString::new interior NUL (process_mgmt.rs)")
+                });
                 unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
@@ -492,7 +496,8 @@ pub fn spawn(_job_info: &[Info], apps: &[PmixApp]) -> Result<String, PmixStatus>
 // ── One-shot completion registries (issue #67) ───────────────────────────────
 static SPAWN_REGISTRY: LazyLock<Registry<SpawnCallbackWrapper>> = LazyLock::new(Registry::new);
 static CONNECT_REGISTRY: LazyLock<Registry<ConnectCallbackWrapper>> = LazyLock::new(Registry::new);
-static DISCONNECT_REGISTRY: LazyLock<Registry<DisconnectCallbackWrapper>> = LazyLock::new(Registry::new);
+static DISCONNECT_REGISTRY: LazyLock<Registry<DisconnectCallbackWrapper>> =
+    LazyLock::new(Registry::new);
 
 fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
     procs
@@ -649,7 +654,9 @@ pub fn spawn_nb(
                 libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.argv.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| {
+                    CString::new("").expect("CString::new interior NUL (process_mgmt.rs)")
+                });
                 unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
@@ -665,7 +672,9 @@ pub fn spawn_nb(
                 libc::calloc(n + 1, std::mem::size_of::<*mut c_char>()) as *mut *mut c_char
             };
             for (j, s) in app.env.iter().enumerate() {
-                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| CString::new("").expect("CString::new interior NUL (process_mgmt.rs)"));
+                let cstr = CString::new(s.as_bytes()).unwrap_or_else(|_| {
+                    CString::new("").expect("CString::new interior NUL (process_mgmt.rs)")
+                });
                 unsafe { *ptrs.add(j) = libc_strdup(cstr.as_c_str()) };
             }
             ptrs
@@ -2458,16 +2467,26 @@ impl PmixAppObject {
                 real = unsafe { ffi::PMIx_App_construct(ptr) },
             );
         }
-        Self { ptr, constructed: !ptr.is_null(), _not_thread_safe: std::marker::PhantomData }
+        Self {
+            ptr,
+            constructed: !ptr.is_null(),
+            _not_thread_safe: std::marker::PhantomData,
+        }
     }
 
     pub fn test_new() -> Self {
         let ptr = unsafe { libc::calloc(1, std::mem::size_of::<ffi::pmix_app_t>()) }
             as *mut ffi::pmix_app_t;
-        Self { ptr, constructed: !ptr.is_null(), _not_thread_safe: std::marker::PhantomData }
+        Self {
+            ptr,
+            constructed: !ptr.is_null(),
+            _not_thread_safe: std::marker::PhantomData,
+        }
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_app_t { self.ptr }
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_app_t {
+        self.ptr
+    }
 
     fn raw(&self) -> Option<&ffi::pmix_app_t> {
         // SAFETY: `ptr` is either null or live calloc'd storage initialized by
@@ -2475,12 +2494,24 @@ impl PmixAppObject {
         unsafe { self.ptr.as_ref() }
     }
     fn c_string(&self, p: *const c_char) -> Option<&str> {
-        unsafe { (!p.is_null()).then(|| CStr::from_ptr(p).to_str().ok()).flatten() }
+        unsafe {
+            (!p.is_null())
+                .then(|| CStr::from_ptr(p).to_str().ok())
+                .flatten()
+        }
     }
-    pub fn cmd(&self) -> Option<&str> { self.raw().and_then(|a| self.c_string(a.cmd)) }
-    pub fn cwd(&self) -> Option<&str> { self.raw().and_then(|a| self.c_string(a.cwd)) }
-    pub fn maxprocs(&self) -> i32 { self.raw().map_or(0, |a| a.maxprocs) }
-    pub fn ninfo(&self) -> usize { self.raw().map_or(0, |a| a.ninfo) }
+    pub fn cmd(&self) -> Option<&str> {
+        self.raw().and_then(|a| self.c_string(a.cmd))
+    }
+    pub fn cwd(&self) -> Option<&str> {
+        self.raw().and_then(|a| self.c_string(a.cwd))
+    }
+    pub fn maxprocs(&self) -> i32 {
+        self.raw().map_or(0, |a| a.maxprocs)
+    }
+    pub fn ninfo(&self) -> usize {
+        self.raw().map_or(0, |a| a.ninfo)
+    }
     /// Returns PMIx-owned storage; do not free it. Invalid after mutation or drop.
     ///
     /// # Safety
@@ -2489,14 +2520,26 @@ impl PmixAppObject {
         self.raw().map_or(ptr::null(), |a| a.info)
     }
     fn strings(&self, p: *mut *mut c_char) -> Option<Vec<String>> {
-        if p.is_null() { return None; }
-        let mut out = Vec::new(); let mut i = 0;
+        if p.is_null() {
+            return None;
+        }
+        let mut out = Vec::new();
+        let mut i = 0;
         // SAFETY: PMIx supplies a NULL-terminated array; entries are copied out.
-        unsafe { while !(*p.add(i)).is_null() { out.push(CStr::from_ptr(*p.add(i)).to_str().ok()?.to_owned()); i += 1; } }
+        unsafe {
+            while !(*p.add(i)).is_null() {
+                out.push(CStr::from_ptr(*p.add(i)).to_str().ok()?.to_owned());
+                i += 1;
+            }
+        }
         Some(out)
     }
-    pub fn argv(&self) -> Option<Vec<String>> { self.raw().and_then(|a| self.strings(a.argv)) }
-    pub fn env(&self) -> Option<Vec<String>> { self.raw().and_then(|a| self.strings(a.env)) }
+    pub fn argv(&self) -> Option<Vec<String>> {
+        self.raw().and_then(|a| self.strings(a.argv))
+    }
+    pub fn env(&self) -> Option<Vec<String>> {
+        self.raw().and_then(|a| self.strings(a.env))
+    }
     pub fn info_create(&mut self, n: usize) {
         let Some(app) = self.raw() else { return };
         if !app.info.is_null() {
@@ -2515,12 +2558,16 @@ impl PmixAppObject {
         );
     }
     pub fn to_string(&self) -> Result<String, crate::PmixError> {
-        let Some(app) = self.raw() else { return Err(crate::PmixError::Error) };
+        let Some(app) = self.raw() else {
+            return Err(crate::PmixError::Error);
+        };
         let p = crate::pmix_ffi_or_mock!(
             mock = unsafe { crate::mock_ffi::mock_app_string(app) },
             real = unsafe { ffi::PMIx_App_string(app) },
         );
-        if p.is_null() { return Err(crate::PmixError::Error); }
+        if p.is_null() {
+            return Err(crate::PmixError::Error);
+        }
         // SAFETY: copy before releasing PMIx's allocated string.
         let result = unsafe { CStr::from_ptr(p).to_str().map(str::to_owned) };
         unsafe { libc::free(p.cast()) };
@@ -2528,7 +2575,9 @@ impl PmixAppObject {
     }
     /// Consumes the C object. `PMIx_App_release` frees the struct pointer.
     pub fn release(mut self) {
-        if self.ptr.is_null() || !self.constructed { return; }
+        if self.ptr.is_null() || !self.constructed {
+            return;
+        }
         crate::pmix_ffi_or_mock!(
             mock = {
                 unsafe { crate::mock_ffi::mock_app_release(self.ptr) };
@@ -2541,10 +2590,16 @@ impl PmixAppObject {
         self.constructed = false;
     }
 }
-impl Default for PmixAppObject { fn default() -> Self { Self::new() } }
+impl Default for PmixAppObject {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Drop for PmixAppObject {
     fn drop(&mut self) {
-        if self.ptr.is_null() || !self.constructed { return; }
+        if self.ptr.is_null() || !self.constructed {
+            return;
+        }
         crate::pmix_ffi_or_mock!(
             mock = unsafe { crate::mock_ffi::mock_app_destruct(self.ptr) },
             real = unsafe { ffi::PMIx_App_destruct(self.ptr) },
@@ -2558,10 +2613,39 @@ impl Drop for PmixAppObject {
 
 #[cfg(test)]
 mod app_object_tests {
-    use super::PmixAppObject; use crate::mock_ffi::MockGuard;
-    #[test] fn construct_drop() { let _g = MockGuard::new(); drop(PmixAppObject::new()); }
-    #[test] fn zeroed_accessors() { let a = PmixAppObject::test_new(); assert_eq!(a.cmd(), None); assert_eq!(a.cwd(), None); assert_eq!(a.argv(), None); assert_eq!(a.env(), None); assert_eq!(a.maxprocs(), 0); }
-    #[test] fn info_create_ok() { let _g = MockGuard::new(); let mut a = PmixAppObject::new(); a.info_create(2); assert_eq!(a.ninfo(), 2); a.info_create(3); assert_eq!(a.ninfo(), 3); }
-    #[test] fn string_ok() { let _g = MockGuard::new(); assert_eq!(PmixAppObject::new().to_string().unwrap(), "mock_app"); }
-    #[test] fn release_no_panic() { let _g = MockGuard::new(); PmixAppObject::new().release(); }
+    use super::PmixAppObject;
+    use crate::mock_ffi::MockGuard;
+    #[test]
+    fn construct_drop() {
+        let _g = MockGuard::new();
+        drop(PmixAppObject::new());
+    }
+    #[test]
+    fn zeroed_accessors() {
+        let a = PmixAppObject::test_new();
+        assert_eq!(a.cmd(), None);
+        assert_eq!(a.cwd(), None);
+        assert_eq!(a.argv(), None);
+        assert_eq!(a.env(), None);
+        assert_eq!(a.maxprocs(), 0);
+    }
+    #[test]
+    fn info_create_ok() {
+        let _g = MockGuard::new();
+        let mut a = PmixAppObject::new();
+        a.info_create(2);
+        assert_eq!(a.ninfo(), 2);
+        a.info_create(3);
+        assert_eq!(a.ninfo(), 3);
+    }
+    #[test]
+    fn string_ok() {
+        let _g = MockGuard::new();
+        assert_eq!(PmixAppObject::new().to_string().unwrap(), "mock_app");
+    }
+    #[test]
+    fn release_no_panic() {
+        let _g = MockGuard::new();
+        PmixAppObject::new().release();
+    }
 }
