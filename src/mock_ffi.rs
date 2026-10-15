@@ -11,8 +11,9 @@
 //! panic paths). Direct [`enable_mock_ffi`] / [`disable_mock_ffi`] remain for
 //! low-level control.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::os::raw::c_ulong;
 use std::os::unix::raw::{gid_t, uid_t};
 
@@ -39,6 +40,11 @@ thread_local! {
     /// Stored values for mock PMIx_Get / PMIx_LookupNB.
     /// Key → (value_bytes, data_type)
     static KEY_VALUE_STORE: RefCell<HashMap<String, (Vec<u8>, u32)>> = RefCell::new(HashMap::new());
+
+    /// cbdata from the most recent `mock_get_nb` on this thread.
+    /// Lets a test identify the request id that call registered without
+    /// assuming process-global registries are empty (lib tests run in parallel).
+    static LAST_GET_NB_CBDATA: Cell<*mut c_void> = const { Cell::new(std::ptr::null_mut()) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -298,7 +304,14 @@ pub fn mock_get_nb(
     >,
     _cbdata: *mut std::ffi::c_void,
 ) -> i32 {
+    LAST_GET_NB_CBDATA.with(|slot| slot.set(_cbdata));
     get_mock_status("PMIx_Get_nb")
+}
+
+/// Request id cbdata from the latest `mock_get_nb` on this thread.
+#[cfg(test)]
+pub(crate) fn last_mock_get_nb_cbdata() -> *mut c_void {
+    LAST_GET_NB_CBDATA.with(|slot| slot.get())
 }
 
 /// Mock `PMIx_Lookup`.

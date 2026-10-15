@@ -8,19 +8,22 @@ Usage:
     echo "prompt" | call_openrouter.py [model]
 
 Env vars:
+    HERMES_CONFIG     Path to the Hermes config.yaml (default: ~/.hermes/config.yaml)
     OR_MAX_RETRIES    Max retry attempts (default: 5)
     OR_BASE_DELAY     Base delay in seconds (default: 10)
     OR_TIMEOUT        Request timeout in seconds (default: 120)
 """
 import json
+import os
 import sys
 import time
 import yaml
 import urllib.request
 import urllib.error
 
-# Load token
-with open('/home/bzf/.hermes/config.yaml') as f:
+# Load token. Do not hardcode a home directory — this file is tracked.
+config_path = os.environ.get("HERMES_CONFIG", os.path.expanduser("~/.hermes/config.yaml"))
+with open(config_path) as f:
     config = yaml.safe_load(f)
 token = config['providers']['openrouter']['token']
 

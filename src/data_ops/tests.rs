@@ -2116,9 +2116,22 @@ fn test_get_callback_bridge_null_cbdata() {
 }
 
 /// An immediate PMIx_Get_nb failure must reclaim the qualified marker.
+///
+/// Lib tests run in parallel and share `GET_REGISTRY` / `QUALIFIED_GETS`, so
+/// this must not assert those maps are empty. The mock records this call's
+/// cbdata; check only that request id.
 #[test]
 fn test_get_nb_failure_removes_qualified_marker() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static DROPPED: AtomicBool = AtomicBool::new(false);
+
     struct DummyGet;
+    impl Drop for DummyGet {
+        fn drop(&mut self) {
+            DROPPED.store(true, Ordering::SeqCst);
+        }
+    }
     impl GetValueCallback for DummyGet {
         fn on_result(self: Box<Self>, _status: PmixStatus, _value: Option<PmixOwnedValue>) {}
     }
@@ -2132,11 +2145,23 @@ fn test_get_nb_failure_removes_qualified_marker() {
         .expect("string info");
     let info = builder.build().expect("build info");
 
+    DROPPED.store(false, Ordering::SeqCst);
     let result = get_nb(&proc, "qualified.key", Some(&info), Box::new(DummyGet));
+    let req_id = crate::cbdata::decode_req_id(crate::mock_ffi::last_mock_get_nb_cbdata());
 
     assert_eq!(result, Err(PmixStatus::Known(PmixError::ErrInit)));
-    assert!(QUALIFIED_GETS.lock().unwrap().is_empty());
-    assert!(GET_REGISTRY.lock().is_empty());
+    assert!(
+        DROPPED.load(Ordering::SeqCst),
+        "immediate Get_nb failure must drop the registered callback"
+    );
+    assert!(
+        !QUALIFIED_GETS.lock().unwrap().contains(&req_id),
+        "qualified marker {req_id} was not reclaimed"
+    );
+    assert!(
+        !GET_REGISTRY.lock().contains_key(&req_id),
+        "callback {req_id} was not removed from the registry"
+    );
 }
 
 /// A successful qualified callback uses mock value transfer and clears its marker.
