@@ -404,7 +404,7 @@ fn test_cpuset_as_mut_ptr_via_dvm() {
     let debug_str = format!("{:?}", cpuset);
     assert!(!debug_str.is_empty(), "cpuset debug should be non-empty");
     let mut topo = pmix::fabric::PmixTopology::unamed();
-    // Use the cpuset through the public compute_distances API.
+    // Public API only: Debug and compute_distances.
     if pmix::fabric::load_topology(&mut topo).is_ok() {
         let _ = pmix::fabric::compute_distances(&mut topo, &mut cpuset, &[]);
     }

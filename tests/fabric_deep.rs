@@ -134,7 +134,9 @@ fn test_topology_multiple_independent() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PmixCpuset construction (safe without PMIx_Init)
+// PmixCpuset construction (safe without PMIx_Init).
+// Public constructor and Debug only; crate-private pointer accessors are
+// not available from this integration test crate.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
