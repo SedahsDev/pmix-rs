@@ -182,9 +182,15 @@ impl InfoList {
     /// `                                     pmix_info_t *prev,`
     /// `                                     pmix_info_t **next)`
     ///
-    /// # Note
+    /// # Safety
     ///
-    /// This returns raw pointers to pmix_info_t structures. Use with caution.
+    /// The caller must ensure:
+    /// - The returned pointer remains valid only while this `InfoList` is alive.
+    /// - The pointer must not be used after the `InfoList` is dropped.
+    /// - The caller must not mutate the returned `pmix_info_t` structures unless
+    ///   explicitly documented as safe by the PMIx API.
+    /// - The `prev` pointer must be either null or a valid pointer from a previous
+    ///   call to this function on the same list.
     pub unsafe fn get_info_iter(
         &self,
         prev: *mut std::ffi::c_void,

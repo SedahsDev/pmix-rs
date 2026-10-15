@@ -51,6 +51,7 @@ pub mod fabric;
 pub mod ffi;
 pub mod groups;
 pub mod info;
+pub mod info_list;
 #[cfg(any(test, feature = "mock_ffi"))]
 pub mod mock_ffi;
 pub mod monitoring;
