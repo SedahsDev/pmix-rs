@@ -3040,7 +3040,7 @@ pmix_array!(
 /// An array of coordinate objects; `dims` is passed to PMIx_Coord_create.
 #[derive(Debug)]
 pub struct PmixCoordArray {
-    ptr: *mut PmixCoord,
+    pub(crate) ptr: *mut PmixCoord,
     len: usize,
 }
 impl PmixCoordArray {
@@ -3668,7 +3668,7 @@ impl Drop for PmixResourceUnit {
 
 #[cfg(pmix6)]
 pub struct PmixResourceUnitArray {
-    ptr: *mut ffi::pmix_resource_unit_t,
+    pub(crate) ptr: *mut ffi::pmix_resource_unit_t,
     len: usize,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
