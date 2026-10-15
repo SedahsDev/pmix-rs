@@ -10,15 +10,13 @@ use pmix::fabric::PmixCpuset;
 /// Test that PmixCpuset can be created via new() (calls FFI construct).
 #[test]
 fn test_cpuset_new() {
-    let mut cpuset = PmixCpuset::new();
-    let _ptr = cpuset.as_mut_ptr();
+    let _cpuset = PmixCpuset::new();
 }
 
 /// Test that PmixCpuset can be created via Default.
 #[test]
 fn test_cpuset_default() {
-    let mut cpuset = PmixCpuset::default();
-    let _ptr = cpuset.as_mut_ptr();
+    let _cpuset = PmixCpuset::default();
 }
 
 /// Test that PmixCpuset Debug works.
@@ -35,21 +33,22 @@ fn test_cpuset_debug() {
 /// Test that multiple cpusets can coexist.
 #[test]
 fn test_cpuset_multiple_instances() {
-    let mut cpuset1 = PmixCpuset::new();
-    let mut cpuset2 = PmixCpuset::new();
-    let mut cpuset3 = PmixCpuset::default();
+    let cpuset1 = PmixCpuset::new();
+    let cpuset2 = PmixCpuset::new();
+    let cpuset3 = PmixCpuset::default();
 
-    let _ptr1 = cpuset1.as_mut_ptr();
-    let _ptr2 = cpuset2.as_mut_ptr();
-    let _ptr3 = cpuset3.as_mut_ptr();
+    assert!(format!("{:?}", cpuset1).contains("PmixCpuset"));
+    assert!(format!("{:?}", cpuset2).contains("PmixCpuset"));
+    assert!(format!("{:?}", cpuset3).contains("PmixCpuset"));
 }
 
-/// Test that as_mut_ptr returns a non-null pointer.
+/// Test that a constructed cpuset is usable through the public API.
 #[test]
 fn test_cpuset_as_mut_ptr_non_null() {
-    let mut cpuset = PmixCpuset::new();
-    let ptr = cpuset.as_mut_ptr();
-    assert!(!ptr.is_null());
+    let cpuset = PmixCpuset::new();
+    let debug_str = format!("{:?}", cpuset);
+    assert!(!debug_str.is_empty());
+    assert!(debug_str.contains("PmixCpuset"));
 }
 
 /// Test that drop does not crash for a constructed cpuset.
@@ -64,11 +63,12 @@ fn test_cpuset_drop_default() {
     let _cpuset = PmixCpuset::default();
 }
 
-/// Test that as_mut_ptr can be called multiple times.
+/// Test that public Debug is stable across repeated calls.
 #[test]
 fn test_cpuset_as_mut_ptr_repeated() {
-    let mut cpuset = PmixCpuset::new();
-    let ptr1 = cpuset.as_mut_ptr();
-    let ptr2 = cpuset.as_mut_ptr();
-    assert_eq!(ptr1, ptr2);
+    let cpuset = PmixCpuset::new();
+    let debug1 = format!("{:?}", cpuset);
+    let debug2 = format!("{:?}", cpuset);
+    assert_eq!(debug1, debug2);
+    assert!(!debug1.is_empty());
 }

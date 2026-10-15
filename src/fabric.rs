@@ -63,8 +63,9 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+pub use crate::PmixDeviceType;
 use crate::ffi;
-use crate::{Info, PmixDeviceType, PmixError, PmixStatus};
+use crate::{Info, PmixError, PmixStatus};
 
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
@@ -924,14 +925,16 @@ impl PmixGeometry {
         // value does not outlive the shared borrow of `self`.
         unsafe { self.raw.assume_init_ref().ncoords }
     }
-    /// Return the raw coordinate array, when PMIx supplied one.
-    pub fn coordinates(&self) -> Option<&[ffi::pmix_coord_t]> {
+    /// Return the coordinate array, when PMIx supplied one.
+    pub fn coordinates(&self) -> Option<&[PmixCoord]> {
         // SAFETY: `self.raw` is initialized by `new` or `test_new`; the slice borrows
         // `self` and therefore cannot outlive the PMIx-owned coordinate array.
+        // `PmixCoord` is `#[repr(transparent)]` over `pmix_coord_t`.
         unsafe {
             let raw = self.raw.assume_init_ref();
-            (!raw.coordinates.is_null())
-                .then(|| std::slice::from_raw_parts(raw.coordinates, raw.ncoords))
+            (!raw.coordinates.is_null()).then(|| {
+                std::slice::from_raw_parts(raw.coordinates as *const PmixCoord, raw.ncoords)
+            })
         }
     }
     fn c_string(
@@ -1141,7 +1144,7 @@ impl PmixCpuset {
     }
 
     /// Get a mutable pointer to the raw `pmix_cpuset_t` for FFI calls.
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_cpuset_t {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_cpuset_t {
         assert!(self.constructed, "cpuset not constructed");
         self.raw.as_mut_ptr()
     }
@@ -2718,7 +2721,7 @@ mod tests {
         assert_eq!(geometry.osname(), Some("gpu0"));
         assert_eq!(geometry.ncoords(), 2);
         assert_eq!(geometry.coordinates().unwrap().len(), 2);
-        assert_eq!(geometry.coordinates().unwrap()[1].view, 1);
+        assert_eq!(geometry.coordinates().unwrap()[1].view().to_raw(), 1);
     }
 
     #[test]
@@ -2940,6 +2943,7 @@ macro_rules! pmix_array {
             }
 
             /// Return the owned C array pointer.
+            #[allow(dead_code)]
             pub fn as_mut_ptr(&self) -> *mut $raw { self.ptr }
             /// Return the number of C objects in the array.
             pub fn len(&self) -> usize { self.len }
@@ -3036,7 +3040,7 @@ pmix_array!(
 /// An array of coordinate objects; `dims` is passed to PMIx_Coord_create.
 #[derive(Debug)]
 pub struct PmixCoordArray {
-    ptr: *mut ffi::pmix_coord_t,
+    ptr: *mut PmixCoord,
     len: usize,
 }
 impl PmixCoordArray {
@@ -3046,14 +3050,14 @@ impl PmixCoordArray {
             #[cfg(any(test, feature = "mock_ffi"))]
             if mock_ffi::is_mock_enabled() {
                 // SAFETY: mock allocation is parameterized by dimensions and count.
-                unsafe { mock_ffi::mock_coord_create(dims, len) }
+                unsafe { mock_ffi::mock_coord_create(dims, len) as *mut PmixCoord }
             } else {
                 // SAFETY: PMIx allocates an array of coordinate objects.
-                unsafe { ffi::PMIx_Coord_create(dims, len) }
+                unsafe { ffi::PMIx_Coord_create(dims, len) as *mut PmixCoord }
             }
             #[cfg(not(any(test, feature = "mock_ffi")))]
             {
-                unsafe { ffi::PMIx_Coord_create(dims, len) }
+                unsafe { ffi::PMIx_Coord_create(dims, len) as *mut PmixCoord }
             }
         };
         if ptr.is_null() {
@@ -3063,7 +3067,7 @@ impl PmixCoordArray {
         // dimension buffer; reconstructing it would leak that buffer.
         for index in 1..len {
             // SAFETY: PMIx returned `len` contiguous coordinate objects.
-            let element = unsafe { ptr.add(index) };
+            let element = unsafe { ptr.add(index) as *mut ffi::pmix_coord_t };
             #[cfg(any(test, feature = "mock_ffi"))]
             if mock_ffi::is_mock_enabled() {
                 // SAFETY: element belongs to the mock allocation.
@@ -3080,8 +3084,9 @@ impl PmixCoordArray {
         Ok(Self { ptr, len })
     }
     /// Return the owned C array pointer.
-    pub fn as_mut_ptr(&self) -> *mut ffi::pmix_coord_t {
-        self.ptr
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&self) -> *mut ffi::pmix_coord_t {
+        self.ptr as *mut ffi::pmix_coord_t
     }
     /// Return the number of coordinates.
     pub fn len(&self) -> usize {
@@ -3100,14 +3105,14 @@ impl Drop for PmixCoordArray {
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
             // SAFETY: pointer and length are the values returned by PMIx.
-            unsafe { mock_ffi::mock_coord_free(self.ptr, self.len) };
+            unsafe { mock_ffi::mock_coord_free(self.ptr as *mut ffi::pmix_coord_t, self.len) };
         } else {
             // SAFETY: pointer and length are the values returned by PMIx.
-            unsafe { ffi::PMIx_Coord_free(self.ptr, self.len) };
+            unsafe { ffi::PMIx_Coord_free(self.ptr as *mut ffi::pmix_coord_t, self.len) };
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
         {
-            unsafe { ffi::PMIx_Coord_free(self.ptr, self.len) };
+            unsafe { ffi::PMIx_Coord_free(self.ptr as *mut ffi::pmix_coord_t, self.len) };
         }
     }
 }
@@ -3127,22 +3132,44 @@ macro_rules! c_string_accessor {
     };
 }
 
+/// Native wrapper for `pmix_coord_view_t`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PmixCoordView(u8);
+
+impl PmixCoordView {
+    /// Convert a raw coordinate-view value into a native view.
+    pub fn from_raw(raw: u8) -> Self {
+        Self(raw)
+    }
+
+    /// Convert this view back to the raw coordinate-view value.
+    pub fn to_raw(self) -> u8 {
+        self.0
+    }
+}
+
 /// Safe RAII wrapper around `pmix_coord_t`.
+///
+/// Layout matches `pmix_coord_t` so a PMIx coordinate array can be borrowed
+/// as `&[PmixCoord]` without copying. Drop destructs an owned value; shared
+/// borrows from [`PmixGeometry::coordinates`] are not dropped.
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct PmixCoord {
-    raw: MaybeUninit<ffi::pmix_coord_t>,
-    constructed: bool,
+    raw: ffi::pmix_coord_t,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
+
+const _: () = {
+    assert!(std::mem::size_of::<PmixCoord>() == std::mem::size_of::<ffi::pmix_coord_t>());
+    assert!(std::mem::align_of::<PmixCoord>() == std::mem::align_of::<ffi::pmix_coord_t>());
+};
+
 impl PmixCoord {
     /// Construct a coordinate with PMIx defaults.
     pub fn new() -> Self {
-        let mut this = Self {
-            raw: MaybeUninit::uninit(),
-            constructed: false,
-            _not_thread_safe: std::marker::PhantomData,
-        };
-        let p = this.raw.as_mut_ptr();
+        let mut raw = MaybeUninit::<ffi::pmix_coord_t>::uninit();
+        let p = raw.as_mut_ptr();
         #[cfg(any(test, feature = "mock_ffi"))]
         if mock_ffi::is_mock_enabled() {
             // SAFETY: p points to this object's uninitialized storage.
@@ -3156,34 +3183,35 @@ impl PmixCoord {
             // SAFETY: p points to this object's uninitialized storage.
             unsafe { ffi::PMIx_Coord_construct(p) };
         }
-        this.constructed = true;
-        this
+        Self {
+            // SAFETY: PMIx_Coord_construct initializes the complete object.
+            raw: unsafe { raw.assume_init() },
+            _not_thread_safe: std::marker::PhantomData,
+        }
     }
     /// Construct a zeroed test object without C-owned allocations.
     pub fn test_new() -> Self {
         Self {
-            raw: MaybeUninit::zeroed(),
-            constructed: true,
+            // SAFETY: an all-zero `pmix_coord_t` is a valid bit pattern.
+            raw: unsafe { MaybeUninit::<ffi::pmix_coord_t>::zeroed().assume_init() },
             _not_thread_safe: std::marker::PhantomData,
         }
     }
     /// Return the coordinate view value.
-    pub fn view(&self) -> ffi::pmix_coord_view_t {
-        // SAFETY: raw is initialized by new or test_new.
-        unsafe { self.raw.assume_init_ref().view }
+    pub fn view(&self) -> PmixCoordView {
+        PmixCoordView::from_raw(self.raw.view)
     }
     /// Return the coordinate values, if present.
     pub fn coord(&self) -> Option<&[u32]> {
         // SAFETY: raw is initialized by new or test_new; coord and dims are a PMIx pair.
         unsafe {
-            let r = self.raw.assume_init_ref();
-            (!r.coord.is_null()).then(|| std::slice::from_raw_parts(r.coord, r.dims))
+            (!self.raw.coord.is_null())
+                .then(|| std::slice::from_raw_parts(self.raw.coord, self.raw.dims))
         }
     }
     /// Return the number of dimensions.
     pub fn dims(&self) -> usize {
-        // SAFETY: raw is initialized by new or test_new.
-        unsafe { self.raw.assume_init_ref().dims }
+        self.raw.dims
     }
 }
 impl Default for PmixCoord {
@@ -3191,27 +3219,39 @@ impl Default for PmixCoord {
         Self::new()
     }
 }
+impl From<ffi::pmix_coord_t> for PmixCoord {
+    fn from(raw: ffi::pmix_coord_t) -> Self {
+        Self {
+            raw,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+}
+impl From<PmixCoord> for ffi::pmix_coord_t {
+    fn from(coord: PmixCoord) -> Self {
+        let coord = std::mem::ManuallyDrop::new(coord);
+        // SAFETY: `coord` is initialized and will not be dropped after this read.
+        unsafe { std::ptr::read(&coord.raw) }
+    }
+}
 impl Drop for PmixCoord {
     fn drop(&mut self) {
-        if self.constructed {
-            #[cfg(any(test, feature = "mock_ffi"))]
-            if mock_ffi::is_mock_enabled() {
-                // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
-                unsafe {
-                    mock_ffi::mock_coord_destruct(self.raw.as_mut_ptr());
-                }
-            } else {
-                // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
-                unsafe {
-                    ffi::PMIx_Coord_destruct(self.raw.as_mut_ptr());
-                }
-            }
-            #[cfg(not(any(test, feature = "mock_ffi")))]
+        #[cfg(any(test, feature = "mock_ffi"))]
+        if mock_ffi::is_mock_enabled() {
             // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
             unsafe {
-                ffi::PMIx_Coord_destruct(self.raw.as_mut_ptr());
+                mock_ffi::mock_coord_destruct(&mut self.raw);
             }
-            self.constructed = false;
+        } else {
+            // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
+            unsafe {
+                ffi::PMIx_Coord_destruct(&mut self.raw);
+            }
+        }
+        #[cfg(not(any(test, feature = "mock_ffi")))]
+        // SAFETY: the raw object is initialized by PMIx or test_new and belongs to self.
+        unsafe {
+            ffi::PMIx_Coord_destruct(&mut self.raw);
         }
     }
 }
@@ -3267,9 +3307,28 @@ impl PmixDevice {
     c_string_accessor!(uuid, uuid);
     c_string_accessor!(osname, osname);
     /// Return the PMIx device type.
-    pub fn device_type(&self) -> ffi::pmix_device_type_t {
+    pub fn device_type(&self) -> PmixDeviceType {
         // SAFETY: raw is initialized by new or test_new.
-        unsafe { self.raw.assume_init_ref().type_ }
+        PmixDeviceType::from_raw(self.to_raw().type_)
+    }
+
+    pub(crate) fn from_raw(raw: ffi::pmix_device_t) -> Self {
+        Self {
+            raw: MaybeUninit::new(raw),
+            constructed: true,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
+    pub(crate) fn to_raw(&self) -> ffi::pmix_device_t {
+        // SAFETY: raw is initialized by new or test_new.
+        unsafe { self.raw.assume_init_read() }
+    }
+}
+#[cfg(pmix6)]
+impl From<ffi::pmix_device_t> for PmixDevice {
+    fn from(raw: ffi::pmix_device_t) -> Self {
+        Self::from_raw(raw)
     }
 }
 #[cfg(pmix6)]
@@ -3353,9 +3412,22 @@ impl PmixDeviceDistanceObject {
     c_string_accessor!(uuid, uuid);
     c_string_accessor!(osname, osname);
     /// Return the PMIx device type.
-    pub fn device_type(&self) -> ffi::pmix_device_type_t {
+    pub fn device_type(&self) -> PmixDeviceType {
         // SAFETY: raw is initialized by new or test_new.
-        unsafe { self.raw.assume_init_ref().type_ }
+        PmixDeviceType::from_raw(self.to_raw().type_)
+    }
+
+    pub(crate) fn from_raw(raw: ffi::pmix_device_distance_t) -> Self {
+        Self {
+            raw: MaybeUninit::new(raw),
+            constructed: true,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
+    pub(crate) fn to_raw(&self) -> ffi::pmix_device_distance_t {
+        // SAFETY: raw is initialized by new or test_new.
+        unsafe { self.raw.assume_init_read() }
     }
     /// Return the minimum distance.
     pub fn min_distance(&self) -> u16 {
@@ -3366,6 +3438,11 @@ impl PmixDeviceDistanceObject {
     pub fn max_distance(&self) -> u16 {
         // SAFETY: raw is initialized by new or test_new.
         unsafe { self.raw.assume_init_ref().maxdist }
+    }
+}
+impl From<ffi::pmix_device_distance_t> for PmixDeviceDistanceObject {
+    fn from(raw: ffi::pmix_device_distance_t) -> Self {
+        Self::from_raw(raw)
     }
 }
 impl Default for PmixDeviceDistanceObject {
@@ -3463,17 +3540,17 @@ mod added_type_tests {
     fn test_new_accessors_are_zeroed_and_safe() {
         let _guard = mock_ffi::MockGuard::new();
         let coord = PmixCoord::test_new();
-        assert_eq!(coord.view(), 0);
+        assert_eq!(coord.view().to_raw(), 0);
         assert_eq!(coord.dims(), 0);
         assert!(coord.coord().is_none());
         let device = PmixDevice::test_new();
         assert!(device.uuid().is_none());
         assert!(device.osname().is_none());
-        assert_eq!(device.device_type(), 0);
+        assert_eq!(device.device_type(), PmixDeviceType::from_raw(0));
         let distance = PmixDeviceDistanceObject::test_new();
         assert!(distance.uuid().is_none());
         assert!(distance.osname().is_none());
-        assert_eq!(distance.device_type(), 0);
+        assert_eq!(distance.device_type(), PmixDeviceType::from_raw(0));
         assert_eq!(distance.min_distance(), 0);
         assert_eq!(distance.max_distance(), 0);
     }
@@ -3484,13 +3561,10 @@ mod added_type_tests {
         let _guard = mock_ffi::MockGuard::new();
         let mut coord = PmixCoord::test_new();
         let values = [10_u32, 20, 30];
-        unsafe {
-            let raw = coord.raw.assume_init_mut();
-            raw.view = 7;
-            raw.coord = values.as_ptr() as *mut _;
-            raw.dims = values.len();
-        }
-        assert_eq!(coord.view(), 7);
+        coord.raw.view = 7;
+        coord.raw.coord = values.as_ptr() as *mut _;
+        coord.raw.dims = values.len();
+        assert_eq!(coord.view().to_raw(), 7);
         assert_eq!(coord.coord(), Some(values.as_slice()));
         let mut device = PmixDevice::test_new();
         let uuid = CString::new("dev-uuid").unwrap();
@@ -3503,7 +3577,7 @@ mod added_type_tests {
         }
         assert_eq!(device.uuid(), Some("dev-uuid"));
         assert_eq!(device.osname(), Some("gpu0"));
-        assert_eq!(device.device_type(), 9);
+        assert_eq!(device.device_type(), PmixDeviceType::from_raw(9));
     }
 }
 
@@ -3542,9 +3616,23 @@ impl PmixResourceUnit {
         }
     }
 
-    pub fn unit_type(&self) -> ffi::pmix_device_type_t {
+    #[allow(dead_code)]
+    pub(crate) fn from_raw(raw: ffi::pmix_resource_unit_t) -> Self {
+        Self {
+            raw: MaybeUninit::new(raw),
+            constructed: true,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
+    pub(crate) fn to_raw(&self) -> ffi::pmix_resource_unit_t {
         // SAFETY: new/test_new initialize the complete C struct before access.
-        unsafe { self.raw.assume_init_ref().type_ }
+        unsafe { self.raw.assume_init_read() }
+    }
+
+    pub fn unit_type(&self) -> PmixDeviceType {
+        // SAFETY: new/test_new initialize the complete C struct before access.
+        PmixDeviceType::from_raw(self.to_raw().type_)
     }
 
     pub fn count(&self) -> usize {
@@ -3586,7 +3674,8 @@ pub struct PmixResourceUnitArray {
 }
 #[cfg(pmix6)]
 impl PmixResourceUnitArray {
-    pub fn as_ptr(&self) -> *const ffi::pmix_resource_unit_t {
+    #[allow(dead_code)]
+    pub(crate) fn as_ptr(&self) -> *const ffi::pmix_resource_unit_t {
         self.ptr
     }
     pub fn len(&self) -> usize {
@@ -3663,7 +3752,7 @@ mod misc_wrapper_tests {
     fn resource_unit_wrappers_construct_access_string_and_arrays() {
         let _guard = crate::mock_ffi::MockGuard::new();
         let unit = PmixResourceUnit::new();
-        assert_eq!(unit.unit_type(), 0);
+        assert_eq!(unit.unit_type(), PmixDeviceType::from_raw(0));
         assert_eq!(unit.count(), 0);
         assert_eq!(unit.to_string().unwrap(), "resource-unit");
         let array = resource_unit_create(2).unwrap();

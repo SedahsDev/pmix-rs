@@ -394,15 +394,20 @@ fn test_compute_distances_nb_via_dvm() {
     }
 }
 
-/// PmixCpuset::as_mut_ptr via DVM.
-/// Covers: PmixCpuset::as_mut_ptr
+/// PmixCpuset creation and use via public methods under DVM.
+/// Covers: PmixCpuset::new, Debug, compute_distances
 #[test]
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_cpuset_as_mut_ptr_via_dvm() {
     daemon_helper::ensure_pmix_init();
     let mut cpuset = pmix::fabric::PmixCpuset::new();
-    let ptr = cpuset.as_mut_ptr();
-    assert!(!ptr.is_null(), "cpuset as_mut_ptr should be non-null");
+    let debug_str = format!("{:?}", cpuset);
+    assert!(!debug_str.is_empty(), "cpuset debug should be non-empty");
+    let mut topo = pmix::fabric::PmixTopology::unamed();
+    // Use the cpuset through the public compute_distances API.
+    if pmix::fabric::load_topology(&mut topo).is_ok() {
+        let _ = pmix::fabric::compute_distances(&mut topo, &mut cpuset, &[]);
+    }
 }
 
 /// Full lifecycle: new -> register -> update -> deregister -> drop.

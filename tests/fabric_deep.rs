@@ -139,14 +139,16 @@ fn test_topology_multiple_independent() {
 
 #[test]
 fn test_cpuset_new() {
-    let mut cpuset = PmixCpuset::new();
-    let _ = cpuset.as_mut_ptr();
+    let cpuset = PmixCpuset::new();
+    let debug = format!("{:?}", cpuset);
+    assert!(!debug.is_empty());
 }
 
 #[test]
 fn test_cpuset_default() {
-    let mut cpuset = PmixCpuset::default();
-    let _ = cpuset.as_mut_ptr();
+    let cpuset = PmixCpuset::default();
+    let debug = format!("{:?}", cpuset);
+    assert!(!debug.is_empty());
 }
 
 #[test]
@@ -158,10 +160,10 @@ fn test_cpuset_debug_format() {
 
 #[test]
 fn test_cpuset_multiple_independent() {
-    let mut c1 = PmixCpuset::new();
-    let mut c2 = PmixCpuset::new();
-    let _ = c1.as_mut_ptr();
-    let _ = c2.as_mut_ptr();
+    let c1 = PmixCpuset::new();
+    let c2 = PmixCpuset::new();
+    assert!(!format!("{:?}", c1).is_empty());
+    assert!(!format!("{:?}", c2).is_empty());
 }
 
 #[test]
