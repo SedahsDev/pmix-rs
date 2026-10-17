@@ -1,7 +1,33 @@
-//! PMIx status and error types (`pmix_status_t`).
-
+use crate::ffi;
 use crate::ffi::*;
-use std::fmt;
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
+use crate::pmix_ffi_or_mock;
+use crate::*;
+use cstring_array::CStringArray;
+use std::ffi::{CStr, CString, NulError};
+use std::mem::zeroed;
+use std::os::raw::{c_char, c_void};
+use std::ptr::{null, null_mut};
+use std::{fmt, mem, ptr};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// String-key boolean attributes (exceed 13-byte fixed key limit)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `PMIX_GET_REFRESH_CACHE` = "pmix.get.refresh" (17 bytes with NUL).
+///
+/// Use with [`InfoBuilder::refresh_cache()`] or
+/// [`InfoBuilder::add_bool_key()`] to enable automatic cache refresh on get.
+/// This key exceeds the 13-byte fixed-key limit, so it cannot be used with
+/// [`InfoBuilder::add()`].
+pub const GET_REFRESH_CACHE: &[u8; 17] = b"pmix.get.refresh\0";
+
+/// `PMIX_QUERY_REFRESH_CACHE` = "pmix.qry.rfsh" (14 bytes with NUL).
+///
+/// Use as a qualifier in queries to force a cache refresh. This key also
+/// exceeds the 13-byte fixed-key limit.
+pub const QUERY_REFRESH_CACHE: &[u8; 14] = b"pmix.qry.rfsh\0";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixError enum
@@ -332,6 +358,12 @@ pub enum PmixError {
     //  in `from_raw`. See implementation notes below.)
 }
 
+impl std::fmt::Display for PmixError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixStatus — the public-facing type that wraps PmixError + Unknown(i32)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -404,15 +436,9 @@ impl PmixStatus {
 impl std::fmt::Display for PmixStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Known(e) => write!(f, "{e:?}"),
+            Self::Known(e) => std::fmt::Display::fmt(&e, f),
             Self::Unknown(v) => write!(f, "pmix_status_t({v}) [unknown/user-defined]"),
         }
-    }
-}
-
-impl std::fmt::Display for PmixError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
     }
 }
 

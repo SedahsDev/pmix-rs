@@ -1,100 +1,59 @@
-//! PMIx value builders and owned values.
-
+use crate::ffi;
 use crate::ffi::*;
-use crate::{Info, Proc};
+#[cfg(any(test, feature = "mock_ffi"))]
+use crate::mock_ffi;
+use crate::pmix_ffi_or_mock;
+use crate::*;
 use cstring_array::CStringArray;
 use std::ffi::{CStr, CString, NulError};
+use std::mem::zeroed;
 use std::os::raw::{c_char, c_void};
+use std::ptr::{null, null_mut};
 use std::{fmt, mem, ptr};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Error type
+// InfoFlags — type-safe bitmask over pmix_info_directives_t
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// All errors the builder can produce.
-#[derive(Debug, PartialEq, Eq)]
-pub enum ValueError {
-    /// A string argument contained an interior NUL byte.
-    ContainsNul(NulError),
-    /// `build()` / `build_raw()` was called before any payload setter.
-    MissingPayload,
-    /// A byte-object or data-array was given a length of zero when one or
-    /// more bytes/elements were required.
-    EmptyData,
-}
-
-impl std::fmt::Display for ValueError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ContainsNul(e) => write!(f, "string contains interior NUL: {e}"),
-            Self::MissingPayload => write!(f, "no payload set on PmixValueBuilder"),
-            Self::EmptyData => write!(f, "data slice must not be empty"),
-        }
-    }
-}
-
-impl std::error::Error for ValueError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::ContainsNul(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<NulError> for ValueError {
-    fn from(e: NulError) -> Self {
-        Self::ContainsNul(e)
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PmixTimeval – Rust mirror of pmix_timeval_t
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Newtype so callers don't need to import `sys::pmix_timeval_t` directly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PmixTimeval {
-    pub tv_sec: i64,
-    pub tv_usec: i64,
-}
-
-impl From<PmixTimeval> for timeval {
-    fn from(v: PmixTimeval) -> Self {
-        Self {
-            tv_sec: v.tv_sec,
-            tv_usec: v.tv_usec,
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PmixEnvar – Rust mirror of pmix_envar_t
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Safe Rust representation of `pmix_envar_t`.
+/// Newtype over the raw `pmix_info_directives_t` (u32 bitmask).
 ///
-/// Both `envar` and `value` are stored as `CString` so interior-NUL checking
-/// happens at construction time, not at `build()` time.
-#[derive(Debug, Clone)]
-pub struct PmixEnvar {
-    pub envar: CString,
-    pub value: CString,
-    pub separator: u8,
-}
+/// Predefined constants mirror the `PMIX_INFO_*` C macros.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct InfoFlags(pub pmix_info_directives_t);
 
-impl PmixEnvar {
-    /// Create from `&str` arguments; returns `NulError` if either string has
-    /// an interior NUL.
-    pub fn new(envar: &str, value: &str, separator: char) -> Result<Self, NulError> {
-        Ok(Self {
-            envar: CString::new(envar)?,
-            value: CString::new(value)?,
-            separator: separator as u8,
-        })
+impl InfoFlags {
+    /// `PMIX_INFO_REQD` — fail if the attribute is unsupported.
+    pub const REQD: Self = Self(PMIX_INFO_REQD);
+    /// `PMIX_INFO_QUALIFIER` — qualifies a peer key.
+    pub const QUALIFIER: Self = Self(PMIX_INFO_QUALIFIER);
+    /// `PMIX_INFO_PERSISTENT` — do not release after processing.
+    pub const PERSISTENT: Self = Self(PMIX_INFO_PERSISTENT);
+    /// `PMIX_INFO_REQD_PROCESSED` — set by the library upon processing.
+    pub const REQD_PROCESSED: Self = Self(PMIX_INFO_REQD_PROCESSED);
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+    pub fn contains(self, f: Self) -> bool {
+        (self.0 & f.0) == f.0
+    }
+    /// Return the raw `pmix_info_directives_t` value.
+    pub fn raw(self) -> pmix_info_directives_t {
+        self.0
     }
 }
 
+impl std::ops::BitOr for InfoFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl std::ops::BitOrAssign for InfoFlags {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixPayload – the Rust-side discriminated union
 // ─────────────────────────────────────────────────────────────────────────────
@@ -435,6 +394,8 @@ impl PmixValueBuilder {
     pub fn build(self) -> Result<PmixOwnedValue, ValueError> {
         Ok(PmixOwnedValue {
             inner: self.build_raw()?,
+            pmix_owned: false,
+            _not_thread_safe: std::marker::PhantomData,
         })
     }
 
@@ -518,22 +479,23 @@ fn write_payload(dst: &mut pmix_value, payload: PmixPayload) {
             PmixPayload::ByteObject(mut bytes) => {
                 bytes.shrink_to_fit();
                 let len = bytes.len();
-                let ptr = bytes.as_mut_ptr() as *mut i8;
+                let ptr = bytes.as_mut_ptr();
                 std::mem::forget(bytes);
                 dst.data.bo = pmix_byte_object_t {
-                    bytes: ptr,
+                    // Bindgen emits *mut u8 or *mut i8 depending on the host headers.
+                    bytes: ptr as *mut _,
                     size: len,
                 };
             }
 
-            // Heap-allocate pmix_envar_t; transfer both CStrings.
+            // Write pmix_envar_t inline; transfer both CStrings.
             PmixPayload::Envar(e) => {
-                let raw = Box::new(pmix_envar_t {
+                dst.data.envar = pmix_envar_t {
                     envar: e.envar.into_raw(),
                     value: e.value.into_raw(),
-                    separator: e.separator as i8,
-                });
-                dst.data.envar = *Box::into_raw(raw);
+                    // Bindgen emits u8 or i8 depending on the host headers.
+                    separator: e.separator as _,
+                };
             }
 
             // Opaque pointer – no allocation here, caller owns data.
@@ -634,6 +596,31 @@ pub fn free_value(v: &mut pmix_value_t) {
     }
 }
 
+/// Destruct nested payloads allocated by PMIx.
+pub(crate) unsafe fn destruct_pmix_value(v: &mut pmix_value_t) {
+    pmix_ffi_or_mock!(
+        mock = unsafe { mock_ffi::mock_value_destruct(v) },
+        real = unsafe { ffi::PMIx_Value_destruct(v) },
+    );
+}
+
+/// Release a PMIx-allocated `pmix_value_t` struct and its nested payloads.
+pub(crate) unsafe fn release_pmix_value(value: *mut pmix_value_t) {
+    if value.is_null() {
+        return;
+    }
+    pmix_ffi_or_mock!(
+        mock = unsafe {
+            mock_ffi::mock_value_destruct(value);
+            mock_ffi::mock_value_free(value, 1);
+        },
+        real = unsafe {
+            ffi::PMIx_Value_destruct(value);
+            libc::free(value.cast());
+        },
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixOwnedValue – RAII wrapper with automatic cleanup
 // ─────────────────────────────────────────────────────────────────────────────
@@ -645,6 +632,9 @@ pub fn free_value(v: &mut pmix_value_t) {
 /// ownership to a C API that calls `PMIX_VALUE_RELEASE` itself.
 pub struct PmixOwnedValue {
     pub(crate) inner: pmix_value_t,
+    pub(crate) pmix_owned: bool,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    pub(crate) _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
 impl PmixOwnedValue {
@@ -698,11 +688,31 @@ impl PmixOwnedValue {
         }
         unsafe { std::slice::from_raw_parts(ptr as *const u8, len).to_vec() }
     }
+
+    /// Read the value as an owned UTF-8 string.
+    pub fn string_copy(&self) -> Result<String, std::str::Utf8Error> {
+        // SAFETY: this accessor is only valid for a PMIX_STRING value, whose
+        // active union arm is the string pointer.
+        let ptr = unsafe { self.inner.data.string };
+        if ptr.is_null() {
+            // SAFETY: an empty C string is valid and never null.
+            return Ok(String::new());
+        }
+        // SAFETY: PMIX_STRING values contain a valid NUL-terminated pointer
+        // owned by this value for its lifetime.
+        let string = unsafe { CStr::from_ptr(ptr) };
+        string.to_str().map(str::to_owned)
+    }
 }
 
 impl Drop for PmixOwnedValue {
     fn drop(&mut self) {
-        free_value(&mut self.inner);
+        if self.pmix_owned {
+            // SAFETY: nested payloads were allocated by PMIx.
+            unsafe { destruct_pmix_value(&mut self.inner) };
+        } else {
+            free_value(&mut self.inner);
+        }
     }
 }
 
@@ -712,4 +722,564 @@ impl std::fmt::Debug for PmixOwnedValue {
             .field("type_", &self.inner.type_)
             .finish_non_exhaustive()
     }
+}
+
+#[derive(Clone)]
+pub struct Proc {
+    pub(crate) handle: pmix_proc_t,
+    pub(crate) len: usize,
+}
+
+pub struct Info {
+    pub(crate) handle: *mut pmix_info_t,
+    pub(crate) len: usize,
+    /// Makes this type `!Send` + `!Sync` (PMIx handles are not free-threaded).
+    pub(crate) _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl Info {
+    /// Number of entries in this info array.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// True if there are no entries.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Raw pointer for FFI (valid for `len()` elements).
+    pub fn as_ptr(&self) -> *mut pmix_info_t {
+        self.handle
+    }
+
+    /// Transfer ownership of the raw PMIx info array to the caller.
+    ///
+    /// After this call, [`Drop`] will not free the handle — the caller must
+    /// free it with `PMIx_Info_free` (or equivalent).
+    pub fn into_raw(self) -> (*mut pmix_info_t, usize) {
+        let handle = self.handle;
+        let len = self.len;
+        std::mem::forget(self);
+        (handle, len)
+    }
+}
+
+impl Drop for Info {
+    fn drop(&mut self) {
+        if !self.handle.is_null() {
+            // SAFETY: handle came from PMIx_Info_create(len) in InfoBuilder /
+            // info_with_string_key. PMIx_Info_free destructs and frees the array.
+            unsafe {
+                PMIx_Info_free(self.handle, self.len);
+            }
+            self.handle = std::ptr::null_mut();
+            self.len = 0;
+        }
+    }
+}
+
+struct InfoEntry {
+    key: &'static [u8; 13],
+    value: *const std::ffi::c_void,
+    data_type: pmix_data_type_t,
+}
+
+struct InfoEntryString {
+    key: CString,
+    value: CString,
+    data_type: pmix_data_type_t,
+}
+
+/// String-key `PMIX_BOOL` entry with owned storage (`uint8_t` 0/1).
+///
+/// OpenPMIx loads `PMIX_BOOL` from a pointer to a byte, not a C string. Using
+/// `add_string_key(..., "1", PMIX_BOOL)` mis-encodes the value and attributes
+/// such as `PMIX_EXTERNAL_PROGRESS` are ignored (internal progress still runs).
+struct InfoEntryBool {
+    key: CString,
+    /// `1` = true, `0` = false — matches PMIx `PMIX_BOOL` packing.
+    value: u8,
+}
+
+/// String-key `PMIX_INT` entry with owned storage for long-key integer attributes.
+struct InfoEntryInt {
+    key: CString,
+    value: i32,
+}
+
+#[derive(Default)]
+pub struct InfoBuilder {
+    infos: Vec<InfoEntry>,
+    /// String-key entries for keys that exceed the 13-byte limit.
+    string_infos: Vec<InfoEntryString>,
+    /// String-key boolean attributes (`pmix.evext`, `pmix.bind.reqd`, …).
+    bool_infos: Vec<InfoEntryBool>,
+    /// String-key integer attributes such as `pmix.exit.code`.
+    int_infos: Vec<InfoEntryInt>,
+    /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
+    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl InfoBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(
+        &mut self,
+        key: &'static [u8; 13],
+        value: *const std::ffi::c_void,
+        data_type: pmix_data_type_t,
+    ) {
+        assert_ne!(key.as_ptr(), std::ptr::null());
+        self.infos.push(InfoEntry {
+            key,
+            value,
+            data_type,
+        })
+    }
+
+    /// Add an info entry with a string key that exceeds the 13-byte limit.
+    ///
+    /// Use this for keys like `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`, 15 bytes)
+    /// which don't fit in [`InfoBuilder::add`].
+    /// Returns `Err(NulError)` if the key or value contains a NUL byte.
+    pub fn add_string_key(
+        &mut self,
+        key: &str,
+        value: &str,
+        data_type: pmix_data_type_t,
+    ) -> Result<&mut Self, std::ffi::NulError> {
+        let key_cstr = CString::new(key)?;
+        let value_cstr = CString::new(value)?;
+        self.string_infos.push(InfoEntryString {
+            key: key_cstr,
+            value: value_cstr,
+            data_type,
+        });
+        Ok(self)
+    }
+
+    /// Append a string-key `PMIX_BOOL` attribute with correct scalar encoding.
+    ///
+    /// Use this for boolean-valued keys that exceed the 13-byte limit (e.g.
+    /// `PMIX_QUERY_REFRESH_CACHE` = "pmix.qry.rfsh") which don't fit in
+    /// [`InfoBuilder::add`] and can't be expressed as a string value.
+    ///
+    /// # Panics
+    /// Panics if `key` contains a NUL byte (keys are static attribute names).
+    pub fn add_bool_key(&mut self, key: &str, value: bool) -> &mut Self {
+        let key_cstr = CString::new(key).expect("key must not contain null bytes");
+        self.bool_infos.push(InfoEntryBool {
+            key: key_cstr,
+            value: u8::from(value),
+        });
+        self
+    }
+
+    /// Append a string-key `PMIX_INT` attribute with correct scalar encoding.
+    ///
+    /// Use this for integer-valued keys that exceed the 13-byte limit (e.g.
+    /// `PMIX_EXIT_CODE` = `"pmix.exit.code"`) which don't fit in
+    /// [`InfoBuilder::add`] and can't be expressed as a string value.
+    /// Returns `Err(NulError)` if the key contains a NUL byte.
+    pub fn add_int_key(&mut self, key: &str, value: i32) -> Result<&mut Self, std::ffi::NulError> {
+        let key_cstr = CString::new(key)?;
+        self.int_infos.push(InfoEntryInt {
+            key: key_cstr,
+            value,
+        });
+        Ok(self)
+    }
+
+    /// Set `PMIX_EXTERNAL_PROGRESS` attribute.
+    ///
+    /// When `true`, tells PMIx that the host provides its own event
+    /// progress engine. **WARNING:** if you set this to `true` without
+    /// calling [`progress()`] from your own event loop, the PMIx library
+    /// will deadlock on blocking operations, as no internal progress
+    /// thread is spawned.
+    ///
+    /// # C API
+    /// `PMIX_EXTERNAL_PROGRESS` (`pmix.evext`) — `PMIX_BOOL`
+    pub fn external_progress(&mut self, external: bool) -> &mut Self {
+        self.add_bool_key("pmix.evext", external)
+    }
+
+    /// Set `PMIX_GET_REFRESH_CACHE` attribute.
+    ///
+    /// When `true`, instructs PMIx to automatically refresh its local cache
+    /// before returning the requested value. This is useful when you need
+    /// the most up-to-date data without manually querying again.
+    ///
+    /// # C API
+    /// `PMIX_GET_REFRESH_CACHE` (`pmix.get.refresh`) — `PMIX_BOOL`
+    ///
+    /// # Example
+    /// ```rust
+    /// use pmix::InfoBuilder;
+    /// let mut builder = InfoBuilder::new();
+    /// builder.refresh_cache(true);
+    /// let info = builder.build().expect("info");
+    /// assert_eq!(info.len(), 1);
+    /// ```
+    pub fn refresh_cache(&mut self, refresh: bool) -> &mut Self {
+        self.add_bool_key("pmix.get.refresh", refresh)
+    }
+
+    /// Set `PMIX_BIND_PROGRESS_THREAD` attribute.
+    ///
+    /// Specifies CPU ranges on which to bind the internal PMIx progress
+    /// thread. The value is a CPU set string (e.g., `"0-3"`, `"4,5,6,7"`).
+    ///
+    /// **Note:** this only pins the PMIx **progress thread**, not the
+    /// thread that calls `PMIx_Get` or other APIs — work is threadshifted
+    /// onto the progress/`evbase` internally.
+    ///
+    /// Returns `Err(NulError)` if `cpus` contains a NUL byte.
+    ///
+    /// # C API
+    /// `PMIX_BIND_PROGRESS_THREAD` (`pmix.bind.pt`) — `PMIX_STRING`
+    pub fn bind_progress_thread(&mut self, cpus: &str) -> Result<&mut Self, std::ffi::NulError> {
+        let cpus_cstr = CString::new(cpus)?;
+        self.string_infos.push(InfoEntryString {
+            key: CString::new("pmix.bind.pt").unwrap(),
+            value: cpus_cstr,
+            data_type: PMIX_STRING as pmix_data_type_t,
+        });
+        Ok(self)
+    }
+
+    /// Set `PMIX_BIND_REQUIRED` attribute.
+    ///
+    /// When `true`, the PMIx progress thread binding is mandatory —
+    /// initialization fails if the requested CPUs are unavailable.
+    ///
+    /// # C API
+    /// `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`) — `PMIX_BOOL`
+    pub fn bind_required(&mut self, required: bool) -> &mut Self {
+        self.add_bool_key("pmix.bind.reqd", required)
+    }
+
+    /// Set `PMIX_PROGRESS_THREAD_FLUSH` attribute.
+    ///
+    /// Controls whether the progress thread flushes pending events before
+    /// stopping. Pass `true` to force a flush of the event base before
+    /// shutdown.
+    ///
+    /// # C API
+    /// `PMIX_PROGRESS_THREAD_FLUSH` (`pmix.evflush`) — `PMIX_BOOL`
+    pub fn progress_thread_flush(&mut self, flush: bool) -> &mut Self {
+        self.add_bool_key("pmix.evflush", flush)
+    }
+
+    /// Set `PMIX_PROGRESS_THREAD_NAME` attribute.
+    ///
+    /// Gives the internal PMIx progress thread a custom name for debugging
+    /// and profiling. The name is visible in thread listings (e.g.,
+    /// `pthread_getname_np`, debuggers, `ps`).
+    ///
+    /// Returns `Err(NulError)` if `name` contains a NUL byte.
+    ///
+    /// # C API
+    /// `PMIX_PROGRESS_THREAD_NAME` (`pmix.evname`) — `PMIX_STRING`
+    pub fn progress_thread_name(&mut self, name: &str) -> Result<&mut Self, std::ffi::NulError> {
+        self.add_string_key("pmix.evname", name, PMIX_STRING as pmix_data_type_t)
+    }
+
+    pub fn collect_data(&mut self) -> &mut InfoBuilder {
+        // Owned storage: `add` only stores a raw pointer, so a stack bool
+        // would dangle by `build()`. Use bool_infos for correct lifetime.
+        self.add_bool_key("pmix.collect", true)
+    }
+    pub fn build(self) -> Result<Info, PmixStatus> {
+        let n = self.infos.len()
+            + self.string_infos.len()
+            + self.bool_infos.len()
+            + self.int_infos.len();
+        // SAFETY: PMIx allocates an array of `n` initialized info records.
+        let info_ptr = unsafe { PMIx_Info_create(n) };
+        if info_ptr.is_null() && n > 0 {
+            return Err(PmixStatus::from_raw(ffi::PMIX_ERR_NOMEM));
+        }
+        let mut idx: usize = 0;
+
+        // Process fixed-key entries (13-byte keys)
+        for info in &self.infos {
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr().cast(),
+                    info.value,
+                    info.data_type,
+                )
+            };
+            if status != PMIX_SUCCESS as i32 {
+                unsafe {
+                    PMIx_Info_free(info_ptr, n);
+                }
+                return Err(PmixStatus::from_raw(status));
+            }
+            idx += 1;
+        }
+
+        // Process string-key entries (keys exceeding 13-byte limit)
+        for info in &self.string_infos {
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr(),
+                    info.value.as_ptr() as *const c_void,
+                    info.data_type,
+                )
+            };
+            if status != PMIX_SUCCESS as i32 {
+                unsafe {
+                    PMIx_Info_free(info_ptr, n);
+                }
+                return Err(PmixStatus::from_raw(status));
+            }
+            idx += 1;
+        }
+
+        // Process string-key boolean attributes with owned u8 storage.
+        for info in &self.bool_infos {
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr(),
+                    (&info.value as *const u8).cast(),
+                    PMIX_BOOL as pmix_data_type_t,
+                )
+            };
+            if status != PMIX_SUCCESS as i32 {
+                unsafe {
+                    PMIx_Info_free(info_ptr, n);
+                }
+                return Err(PmixStatus::from_raw(status));
+            }
+            idx += 1;
+        }
+
+        // Process string-key integer attributes with owned i32 storage.
+        for info in &self.int_infos {
+            let status = unsafe {
+                PMIx_Info_load(
+                    info_ptr.add(idx),
+                    info.key.as_ptr(),
+                    (&info.value as *const i32).cast(),
+                    PMIX_INT as pmix_data_type_t,
+                )
+            };
+            if status != PMIX_SUCCESS as i32 {
+                unsafe {
+                    PMIx_Info_free(info_ptr, n);
+                }
+                return Err(PmixStatus::from_raw(status));
+            }
+            idx += 1;
+        }
+
+        Ok(Info {
+            handle: info_ptr,
+            len: idx,
+            _not_thread_safe: std::marker::PhantomData,
+        })
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InitOptions — builder for PMIx_Init options
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Configuration options for [`init`].
+///
+/// Use this to configure PMIx initialization parameters in a type-safe way.
+/// Call [`build`][InitOptions::build] to produce an [`Info`] array suitable
+/// for passing to [`init`].
+///
+/// # Example
+///
+/// ```ignore
+/// use pmix::InitOptions;
+///
+/// let mut options = InitOptions::new();
+/// options.external_progress(true);
+/// options.bind_progress_thread("0-3");
+///
+/// let info = options.build().expect("build info");
+/// let handle = pmix::init(None, None, info)?;
+/// ```
+///
+/// # External progress warning
+///
+/// When `external_progress(true)` is set, PMIx does **not** spawn an
+/// internal progress thread. You **must** call [`progress`] periodically
+/// from your own event loop, or PMIx will deadlock on any blocking
+/// operation (e.g., `PMIx_Get`, `PMIx_Fence`). If in doubt, leave
+/// external progress disabled (the default).
+#[derive(Default, Debug)]
+pub struct InitOptions {
+    external_progress: Option<bool>,
+    bind_progress_thread: Option<String>,
+    bind_required: Option<bool>,
+    progress_thread_flush: Option<bool>,
+    progress_thread_name: Option<String>,
+}
+
+impl InitOptions {
+    /// Create a new, empty `InitOptions` builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set `PMIX_EXTERNAL_PROGRESS`.
+    ///
+    /// When `true`, tells PMIx that the host provides its own event
+    /// progress engine. **WARNING:** if you set this to `true` without
+    /// calling [`progress`] from your own event loop, the PMIx library
+    /// will deadlock on blocking operations, as no internal progress
+    /// thread is spawned.
+    ///
+    /// # C API
+    /// `PMIX_EXTERNAL_PROGRESS` (`pmix.evext`) — `PMIX_BOOL`
+    pub fn external_progress(&mut self, external: bool) -> &mut Self {
+        self.external_progress = Some(external);
+        self
+    }
+
+    /// Set `PMIX_BIND_PROGRESS_THREAD`.
+    ///
+    /// Specifies CPU ranges on which to bind the internal PMIx progress
+    /// thread. The value is a CPU set string (e.g., `"0-3"`, `"4,5,6,7"`).
+    ///
+    /// **Note:** this only pins the PMIx **progress thread**, not the
+    /// thread that calls `PMIx_Get` or other APIs — work is threadshifted
+    /// onto the progress/`evbase` internally.
+    ///
+    /// # C API
+    /// `PMIX_BIND_PROGRESS_THREAD` (`pmix.bind.pt`) — `PMIX_STRING`
+    pub fn bind_progress_thread(&mut self, cpus: &str) -> &mut Self {
+        self.bind_progress_thread = Some(cpus.to_string());
+        self
+    }
+
+    /// Set `PMIX_BIND_REQUIRED`.
+    ///
+    /// When `true`, the PMIx progress thread binding is mandatory —
+    /// initialization fails if the requested CPUs are unavailable.
+    ///
+    /// # C API
+    /// `PMIX_BIND_REQUIRED` (`pmix.bind.reqd`) — `PMIX_BOOL`
+    pub fn bind_required(&mut self, required: bool) -> &mut Self {
+        self.bind_required = Some(required);
+        self
+    }
+
+    /// Set `PMIX_PROGRESS_THREAD_FLUSH`.
+    ///
+    /// When `true`, the progress thread flushes pending events before
+    /// stopping. Useful for ensuring in-flight operations complete during
+    /// shutdown.
+    ///
+    /// # C API
+    /// `PMIX_PROGRESS_THREAD_FLUSH` (`pmix.evflush`) — `PMIX_BOOL`
+    pub fn progress_thread_flush(&mut self, flush: bool) -> &mut Self {
+        self.progress_thread_flush = Some(flush);
+        self
+    }
+
+    /// Set `PMIX_PROGRESS_THREAD_NAME`.
+    ///
+    /// Gives the internal PMIx progress thread a custom name for debugging
+    /// and profiling. Visible in thread listings and debuggers.
+    ///
+    /// # C API
+    /// `PMIX_PROGRESS_THREAD_NAME` (`pmix.evname`) — `PMIX_STRING`
+    pub fn progress_thread_name(&mut self, name: &str) -> &mut Self {
+        self.progress_thread_name = Some(name.to_string());
+        self
+    }
+
+    /// Build an [`Info`] array from the configured options.
+    ///
+    /// Returns `Ok([`Info`])` suitable for passing to [`init`], or
+    /// `Err(PmixStatus)` if the info array cannot be allocated or loaded.
+    /// Unset options are simply omitted from the resulting array.
+    pub fn build(&self) -> Result<Info, PmixStatus> {
+        let mut builder = InfoBuilder::new();
+
+        if let Some(external) = self.external_progress {
+            builder.external_progress(external);
+        }
+
+        if let Some(ref cpus) = self.bind_progress_thread {
+            builder
+                .bind_progress_thread(cpus)
+                .map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+        }
+
+        if let Some(required) = self.bind_required {
+            builder.bind_required(required);
+        }
+
+        if let Some(flush) = self.progress_thread_flush {
+            builder.progress_thread_flush(flush);
+        }
+
+        if let Some(ref name) = self.progress_thread_name {
+            builder
+                .progress_thread_name(name)
+                .map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+        }
+
+        builder.build()
+    }
+}
+
+/// Create an `Info` array with a single string key/value pair, bypassing
+/// the 13-byte key limit of `InfoBuilder::add()`.
+///
+/// This is useful for keys like `"pmix.srvr.uri"` (14 bytes) which don't
+/// fit in `InfoBuilder::add(key: &'static [u8; 13])`.
+pub fn info_with_string_key(key: &str, value: &str) -> Result<Info, PmixStatus> {
+    let key_cstr = CString::new(key).map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+    let value_cstr =
+        CString::new(value).map_err(|_| PmixStatus::from_raw(ffi::PMIX_ERR_BAD_PARAM))?;
+    // SAFETY: PMIx allocates one initialized info record and returns a null
+    // pointer on allocation failure.
+    let info_ptr = unsafe { PMIx_Info_create(1) };
+    if info_ptr.is_null() {
+        return Err(PmixStatus::from_raw(ffi::PMIX_ERR_NOMEM));
+    }
+    // PMIx_Info_load copies key/value into the info array (PMIx 4+/5+/6+).
+    // Keep CStrings alive only for the duration of the load call, then drop.
+    // SAFETY: `info_ptr` is a valid PMIx info array, and the CString pointers
+    // remain valid for the duration of the call.
+    let status = unsafe {
+        PMIx_Info_load(
+            info_ptr,
+            key_cstr.as_ptr(),
+            value_cstr.as_ptr() as *const c_void,
+            PMIX_STRING as pmix_data_type_t,
+        )
+    };
+    // CStrings drop here — PMIx has already copied the bytes into the info array.
+    drop(key_cstr);
+    drop(value_cstr);
+    if status != PMIX_SUCCESS as i32 {
+        // Free the half-built array before returning the PMIx error.
+        // SAFETY: `info_ptr` was allocated by PMIx_Info_create(1) above and
+        // remains valid until it is freed here.
+        unsafe {
+            PMIx_Info_free(info_ptr, 1);
+        }
+        return Err(PmixStatus::from_raw(status));
+    }
+    Ok(Info {
+        handle: info_ptr,
+        len: 1,
+        _not_thread_safe: std::marker::PhantomData,
+    })
 }
