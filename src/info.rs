@@ -652,7 +652,8 @@ impl PmixInfoList {
 
     /// Convert the list without mutating it. An empty list returns
     /// `PMIX_ERR_EMPTY`; the returned array is released when its wrapper drops.
-    pub fn convert(&self) -> Result<ConvertedInfoArray, crate::PmixStatus> {
+    #[allow(dead_code)]
+    pub(crate) fn convert(&self) -> Result<ConvertedInfoArray, crate::PmixStatus> {
         // SAFETY: zeroed is a valid initial output value for PMIx to populate.
         let mut array = unsafe { std::mem::zeroed() };
         // SAFETY: self and output pointer are valid for the synchronous call.
@@ -668,19 +669,22 @@ impl PmixInfoList {
 }
 
 /// An owned array returned by [`PmixInfoList::convert`].
-pub struct ConvertedInfoArray {
+#[allow(dead_code)]
+pub(crate) struct ConvertedInfoArray {
     array: crate::ffi::pmix_data_array_t,
     _not_thread_safe: std::marker::PhantomData<*mut ()>,
 }
 
 impl ConvertedInfoArray {
     /// Borrow the PMIx array for a synchronous consumer.
-    pub fn raw(&self) -> &crate::ffi::pmix_data_array_t {
+    #[allow(dead_code)]
+    pub(crate) fn raw(&self) -> &crate::ffi::pmix_data_array_t {
         &self.array
     }
 
     /// Return the mutable PMIx array pointer expected by C APIs.
-    pub fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_data_array_t {
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_data_array_t {
         &mut self.array
     }
 }
