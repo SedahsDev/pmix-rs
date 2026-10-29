@@ -247,6 +247,24 @@ impl PmixDataBuffer {
         unsafe { (*self.ptr).bytes_used }
     }
 
+    /// Create a new, empty `PmixDataBuffer`.
+    ///
+    /// This is the idiomatic constructor; it wraps [`data_buffer_create`] and
+    /// panics only if the underlying `PMIx_Data_buffer_create` allocation
+    /// fails. Use [`data_buffer_create`] when the failure needs to be handled.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use pmix::data_serialization::PmixDataBuffer;
+    ///
+    /// let buf = PmixDataBuffer::new();
+    /// assert!(buf.is_valid());
+    /// ```
+    pub fn new() -> Self {
+        data_buffer_create().expect("PMIx_Data_buffer_create failed to allocate a buffer")
+    }
+
     /// Create a null (invalid) `PmixDataBuffer` for testing error paths.
     ///
     /// The buffer has a null pointer and `is_valid()` returns `false`.
@@ -283,6 +301,12 @@ impl Drop for PmixDataBuffer {
             unsafe { ffi::PMIx_Data_buffer_release(self.ptr) };
             self.ptr = ptr::null_mut();
         }
+    }
+}
+
+impl Default for PmixDataBuffer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -2533,7 +2557,9 @@ pub struct PmixDataArrayArray {
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 impl PmixDataArrayArray {
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_data_array_t {
+    /// Get a mutable pointer to the underlying C array (crate-internal FFI seam).
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_data_array_t {
         self.ptr
     }
     pub fn len(&self) -> usize {
@@ -2595,7 +2621,9 @@ pub struct PmixByteObjectArray {
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 impl PmixByteObjectArray {
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
+    /// Get a mutable pointer to the underlying C array (crate-internal FFI seam).
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
         self.ptr
     }
     pub fn len(&self) -> usize {
