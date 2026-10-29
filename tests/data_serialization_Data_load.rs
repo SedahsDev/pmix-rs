@@ -57,7 +57,6 @@ fn test_data_load_signature() {
 #[test]
 fn test_data_buffer_api() {
     let buf = data_buffer_create().expect("create buffer");
-    let _: *mut std::ffi::c_void = buf.as_mut_ptr() as *mut std::ffi::c_void;
     let _: bool = buf.is_valid();
     let _: usize = buf.bytes_allocated();
     let _: usize = buf.bytes_used();

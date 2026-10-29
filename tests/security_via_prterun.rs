@@ -69,14 +69,6 @@ fn test_credential_debug() {
     assert!(!debug_str.is_empty());
 }
 
-/// PmixCredential::as_raw returns a non-null pointer.
-#[test]
-fn test_credential_as_raw() {
-    let cred = pmix::security::PmixCredential::from_bytes(&[1, 2, 3]);
-    let ptr = cred.as_raw();
-    assert!(!ptr.bytes.is_null());
-}
-
 /// ValidationResults::empty creates an empty result set.
 #[test]
 fn test_validation_results_empty() {

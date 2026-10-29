@@ -120,22 +120,22 @@ fn test_byte_object_as_slice_empty() {
     assert_eq!(slice.len(), 0);
 }
 
-/// as_mut_ptr() returns a non-null pointer to the inner C struct.
-#[test]
-fn test_byte_object_as_mut_ptr() {
-    let mut obj = PmixByteObject::new();
-    let ptr = obj.as_mut_ptr();
-    // The pointer should be valid (points to the inner field).
-    assert!(!ptr.is_null());
-}
-
-/// as_mut_ptr() works on a populated byte object.
-#[test]
-fn test_byte_object_as_mut_ptr_populated() {
-    let mut obj = PmixByteObject::from(vec![10u8, 20, 30]);
-    let ptr = obj.as_mut_ptr();
-    assert!(!ptr.is_null());
-}
+// /// as_mut_ptr() returns a non-null pointer to the inner C struct.
+// #[test]
+// fn test_byte_object_as_mut_ptr() {
+//     let mut obj = PmixByteObject::new();
+//     let ptr = obj.as_mut_ptr();
+//     // The pointer should be valid (points to the inner field).
+//     assert!(!ptr.is_null());
+// }
+//
+// /// as_mut_ptr() works on a populated byte object.
+// #[test]
+// fn test_byte_object_as_mut_ptr_populated() {
+//     let mut obj = PmixByteObject::from(vec![10u8, 20, 30]);
+//     let ptr = obj.as_mut_ptr();
+//     assert!(!ptr.is_null());
+// }
 
 /// size() returns correct value for constructed objects.
 #[test]

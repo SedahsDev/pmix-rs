@@ -131,20 +131,6 @@ fn credential_single_byte() {
     assert_eq!(cred.as_bytes(), &[42]);
 }
 
-/// PmixCredential::as_raw returns a non-null pointer for non-empty credentials.
-#[test]
-fn credential_as_raw_non_null() {
-    let cred = PmixCredential::from_bytes(&[1, 2, 3]);
-    assert!(!cred.as_raw().bytes.is_null());
-}
-
-/// PmixCredential::as_raw represents empty credentials with zero size.
-#[test]
-fn credential_as_raw_empty_non_null() {
-    let cred = PmixCredential::empty();
-    assert_eq!(cred.as_raw().size, 0);
-}
-
 /// PmixCredential implements Debug (compile-time check).
 #[test]
 fn credential_debug_trait() {
@@ -159,18 +145,6 @@ fn credential_clone_trait() {
     assert_clone::<PmixCredential>();
 }
 
-/// PmixCredential clone produces an independent copy with identical bytes.
-#[test]
-fn credential_clone_independence() {
-    let cred = PmixCredential::from_bytes(b"original");
-    let cloned = cred.clone();
-    assert_eq!(cred.as_bytes(), cloned.as_bytes());
-    assert_eq!(cred.len(), cloned.len());
-    // Both should still be valid.
-    assert!(!cred.as_raw().bytes.is_null());
-    assert!(!cloned.as_raw().bytes.is_null());
-}
-
 /// Multiple PmixCredential instances can coexist independently.
 #[test]
 fn credential_multiple_coexist() {
@@ -181,10 +155,6 @@ fn credential_multiple_coexist() {
     assert_eq!(cred1.as_bytes(), b"first");
     assert_eq!(cred2.as_bytes(), b"second-credential-data");
     assert!(cred3.is_empty());
-
-    assert!(!cred1.as_raw().bytes.is_null());
-    assert!(!cred2.as_raw().bytes.is_null());
-    assert_eq!(cred3.as_raw().size, 0);
 }
 
 /// PmixCredential with a large byte array (1MB) does not panic.

@@ -74,12 +74,7 @@ fn test_pmix_credential_len_type() {
     let _f: fn(&PmixCredential) -> usize = PmixCredential::len;
 }
 
-#[test]
-fn test_pmix_credential_as_raw_exists() {
-    let cred = PmixCredential::from_vec(vec![1u8, 2, 3]);
-    let raw = cred.as_raw();
-    let _raw: *const std::ffi::c_void = &*raw as *const _ as *const std::ffi::c_void;
-}
+// test_pmix_credential_as_raw_exists - removed: as_raw() is pub(crate) now
 
 #[test]
 fn test_credential_results_len_type() {
@@ -150,20 +145,8 @@ fn test_pmix_credential_from_vec() {
     assert_eq!(cred.as_bytes(), [10u8, 20, 30, 40]);
 }
 
-#[test]
-fn test_pmix_credential_as_raw() {
-    let data = vec![42u8, 43, 44];
-    let cred = PmixCredential::from_vec(data);
-    let raw = cred.as_raw();
-    assert!(!raw.bytes.is_null());
-}
-
-#[test]
-fn test_pmix_credential_empty_as_raw() {
-    let cred = PmixCredential::empty();
-    let raw = cred.as_raw();
-    let _ = raw;
-}
+// test_pmix_credential_as_raw - removed: as_raw() is pub(crate) now
+// test_pmix_credential_empty_as_raw - removed: as_raw() is pub(crate) now
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Note: "before init" tests removed - with the shared handle pattern,
@@ -202,7 +185,7 @@ fn test_security_all_ffi_via_daemon() {
     assert!(!cred.is_empty());
     assert_eq!(cred.len(), 5);
     assert_eq!(cred.as_bytes(), data.as_slice());
-    assert!(!cred.as_raw().bytes.is_null());
+    // as_raw() is pub(crate) now; use public API for verification
 
     // ── 2. get_credential ──
     {
@@ -212,7 +195,7 @@ fn test_security_all_ffi_via_daemon() {
                 let _bytes = cred.as_bytes();
                 let _len = cred.len();
                 let _empty = cred.is_empty();
-                let _raw = cred.as_raw();
+                // as_raw() is pub(crate) now; use public API
             }
             Err(status) => {
                 assert_ne!(

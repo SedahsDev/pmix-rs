@@ -124,9 +124,10 @@ fn test_pmix_proc_ref_new() {
 
 /// Verify as_mut_ptr returns a raw pointer.
 #[test]
+#[ignore = "as_mut_ptr is now pub(crate) for internal use; use is_valid() or bytes_used() instead"]
 fn test_data_buffer_as_mut_ptr() {
-    let buf = data_buffer_create().expect("create buffer");
-    let _ptr: *mut std::ffi::c_void = buf.as_mut_ptr() as *mut std::ffi::c_void;
+    // This test is deprecated because as_mut_ptr() is now pub(crate)
+    // Kept for reference but ignored to avoid compile errors
 }
 
 /// Verify PmixDataBuffer implements Debug.
