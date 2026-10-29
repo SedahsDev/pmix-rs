@@ -5,6 +5,7 @@
 - Refactor: Split the 6,298-line `src/lib.rs` into focused modules (`error`, `enums`, `types_proc`, `value_kinds`, `client`, `value_ns`, plus the inline test module as `tests.rs`). `lib.rs` is now a 4KB crate root (docs, mod decls, macro, re-exports). No public API change; cross-module private fields became `pub(crate)`.
 - Fix: Add InfoList RAII wrapper to prevent FFI memory leaks in PMIx Info list operations (#526)
 - Breaking: Wrapped fabric/device FFI types in native Rust wrappers (PmixCoord, PmixDeviceType, PmixResourceUnit, PmixCoordView, PmixDeviceDistance, PmixDevice, PmixEndpoint, PmixFabric, PmixGeometry, PmixTopology, PmixCpuset). Public API no longer exposes bindgen types. Migration: use `Type::from_raw()` and `type.to_raw()` for conversions.
+- Breaking: Removed public exposure of `pmix_server_module_t` and related bindgen callback types from the pmix-rs crate. `PmixServerModule::as_c_ptr()` now returns `*const c_void` instead of `*mut pmix_server_module_t`. Users who need the raw pointer must cast it themselves (unsafe). Migration: cast the `*const c_void` to `*mut pmix_server_module_t` with `as_mut_ptr()` or explicit cast. See #550 and #518.
 
 ## 0.1.0
 

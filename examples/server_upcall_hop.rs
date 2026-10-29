@@ -127,6 +127,7 @@ fn main() {
 }
 
 /// `pmix_modex_cbfunc_t` — OpenPMIx completion for fence / direct-modex upcalls.
+/// This is an internal FFI type; it is not exposed publicly by pmix-rs.
 type ModexCb = ffi::pmix_modex_cbfunc_t;
 
 /// Demo completion used by the self-driven path: signals the app channel.

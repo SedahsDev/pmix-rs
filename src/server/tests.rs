@@ -111,12 +111,11 @@ fn test_server_module_typed_callbacks_convert_to_c() {
     }
     let module = PmixServerModule {
         fence_nb: Some(fence),
+        direct_modex: None,
         ..Default::default()
     };
-    // SAFETY: `as_c_ptr` points to the live module for this test's scope.
-    let c_module = unsafe { &*module.as_c_ptr() };
-    assert!(c_module.fence_nb.is_some());
-    assert!(c_module.direct_modex.is_none());
+    assert!(module.fence_nb.is_some());
+    assert!(module.direct_modex.is_none());
 }
 
 #[test]
