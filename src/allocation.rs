@@ -55,6 +55,7 @@ use std::sync::LazyLock;
 
 use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
+use crate::server::callbacks::OpCallbackWrapper;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
 
@@ -1798,7 +1799,7 @@ pub unsafe fn resource_block_nb(
     block: &mut [u8],
     res: &[crate::fabric::PmixResourceUnit],
     info: &[Info],
-    cb: ffi::pmix_op_cbfunc_t,
+    cb: crate::server::callbacks::OpCallbackWrapper,
     cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
     let rp = res.first().map_or(ptr::null(), |x| x.as_ptr());
@@ -1814,7 +1815,7 @@ pub unsafe fn resource_block_nb(
                 res.len(),
                 ip,
                 info.len(),
-                cb,
+                cb.as_c_callback(),
                 cbdata,
             )
         },
@@ -1826,7 +1827,7 @@ pub unsafe fn resource_block_nb(
                 res.len(),
                 ip,
                 info.len(),
-                cb,
+                cb.as_c_callback(),
                 cbdata,
             )
         }
@@ -1846,13 +1847,6 @@ mod misc_wrapper_tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
-        // SAFETY: test passes a pointer to the live AtomicUsize below.
-        unsafe {
-            (*data.cast::<AtomicUsize>()).store(status as usize + 1, Ordering::SeqCst);
-        }
-    }
-
     #[cfg(pmix6)]
     #[test]
     fn resource_block_sync_and_nb_callback() {
@@ -1861,6 +1855,12 @@ mod misc_wrapper_tests {
         let units = [crate::fabric::PmixResourceUnit::new()];
         assert!(resource_block(0, &mut block, &units, &[]).is_ok());
         let called = AtomicUsize::new(0);
+        extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
+            // SAFETY: test passes a pointer to the live AtomicUsize below.
+            unsafe {
+                (*data.cast::<AtomicUsize>()).store(status as usize + 1, Ordering::SeqCst);
+            }
+        }
         // SAFETY: callback has the PMIx ABI and called remains live through the
         // synchronous mock invocation; a real caller must extend that lifetime.
         assert!(
@@ -1870,7 +1870,15 @@ mod misc_wrapper_tests {
                     &mut block,
                     &units,
                     &[],
-                    Some(callback),
+                    crate::server::callbacks::OpCallbackWrapper::new(
+                        move |status: crate::PmixStatus, _cbdata: *mut std::os::raw::c_void| {
+                            // Forward to the raw callback for compatibility with test
+                            callback(
+                                status.to_raw(),
+                                (&called as *const AtomicUsize).cast_mut().cast(),
+                            );
+                        },
+                    ),
                     (&called as *const AtomicUsize).cast_mut().cast(),
                 )
             }

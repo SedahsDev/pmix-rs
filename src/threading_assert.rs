@@ -79,7 +79,8 @@ mod asserts {
     assert_impl_all!(crate::events::NotificationFn: Send, Sync);
     assert_impl_all!(crate::events::HandlerRegCbFn: Send, Sync);
     assert_impl_all!(crate::events::OpCbFn: Send, Sync);
-    assert_impl_all!(crate::events::pmix_event_notification_cbfunc_fn_t: Send, Sync);
+    assert_impl_all!(crate::events::NotificationCallbackWrapper: Send);
+    assert_not_impl_any!(crate::events::NotificationCallbackWrapper: Sync);
     assert_impl_all!(crate::process_mgmt::SpawnCallback: Send, Sync);
     assert_impl_all!(crate::groups::GroupConstructCallbackWrapper: Send);
     assert_impl_all!(crate::groups::GroupInviteCallbackWrapper: Send);
@@ -90,6 +91,8 @@ mod asserts {
     assert_impl_all!(crate::process_mgmt::ConnectCallbackWrapper: Send);
     assert_impl_all!(crate::process_mgmt::DisconnectCallbackWrapper: Send);
     assert_impl_all!(crate::server::FenceNbCallbackWrapper: Send);
+    assert_impl_all!(crate::server::callbacks::OpCallbackWrapper: Send);
+    assert_not_impl_any!(crate::server::callbacks::OpCallbackWrapper: Sync);
 
     assert_not_impl_any!(crate::groups::GroupConstructCallbackWrapper: Sync);
     assert_not_impl_any!(crate::groups::GroupInviteCallbackWrapper: Sync);

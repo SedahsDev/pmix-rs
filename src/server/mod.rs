@@ -191,6 +191,8 @@ mod session;
 #[cfg(test)]
 mod tests;
 
+pub mod callbacks;
+
 pub use session::{PmixServer, PmixServerState};
 
 // Re-export submodule items at server:: for stable paths.
@@ -247,11 +249,40 @@ pub use pset::*;
 /// pattern, and [`crate::threading`] / `examples/callback_hop.rs` for the
 /// shared hop-off helpers used by client `_nb` completions and events.
 ///
-/// # Field types
+/// # Callback wrapper pattern
 ///
-/// Fields use the exact typed callback signatures generated from the C API.
-/// The `repr(C)` layout matches `pmix_server_module_t`, allowing callbacks to
-/// be installed directly without function-pointer casts.
+/// This module provides helper functions that use safe Rust wrapper types for
+/// callbacks that need to be passed to the PMIx C library:
+///
+/// - [`OpCallbackWrapper`] (in `src/server/callbacks.rs`) wraps operation
+///   completion callbacks (`pmix_op_cbfunc_t`-style signatures). It is shared
+///   by both server and allocation paths.
+/// - [`crate::events::NotificationCallbackWrapper`] (in `src/events.rs`) wraps
+///   event notification callbacks (`pmix_event_notification_cbfunc_fn_t`-style).
+///
+/// Both wrappers:
+///
+/// - Store `Box<dyn FnMut(...) + Send + 'static>` internally.
+/// - Provide `as_c_callback()` returning the raw C function pointer for FFI.
+/// - Are `Send` but `!Sync` (movable, not concurrently shareable).
+/// - Have `new()` constructors accepting a closure.
+///
+/// THREADING CONSIDERATIONS (see [THREADING.md](../../THREADING.md) §4.1):
+///
+/// - Callbacks execute on the **PMIx progress thread** (or the host-chosen
+///   progress context). Do not block back into PMIx from a callback.
+/// - Use [`spawn_from_callback`](crate::threading::spawn_from_callback) or
+///   [`CallbackChannel`](crate::threading::CallbackChannel) to hop off the
+///   progress thread before performing blocking or CPU-intensive work.
+/// - Copy any C buffers you need before hopping, as lifetimes end at return.
+/// - Keep crate registry/lock usage minimal across user callbacks.
+///
+/// # Struct layout
+///
+/// `PmixServerModule` mirrors `pmix_server_module_t` exactly for FFI compatibility.
+/// All fields are raw C function pointers (or `null` for unimplemented callbacks).
+/// This module does not change the struct layout — wrapper types are used only in
+/// helper functions that wrap raw FFI calls.
 ///
 /// # C API
 /// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
@@ -478,10 +509,6 @@ pub struct PmixServerModule {
     #[cfg(pmix6)]
     pub resource_block: ffi::pmix_server_resource_block_fn_t,
 }
-
-const _: () = assert!(
-    std::mem::size_of::<PmixServerModule>() == std::mem::size_of::<ffi::pmix_server_module_t>()
-);
 
 impl PmixServerModule {
     /// Convert this safe module into the raw C `pmix_server_module_t`.

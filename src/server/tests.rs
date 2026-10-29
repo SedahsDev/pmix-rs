@@ -3,6 +3,7 @@
 use super::*;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
+use crate::server::callbacks::OpCallbackWrapper;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -110,7 +111,7 @@ fn test_server_module_typed_callbacks_convert_to_c() {
         ffi::PMIX_SUCCESS as ffi::pmix_status_t
     }
     let module = PmixServerModule {
-        fence_nb: Some(fence),
+        fence_nb: Some(OpCallbackWrapper::new(fence)),
         ..Default::default()
     };
     // SAFETY: `as_c_ptr` points to the live module for this test's scope.
@@ -311,18 +312,6 @@ fn test_deregister_resources_callback_trait_compiles() {
     let _callback: Box<dyn DeregisterResourcesCallback> = Box::new(TestDeregisterResourcesCallback);
 }
 
-// ── FenceNbCallbackWrapper tests ─────────────────────────────────────────
-
-#[test]
-fn test_fence_nb_callback_wrapper_construction() {
-    let called = Arc::new(AtomicBool::new(false));
-    let called_clone = called.clone();
-    let _wrapper = FenceNbCallbackWrapper::new(move |_status: PmixStatus| {
-        called_clone.store(true, Ordering::SeqCst);
-    });
-    assert!(!called.load(Ordering::SeqCst));
-}
-
 // ── Registry and sequence ID tests ───────────────────────────────────────
 
 #[test]
@@ -425,7 +414,8 @@ fn test_server_deregister_client_compiles() {
 #[test]
 fn test_server_connect_nb_rejects_empty_procs() {
     let handle = PmixServer::new();
-    let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
+    let wrapper =
+        OpCallbackWrapper::new(|_status: PmixStatus, _cbdata: *mut std::os::raw::c_void| {});
     let result = server_connect_nb(&handle, &[], &[], wrapper);
     assert!(result.is_err(), "connect_nb should reject empty proc list");
 }
@@ -435,7 +425,8 @@ fn test_server_connect_nb_rejects_empty_procs() {
 #[test]
 fn test_server_disconnect_nb_rejects_empty_procs() {
     let handle = PmixServer::new();
-    let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
+    let wrapper =
+        OpCallbackWrapper::new(|_status: PmixStatus, _cbdata: *mut std::os::raw::c_void| {});
     let result = server_disconnect_nb(&handle, &[], &[], wrapper);
     assert!(
         result.is_err(),
@@ -878,23 +869,25 @@ fn test_deregister_resources_callback_trait_object() {
     let _cb: Box<dyn DeregisterResourcesCallback> = Box::new(TestDeregResourcesCallback);
 }
 
-// ── FenceNbCallbackWrapper: construction coverage ─────────────────────
+// ── OpCallbackWrapper: construction coverage ─────────────────────
 
 #[test]
-fn test_fence_nb_callback_wrapper_new() {
-    let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
+fn test_op_callback_wrapper_new() {
+    let wrapper =
+        OpCallbackWrapper::new(|_status: PmixStatus, _cbdata: *mut std::os::raw::c_void| {});
     let _ = wrapper;
 }
 
 #[test]
-fn test_fence_nb_callback_wrapper_invokes_closure() {
+fn test_op_callback_wrapper_invokes_closure() {
     use std::sync::atomic::AtomicBool;
     static INVOKED: AtomicBool = AtomicBool::new(false);
     INVOKED.store(false, Ordering::SeqCst);
-    let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {
-        INVOKED.store(true, Ordering::SeqCst);
-    });
-    (wrapper.callback)(PmixStatus::from_raw(0));
+    let wrapper =
+        OpCallbackWrapper::new(|_status: PmixStatus, _cbdata: *mut std::os::raw::c_void| {
+            INVOKED.store(true, Ordering::SeqCst);
+        });
+    wrapper.invoke(PmixStatus::from_raw(0), std::ptr::null_mut());
     assert!(INVOKED.load(Ordering::SeqCst));
 }
 
@@ -1215,52 +1208,52 @@ fn test_server_fence_zero_timeout() {
     let _ = result;
 }
 
-// ── FenceNbCallbackWrapper: additional tests ───────────────────────────
+// ── OpCallbackWrapper: additional tests ───────────────────────────
 
 #[test]
-fn test_fence_nb_callback_wrapper_multiple_closures() {
+fn test_op_callback_wrapper_multiple_closures() {
     let captured1 = Arc::new(Mutex::new(None));
     let captured2 = Arc::new(Mutex::new(None));
 
-    let w1 = FenceNbCallbackWrapper::new({
+    let w1 = OpCallbackWrapper::new({
         let c = captured1.clone();
-        move |s: PmixStatus| {
+        move |s: PmixStatus, _cbdata: *mut std::os::raw::c_void| {
             *(c.lock().unwrap()) = Some(s);
         }
     });
 
-    let w2 = FenceNbCallbackWrapper::new({
+    let w2 = OpCallbackWrapper::new({
         let c = captured2.clone();
-        move |s: PmixStatus| {
+        move |s: PmixStatus, _cbdata: *mut std::os::raw::c_void| {
             *(c.lock().unwrap()) = Some(s);
         }
     });
 
     // Verify they are independent wrappers
     let status_ok = PmixStatus::from_raw(0);
-    (w1.callback)(status_ok);
+    w1.invoke(status_ok, std::ptr::null_mut());
     assert!(captured1.lock().unwrap().as_ref().unwrap().is_success());
     assert!(captured2.lock().unwrap().is_none());
 }
 
 #[test]
-fn test_fence_nb_callback_wrapper_error_status() {
+fn test_op_callback_wrapper_error_status() {
     let captured = Arc::new(Mutex::new(None));
-    let wrapper = FenceNbCallbackWrapper::new({
+    let wrapper = OpCallbackWrapper::new({
         let c = captured.clone();
-        move |s: PmixStatus| {
+        move |s: PmixStatus, _cbdata: *mut std::os::raw::c_void| {
             *(c.lock().unwrap()) = Some(s);
         }
     });
     let status_err = PmixStatus::from_raw(-13); // PMIX_ERR_NOT_FOUND
-    (wrapper.callback)(status_err);
+    wrapper.invoke(status_err, std::ptr::null_mut());
     assert!(!captured.lock().unwrap().as_ref().unwrap().is_success());
 }
 
 #[test]
-fn test_fence_nb_callback_wrapper_unit_closure() {
+fn test_op_callback_wrapper_unit_closure() {
     // Closure that ignores the status
-    let wrapper = FenceNbCallbackWrapper::new(|_s: PmixStatus| {});
+    let wrapper = OpCallbackWrapper::new(|_s: PmixStatus, _cbdata: *mut std::os::raw::c_void| {});
     let _ = wrapper; // should compile and be usable
 }
 
