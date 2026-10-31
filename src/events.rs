@@ -60,6 +60,7 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
+use crate::server::callbacks::OpCallbackWrapper;
 use crate::threading::invoke_user_callback;
 
 /// Notification callback function type for event handlers.
@@ -181,25 +182,23 @@ pub type OpCbFn = Option<unsafe extern "C" fn(status: i32, cbdata: *mut c_void)>
 // NotificationCallbackWrapper
 // ─────────────────────────────────────────────────────────────────────────────
 
+type NotificationCallback = dyn FnMut(
+        crate::PmixStatus,
+        *mut crate::ffi::pmix_info_t,
+        usize,
+        Option<OpCallbackWrapper>,
+        *mut c_void,
+        *mut c_void,
+    ) + Send
+    + 'static;
+
 /// Wrapper for PMIx notification callback functions.
 ///
 /// Stores a user-provided closure and exposes it through the FFI callback
 /// signature. The wrapper is `Send` but not `Sync`, allowing it to be moved
 /// across threads but not shared concurrently.
 pub struct NotificationCallbackWrapper {
-    cb: Option<
-        Box<
-            dyn FnMut(
-                    crate::PmixStatus,
-                    *mut crate::ffi::pmix_info_t,
-                    usize,
-                    crate::ffi::pmix_op_cbfunc_t,
-                    *mut c_void,
-                    *mut c_void,
-                ) + Send
-                + 'static,
-        >,
-    >,
+    cb: Option<Box<NotificationCallback>>,
     c_callback: NotificationCallbackFn,
 }
 
@@ -217,6 +216,11 @@ unsafe extern "C" fn notification_callback_bridge(
     let wrapper = unsafe { &mut *(notification_cbdata as *mut NotificationCallbackWrapper) };
     if let Some(ref mut cb) = wrapper.cb {
         let status = crate::PmixStatus::from_raw(status);
+        let cbfunc = cbfunc.map(|cbfunc| {
+            OpCallbackWrapper::new(move |status, cbdata| unsafe {
+                cbfunc(status.to_raw(), cbdata);
+            })
+        });
         cb(
             status,
             results,
@@ -236,7 +240,7 @@ impl NotificationCallbackWrapper {
                 crate::PmixStatus,
                 *mut crate::ffi::pmix_info_t,
                 usize,
-                crate::ffi::pmix_op_cbfunc_t,
+                Option<OpCallbackWrapper>,
                 *mut c_void,
                 *mut c_void,
             ) + Send
@@ -259,7 +263,7 @@ impl NotificationCallbackWrapper {
         status: crate::PmixStatus,
         results: *mut crate::ffi::pmix_info_t,
         nresults: usize,
-        cbfunc: crate::ffi::pmix_op_cbfunc_t,
+        cbfunc: Option<OpCallbackWrapper>,
         thiscbdata: *mut c_void,
         notification_cbdata: *mut c_void,
     ) {
@@ -1156,6 +1160,16 @@ mod tests {
     fn test_notification_callback_wrapper_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<NotificationCallbackWrapper>();
+    }
+
+    #[test]
+    fn test_notification_callback_wrapper_not_sync() {
+        trait AmbiguousIfSync<A> {
+            fn assert_not_sync() {}
+        }
+        impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+        impl<T: ?Sized + Sync> AmbiguousIfSync<u8> for T {}
+        let _ = <NotificationCallbackWrapper as AmbiguousIfSync<_>>::assert_not_sync;
     }
 
     #[test]

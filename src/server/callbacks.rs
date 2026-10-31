@@ -41,10 +41,12 @@ impl Default for OpCallbackWrapper {
     fn default() -> Self {
         Self {
             cb: None,
-            c_callback: op_callback_bridge,
+            c_callback: op_callback_noop,
         }
     }
 }
+
+unsafe extern "C" fn op_callback_noop(_status: crate::ffi::pmix_status_t, _cbdata: *mut c_void) {}
 
 unsafe extern "C" fn op_callback_bridge(status: crate::ffi::pmix_status_t, cbdata: *mut c_void) {
     if cbdata.is_null() {
@@ -95,13 +97,28 @@ mod tests {
         assert!(wrapper.cb.is_none());
         assert_eq!(
             wrapper.as_c_callback(),
-            Some(op_callback_bridge as unsafe extern "C" fn(_, _))
+            Some(op_callback_noop as unsafe extern "C" fn(_, _))
         );
+        let mut cbdata = 0_u8;
+        unsafe {
+            wrapper.as_c_callback().unwrap()(0, (&mut cbdata as *mut u8).cast());
+        }
+        assert_eq!(cbdata, 0);
     }
 
     #[test]
     fn test_op_callback_wrapper_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<OpCallbackWrapper>();
+    }
+
+    #[test]
+    fn test_op_callback_wrapper_not_sync() {
+        trait AmbiguousIfSync<A> {
+            fn assert_not_sync() {}
+        }
+        impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+        impl<T: ?Sized + Sync> AmbiguousIfSync<u8> for T {}
+        let _ = <OpCallbackWrapper as AmbiguousIfSync<_>>::assert_not_sync;
     }
 }

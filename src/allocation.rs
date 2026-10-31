@@ -55,6 +55,7 @@ use std::sync::LazyLock;
 
 use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
+#[cfg(pmix6)]
 use crate::server::callbacks::OpCallbackWrapper;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
@@ -1799,9 +1800,13 @@ pub unsafe fn resource_block_nb(
     block: &mut [u8],
     res: &[crate::fabric::PmixResourceUnit],
     info: &[Info],
-    cb: crate::server::callbacks::OpCallbackWrapper,
-    cbdata: *mut c_void,
+    cb: OpCallbackWrapper,
+    _cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
+    // OpCallbackWrapper is defined in src/server/callbacks.rs.
+    // Its C trampoline requires the boxed wrapper itself as callback data.
+    let callback = cb.as_c_callback();
+    let cbdata = Box::into_raw(Box::new(cb)).cast::<c_void>();
     let rp = res.first().map_or(ptr::null(), |x| x.as_ptr());
     let ip = info
         .first()
@@ -1815,7 +1820,7 @@ pub unsafe fn resource_block_nb(
                 res.len(),
                 ip,
                 info.len(),
-                cb.as_c_callback(),
+                callback,
                 cbdata,
             )
         },
@@ -1827,7 +1832,7 @@ pub unsafe fn resource_block_nb(
                 res.len(),
                 ip,
                 info.len(),
-                cb.as_c_callback(),
+                callback,
                 cbdata,
             )
         }
@@ -1835,6 +1840,8 @@ pub unsafe fn resource_block_nb(
     if s == ffi::PMIX_SUCCESS as i32 {
         Ok(())
     } else {
+        // SAFETY: a rejected request will not invoke the completion callback.
+        unsafe { drop(Box::from_raw(cbdata.cast::<OpCallbackWrapper>())) };
         Err(PmixStatus::from_raw(s))
     }
 }

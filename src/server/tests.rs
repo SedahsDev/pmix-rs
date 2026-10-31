@@ -105,7 +105,16 @@ fn test_server_module_typed_callbacks_convert_to_c() {
         _ninfo: usize,
         _data: *mut std::os::raw::c_char,
         _ndata: usize,
-        _cbfunc: Option<unsafe extern "C" fn(crate::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+        _cbfunc: Option<
+            unsafe extern "C" fn(
+                crate::ffi::pmix_status_t,
+                *const std::os::raw::c_char,
+                usize,
+                *mut std::os::raw::c_void,
+                Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+                *mut std::os::raw::c_void,
+            ),
+        >,
         _cbdata: *mut std::os::raw::c_void,
     ) -> crate::ffi::pmix_status_t {
         // No-op for this test
