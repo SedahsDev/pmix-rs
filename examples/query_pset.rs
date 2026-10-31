@@ -19,16 +19,15 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
+// PMIX_STRING's stable PMIx data-type ABI value.
+const PMIX_STRING: u16 = 3;
+
 const PSET_MEMBERSHIP: &str = "pmix.qry.pmems";
 const PSET_NAME: &str = "pmix.pset.nm";
 fn build_query() -> Result<pmix::query_log::PmixQuery, pmix::PmixStatus> {
     let mut qualifiers = pmix::InfoBuilder::new();
     qualifiers
-        .add_string_key(
-            PSET_NAME,
-            "ompi_global",
-            pmix::ffi::PMIX_STRING as pmix::ffi::pmix_data_type_t,
-        )
+        .add_string_key(PSET_NAME, "ompi_global", PMIX_STRING)
         .map_err(|_| pmix::PmixError::ErrBadParam)?;
 
     let qualifiers = qualifiers.build()?;
@@ -38,11 +37,7 @@ fn build_query() -> Result<pmix::query_log::PmixQuery, pmix::PmixStatus> {
 fn build_refresh_query() -> Result<pmix::query_log::PmixQuery, pmix::PmixStatus> {
     let mut qualifiers = pmix::InfoBuilder::new();
     qualifiers
-        .add_string_key(
-            PSET_NAME,
-            "ompi_global",
-            pmix::ffi::PMIX_STRING as pmix::ffi::pmix_data_type_t,
-        )
+        .add_string_key(PSET_NAME, "ompi_global", PMIX_STRING)
         .map_err(|_| pmix::PmixError::ErrBadParam)?;
     qualifiers.add_bool_key("pmix.qry.rfsh", true);
     let qualifiers = qualifiers.build()?;

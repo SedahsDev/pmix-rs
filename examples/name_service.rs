@@ -92,7 +92,7 @@ fn main() {
     if let Err(error) = builder.add_string_key(
         &key,
         &published_value,
-        pmix::ffi::PMIX_STRING as pmix::ffi::pmix_data_type_t,
+        3, // PMIX_STRING in the PMIx data type ABI.
     ) {
         eprintln!("could not build publish entry {key}: {error}");
         let _ = client.disconnect(None);

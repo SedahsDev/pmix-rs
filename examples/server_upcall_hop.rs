@@ -40,7 +40,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use pmix::InfoBuilder;
-use pmix::ffi;
 use pmix::server::{PmixServer, PmixServerModule};
 use pmix::threading::{CallbackChannel, ProgressContext, spawn_from_callback};
 
@@ -54,10 +53,14 @@ fn main() {
 
     // ── 1. Install typed host upcalls on the module ────────────────────────
     //
-    // The module fields use exact OpenPMIx callback types; no transmute is needed.
+    // The module fields use OpenPMIx callback types with internal pointee types.
     let mut module = PmixServerModule::default();
-    module.fence_nb = Some(host_fence_nb);
-    module.direct_modex = Some(host_direct_modex);
+    // SAFETY: the C ABI signatures match; only opaque pointer pointees differ.
+    #[allow(clippy::missing_transmute_annotations)]
+    unsafe {
+        module.fence_nb = Some(std::mem::transmute(host_fence_nb as *const ()));
+        module.direct_modex = Some(std::mem::transmute(host_direct_modex as *const ()));
+    }
 
     let info = InfoBuilder::new().build().expect("build info");
     let server = match PmixServer::connect_new(Some(&module), &info) {
@@ -126,9 +129,18 @@ fn main() {
     println!("server_upcall_hop example done");
 }
 
-/// `pmix_modex_cbfunc_t` — OpenPMIx completion for fence / direct-modex upcalls.
+/// OpenPMIx completion for fence / direct-modex upcalls.
 /// This is an internal FFI type; it is not exposed publicly by pmix-rs.
-type ModexCb = ffi::pmix_modex_cbfunc_t;
+type ModexCb = Option<
+    unsafe extern "C" fn(
+        i32,
+        *const i8,
+        usize,
+        *mut c_void,
+        Option<unsafe extern "C" fn(*mut c_void)>,
+        *mut c_void,
+    ),
+>;
 
 /// Demo completion used by the self-driven path: signals the app channel.
 unsafe extern "C" fn demo_modex_complete(
@@ -157,15 +169,14 @@ unsafe extern "C" fn demo_modex_complete(
 
 /// Host `fence_nb` upcall — **progress context**.
 ///
-/// Matches `pmix_server_fencenb_fn_t`. Must not block on PMIx; hop and call
-/// `cbfunc` later.
+/// Must not block on PMIx; hop and call `cbfunc` later.
 unsafe extern "C" fn host_fence_nb(
-    _requestor: *const ffi::pmix_proc_t,
+    _requestor: *const c_void,
     _procs: *const [i8; 256],
     nprocs: usize,
-    _info: *const ffi::pmix_info_t,
+    _info: *const c_void,
     _ninfo: usize,
-    data: *mut ffi::pmix_info_t,
+    data: *mut c_void,
     ndata: usize,
     cbfunc: ModexCb,
     cbdata: *mut c_void,
@@ -223,11 +234,11 @@ unsafe extern "C" fn host_fence_nb(
 
 /// Host `direct_modex` upcall — **progress context**.
 ///
-/// Matches `pmix_server_dmodex_req_fn_t`. Same hop-then-`cbfunc` rules as fence.
+/// Same hop-then-`cbfunc` rules as fence.
 unsafe extern "C" fn host_direct_modex(
-    _requestor: *const ffi::pmix_proc_t,
+    _requestor: *const c_void,
     _proc: *const [i8; 256],
-    _info: *const ffi::pmix_info_t,
+    _info: *const c_void,
     _ninfo: usize,
     cbfunc: Option<unsafe extern "C" fn(i32, *mut i8, usize, *mut c_void)>,
     cbdata: *mut c_void,
