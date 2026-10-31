@@ -4,6 +4,7 @@
 //! All tests run WITHOUT PMIx_Init — they exercise the Rust wrapper layer only.
 
 use pmix::events::*;
+
 use pmix::{InfoBuilder, PmixDataRange, PmixError, PmixStatus, Proc};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,7 +55,16 @@ fn test_notification_fn_some_is_some() {
         _: usize,
         _: *mut std::os::raw::c_void,
         _: usize,
-        _: pmix_event_notification_cbfunc_fn_t,
+        _: Option<
+            unsafe extern "C" fn(
+                pmix::ffi::pmix_status_t,
+                *mut pmix::ffi::pmix_info_t,
+                usize,
+                Option<unsafe extern "C" fn(pmix::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+                *mut std::os::raw::c_void,
+                *mut std::os::raw::c_void,
+            ),
+        >,
         _: *mut std::os::raw::c_void,
     ) {
     }
@@ -181,7 +191,16 @@ fn test_register_event_handler_with_notification_fn() {
         _: usize,
         _: *mut std::os::raw::c_void,
         _: usize,
-        _: pmix_event_notification_cbfunc_fn_t,
+        _: Option<
+            unsafe extern "C" fn(
+                pmix::ffi::pmix_status_t,
+                *mut pmix::ffi::pmix_info_t,
+                usize,
+                Option<unsafe extern "C" fn(pmix::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+                *mut std::os::raw::c_void,
+                *mut std::os::raw::c_void,
+            ),
+        >,
         _: *mut std::os::raw::c_void,
     ) {
     }
@@ -265,7 +284,16 @@ fn test_register_event_handler_nb_with_notification_fn() {
         _: usize,
         _: *mut std::os::raw::c_void,
         _: usize,
-        _: pmix_event_notification_cbfunc_fn_t,
+        _: Option<
+            unsafe extern "C" fn(
+                pmix::ffi::pmix_status_t,
+                *mut pmix::ffi::pmix_info_t,
+                usize,
+                Option<unsafe extern "C" fn(pmix::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+                *mut std::os::raw::c_void,
+                *mut std::os::raw::c_void,
+            ),
+        >,
         _: *mut std::os::raw::c_void,
     ) {
     }

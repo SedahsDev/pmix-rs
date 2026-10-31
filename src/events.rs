@@ -54,18 +54,26 @@
 //! ```
 
 use crate::{Info, PmixDataRange, PmixError, PmixStatus, Proc, ffi};
+
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
+use crate::server::callbacks::OpCallbackWrapper;
 use crate::threading::invoke_user_callback;
 
-/// PMIx event notification completion callback type (re-exported for external use).
-///
-/// This is the callback type used by `NotificationFn` to signal completion
-/// of event handling.
-pub use crate::ffi::pmix_event_notification_cbfunc_fn_t;
+/// Notification callback function type for event handlers.
+pub type NotificationCallbackFn = Option<
+    unsafe extern "C" fn(
+        crate::ffi::pmix_status_t,
+        *mut crate::ffi::pmix_info_t,
+        usize,
+        Option<unsafe extern "C" fn(crate::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+        *mut std::os::raw::c_void,
+        *mut std::os::raw::c_void,
+    ),
+>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback type aliases
@@ -139,7 +147,7 @@ pub type NotificationFn = Option<
         ninfo: usize,
         results: *mut c_void,
         nresults: usize,
-        cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+        cbfunc: NotificationCallbackFn,
         cbdata: *mut c_void,
     ),
 >;
@@ -169,6 +177,117 @@ pub type HandlerRegCbFn =
 /// typedef void (*pmix_op_cbfunc_t)(pmix_status_t status, void *cbdata);
 /// ```
 pub type OpCbFn = Option<unsafe extern "C" fn(status: i32, cbdata: *mut c_void)>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NotificationCallbackWrapper
+// ─────────────────────────────────────────────────────────────────────────────
+
+type NotificationCallback = dyn FnMut(
+        crate::PmixStatus,
+        *mut crate::ffi::pmix_info_t,
+        usize,
+        Option<OpCallbackWrapper>,
+        *mut c_void,
+        *mut c_void,
+    ) + Send
+    + 'static;
+
+/// Wrapper for PMIx notification callback functions.
+///
+/// Stores a user-provided closure and exposes it through the FFI callback
+/// signature. The wrapper is `Send` but not `Sync`, allowing it to be moved
+/// across threads but not shared concurrently.
+pub struct NotificationCallbackWrapper {
+    cb: Option<Box<NotificationCallback>>,
+    c_callback: NotificationCallbackFn,
+}
+
+unsafe extern "C" fn notification_callback_bridge(
+    status: crate::ffi::pmix_status_t,
+    results: *mut crate::ffi::pmix_info_t,
+    nresults: usize,
+    cbfunc: crate::ffi::pmix_op_cbfunc_t,
+    thiscbdata: *mut c_void,
+    notification_cbdata: *mut c_void,
+) {
+    if notification_cbdata.is_null() {
+        return;
+    }
+    let wrapper = unsafe { &mut *(notification_cbdata as *mut NotificationCallbackWrapper) };
+    if let Some(ref mut cb) = wrapper.cb {
+        let status = crate::PmixStatus::from_raw(status);
+        let cbfunc = cbfunc.map(|cbfunc| {
+            OpCallbackWrapper::new(move |status, cbdata| unsafe {
+                cbfunc(status.to_raw(), cbdata);
+            })
+        });
+        cb(
+            status,
+            results,
+            nresults,
+            cbfunc,
+            thiscbdata,
+            notification_cbdata,
+        );
+    }
+}
+
+impl NotificationCallbackWrapper {
+    /// Create a new notification callback wrapper from a closure.
+    pub fn new<F>(f: F) -> Self
+    where
+        F: FnMut(
+                crate::PmixStatus,
+                *mut crate::ffi::pmix_info_t,
+                usize,
+                Option<OpCallbackWrapper>,
+                *mut c_void,
+                *mut c_void,
+            ) + Send
+            + 'static,
+    {
+        NotificationCallbackWrapper {
+            cb: Some(Box::new(f)),
+            c_callback: Some(notification_callback_bridge),
+        }
+    }
+
+    /// Get the C callback function pointer for FFI use.
+    pub fn as_c_callback(&self) -> NotificationCallbackFn {
+        self.c_callback
+    }
+
+    /// Invoke the stored callback directly (for testing).
+    pub fn invoke(
+        &mut self,
+        status: crate::PmixStatus,
+        results: *mut crate::ffi::pmix_info_t,
+        nresults: usize,
+        cbfunc: Option<OpCallbackWrapper>,
+        thiscbdata: *mut c_void,
+        notification_cbdata: *mut c_void,
+    ) {
+        if let Some(ref mut cb) = self.cb {
+            cb(
+                status,
+                results,
+                nresults,
+                cbfunc,
+                thiscbdata,
+                notification_cbdata,
+            );
+        }
+    }
+}
+
+impl Default for NotificationCallbackWrapper {
+    fn default() -> Self {
+        NotificationCallbackWrapper {
+            cb: None,
+            c_callback: Some(notification_callback_bridge),
+        }
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal bridge: ref-keyed handler registry
@@ -957,8 +1076,125 @@ extern "C" fn notify_state_bridge(status: i32, cbdata: *mut c_void) {
 mod tests {
     #![allow(clippy::too_many_arguments)]
     use super::*;
+    use crate::PmixStatus;
     use crate::mock_ffi::MockGuard;
     use std::sync::mpsc;
+
+    // ─── NotificationCallbackWrapper tests ───────────────────────────────────
+
+    #[test]
+    fn test_notification_callback_wrapper_new() {
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called_clone = std::sync::Arc::clone(&called);
+        let mut wrapper = NotificationCallbackWrapper::new(
+            move |status, _results, _nresults, _cbfunc, _thiscbdata, _notification_cbdata| {
+                assert_eq!(status.to_raw(), 42);
+                called_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+            },
+        );
+        let status = crate::PmixStatus::from_raw(42);
+        wrapper.invoke(
+            status,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_notification_callback_wrapper_invoke() {
+        let invocation_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let invocation_count_clone = std::sync::Arc::clone(&invocation_count);
+        let mut wrapper = NotificationCallbackWrapper::new(
+            move |_status, _results, _nresults, _cbfunc, _thiscbdata, _notification_cbdata| {
+                invocation_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            },
+        );
+
+        let status = crate::PmixStatus::from_raw(0);
+        wrapper.invoke(
+            status,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        wrapper.invoke(
+            status,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        assert_eq!(
+            invocation_count.load(std::sync::atomic::Ordering::SeqCst),
+            2
+        );
+    }
+
+    #[test]
+    fn test_notification_callback_wrapper_default() {
+        let wrapper = NotificationCallbackWrapper::default();
+        let c_cb = wrapper.as_c_callback();
+        assert!(c_cb.is_some());
+        // The default callback should be a no-op; invoking it should not panic
+        let default_c_cb = c_cb.expect("default callback should be present");
+        unsafe {
+            default_c_cb(
+                0,
+                std::ptr::null_mut(),
+                0,
+                None,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    #[test]
+    fn test_notification_callback_wrapper_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<NotificationCallbackWrapper>();
+    }
+
+    #[test]
+    fn test_notification_callback_wrapper_not_sync() {
+        trait AmbiguousIfSync<A> {
+            fn assert_not_sync() {}
+        }
+        impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+        impl<T: ?Sized + Sync> AmbiguousIfSync<u8> for T {}
+        let _ = <NotificationCallbackWrapper as AmbiguousIfSync<_>>::assert_not_sync;
+    }
+
+    #[test]
+    fn all_callback_wrappers_accept_move_closures() {
+        let value = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let value_clone = std::sync::Arc::clone(&value);
+        let mut wrapper = NotificationCallbackWrapper::new(
+            move |_status, _results, _nresults, _cbfunc, _thiscbdata, _notification_cbdata| {
+                value_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            },
+        );
+
+        let status = crate::PmixStatus::from_raw(0);
+        wrapper.invoke(
+            status,
+            std::ptr::null_mut(),
+            0,
+            None,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        assert_eq!(value.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    // ─── Type alias tests ───────────────────────────────────────────────────
 
     #[test]
     fn test_codes_to_raw_conversion() {

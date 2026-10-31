@@ -55,6 +55,8 @@ use std::sync::LazyLock;
 
 use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
+#[cfg(pmix6)]
+use crate::server::callbacks::OpCallbackWrapper;
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
 
@@ -1798,9 +1800,13 @@ pub unsafe fn resource_block_nb(
     block: &mut [u8],
     res: &[crate::fabric::PmixResourceUnit],
     info: &[Info],
-    cb: ffi::pmix_op_cbfunc_t,
-    cbdata: *mut c_void,
+    cb: OpCallbackWrapper,
+    _cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
+    // OpCallbackWrapper is defined in src/server/callbacks.rs.
+    // Its C trampoline requires the boxed wrapper itself as callback data.
+    let callback = cb.as_c_callback();
+    let cbdata = Box::into_raw(Box::new(cb)).cast::<c_void>();
     let rp = res.first().map_or(ptr::null(), |x| x.as_ptr());
     let ip = info
         .first()
@@ -1814,7 +1820,7 @@ pub unsafe fn resource_block_nb(
                 res.len(),
                 ip,
                 info.len(),
-                cb,
+                callback,
                 cbdata,
             )
         },
@@ -1826,7 +1832,7 @@ pub unsafe fn resource_block_nb(
                 res.len(),
                 ip,
                 info.len(),
-                cb,
+                callback,
                 cbdata,
             )
         }
@@ -1834,6 +1840,8 @@ pub unsafe fn resource_block_nb(
     if s == ffi::PMIX_SUCCESS as i32 {
         Ok(())
     } else {
+        // SAFETY: a rejected request will not invoke the completion callback.
+        unsafe { drop(Box::from_raw(cbdata.cast::<OpCallbackWrapper>())) };
         Err(PmixStatus::from_raw(s))
     }
 }
@@ -1846,13 +1854,6 @@ mod misc_wrapper_tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
-        // SAFETY: test passes a pointer to the live AtomicUsize below.
-        unsafe {
-            (*data.cast::<AtomicUsize>()).store(status as usize + 1, Ordering::SeqCst);
-        }
-    }
-
     #[cfg(pmix6)]
     #[test]
     fn resource_block_sync_and_nb_callback() {
@@ -1860,7 +1861,14 @@ mod misc_wrapper_tests {
         let mut block = [0_u8; 8];
         let units = [crate::fabric::PmixResourceUnit::new()];
         assert!(resource_block(0, &mut block, &units, &[]).is_ok());
-        let called = AtomicUsize::new(0);
+        let called = Arc::new(AtomicUsize::new(0));
+        let callback_called = Arc::clone(&called);
+        extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
+            // SAFETY: test passes a pointer to the live AtomicUsize below.
+            unsafe {
+                (*data.cast::<AtomicUsize>()).store(status as usize + 1, Ordering::SeqCst);
+            }
+        }
         // SAFETY: callback has the PMIx ABI and called remains live through the
         // synchronous mock invocation; a real caller must extend that lifetime.
         assert!(
@@ -1870,8 +1878,16 @@ mod misc_wrapper_tests {
                     &mut block,
                     &units,
                     &[],
-                    Some(callback),
-                    (&called as *const AtomicUsize).cast_mut().cast(),
+                    crate::server::callbacks::OpCallbackWrapper::new(
+                        move |status: crate::PmixStatus, _cbdata: *mut std::os::raw::c_void| {
+                            // Forward to the raw callback for compatibility with test
+                            callback(
+                                status.to_raw(),
+                                Arc::as_ptr(&callback_called).cast_mut().cast(),
+                            );
+                        },
+                    ),
+                    Arc::as_ptr(&called).cast_mut().cast(),
                 )
             }
             .is_ok()

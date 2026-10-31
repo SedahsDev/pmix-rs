@@ -3,6 +3,7 @@
 use super::*;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -97,20 +98,30 @@ fn test_server_module_layout_matches_c() {
 
 #[test]
 fn test_server_module_typed_callbacks_convert_to_c() {
-    unsafe extern "C" fn fence(
-        _procs: *const ffi::pmix_proc_t,
+    unsafe extern "C" fn test_fence_nb(
+        _procs: *const crate::ffi::pmix_proc_t,
         _nprocs: usize,
-        _info: *const ffi::pmix_info_t,
+        _info: *const crate::ffi::pmix_info_t,
         _ninfo: usize,
         _data: *mut std::os::raw::c_char,
         _ndata: usize,
-        _cbfunc: ffi::pmix_modex_cbfunc_t,
+        _cbfunc: Option<
+            unsafe extern "C" fn(
+                crate::ffi::pmix_status_t,
+                *const std::os::raw::c_char,
+                usize,
+                *mut std::os::raw::c_void,
+                Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+                *mut std::os::raw::c_void,
+            ),
+        >,
         _cbdata: *mut std::os::raw::c_void,
-    ) -> ffi::pmix_status_t {
-        ffi::PMIX_SUCCESS as ffi::pmix_status_t
+    ) -> crate::ffi::pmix_status_t {
+        // No-op for this test
+        crate::ffi::PMIX_SUCCESS as crate::ffi::pmix_status_t
     }
     let module = PmixServerModule {
-        fence_nb: Some(fence),
+        fence_nb: Some(test_fence_nb),
         ..Default::default()
     };
     // SAFETY: `as_c_ptr` points to the live module for this test's scope.
@@ -311,18 +322,6 @@ fn test_deregister_resources_callback_trait_compiles() {
     let _callback: Box<dyn DeregisterResourcesCallback> = Box::new(TestDeregisterResourcesCallback);
 }
 
-// ── FenceNbCallbackWrapper tests ─────────────────────────────────────────
-
-#[test]
-fn test_fence_nb_callback_wrapper_construction() {
-    let called = Arc::new(AtomicBool::new(false));
-    let called_clone = called.clone();
-    let _wrapper = FenceNbCallbackWrapper::new(move |_status: PmixStatus| {
-        called_clone.store(true, Ordering::SeqCst);
-    });
-    assert!(!called.load(Ordering::SeqCst));
-}
-
 // ── Registry and sequence ID tests ───────────────────────────────────────
 
 #[test]
@@ -397,7 +396,6 @@ fn test_collect_inventory_results_construction() {
 
 // ── server_register_client error path ────────────────────────────────────
 
-#[test]
 // ── server_deregister_client error path ──────────────────────────────────
 #[test]
 fn test_server_deregister_client_compiles() {
@@ -410,17 +408,11 @@ fn test_server_deregister_client_compiles() {
 
 // ── server_dmodex_request error path ─────────────────────────────────────
 
-#[test]
 // ── server_setup_application error path ──────────────────────────────────
-#[test]
 // ── server_setup_local_support error path ────────────────────────────────
-#[test]
 // ── server_register_resources error path ─────────────────────────────────
-#[test]
 // ── server_deregister_resources error path ───────────────────────────────
-#[test]
 // ── server_fence_nb error path ───────────────────────────────────────────
-#[test]
 // ── server_connect_nb error path ─────────────────────────────────────────
 #[test]
 fn test_server_connect_nb_rejects_empty_procs() {
@@ -445,9 +437,7 @@ fn test_server_disconnect_nb_rejects_empty_procs() {
 
 // ── server_tool_attach_to_server error path ──────────────────────────────
 
-#[test]
 // ── server_get_credential error path ─────────────────────────────────────
-#[test]
 // ── server_spawn / server_spawn_nb compilation tests ─────────────────────
 #[test]
 fn test_server_spawn_compiles() {
@@ -878,7 +868,7 @@ fn test_deregister_resources_callback_trait_object() {
     let _cb: Box<dyn DeregisterResourcesCallback> = Box::new(TestDeregResourcesCallback);
 }
 
-// ── FenceNbCallbackWrapper: construction coverage ─────────────────────
+// ── OpCallbackWrapper: construction coverage ─────────────────────
 
 #[test]
 fn test_fence_nb_callback_wrapper_new() {
@@ -1215,7 +1205,7 @@ fn test_server_fence_zero_timeout() {
     let _ = result;
 }
 
-// ── FenceNbCallbackWrapper: additional tests ───────────────────────────
+// ── OpCallbackWrapper: additional tests ───────────────────────────
 
 #[test]
 fn test_fence_nb_callback_wrapper_multiple_closures() {

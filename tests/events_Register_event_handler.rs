@@ -7,6 +7,7 @@
 mod daemon_helper;
 
 use pmix::events::*;
+
 use pmix::{InfoBuilder, PmixDataRange, PmixError, PmixStatus};
 use std::ffi::c_void;
 use std::ptr;
@@ -100,7 +101,16 @@ fn register_event_handler_with_callback_without_init_fails() {
         _ninfo: usize,
         _results: *mut c_void,
         _nresults: usize,
-        _cbfunc: pmix::events::pmix_event_notification_cbfunc_fn_t,
+        _cbfunc: Option<
+            unsafe extern "C" fn(
+                pmix::ffi::pmix_status_t,
+                *mut pmix::ffi::pmix_info_t,
+                usize,
+                Option<unsafe extern "C" fn(pmix::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+                *mut std::os::raw::c_void,
+                *mut std::os::raw::c_void,
+            ),
+        >,
         _cbdata: *mut c_void,
     ) {
         // Should never be called without PMIx_Init.

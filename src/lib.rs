@@ -47,8 +47,15 @@ pub mod data_ops;
 pub mod data_serialization;
 pub mod events;
 pub mod fabric;
-#[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
-pub mod ffi;
+#[path = ""]
+#[allow(hidden_glob_reexports)]
+pub mod ffi {
+    #[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
+    #[path = "ffi.rs"]
+    mod raw;
+    pub use raw::*;
+    pub(crate) use raw::{pmix_event_notification_cbfunc_fn_t, pmix_op_cbfunc_t};
+}
 pub mod groups;
 pub mod info;
 pub mod info_list;
