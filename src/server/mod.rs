@@ -8,9 +8,9 @@
 //!
 //! The PMIx server library is a separate initialization path from the
 //! client/tool path. Instead of calling `PMIx_Init`, a server calls
-//! `PMIx_server_init` and provides a `pmix_server_module_t` structure
-//! whose function pointers implement the callbacks the PMIx library
-//! will invoke when clients connect, publish, spawn, etc.
+//! `PMIx_server_init` and provides a server module structure whose
+//! function pointers implement the callbacks the PMIx library will
+//! invoke when clients connect, publish, spawn, etc.
 //!
 //! # Example
 //!
@@ -52,17 +52,16 @@
 //!
 //! # Callbacks
 //!
-//! The `PmixServerModule` struct mirrors `pmix_server_module_t`. Each
-//! field corresponds to a callback the PMIx library may invoke. All
-//! fields default to `None` (null in C), meaning the callback is not
-//! implemented. The PMIx library checks for null before calling, so
-//! it is safe to provide a minimal module that only implements the
-//! callbacks you need.
+//! The `PmixServerModule` struct exposes host upcall functions that the
+//! PMIx library may invoke. All fields default to `None` (null in C),
+//! meaning the callback is not implemented. The PMIx library checks for
+//! null before calling, so it is safe to provide a minimal module that
+//! only implements the callbacks you need.
 //!
 //! # C API
 //!
 //! ```c
-//! pmix_status_t PMIx_server_init(pmix_server_module_t *module,
+//! pmix_status_t PMIx_server_init(void *module,
 //!                                 pmix_info_t info[], size_t ninfo);
 //! pmix_status_t PMIx_server_finalize(void);
 //! ```
@@ -202,12 +201,13 @@ pub use pset::*;
 // PmixServerModule — safe wrapper around pmix_server_module_t
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Safe Rust wrapper around `pmix_server_module_t`.
+/// Safe Rust wrapper around the server module used during `PMIx_server_init`.
 ///
-/// Each field corresponds to a callback the PMIx server library will
-/// invoke. All fields default to `None`, meaning the callback is not
-/// implemented by the server. The PMIx library checks for null before
-/// calling each callback, so it is safe to set only the ones you need.
+/// Each field corresponds to a host upcall the PMIx server library will
+/// invoke when client requests arrive. All fields default to `None`,
+/// meaning the upcall is not implemented by the server. The PMIx library
+/// checks for null before calling each upcall, so it is safe to set only
+/// the ones you need.
 ///
 /// # Progress-thread rules (read before implementing any field)
 ///
@@ -247,14 +247,24 @@ pub use pset::*;
 /// pattern, and [`crate::threading`] / `examples/callback_hop.rs` for the
 /// shared hop-off helpers used by client `_nb` completions and events.
 ///
-/// # Field types
+/// # Using the module
 ///
-/// Fields use the exact typed callback signatures generated from the C API.
-/// The `repr(C)` layout matches `pmix_server_module_t`, allowing callbacks to
-/// be installed directly without function-pointer casts.
+/// Construct the module with the upcalls you need:
 ///
-/// # C API
-/// `struct pmix_server_module_4_0_0_t` (aliased as `pmix_server_module_t`)
+/// ```rust
+/// use pmix::server::PmixServerModule;
+///
+/// let mut module = PmixServerModule::default();
+/// // module.client_connected = Some(my_client_connected_fn);
+/// ```
+///
+/// Pass it to [`crate::server::server_init`] or [`crate::server::PmixServer::connect_new`].
+///
+/// # Safety
+///
+/// Callback functions must remain valid until `PMIx_server_finalize` is
+/// called (or the server is disconnected). Do not drop closures or
+/// function pointers while the server is active.
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct PmixServerModule {
@@ -262,221 +272,384 @@ pub struct PmixServerModule {
     ///
     /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
     ///
-    /// # C type
-    /// `pmix_server_client_connected_fn_t`
-    pub client_connected: ffi::pmix_server_client_connected_fn_t,
+    /// Called when a client process connects to this server.
+    ///
+    /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
+    pub client_connected: Option<
+        unsafe extern "C" fn(*const ffi::pmix_proc_t, *const ffi::pmix_info_t, usize, *mut c_void),
+    >,
 
     /// Called when a client process finalizes its connection.
     ///
     /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
-    ///
-    /// # C type
-    /// `pmix_server_client_finalized_fn_t`
-    pub client_finalized: ffi::pmix_server_client_finalized_fn_t,
+    pub client_finalized: Option<unsafe extern "C" fn(*const ffi::pmix_proc_t, *mut c_void)>,
 
     /// Called when a client requests an abort.
     ///
     /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
     /// Complete via the provided `pmix_op_cbfunc_t` after hopping if work blocks.
-    ///
-    /// # C type
-    /// `pmix_server_abort_fn_t`
-    pub abort: ffi::pmix_server_abort_fn_t,
+    pub abort: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            i32,
+            *const ffi::pmix_info_t,
+            usize,
+            *mut c_void,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Non-blocking fence / collective upcall (`PMIx_Fence` / `PMIx_Fence_nb`).
     ///
     /// OpenPMIx calls this once local participants have contributed. The host
     /// must share any provided modex blob with peer daemons and complete via
-    /// `pmix_modex_cbfunc_t` — typically **after** hopping off progress
+    /// the provided callback — typically **after** hopping off progress
     /// (network / collective work must not block the upcall).
     ///
     /// **Not a CPU-pin target** — progress pinning is separate ([THREADING.md](../../THREADING.md)).
     /// Pattern: `examples/server_upcall_hop.rs`.
-    ///
-    /// # C type
-    /// `pmix_server_fencenb_fn_t`
-    pub fence_nb: ffi::pmix_server_fencenb_fn_t,
+    pub fence_nb: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_nspace_t,
+            usize,
+            *const ffi::pmix_info_t,
+            usize,
+            *mut ffi::pmix_info_t,
+            usize,
+            ffi::pmix_modex_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Direct modex request — fetch a remote proc's modex blob via the host.
     ///
     /// Same progress-thread rules as [`Self::fence_nb`]: schedule the remote
-    /// fetch off-progress and invoke `pmix_modex_cbfunc_t` when the blob is
+    /// fetch off-progress and invoke the provided callback when the blob is
     /// ready (or on error). See `examples/server_upcall_hop.rs`.
-    ///
-    /// # C type
-    /// `pmix_server_dmodex_req_fn_t`
-    pub direct_modex: ffi::pmix_server_dmodex_req_fn_t,
+    pub direct_modex: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_nspace_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_dmodex_response_fn_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Publish callback — client requests to publish data.
-    ///
-    /// # C type
-    /// `pmix_server_publish_fn_t`
-    pub publish: ffi::pmix_server_publish_fn_t,
+    pub publish: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Lookup callback — client requests to lookup data.
-    ///
-    /// # C type
-    /// `pmix_server_lookup_fn_t`
-    pub lookup: ffi::pmix_server_lookup_fn_t,
+    pub lookup: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_pdata_t,
+            usize,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_lookup_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Unpublish callback — client requests to remove published data.
-    ///
-    /// # C type
-    /// `pmix_server_unpublish_fn_t`
-    pub unpublish: ffi::pmix_server_unpublish_fn_t,
+    pub unpublish: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_pdata_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Spawn callback — client requests to spawn new processes.
-    ///
-    /// # C type
-    /// `pmix_server_spawn_fn_t`
-    pub spawn: ffi::pmix_server_spawn_fn_t,
+    pub spawn: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_app_t,
+            usize,
+            ffi::pmix_spawn_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Connect callback — client requests to establish a connection.
-    ///
-    /// # C type
-    /// `pmix_server_connect_fn_t`
-    pub connect: ffi::pmix_server_connect_fn_t,
+    pub connect: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_nspace_t,
+            usize,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_connection_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Disconnect callback — client requests to disconnect.
-    ///
-    /// # C type
-    /// `pmix_server_disconnect_fn_t`
-    pub disconnect: ffi::pmix_server_disconnect_fn_t,
+    pub disconnect: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_nspace_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Register events callback.
-    ///
-    /// # C type
-    /// `pmix_server_register_events_fn_t`
-    pub register_events: ffi::pmix_server_register_events_fn_t,
+    pub register_events: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Deregister events callback.
-    ///
-    /// # C type
-    /// `pmix_server_deregister_events_fn_t`
-    pub deregister_events: ffi::pmix_server_deregister_events_fn_t,
+    pub deregister_events: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Listener callback — for server-to-server communication.
-    ///
-    /// # C type
-    /// `pmix_server_listener_fn_t`
-    pub listener: ffi::pmix_server_listener_fn_t,
+    pub listener: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Notify event callback — deliver notifications to the server.
-    ///
-    /// # C type
-    /// `pmix_server_notify_event_fn_t`
-    pub notify_event: ffi::pmix_server_notify_event_fn_t,
+    pub notify_event: Option<
+        unsafe extern "C" fn(
+            u32,
+            *const ffi::pmix_proc_t,
+            u32,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Query callback — client requests server-side query.
-    ///
-    /// # C type
-    /// `pmix_server_query_fn_t`
-    pub query: ffi::pmix_server_query_fn_t,
+    pub query: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_query_t,
+            usize,
+            ffi::pmix_info_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Tool connection callback — accepts tool connections.
-    ///
-    /// # C type
-    /// `pmix_server_tool_connection_fn_t`
-    pub tool_connected: ffi::pmix_server_tool_connection_fn_t,
+    pub tool_connected: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Log callback — client requests logging.
-    ///
-    /// # C type
-    /// `pmix_server_log_fn_t`
-    pub log: ffi::pmix_server_log_fn_t,
+    pub log: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Allocation callback — client requests resource allocation.
-    ///
-    /// # C type
-    /// `pmix_server_alloc_fn_t`
-    pub allocate: ffi::pmix_server_alloc_fn_t,
+    pub allocate: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_info_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Job control callback.
-    ///
-    /// # C type
-    /// `pmix_server_job_control_fn_t`
-    pub job_control: ffi::pmix_server_job_control_fn_t,
+    pub job_control: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_info_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Monitoring callback — client requests monitoring.
-    ///
-    /// # C type
-    /// `pmix_server_monitor_fn_t`
-    pub monitor: ffi::pmix_server_monitor_fn_t,
+    pub monitor: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_info_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Get credential callback.
-    ///
-    /// # C type
-    /// `pmix_server_get_cred_fn_t`
-    pub get_credential: ffi::pmix_server_get_cred_fn_t,
+    pub get_credential: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_credential_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Validate credential callback.
-    ///
-    /// # C type
-    /// `pmix_server_validate_cred_fn_t`
-    pub validate_credential: ffi::pmix_server_validate_cred_fn_t,
+    pub validate_credential: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_credential_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// I/O forwarding pull callback.
-    ///
-    /// # C type
-    /// `pmix_server_iof_fn_t`
-    pub iof_pull: ffi::pmix_server_iof_fn_t,
+    pub iof_pull: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            u32,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_iof_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Push stdin callback.
-    ///
-    /// # C type
-    /// `pmix_server_stdin_fn_t`
-    pub push_stdin: ffi::pmix_server_stdin_fn_t,
+    pub push_stdin: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_byte_object_t,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Group operations callback.
-    ///
-    /// # C type
-    /// `pmix_server_grp_fn_t`
-    pub group: ffi::pmix_server_grp_fn_t,
+    pub group: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            u32,
+            *const ffi::pmix_nspace_t,
+            usize,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_info_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Fabric operations callback.
-    ///
-    /// # C type
-    /// `pmix_server_fabric_fn_t`
-    pub fabric: ffi::pmix_server_fabric_fn_t,
+    pub fabric: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            u32,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_info_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Client connected v2 callback.
-    ///
-    /// # C type
-    /// `pmix_server_client_connected2_fn_t`
-    pub client_connected2: ffi::pmix_server_client_connected2_fn_t,
+    pub client_connected2: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Tool connection v2 callback.
     ///
-    /// # C type
-    /// `pmix_server_tool_connection2_fn_t`
-    ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub tool_connected2: ffi::pmix_server_tool_connection2_fn_t,
+    pub tool_connected2: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Log v2 callback.
     ///
-    /// # C type
-    /// `pmix_server_log2_fn_t`
-    ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub log2: ffi::pmix_server_log2_fn_t,
+    pub log2: Option<
+        unsafe extern "C" fn(
+            *const ffi::pmix_proc_t,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_op_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Session control callback (PMIx 5.x).
-    ///
-    /// # C type
-    /// `pmix_server_session_control_fn_t`
-    pub session_control: ffi::pmix_server_session_control_fn_t,
+    pub session_control: Option<
+        unsafe extern "C" fn(
+            i32,
+            *const ffi::pmix_info_t,
+            usize,
+            ffi::pmix_info_cbfunc_t,
+            *mut c_void,
+        ),
+    >,
 
     /// Resource block callback.
     ///
-    /// # C type
-    /// `pmix_server_resource_block_fn_t`
-    ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub resource_block: ffi::pmix_server_resource_block_fn_t,
+    pub resource_block: Option<
+        unsafe extern "C" fn(*const ffi::pmix_info_t, usize, ffi::pmix_op_cbfunc_t, *mut c_void),
+    >,
 }
 
 const _: () = assert!(
@@ -484,7 +657,7 @@ const _: () = assert!(
 );
 
 impl PmixServerModule {
-    /// Convert this safe module into the raw C `pmix_server_module_t`.
+    /// Convert this safe module into the raw C server module pointer.
     ///
     /// The returned pointer points to stack memory that is valid for
     /// the duration of the `PMIx_server_init` call. Do not store the
@@ -495,8 +668,8 @@ impl PmixServerModule {
     /// The caller must ensure that any callback functions stored in
     /// this module remain valid for the lifetime of the PMIx server
     /// library (i.e., until `PMIx_server_finalize` is called).
-    pub fn as_c_ptr(&self) -> *const ffi::pmix_server_module_t {
-        self as *const Self as *const ffi::pmix_server_module_t
+    pub fn as_c_ptr(&self) -> *const c_void {
+        self as *const Self as *const c_void
     }
 }
 
@@ -540,7 +713,7 @@ pub use session::PmixServerHandle;
 ///
 /// # C API
 /// ```c
-/// pmix_status_t PMIx_server_init(pmix_server_module_t *module,
+/// pmix_status_t PMIx_server_init(void *module,
 ///                                 pmix_info_t info[], size_t ninfo);
 /// ```
 ///

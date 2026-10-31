@@ -149,8 +149,13 @@ impl PmixServer {
             }
         }
 
+        // SAFETY: as_c_ptr() returns *const c_void; casting to *mut pmix_server_module_t
+        // is the caller's responsibility and must be done carefully.
         let module_ptr = match module {
-            Some(m) => m.as_c_ptr() as *mut ffi::pmix_server_module_t,
+            Some(m) => {
+                // as_c_ptr() returns *const c_void
+                m.as_c_ptr() as *mut ffi::pmix_server_module_t
+            }
             None => ptr::null_mut(),
         };
         let info_ptr = if info.len > 0 {
