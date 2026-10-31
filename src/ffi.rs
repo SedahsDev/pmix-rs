@@ -25,7 +25,15 @@
 #![allow(unknown_lints)]
 #![allow(suspicious_runtime_symbol_definitions)]
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+mod bindings {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
+pub use bindings::*;
+
+// Keep raw callback aliases available internally without publicly re-exporting them.
+#[allow(hidden_glob_reexports)]
+pub(crate) use bindings::{pmix_event_notification_cbfunc_fn_t, pmix_op_cbfunc_t};
 
 #[cfg(test)]
 mod tests {
