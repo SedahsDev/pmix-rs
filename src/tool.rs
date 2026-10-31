@@ -1462,9 +1462,14 @@ mod tests {
 
 pub fn tool_set_server_module(module: &crate::server::PmixServerModule) -> Result<(), PmixStatus> {
     let s = crate::pmix_ffi_or_mock!(
-        mock =
-            unsafe { crate::mock_ffi::mock_tool_set_server_module(module.as_c_ptr().cast_mut()) },
-        real = unsafe { ffi::PMIx_tool_set_server_module(module.as_c_ptr().cast_mut()) }
+        mock = unsafe {
+            crate::mock_ffi::mock_tool_set_server_module(
+                module.as_c_ptr() as *mut ffi::pmix_server_module_t
+            )
+        },
+        real = unsafe {
+            ffi::PMIx_tool_set_server_module(module.as_c_ptr() as *mut ffi::pmix_server_module_t)
+        }
     );
     if s == ffi::PMIX_SUCCESS as i32 {
         Ok(())

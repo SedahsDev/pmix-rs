@@ -9,7 +9,7 @@
 //!    pointers are `!Send`).
 //! 3. [`spawn_from_callback`](pmix::threading::spawn_from_callback) (or a
 //!    [`CallbackChannel`](pmix::threading::CallbackChannel)) to hop off.
-//! 4. Return `PMIX_SUCCESS` from the upcall immediately.
+//! 4. Return from the upcall immediately.
 //! 5. Invoke the provided `cbfunc` **later** from the app thread when RM work
 //!    finishes.
 //!
@@ -40,7 +40,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use pmix::InfoBuilder;
-use pmix::ffi;
 use pmix::server::{PmixServer, PmixServerModule};
 use pmix::threading::{CallbackChannel, ProgressContext, spawn_from_callback};
 
@@ -54,10 +53,14 @@ fn main() {
 
     // ── 1. Install typed host upcalls on the module ────────────────────────
     //
-    // The module fields use exact OpenPMIx callback types; no transmute is needed.
+    // The module fields use OpenPMIx callback types with internal pointee types.
     let mut module = PmixServerModule::default();
-    module.fence_nb = Some(host_fence_nb);
-    module.direct_modex = Some(host_direct_modex);
+    // SAFETY: the C ABI signatures match; only opaque pointer pointees differ.
+    #[allow(clippy::missing_transmute_annotations)]
+    unsafe {
+        module.fence_nb = Some(std::mem::transmute(host_fence_nb as *const ()));
+        module.direct_modex = Some(std::mem::transmute(host_direct_modex as *const ()));
+    }
 
     let info = InfoBuilder::new().build().expect("build info");
     let server = match PmixServer::connect_new(Some(&module), &info) {
@@ -84,8 +87,9 @@ fn main() {
         .spawn(move || {
             // SAFETY: synthetic call with null procs/info and a real completion
             // path — demonstrates the hop rules without a full RM collective.
-            let status = unsafe {
+            unsafe {
                 host_fence_nb(
+                    ptr::null(),
                     ptr::null(),
                     0,
                     ptr::null(),
@@ -97,7 +101,6 @@ fn main() {
                     Box::into_raw(Box::new(tx)) as *mut c_void,
                 )
             };
-            assert_eq!(status, 0, "upcall must return PMIX_SUCCESS immediately");
         })
         .expect("spawn progress stand-in");
 
@@ -126,8 +129,18 @@ fn main() {
     println!("server_upcall_hop example done");
 }
 
-/// `pmix_modex_cbfunc_t` — OpenPMIx completion for fence / direct-modex upcalls.
-type ModexCb = ffi::pmix_modex_cbfunc_t;
+/// OpenPMIx completion for fence / direct-modex upcalls.
+/// This is an internal FFI type; it is not exposed publicly by pmix-rs.
+type ModexCb = Option<
+    unsafe extern "C" fn(
+        i32,
+        *const i8,
+        usize,
+        *mut c_void,
+        Option<unsafe extern "C" fn(*mut c_void)>,
+        *mut c_void,
+    ),
+>;
 
 /// Demo completion used by the self-driven path: signals the app channel.
 unsafe extern "C" fn demo_modex_complete(
@@ -156,18 +169,18 @@ unsafe extern "C" fn demo_modex_complete(
 
 /// Host `fence_nb` upcall — **progress context**.
 ///
-/// Matches `pmix_server_fencenb_fn_t`. Must not block on PMIx; hop and call
-/// `cbfunc` later.
+/// Must not block on PMIx; hop and call `cbfunc` later.
 unsafe extern "C" fn host_fence_nb(
-    _procs: *const ffi::pmix_proc_t,
+    _requestor: *const c_void,
+    _procs: *const [i8; 256],
     nprocs: usize,
-    _info: *const ffi::pmix_info_t,
+    _info: *const c_void,
     _ninfo: usize,
-    data: *mut i8,
+    data: *mut c_void,
     ndata: usize,
     cbfunc: ModexCb,
     cbdata: *mut c_void,
-) -> i32 {
+) {
     let _ctx = ProgressContext;
 
     // Copy contributed blob before return — C buffer lifetime ends with the
@@ -212,25 +225,24 @@ unsafe extern "C" fn host_fence_nb(
         }
     });
     if let Err(e) = spawn_result {
-        // Never panic from a PMIx upcall — log and fail the request.
+        // Never panic from a PMIx upcall — log the failure.
         eprintln!("pmix: fence_nb hop spawn failed: {e}");
-        return -1; // PMIX_ERROR
     }
 
     // Return immediately — do NOT wait for the hop thread.
-    0 // PMIX_SUCCESS
 }
 
 /// Host `direct_modex` upcall — **progress context**.
 ///
-/// Matches `pmix_server_dmodex_req_fn_t`. Same hop-then-`cbfunc` rules as fence.
+/// Same hop-then-`cbfunc` rules as fence.
 unsafe extern "C" fn host_direct_modex(
-    _proc: *const ffi::pmix_proc_t,
-    _info: *const ffi::pmix_info_t,
+    _requestor: *const c_void,
+    _proc: *const [i8; 256],
+    _info: *const c_void,
     _ninfo: usize,
-    cbfunc: ModexCb,
+    cbfunc: Option<unsafe extern "C" fn(i32, *mut i8, usize, *mut c_void)>,
     cbdata: *mut c_void,
-) -> i32 {
+) {
     let _ctx = ProgressContext;
     let chain_addr = cbdata as usize;
 
@@ -240,21 +252,12 @@ unsafe extern "C" fn host_direct_modex(
         // daemon, assemble the modex blob, then complete.
         if let Some(cb) = cbfunc {
             unsafe {
-                cb(
-                    0,
-                    ptr::null(),
-                    0,
-                    chain_addr as *mut c_void,
-                    None,
-                    ptr::null_mut(),
-                );
+                cb(0, ptr::null_mut(), 0, chain_addr as *mut c_void);
             }
         }
         COMPLETIONS.fetch_add(1, Ordering::SeqCst);
     });
     if let Err(e) = spawn_result {
         eprintln!("pmix: direct_modex hop spawn failed: {e}");
-        return -1;
     }
-    0
 }

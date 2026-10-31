@@ -25,7 +25,7 @@
 //! - One logical connect/disconnect per process. **Drop does not finalize**
 //!   (clones must not each run `PMIx_Finalize`). Call [`disconnect`](PmixClient::disconnect)
 //!   or [`finalize`].
-//! - Server module upcalls ([`server::PmixServerModule`]) run in **progress
+//! - Server module upcalls ([`server::PmixServer`]) run in **progress
 //!   context** — keep them short, hop before blocking PMIx, complete via the
 //!   provided `cbfunc` later. They are **not** CPU-pin targets (pin progress
 //!   via [`InitOptions::bind_progress_thread`]). See
@@ -48,7 +48,7 @@ pub mod data_serialization;
 pub mod events;
 pub mod fabric;
 #[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
-pub mod ffi;
+pub(crate) mod ffi;
 pub mod groups;
 pub mod info;
 pub mod info_list;

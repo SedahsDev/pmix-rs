@@ -25,7 +25,13 @@
 #![allow(unknown_lints)]
 #![allow(suspicious_runtime_symbol_definitions)]
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+mod bindings {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
+#[allow(hidden_glob_reexports)]
+pub(crate) use bindings::pmix_server_module_t;
+pub use bindings::*;
 
 #[cfg(test)]
 mod tests {
