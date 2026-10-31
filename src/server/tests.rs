@@ -3,7 +3,7 @@
 use super::*;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
-use crate::server::callbacks::OpCallbackWrapper;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -98,20 +98,21 @@ fn test_server_module_layout_matches_c() {
 
 #[test]
 fn test_server_module_typed_callbacks_convert_to_c() {
-    unsafe extern "C" fn fence(
-        _procs: *const ffi::pmix_proc_t,
+    unsafe extern "C" fn test_fence_nb(
+        _procs: *const crate::ffi::pmix_proc_t,
         _nprocs: usize,
-        _info: *const ffi::pmix_info_t,
+        _info: *const crate::ffi::pmix_info_t,
         _ninfo: usize,
         _data: *mut std::os::raw::c_char,
         _ndata: usize,
-        _cbfunc: ffi::pmix_modex_cbfunc_t,
+        _cbfunc: Option<unsafe extern "C" fn(crate::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
         _cbdata: *mut std::os::raw::c_void,
-    ) -> ffi::pmix_status_t {
-        ffi::PMIX_SUCCESS as ffi::pmix_status_t
+    ) -> crate::ffi::pmix_status_t {
+        // No-op for this test
+        crate::ffi::PMIX_SUCCESS as crate::ffi::pmix_status_t
     }
     let module = PmixServerModule {
-        fence_nb: Some(OpCallbackWrapper::new(fence)),
+        fence_nb: Some(test_fence_nb),
         ..Default::default()
     };
     // SAFETY: `as_c_ptr` points to the live module for this test's scope.
@@ -386,7 +387,6 @@ fn test_collect_inventory_results_construction() {
 
 // ── server_register_client error path ────────────────────────────────────
 
-#[test]
 // ── server_deregister_client error path ──────────────────────────────────
 #[test]
 fn test_server_deregister_client_compiles() {
@@ -399,23 +399,16 @@ fn test_server_deregister_client_compiles() {
 
 // ── server_dmodex_request error path ─────────────────────────────────────
 
-#[test]
 // ── server_setup_application error path ──────────────────────────────────
-#[test]
 // ── server_setup_local_support error path ────────────────────────────────
-#[test]
 // ── server_register_resources error path ─────────────────────────────────
-#[test]
 // ── server_deregister_resources error path ───────────────────────────────
-#[test]
 // ── server_fence_nb error path ───────────────────────────────────────────
-#[test]
 // ── server_connect_nb error path ─────────────────────────────────────────
 #[test]
 fn test_server_connect_nb_rejects_empty_procs() {
     let handle = PmixServer::new();
-    let wrapper =
-        OpCallbackWrapper::new(|_status: PmixStatus, _cbdata: *mut std::os::raw::c_void| {});
+    let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
     let result = server_connect_nb(&handle, &[], &[], wrapper);
     assert!(result.is_err(), "connect_nb should reject empty proc list");
 }
@@ -425,8 +418,7 @@ fn test_server_connect_nb_rejects_empty_procs() {
 #[test]
 fn test_server_disconnect_nb_rejects_empty_procs() {
     let handle = PmixServer::new();
-    let wrapper =
-        OpCallbackWrapper::new(|_status: PmixStatus, _cbdata: *mut std::os::raw::c_void| {});
+    let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
     let result = server_disconnect_nb(&handle, &[], &[], wrapper);
     assert!(
         result.is_err(),
@@ -436,9 +428,7 @@ fn test_server_disconnect_nb_rejects_empty_procs() {
 
 // ── server_tool_attach_to_server error path ──────────────────────────────
 
-#[test]
 // ── server_get_credential error path ─────────────────────────────────────
-#[test]
 // ── server_spawn / server_spawn_nb compilation tests ─────────────────────
 #[test]
 fn test_server_spawn_compiles() {
@@ -872,22 +862,20 @@ fn test_deregister_resources_callback_trait_object() {
 // ── OpCallbackWrapper: construction coverage ─────────────────────
 
 #[test]
-fn test_op_callback_wrapper_new() {
-    let wrapper =
-        OpCallbackWrapper::new(|_status: PmixStatus, _cbdata: *mut std::os::raw::c_void| {});
+fn test_fence_nb_callback_wrapper_new() {
+    let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {});
     let _ = wrapper;
 }
 
 #[test]
-fn test_op_callback_wrapper_invokes_closure() {
+fn test_fence_nb_callback_wrapper_invokes_closure() {
     use std::sync::atomic::AtomicBool;
     static INVOKED: AtomicBool = AtomicBool::new(false);
     INVOKED.store(false, Ordering::SeqCst);
-    let wrapper =
-        OpCallbackWrapper::new(|_status: PmixStatus, _cbdata: *mut std::os::raw::c_void| {
-            INVOKED.store(true, Ordering::SeqCst);
-        });
-    wrapper.invoke(PmixStatus::from_raw(0), std::ptr::null_mut());
+    let wrapper = FenceNbCallbackWrapper::new(|_status: PmixStatus| {
+        INVOKED.store(true, Ordering::SeqCst);
+    });
+    (wrapper.callback)(PmixStatus::from_raw(0));
     assert!(INVOKED.load(Ordering::SeqCst));
 }
 
@@ -1211,49 +1199,49 @@ fn test_server_fence_zero_timeout() {
 // ── OpCallbackWrapper: additional tests ───────────────────────────
 
 #[test]
-fn test_op_callback_wrapper_multiple_closures() {
+fn test_fence_nb_callback_wrapper_multiple_closures() {
     let captured1 = Arc::new(Mutex::new(None));
     let captured2 = Arc::new(Mutex::new(None));
 
-    let w1 = OpCallbackWrapper::new({
+    let w1 = FenceNbCallbackWrapper::new({
         let c = captured1.clone();
-        move |s: PmixStatus, _cbdata: *mut std::os::raw::c_void| {
+        move |s: PmixStatus| {
             *(c.lock().unwrap()) = Some(s);
         }
     });
 
-    let w2 = OpCallbackWrapper::new({
+    let w2 = FenceNbCallbackWrapper::new({
         let c = captured2.clone();
-        move |s: PmixStatus, _cbdata: *mut std::os::raw::c_void| {
+        move |s: PmixStatus| {
             *(c.lock().unwrap()) = Some(s);
         }
     });
 
     // Verify they are independent wrappers
     let status_ok = PmixStatus::from_raw(0);
-    w1.invoke(status_ok, std::ptr::null_mut());
+    (w1.callback)(status_ok);
     assert!(captured1.lock().unwrap().as_ref().unwrap().is_success());
     assert!(captured2.lock().unwrap().is_none());
 }
 
 #[test]
-fn test_op_callback_wrapper_error_status() {
+fn test_fence_nb_callback_wrapper_error_status() {
     let captured = Arc::new(Mutex::new(None));
-    let wrapper = OpCallbackWrapper::new({
+    let wrapper = FenceNbCallbackWrapper::new({
         let c = captured.clone();
-        move |s: PmixStatus, _cbdata: *mut std::os::raw::c_void| {
+        move |s: PmixStatus| {
             *(c.lock().unwrap()) = Some(s);
         }
     });
     let status_err = PmixStatus::from_raw(-13); // PMIX_ERR_NOT_FOUND
-    wrapper.invoke(status_err, std::ptr::null_mut());
+    (wrapper.callback)(status_err);
     assert!(!captured.lock().unwrap().as_ref().unwrap().is_success());
 }
 
 #[test]
-fn test_op_callback_wrapper_unit_closure() {
+fn test_fence_nb_callback_wrapper_unit_closure() {
     // Closure that ignores the status
-    let wrapper = OpCallbackWrapper::new(|_s: PmixStatus, _cbdata: *mut std::os::raw::c_void| {});
+    let wrapper = FenceNbCallbackWrapper::new(|_s: PmixStatus| {});
     let _ = wrapper; // should compile and be usable
 }
 

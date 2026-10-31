@@ -1854,7 +1854,8 @@ mod misc_wrapper_tests {
         let mut block = [0_u8; 8];
         let units = [crate::fabric::PmixResourceUnit::new()];
         assert!(resource_block(0, &mut block, &units, &[]).is_ok());
-        let called = AtomicUsize::new(0);
+        let called = Arc::new(AtomicUsize::new(0));
+        let callback_called = Arc::clone(&called);
         extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
             // SAFETY: test passes a pointer to the live AtomicUsize below.
             unsafe {
@@ -1875,11 +1876,11 @@ mod misc_wrapper_tests {
                             // Forward to the raw callback for compatibility with test
                             callback(
                                 status.to_raw(),
-                                (&called as *const AtomicUsize).cast_mut().cast(),
+                                Arc::as_ptr(&callback_called).cast_mut().cast(),
                             );
                         },
                     ),
-                    (&called as *const AtomicUsize).cast_mut().cast(),
+                    Arc::as_ptr(&called).cast_mut().cast(),
                 )
             }
             .is_ok()

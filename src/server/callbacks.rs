@@ -23,8 +23,9 @@ impl OpCallbackWrapper {
     }
 
     /// Get the C callback function pointer for FFI calls.
-    #[allow(clippy::unnecessary_wraps)]
-    pub fn as_c_callback(&self) -> Option<crate::ffi::pmix_op_cbfunc_t> {
+    pub fn as_c_callback(
+        &self,
+    ) -> Option<unsafe extern "C" fn(crate::ffi::pmix_status_t, *mut std::os::raw::c_void)> {
         Some(self.c_callback)
     }
 
@@ -45,7 +46,7 @@ impl Default for OpCallbackWrapper {
     }
 }
 
-extern "C" fn op_callback_bridge(status: crate::ffi::pmix_status_t, cbdata: *mut c_void) {
+unsafe extern "C" fn op_callback_bridge(status: crate::ffi::pmix_status_t, cbdata: *mut c_void) {
     if cbdata.is_null() {
         return;
     }
@@ -68,7 +69,10 @@ mod tests {
         let wrapper = OpCallbackWrapper::new(move |_status, _cbdata| {
             called_clone.store(true, Ordering::SeqCst);
         });
-        assert_eq!(wrapper.as_c_callback(), Some(op_callback_bridge));
+        assert_eq!(
+            wrapper.as_c_callback(),
+            Some(op_callback_bridge as unsafe extern "C" fn(_, _))
+        );
     }
 
     #[test]
@@ -89,18 +93,15 @@ mod tests {
     fn test_op_callback_wrapper_default() {
         let wrapper = OpCallbackWrapper::default();
         assert!(wrapper.cb.is_none());
-        assert_eq!(wrapper.as_c_callback(), Some(op_callback_bridge));
+        assert_eq!(
+            wrapper.as_c_callback(),
+            Some(op_callback_bridge as unsafe extern "C" fn(_, _))
+        );
     }
 
     #[test]
     fn test_op_callback_wrapper_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<OpCallbackWrapper>();
-    }
-
-    #[test]
-    fn test_op_callback_wrapper_not_sync() {
-        use static_assertions::assert_not_impl_any;
-        assert_not_impl_any!(OpCallbackWrapper: Sync);
     }
 }

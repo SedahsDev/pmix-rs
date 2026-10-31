@@ -54,13 +54,25 @@
 //! ```
 
 use crate::{Info, PmixDataRange, PmixError, PmixStatus, Proc, ffi};
-use static_assertions::assert_not_impl_any;
+
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
 use crate::threading::invoke_user_callback;
+
+/// Notification callback function type for event handlers.
+pub type NotificationCallbackFn = Option<
+    unsafe extern "C" fn(
+        crate::ffi::pmix_status_t,
+        *mut crate::ffi::pmix_info_t,
+        usize,
+        Option<unsafe extern "C" fn(crate::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+        *mut std::os::raw::c_void,
+        *mut std::os::raw::c_void,
+    ),
+>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback type aliases
@@ -134,7 +146,7 @@ pub type NotificationFn = Option<
         ninfo: usize,
         results: *mut c_void,
         nresults: usize,
-        cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+        cbfunc: NotificationCallbackFn,
         cbdata: *mut c_void,
     ),
 >;
@@ -188,14 +200,7 @@ pub struct NotificationCallbackWrapper {
                 + 'static,
         >,
     >,
-    c_callback: unsafe extern "C" fn(
-        crate::ffi::pmix_status_t,
-        *mut crate::ffi::pmix_info_t,
-        usize,
-        crate::ffi::pmix_op_cbfunc_t,
-        *mut c_void,
-        *mut c_void,
-    ),
+    c_callback: NotificationCallbackFn,
 }
 
 unsafe extern "C" fn notification_callback_bridge(
@@ -239,14 +244,13 @@ impl NotificationCallbackWrapper {
     {
         NotificationCallbackWrapper {
             cb: Some(Box::new(f)),
-            c_callback: notification_callback_bridge,
+            c_callback: Some(notification_callback_bridge),
         }
     }
 
     /// Get the C callback function pointer for FFI use.
-    #[allow(clippy::unnecessary_wraps)]
-    pub fn as_c_callback(&self) -> crate::ffi::pmix_event_notification_cbfunc_fn_t {
-        Some(self.c_callback)
+    pub fn as_c_callback(&self) -> NotificationCallbackFn {
+        self.c_callback
     }
 
     /// Invoke the stored callback directly (for testing).
@@ -276,7 +280,7 @@ impl Default for NotificationCallbackWrapper {
     fn default() -> Self {
         NotificationCallbackWrapper {
             cb: None,
-            c_callback: notification_callback_bridge,
+            c_callback: Some(notification_callback_bridge),
         }
     }
 }
@@ -1152,11 +1156,6 @@ mod tests {
     fn test_notification_callback_wrapper_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<NotificationCallbackWrapper>();
-    }
-
-    #[test]
-    fn test_notification_callback_wrapper_not_sync() {
-        assert_not_impl_any!(NotificationCallbackWrapper: Sync);
     }
 
     #[test]

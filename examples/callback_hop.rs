@@ -135,7 +135,16 @@ unsafe fn on_event(
     _ninfo: usize,
     _results: *mut c_void,
     _nresults: usize,
-    cbfunc: pmix::events::pmix_event_notification_cbfunc_fn_t,
+    cbfunc: Option<
+        unsafe extern "C" fn(
+            pmix::ffi::pmix_status_t,
+            *mut pmix::ffi::pmix_info_t,
+            usize,
+            Option<unsafe extern "C" fn(pmix::ffi::pmix_status_t, *mut std::os::raw::c_void)>,
+            *mut std::os::raw::c_void,
+            *mut std::os::raw::c_void,
+        ),
+    >,
     cbdata: *mut c_void,
 ) {
     // We are on the progress thread — this marker is documentation, and any
