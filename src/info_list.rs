@@ -149,7 +149,7 @@ impl InfoList {
         }
     }
 
-    /// Convert the Info list to a pmix_data_array_t.
+    /// Convert the Info list to a `PmixDataArray`.
     ///
     /// # C API
     /// `pmix_status_t PMIx_Info_list_convert(pmix_info_list_t *list,`
@@ -158,14 +158,18 @@ impl InfoList {
     /// # Note
     ///
     /// After conversion, the Info list should not be used further.
-    pub fn convert(&mut self, array: &mut crate::ffi::pmix_data_array_t) -> Result<(), PmixStatus> {
+    pub fn convert(
+        &mut self,
+        array: &mut crate::data_serialization::PmixDataArray,
+    ) -> Result<(), PmixStatus> {
         if self.ptr.is_null() {
             return Err(PmixStatus::Unknown(-1));
         }
 
-        // SAFETY: ptr is valid
+        // SAFETY: ptr is valid; array.as_mut_ptr() points to caller-owned
+        // pmix_data_array_t storage that PMIx fills in place.
         unsafe {
-            let status = ffi::PMIx_Info_list_convert(self.ptr, array);
+            let status = ffi::PMIx_Info_list_convert(self.ptr, array.as_mut_ptr());
             let status = PmixStatus::from_raw(status);
             if status.is_error() {
                 Err(status)

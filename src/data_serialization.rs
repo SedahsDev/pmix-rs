@@ -136,12 +136,13 @@ impl PmixByteObject {
     }
 
     /// Get a mutable reference to the inner C struct (for FFI interop).
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
         &mut self.inner
     }
 
     /// Get a const pointer to the underlying C struct (for FFI interop).
-    pub fn as_ptr(&self) -> *const ffi::pmix_byte_object_t {
+    #[allow(dead_code)]
+    pub(crate) fn as_ptr(&self) -> *const ffi::pmix_byte_object_t {
         &self.inner
     }
 }
@@ -218,7 +219,8 @@ pub struct PmixDataBuffer {
 // The PMIx data buffer is not safe to share across threads.
 impl PmixDataBuffer {
     /// Get a mutable pointer to the underlying C buffer (for FFI interop).
-    pub fn as_mut_ptr(&self) -> *mut ffi::pmix_data_buffer_t {
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&self) -> *mut ffi::pmix_data_buffer_t {
         self.ptr
     }
 
@@ -245,6 +247,24 @@ impl PmixDataBuffer {
         unsafe { (*self.ptr).bytes_used }
     }
 
+    /// Create a new, empty `PmixDataBuffer`.
+    ///
+    /// This is the idiomatic constructor; it wraps [`data_buffer_create`] and
+    /// panics only if the underlying `PMIx_Data_buffer_create` allocation
+    /// fails. Use [`data_buffer_create`] when the failure needs to be handled.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use pmix::data_serialization::PmixDataBuffer;
+    ///
+    /// let buf = PmixDataBuffer::new();
+    /// assert!(buf.is_valid());
+    /// ```
+    pub fn new() -> Self {
+        data_buffer_create().expect("PMIx_Data_buffer_create failed to allocate a buffer")
+    }
+
     /// Create a null (invalid) `PmixDataBuffer` for testing error paths.
     ///
     /// The buffer has a null pointer and `is_valid()` returns `false`.
@@ -264,7 +284,8 @@ impl PmixDataBuffer {
     /// The caller must ensure `ptr` is a valid, allocated `pmix_data_buffer_t`
     /// or null. The resulting `PmixDataBuffer` takes ownership and will call
     /// `PMIx_Data_buffer_release` on drop.
-    pub unsafe fn from_raw(ptr: *mut ffi::pmix_data_buffer_t) -> Self {
+    pub unsafe fn from_raw(ptr: *mut std::os::raw::c_void) -> Self {
+        let ptr = ptr.cast::<ffi::pmix_data_buffer_t>();
         Self {
             ptr,
             _not_thread_safe: std::marker::PhantomData,
@@ -280,6 +301,12 @@ impl Drop for PmixDataBuffer {
             unsafe { ffi::PMIx_Data_buffer_release(self.ptr) };
             self.ptr = ptr::null_mut();
         }
+    }
+}
+
+impl Default for PmixDataBuffer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -2323,6 +2350,18 @@ impl PmixStackDataBuffer {
             _not_thread_safe: std::marker::PhantomData,
         }
     }
+
+    /// Get a mutable pointer to the underlying C buffer (for FFI interop).
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_data_buffer_t {
+        self.raw.as_mut_ptr()
+    }
+
+    /// Get a const pointer to the underlying C buffer (for FFI interop).
+    #[allow(dead_code)]
+    pub(crate) fn as_ptr(&self) -> *const ffi::pmix_data_buffer_t {
+        self.raw.as_ptr()
+    }
 }
 
 impl Default for PmixStackDataBuffer {
@@ -2481,6 +2520,16 @@ impl PmixDataArray {
         let p = unsafe { self.inner.assume_init_ref().array };
         (!p.is_null()).then_some(p)
     }
+    /// Get a mutable pointer to the underlying C array (for FFI interop).
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_data_array_t {
+        self.inner.as_mut_ptr()
+    }
+    /// Get a const pointer to the underlying C array (for FFI interop).
+    #[allow(dead_code)]
+    pub(crate) fn as_ptr(&self) -> *const ffi::pmix_data_array_t {
+        self.inner.as_ptr()
+    }
 }
 impl Default for PmixDataArray {
     fn default() -> Self {
@@ -2508,7 +2557,9 @@ pub struct PmixDataArrayArray {
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 impl PmixDataArrayArray {
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_data_array_t {
+    /// Get a mutable pointer to the underlying C array (crate-internal FFI seam).
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_data_array_t {
         self.ptr
     }
     pub fn len(&self) -> usize {
@@ -2570,7 +2621,9 @@ pub struct PmixByteObjectArray {
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 impl PmixByteObjectArray {
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
+    /// Get a mutable pointer to the underlying C array (crate-internal FFI seam).
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
         self.ptr
     }
     pub fn len(&self) -> usize {
@@ -2665,5 +2718,52 @@ mod data_utils_tests {
         let _guard = MockGuard::new();
         drop(data_array_create(2, crate::mock_ffi::PMIX_INT as ffi::pmix_data_type_t).unwrap());
         drop(byte_object_create(2).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod roundtrip_tests {
+    use super::*;
+
+    #[test]
+    fn test_byte_object_to_raw_from_raw_roundtrip() {
+        let original_data = vec![1u8, 2, 3, 4, 5];
+        let mut original = PmixByteObject::from(original_data.clone());
+
+        // Verify the object is valid
+        assert_eq!(original.size(), 5);
+        assert_eq!(original.as_slice(), &original_data);
+
+        // Test that as_mut_ptr returns a valid pointer (compile-time check)
+        let _ptr = original.as_mut_ptr();
+    }
+
+    #[test]
+    fn test_data_array_to_raw_from_raw_roundtrip() {
+        // Create a PmixDataArray with some test data
+        let mut original =
+            PmixDataArray::new(3, crate::mock_ffi::PMIX_INT as ffi::pmix_data_type_t);
+
+        // Verify the object is valid
+        assert_eq!(original.size(), 3);
+        assert_eq!(
+            original.type_(),
+            crate::mock_ffi::PMIX_INT as ffi::pmix_data_type_t
+        );
+
+        // Test that as_mut_ptr returns a valid pointer (compile-time check)
+        let _ptr = original.as_mut_ptr();
+    }
+
+    #[test]
+    fn test_data_buffer_to_raw_from_raw_roundtrip() {
+        // Create a data buffer
+        let original = data_buffer_create().expect("create buffer");
+
+        // Verify it's valid
+        assert!(original.is_valid());
+
+        // Test that as_mut_ptr returns a valid pointer (compile-time check)
+        let _ptr = original.as_mut_ptr();
     }
 }

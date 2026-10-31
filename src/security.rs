@@ -80,9 +80,22 @@ pub struct PmixCredential {
 /// but reclaimed when the guard drops. The `bytes` pointer borrows from the
 /// originating `PmixCredential`, so this must not outlive it.
 #[derive(Debug)]
-pub struct CredentialByteObject<'a> {
+#[allow(dead_code)]
+pub(crate) struct CredentialByteObject<'a> {
     inner: Box<ffi::pmix_byte_object_t>,
     _marker: std::marker::PhantomData<&'a PmixCredential>,
+}
+
+impl CredentialByteObject<'_> {
+    #[allow(dead_code)]
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_byte_object_t {
+        self.inner.as_mut()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn as_ptr(&self) -> *const ffi::pmix_byte_object_t {
+        self.inner.as_ref()
+    }
 }
 
 impl Deref for CredentialByteObject<'_> {
@@ -175,7 +188,8 @@ impl PmixCredential {
     }
 
     /// Get a scoped raw view of the credential for FFI calls.
-    pub fn as_raw(&self) -> CredentialByteObject<'_> {
+    #[allow(dead_code)]
+    pub(crate) fn as_raw(&self) -> CredentialByteObject<'_> {
         CredentialByteObject {
             inner: Box::new(ffi::pmix_byte_object_t {
                 bytes: if self.bytes.is_empty() {

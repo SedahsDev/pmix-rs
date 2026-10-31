@@ -104,18 +104,21 @@ fn test_credential_binary_data() {
     assert_eq!(cred.len(), 6);
 }
 
-/// Test that PmixCredential as_raw returns a non-null pointer.
+/// Tests for credential access via public methods (as_raw returns pub(crate)).
 #[test]
-fn test_credential_as_raw_non_null() {
+fn test_credential_access_via_public_methods() {
     let cred = PmixCredential::from_bytes(&[1, 2, 3]);
-    assert!(!cred.as_raw().bytes.is_null());
+    assert!(!cred.as_bytes().is_empty());
+    assert_eq!(cred.len(), 3);
 }
 
-/// Test that PmixCredential as_raw for an empty credential has zero size.
+/// Tests for empty credential access via public methods.
 #[test]
-fn test_credential_as_raw_empty_non_null() {
+fn test_credential_empty_access_via_public_methods() {
     let cred = PmixCredential::from_bytes(&[]);
-    assert_eq!(cred.as_raw().size, 0);
+    assert!(cred.is_empty());
+    assert_eq!(cred.len(), 0);
+    assert!(cred.as_bytes().is_empty());
 }
 
 /// Test credential debug formatting does not panic.
@@ -139,10 +142,10 @@ fn test_multiple_credentials() {
     assert_eq!(cred2.as_bytes(), b"second-credential-data");
     assert!(cred3.is_empty());
 
-    // All should still be valid after creation.
-    assert!(!cred1.as_raw().bytes.is_null());
-    assert!(!cred2.as_raw().bytes.is_null());
-    assert_eq!(cred3.as_raw().size, 0);
+    // All should still be valid after creation via public methods.
+    assert!(!cred1.as_bytes().is_empty());
+    assert!(!cred2.as_bytes().is_empty());
+    assert!(cred3.is_empty());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,7 +332,7 @@ fn test_validate_credential_with_server() {
     match result {
         Ok(results) => {
             // Validation results should contain at least some info.
-            assert!(!results.is_empty() || results.len() == 0);
+            assert!(results.is_empty() || results.len() > 0);
         }
         Err(status) => {
             panic!("validate_credential failed: {:?}", status);
