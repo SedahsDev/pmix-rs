@@ -327,7 +327,7 @@ const _: () = {
 pub struct ServerModuleCallbackState;
 
 // Keep returned C table addresses stable when the vector grows.
-static SERVER_MODULE_CALLBACK_TABLES: Mutex<Vec<std::pin::Pin<Box<RawPmixServerModule>>>> =
+static SERVER_MODULE_CALLBACK_TABLES: Mutex<Vec<(usize, std::pin::Pin<Box<RawPmixServerModule>>)>> =
     Mutex::new(Vec::new());
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -896,19 +896,20 @@ impl PmixServerModule {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
 
-        let module = modules.iter().find(|module| {
-            module.0.iter().zip(&callbacks).all(|(left, right)| {
-                left.map(|callback| callback as *const ())
-                    == right.map(|callback| callback as *const ())
-            })
+        let module = modules.iter().find(|(owner, module)| {
+            *owner == self as *const Self as usize
+                && module.0.iter().zip(&callbacks).all(|(left, right)| {
+                    left.map(|callback| callback as *const ())
+                        == right.map(|callback| callback as *const ())
+                })
         });
-        if let Some(module) = module {
+        if let Some((_, module)) = module {
             return module.as_ref().get_ref() as *const RawPmixServerModule as *const c_void;
         }
 
         let module = Box::pin(RawPmixServerModule(callbacks));
         let pointer = module.as_ref().get_ref() as *const RawPmixServerModule as *const c_void;
-        modules.push(module);
+        modules.push((self as *const Self as usize, module));
         pointer
     }
 }
