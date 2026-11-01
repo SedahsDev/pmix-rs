@@ -39,7 +39,7 @@ fn test_handler_ref_from_various_i32() {
 
 #[test]
 fn test_notification_fn_none_is_none() {
-    let fn_: NotificationFn = None;
+    let fn_: Option<NotificationCallbackWrapper> = None;
     assert!(fn_.is_none());
     assert!(fn_.as_ref().is_none());
 }
@@ -54,11 +54,11 @@ fn test_notification_fn_some_is_some() {
         _: usize,
         _: *mut std::os::raw::c_void,
         _: usize,
-        _: pmix_event_notification_cbfunc_fn_t,
+        _: Option<NotificationCallbackWrapper>,
         _: *mut std::os::raw::c_void,
     ) {
     }
-    let fn_: NotificationFn = Some(dummy);
+    let fn_ = Some(dummy);
     assert!(fn_.is_some());
 }
 
@@ -181,7 +181,7 @@ fn test_register_event_handler_with_notification_fn() {
         _: usize,
         _: *mut std::os::raw::c_void,
         _: usize,
-        _: pmix_event_notification_cbfunc_fn_t,
+        _: Option<NotificationCallbackWrapper>,
         _: *mut std::os::raw::c_void,
     ) {
     }
@@ -265,7 +265,7 @@ fn test_register_event_handler_nb_with_notification_fn() {
         _: usize,
         _: *mut std::os::raw::c_void,
         _: usize,
-        _: pmix_event_notification_cbfunc_fn_t,
+        _: Option<NotificationCallbackWrapper>,
         _: *mut std::os::raw::c_void,
     ) {
     }

@@ -22,11 +22,11 @@ fn event_handler_ref_is_usize() {
     assert_eq!(_ref_id, 42);
 }
 
-/// `NotificationFn` is `Option<unsafe fn(...)>`.
+/// `NotificationCallbackWrapper` can be stored in an `Option`.
 #[test]
 fn notification_fn_type_is_option() {
-    // Verify the type alias compiles and can be None.
-    let handler: NotificationFn = None;
+    // Verify the optional wrapper compiles and can be None.
+    let handler: Option<NotificationCallbackWrapper> = None;
     assert!(handler.is_none());
 }
 
@@ -88,23 +88,13 @@ fn register_event_handler_with_codes_without_init_fails() {
 
 /// Registering with a notification callback (without init) should fail.
 ///
-/// The callback uses `c_void` pointers matching the `NotificationFn` type alias.
+/// The callback uses safe Rust types matching the `NotificationFn` trait.
 #[test]
 fn register_event_handler_with_callback_without_init_fails() {
-    // NotificationFn is a Rust-ABI unsafe fn (bridged via notification_bridge).
-    unsafe fn dummy_notification_handler(
-        _evhdlr_registration_id: EventHandlerRef,
-        _status: i32,
-        _source: *const c_void,
-        _info: *mut c_void,
-        _ninfo: usize,
-        _results: *mut c_void,
-        _nresults: usize,
-        _cbfunc: pmix::events::pmix_event_notification_cbfunc_fn_t,
-        _cbdata: *mut c_void,
-    ) {
+    // NotificationFn is a safe Rust callback (bridged via notification_bridge).
+    let dummy_notification_handler = |_, _, _, _, _, _, _, _, _| {
         // Should never be called without PMIx_Init.
-    }
+    };
 
     let info = InfoBuilder::new().build().expect("build info");
     let result = register_event_handler(&[], &info, Some(dummy_notification_handler), None);

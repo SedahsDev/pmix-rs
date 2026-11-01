@@ -76,10 +76,9 @@ mod asserts {
     // movable because their trait objects require `Send`, but they are not
     // advertised as concurrently shareable (`Sync` is intentionally absent).
     assert_impl_all!(crate::events::EventHandlerRef: Send, Sync);
-    assert_impl_all!(crate::events::NotificationFn: Send, Sync);
+    assert_impl_all!(crate::events::NotificationCallbackWrapper: Send);
     assert_impl_all!(crate::events::HandlerRegCbFn: Send, Sync);
     assert_impl_all!(crate::events::OpCbFn: Send, Sync);
-    assert_impl_all!(crate::events::pmix_event_notification_cbfunc_fn_t: Send, Sync);
     assert_impl_all!(crate::process_mgmt::SpawnCallback: Send, Sync);
     assert_impl_all!(crate::groups::GroupConstructCallbackWrapper: Send);
     assert_impl_all!(crate::groups::GroupInviteCallbackWrapper: Send);

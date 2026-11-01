@@ -26,7 +26,7 @@
 //!
 //! Event handlers are delivered on the PMIx **progress thread**, like all
 //! `_nb` completions. The notification bridge follows the policy in
-//! [`crate::threading`]: the user's `NotificationFn` is stored in a registry
+//! [`crate::threading`]: the user's `EventNotificationFn` is stored in a registry
 //! keyed by the handler reference ID (never a raw pointer in `cbdata`), and
 //! the registry lock is **not** held while the user callback runs. Handlers
 //! must not call blocking PMIx APIs; hop off with
@@ -61,11 +61,201 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::threading::invoke_user_callback;
 
-/// PMIx event notification completion callback type (re-exported for external use).
+/// Trait for event notification callbacks.
 ///
-/// This is the callback type used by `NotificationFn` to signal completion
-/// of event handling.
-pub use crate::ffi::pmix_event_notification_cbfunc_fn_t;
+/// This trait defines the signature for callbacks invoked when an event
+/// notification is delivered. Implement this trait to handle event
+/// notifications in your application.
+pub trait NotificationFn: Send + 'static {
+    /// Called when an event notification is delivered.
+    ///
+    /// # Parameters
+    /// - `status`: The status of the notification operation
+    /// - `results`: Array of info structures with notification data (may be null)
+    /// - `nresults`: Number of results in the array
+    /// - `cbfunc`: Optional continuation callback (may be null)
+    /// - `cbdata`: Opaque data for the continuation callback
+    /// - `notification_cbdata`: Opaque data for this notification callback
+    fn on_notification(
+        &mut self,
+        status: PmixStatus,
+        results: *mut crate::ffi::pmix_info_t,
+        nresults: usize,
+        cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+        cbdata: *mut c_void,
+        notification_cbdata: *mut c_void,
+    );
+
+    /// Consume this callback and deliver a notification.
+    fn call(
+        mut self,
+        status: PmixStatus,
+        results: *mut crate::ffi::pmix_info_t,
+        nresults: usize,
+        cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+        cbdata: *mut c_void,
+        notification_cbdata: *mut c_void,
+    ) where
+        Self: Sized,
+    {
+        self.on_notification(
+            status,
+            results,
+            nresults,
+            cbfunc,
+            cbdata,
+            notification_cbdata,
+        );
+    }
+}
+
+impl<F> NotificationFn for F
+where
+    F: FnMut(
+            PmixStatus,
+            *mut crate::ffi::pmix_info_t,
+            usize,
+            Option<unsafe extern "C" fn(i32, *mut c_void)>,
+            *mut c_void,
+            *mut c_void,
+        ) + Send
+        + 'static,
+{
+    fn on_notification(
+        &mut self,
+        status: PmixStatus,
+        results: *mut crate::ffi::pmix_info_t,
+        nresults: usize,
+        cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+        cbdata: *mut c_void,
+        notification_cbdata: *mut c_void,
+    ) {
+        self(
+            status,
+            results,
+            nresults,
+            cbfunc,
+            cbdata,
+            notification_cbdata,
+        );
+    }
+}
+
+/// A wrapper for event notification callbacks.
+///
+/// This wrapper stores a closure that implements the `NotificationFn` trait,
+/// providing a native Rust interface for event notifications.
+pub struct NotificationCallbackWrapper {
+    inner: Box<dyn NotificationFn + Send + 'static>,
+}
+
+impl NotificationCallbackWrapper {
+    /// Create a new notification callback wrapper from a closure or handler.
+    ///
+    /// The handler must implement the `NotificationFn` trait signature.
+    pub fn new<F>(f: F) -> Self
+    where
+        F: NotificationFn + 'static,
+    {
+        Self { inner: Box::new(f) }
+    }
+}
+
+impl NotificationFn for NotificationCallbackWrapper {
+    fn on_notification(
+        &mut self,
+        status: PmixStatus,
+        results: *mut crate::ffi::pmix_info_t,
+        nresults: usize,
+        cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+        cbdata: *mut c_void,
+        notification_cbdata: *mut c_void,
+    ) {
+        self.inner.on_notification(
+            status,
+            results,
+            nresults,
+            cbfunc,
+            cbdata,
+            notification_cbdata,
+        );
+    }
+}
+
+// Internal adapter to convert the wrapper into a C-compatible callback.
+type NotificationCallbackFn = unsafe extern "C" fn(
+    i32,
+    *mut crate::ffi::pmix_info_t,
+    usize,
+    Option<unsafe extern "C" fn(i32, *mut c_void)>,
+    *mut c_void,
+    *mut c_void,
+);
+
+struct NotificationCallbackBridge {
+    wrapper: Box<dyn NotificationFn + Send + 'static>,
+}
+
+extern "C" fn notification_callback_bridge(
+    status: i32,
+    results: *mut crate::ffi::pmix_info_t,
+    nresults: usize,
+    cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+    cbdata: *mut c_void,
+    notification_cbdata: *mut c_void,
+) {
+    if notification_cbdata.is_null() {
+        return;
+    }
+
+    let _ = invoke_user_callback("events", || {
+        // SAFETY: notification_cbdata is the allocation returned by
+        // notification_callback_into_c, transferred back exactly once.
+        let mut bridge =
+            unsafe { Box::from_raw(notification_cbdata as *mut NotificationCallbackBridge) };
+        bridge.wrapper.on_notification(
+            PmixStatus::from_raw(status),
+            results,
+            nresults,
+            cbfunc,
+            cbdata,
+            ptr::null_mut(), // notification_cbdata is consumed
+        );
+    });
+}
+
+/// Convert a `NotificationCallbackWrapper` into a C callback pointer and cbdata.
+///
+/// Pass the returned cbdata as the callback's final `notification_cbdata`
+/// argument. The FFI callback consumes and frees it exactly once, including
+/// when the Rust handler panics. If the callback will not run, the caller must
+/// instead release it with [`free_notification_cbdata`]. Never do both.
+pub fn notification_callback_into_c(
+    wrapper: NotificationCallbackWrapper,
+) -> (Option<NotificationCallbackFn>, *mut c_void) {
+    let bridge = NotificationCallbackBridge {
+        wrapper: wrapper.inner,
+    };
+    let cbdata = Box::into_raw(Box::new(bridge)) as *mut c_void;
+    (Some(notification_callback_bridge), cbdata)
+}
+
+/// Free the cbdata associated with a notification callback that will not run.
+///
+/// # Safety
+///
+/// `cbdata` must be null or an unconsumed pointer returned by
+/// [`notification_callback_into_c`]. The callback must not be running and must
+/// never subsequently be invoked with this pointer.
+pub unsafe fn free_notification_cbdata(cbdata: *mut c_void) {
+    if cbdata.is_null() {
+        return;
+    }
+    // SAFETY: the caller guarantees exclusive ownership of this allocation.
+    unsafe {
+        drop(Box::from_raw(cbdata as *mut NotificationCallbackBridge));
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callback type aliases
@@ -103,7 +293,16 @@ pub type EventHandlerRef = usize;
 /// Handlers **must** complete the event chain. Typical completion:
 ///
 /// ```text
-/// cbfunc(status, results, nresults, None, null_mut(), cbdata)
+/// if let Some(mut cbfunc) = cbfunc {
+///     cbfunc.on_notification(
+///         PmixStatus::from_raw(status),
+///         results.cast(),
+///         nresults,
+///         None,
+///         null_mut(),
+///         cbdata,
+///     );
+/// }
 /// ```
 ///
 /// Omitting the call permanently stalls the chain (blocking `notify_event`
@@ -130,7 +329,7 @@ pub type EventHandlerRef = usize;
 /// panic inside the handler can be caught (`catch_unwind`) instead of
 /// aborting via `nounwind` — required so the bridge can still complete the
 /// OpenPMIx event chain.
-pub type NotificationFn = Option<
+pub type EventNotificationFn = Option<
     unsafe fn(
         evhdlr_registration_id: EventHandlerRef,
         status: i32,
@@ -139,7 +338,7 @@ pub type NotificationFn = Option<
         ninfo: usize,
         results: *mut c_void,
         nresults: usize,
-        cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+        cbfunc: Option<NotificationCallbackWrapper>,
         cbdata: *mut c_void,
     ),
 >;
@@ -178,7 +377,7 @@ pub type OpCbFn = Option<unsafe extern "C" fn(status: i32, cbdata: *mut c_void)>
 /// functions.
 ///
 /// PMIx retains an event handler — and its `cbdata` — for the lifetime of the
-/// registration, so the user's [`NotificationFn`] must outlive it. We store
+/// registration, so the user's [`EventNotificationFn`] must outlive it. We store
 /// the function here, keyed by the reference ID that PMIx passes to the
 /// notification bridge as its first argument, and free it at deregistration
 /// (or session finalize via [`clear_handler_registry`]).
@@ -189,17 +388,17 @@ pub type OpCbFn = Option<unsafe extern "C" fn(status: i32, cbdata: *mut c_void)>
 ///
 /// # Invariant
 ///
-/// Entries are plain [`NotificationFn`] values (`Option` of a function pointer).
+/// Entries are plain [`EventNotificationFn`] values (`Option` of a function pointer).
 /// Function pointers are `Copy`, so copying the fn out under the lock and later
 /// dropping the `Box` is not a use-after-free. That analysis would not hold if
 /// this type ever became a capturing closure / trait object.
-type HandlerRegistry = HashMap<EventHandlerRef, Box<NotificationFn>>;
+type HandlerRegistry = HashMap<EventHandlerRef, Box<EventNotificationFn>>;
 static HANDLER_REGISTRY: LazyLock<Mutex<HandlerRegistry>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 struct PendingRegistration {
     codes: Vec<i32>,
-    user_fn: Box<NotificationFn>,
+    user_fn: Box<EventNotificationFn>,
 }
 
 static PENDING_REGISTRATIONS: LazyLock<Mutex<Vec<PendingRegistration>>> =
@@ -211,7 +410,7 @@ static BLOCKING_REGISTRATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex:
 /// Drop every parked notification handler.
 ///
 /// Called from client / tool / server session finalize paths so registrations
-/// that were never explicitly deregistered do not leak `Box<NotificationFn>`
+/// that were never explicitly deregistered do not leak `Box<EventNotificationFn>`
 /// for the rest of the process lifetime. Safe under the crate's no-reinit
 /// policy: after finalize, no further event deliveries are expected.
 pub(crate) fn clear_handler_registry() {
@@ -251,9 +450,9 @@ unsafe fn complete_event_chain(
     }
 }
 
-/// Convert a user-provided `NotificationFn` into the FFI `pmix_notification_fn_t`.
+/// Convert a user-provided `EventNotificationFn` into the FFI `pmix_notification_fn_t`.
 ///
-/// The user-facing `NotificationFn` uses `*const c_void` / `*mut c_void` for the
+/// The user-facing `EventNotificationFn` uses `*const c_void` / `*mut c_void` for the
 /// `source`, `info`, and `results` parameters so that callers outside the crate
 /// don't need access to the private `ffi` module. This bridge casts those back
 /// to the real FFI types before calling the user's function.
@@ -338,7 +537,7 @@ unsafe extern "C" fn notification_bridge(
     });
 
     if let Some(user_fn) = user_fn {
-        // SAFETY: cast FFI pointers to c_void for the user-facing NotificationFn
+        // SAFETY: cast FFI pointers to c_void for the user-facing EventNotificationFn
         // ABI. Forward OpenPMIx's chain pointer (`cbdata`) and completion
         // `cbfunc` verbatim — the handler must return them via cbfunc.
         //
@@ -346,6 +545,25 @@ unsafe extern "C" fn notification_bridge(
         // OpenPMIx. A panic must not unwind into C, and must not leave the
         // event chain incomplete.
         let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+            let completion = cbfunc.map(|callback| {
+                NotificationCallbackWrapper::new(
+                    move |status: PmixStatus,
+                          results: *mut ffi::pmix_info_t,
+                          nresults: usize,
+                          continuation: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+                          continuation_cbdata: *mut c_void,
+                          notification_cbdata: *mut c_void| {
+                        callback(
+                            status.to_raw(),
+                            results,
+                            nresults,
+                            continuation,
+                            continuation_cbdata,
+                            notification_cbdata,
+                        );
+                    },
+                )
+            });
             user_fn(
                 evhdlr_registration_id,
                 status,
@@ -354,7 +572,7 @@ unsafe extern "C" fn notification_bridge(
                 ninfo,
                 results as *mut c_void,
                 nresults,
-                cbfunc,
+                completion,
                 cbdata,
             );
         }))
@@ -390,7 +608,7 @@ unsafe extern "C" fn notification_bridge(
 /// boxed user notification fn plus the user's own completion callback and
 /// opaque data, forwarded verbatim once the reference ID is known.
 struct HandlerRegState {
-    user_fn: Box<NotificationFn>,
+    user_fn: Box<EventNotificationFn>,
     user_cbfunc: HandlerRegCbFn,
     user_cbdata: *mut c_void,
     retained_info: Vec<ffi::pmix_info_t>,
@@ -484,7 +702,7 @@ extern "C" fn handler_reg_cb_bridge(status: i32, refid: EventHandlerRef, cbdata:
 pub fn register_event_handler(
     codes: &[PmixStatus],
     info: &Info,
-    evhdlr: NotificationFn,
+    evhdlr: EventNotificationFn,
     cbfunc: HandlerRegCbFn,
 ) -> Result<EventHandlerRef, PmixStatus> {
     // Serialize blocking registrations so PENDING_REGISTRATIONS has one slot.
@@ -605,7 +823,7 @@ pub fn register_event_handler(
 pub fn register_event_handler_nb(
     codes: &[PmixStatus],
     info: &Info,
-    evhdlr: NotificationFn,
+    evhdlr: EventNotificationFn,
     cbfunc: HandlerRegCbFn,
     cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
@@ -678,7 +896,7 @@ pub fn register_event_handler_nb(
     } else {
         // SAFETY: synchronous failure ⇒ completion bridge will not run; we
         // still own the box and must free it to avoid a permanent leak of the
-        // boxed NotificationFn and user cbdata.
+        // boxed EventNotificationFn and user cbdata.
         unsafe {
             drop(Box::from_raw(state_ptr));
         }
@@ -996,7 +1214,7 @@ mod tests {
 
     #[test]
     fn test_notification_fn_none() {
-        let fn_: NotificationFn = None;
+        let fn_: EventNotificationFn = None;
         assert!(fn_.is_none());
     }
 
@@ -1025,7 +1243,7 @@ mod tests {
         _ninfo: usize,
         _results: *mut std::os::raw::c_void,
         _nresults: usize,
-        _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+        _cbfunc: Option<NotificationCallbackWrapper>,
         _cbdata: *mut std::os::raw::c_void,
     ) {
     }
@@ -1056,7 +1274,7 @@ mod tests {
             _ninfo: usize,
             _results: *mut std::os::raw::c_void,
             _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbfunc: Option<NotificationCallbackWrapper>,
             cbdata: *mut std::os::raw::c_void,
         ) {
             assert_eq!(status, 7, "handler should receive the event status");
@@ -1182,22 +1400,20 @@ mod tests {
             _ninfo: usize,
             _results: *mut c_void,
             _nresults: usize,
-            cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            cbfunc: Option<NotificationCallbackWrapper>,
             cbdata: *mut c_void,
         ) {
             CALLED.fetch_add(1, Ordering::SeqCst);
-            if let Some(cbfunc) = cbfunc {
+            if let Some(mut cbfunc) = cbfunc {
                 // SAFETY: the test forwards the supplied chain callback once.
-                unsafe {
-                    cbfunc(
-                        0,
-                        std::ptr::null_mut(),
-                        0,
-                        None,
-                        std::ptr::null_mut(),
-                        cbdata,
-                    )
-                };
+                cbfunc.on_notification(
+                    PmixStatus::from_raw(0),
+                    std::ptr::null_mut(),
+                    0,
+                    None,
+                    std::ptr::null_mut(),
+                    cbdata,
+                );
             }
         }
         unsafe extern "C" fn completion(
@@ -1291,7 +1507,7 @@ mod tests {
             _ninfo: usize,
             _results: *mut c_void,
             _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbfunc: Option<NotificationCallbackWrapper>,
             _cbdata: *mut c_void,
         ) {
             CALLED.store(true, Ordering::SeqCst);
@@ -1356,7 +1572,7 @@ mod tests {
             _ninfo: usize,
             _results: *mut std::os::raw::c_void,
             _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbfunc: Option<NotificationCallbackWrapper>,
             _cbdata: *mut std::os::raw::c_void,
         ) {
             panic!("user notification handler panicked on purpose");
@@ -1462,7 +1678,7 @@ mod tests {
             _ninfo: usize,
             _results: *mut std::os::raw::c_void,
             _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbfunc: Option<NotificationCallbackWrapper>,
             _cbdata: *mut std::os::raw::c_void,
         ) {
             if let Some(tx) = ENTER_TX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
@@ -1767,8 +1983,8 @@ mod tests {
 
     #[test]
     fn test_notification_fn_is_option() {
-        // Verify NotificationFn is Option<unsafe fn(...)>
-        let fn_: NotificationFn = None;
+        // Verify EventNotificationFn is Option<unsafe fn(...)>
+        let fn_: EventNotificationFn = None;
         assert!(fn_.is_none());
         assert_eq!(fn_.as_ref(), None);
     }
@@ -1854,7 +2070,7 @@ mod tests {
             _ninfo: usize,
             _results: *mut std::os::raw::c_void,
             _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbfunc: Option<NotificationCallbackWrapper>,
             _cbdata: *mut std::os::raw::c_void,
         ) {
         }
@@ -2344,7 +2560,7 @@ mod tests {
             _ninfo: usize,
             _results: *mut c_void,
             _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbfunc: Option<NotificationCallbackWrapper>,
             _cbdata: *mut c_void,
         ) {
         }
@@ -3341,11 +3557,11 @@ mod tests {
             _ninfo: usize,
             _results: *mut c_void,
             _nresults: usize,
-            _cbfunc: ffi::pmix_event_notification_cbfunc_fn_t,
+            _cbfunc: Option<NotificationCallbackWrapper>,
             _cbdata: *mut c_void,
         ) {
         }
-        let boxed_fn: Box<NotificationFn> = Box::new(Some(dummy));
+        let boxed_fn: Box<EventNotificationFn> = Box::new(Some(dummy));
         let raw = Box::into_raw(boxed_fn) as *mut c_void;
         unsafe {
             notification_bridge(
@@ -3362,7 +3578,7 @@ mod tests {
         }
         // Clean up
         unsafe {
-            let _ = Box::from_raw(raw as *mut NotificationFn);
+            let _ = Box::from_raw(raw as *mut EventNotificationFn);
         }
     }
 
@@ -3387,5 +3603,82 @@ mod tests {
         let ref1: EventHandlerRef = 42;
         let ref2: EventHandlerRef = 43;
         assert_ne!(ref1, ref2);
+    }
+
+    #[test]
+    fn notification_callback_wrapper_construction() {
+        fn assert_notification_fn<T: NotificationFn + Send>(_: &T) {}
+
+        // Cell is Send but not Sync; callbacks must not require Sync.
+        let calls = std::cell::Cell::new(0);
+        let wrapper = NotificationCallbackWrapper::new(
+            move |_status, _results, _nresults, _cbfunc, _cbdata, _notif_cbdata| {
+                calls.set(calls.get() + 1);
+            },
+        );
+        assert_notification_fn(&wrapper);
+        wrapper.call(
+            PmixStatus::from_raw(0),
+            ptr::null_mut(),
+            0,
+            None,
+            ptr::null_mut(),
+            ptr::null_mut(),
+        );
+    }
+
+    #[test]
+    fn notification_callback_wrapper_receives_all_params() {
+        let called = std::sync::Arc::new(AtomicBool::new(false));
+        let callback_called = called.clone();
+        let wrapper = NotificationCallbackWrapper::new(
+            move |status: PmixStatus,
+                  results: *mut ffi::pmix_info_t,
+                  nresults: usize,
+                  cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+                  cbdata: *mut c_void,
+                  notif_cbdata: *mut c_void| {
+                assert_eq!(status.to_raw(), -9999);
+                assert!(results.is_null());
+                assert_eq!(nresults, 0);
+                assert!(cbfunc.is_none());
+                assert!(!cbdata.is_null());
+                assert!(notif_cbdata.is_null());
+                callback_called.store(true, Ordering::SeqCst);
+            },
+        );
+        let (callback, notification_cbdata) = super::notification_callback_into_c(wrapper);
+        let mut token = 0_u8;
+
+        // SAFETY: the callback receives its live allocation exactly once;
+        // the remaining pointers are null or point to the live stack token.
+        unsafe {
+            callback.unwrap()(
+                -9999,
+                ptr::null_mut(),
+                0,
+                None,
+                &mut token as *mut u8 as *mut c_void,
+                notification_cbdata,
+            );
+        }
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn notification_callback_into_c() {
+        let wrapper = NotificationCallbackWrapper::new(
+            |_status, _results, _nresults, _cbfunc, _cbdata, _notif_cbdata| {},
+        );
+        let (cb, cbdata) = super::notification_callback_into_c(wrapper);
+
+        assert!(cb.is_some());
+        assert!(!cbdata.is_null());
+
+        // Clean up
+        // SAFETY: the callback has not run and will not run.
+        unsafe {
+            free_notification_cbdata(cbdata);
+        }
     }
 }

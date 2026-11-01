@@ -3,7 +3,7 @@
 //! These tests verify the function compiles and returns errors without init.
 
 use pmix::InfoBuilder;
-use pmix::events::{HandlerRegCbFn, NotificationFn, register_event_handler_nb};
+use pmix::events::{HandlerRegCbFn, register_event_handler_nb};
 
 /// `register_event_handler_nb` compiles with correct signature.
 #[test]
@@ -12,7 +12,7 @@ fn register_event_handler_nb_compiles() {
     let result = register_event_handler_nb(
         &[],
         &info,
-        None as NotificationFn,
+        None,
         None as HandlerRegCbFn,
         std::ptr::null_mut(),
     );
