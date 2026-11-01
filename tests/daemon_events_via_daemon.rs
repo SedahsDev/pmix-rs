@@ -9,8 +9,8 @@
 mod daemon_helper;
 
 use pmix::events::{
-    HandlerRegCbFn, NotificationFn, OpCbFn, deregister_event_handler, deregister_event_handler_nb,
-    notify_event, notify_event_nb, register_event_handler, register_event_handler_nb,
+    HandlerRegCbFn, OpCbFn, deregister_event_handler, deregister_event_handler_nb, notify_event,
+    notify_event_nb, register_event_handler, register_event_handler_nb,
 };
 use pmix::server::{PmixServerModule, server_finalize, server_init};
 use pmix::{InfoBuilder, PmixDataRange, PmixStatus, Proc};
@@ -21,12 +21,8 @@ use pmix::{InfoBuilder, PmixDataRange, PmixStatus, Proc};
 
 #[test]
 fn test_register_event_handler_type() {
-    let _f: fn(
-        &[PmixStatus],
-        &pmix::Info,
-        NotificationFn,
-        HandlerRegCbFn,
-    ) -> Result<usize, PmixStatus> = register_event_handler;
+    let _f: fn(&[PmixStatus], &pmix::Info, Option<_>, HandlerRegCbFn) -> Result<usize, PmixStatus> =
+        register_event_handler;
 }
 
 #[test]
@@ -45,7 +41,7 @@ fn test_register_event_handler_nb_type() {
     let _f: fn(
         &[PmixStatus],
         &pmix::Info,
-        NotificationFn,
+        Option<_>,
         HandlerRegCbFn,
         *mut std::os::raw::c_void,
     ) -> Result<(), PmixStatus> = register_event_handler_nb;
@@ -92,7 +88,7 @@ fn test_events_all_ffi_operations() {
     let handle = server_init(Some(&module), &info).expect("server_init");
 
     // Use None for callbacks — they are Option<extern "C" fn ...>
-    let notification_fn: NotificationFn = None;
+    let notification_fn = None;
     let reg_cb: HandlerRegCbFn = None;
     let op_cb: OpCbFn = None;
     let cbdata: *mut std::os::raw::c_void = std::ptr::null_mut();
@@ -111,7 +107,7 @@ fn test_events_all_ffi_operations() {
     }
 
     // ── Non-blocking register/deregister variants ──
-    let _ = register_event_handler_nb(&codes, &reg_info, notification_fn, reg_cb, cbdata);
+    let _ = register_event_handler_nb(&codes, &reg_info, None, reg_cb, cbdata);
     let _ = deregister_event_handler_nb(0, op_cb, cbdata);
 
     // NOTE: notify_event / notify_event_nb are skipped — PRTE system server

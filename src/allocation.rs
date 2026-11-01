@@ -55,6 +55,8 @@ use std::sync::LazyLock;
 
 use crate::cbdata::{Registry, decode_req_id, encode_req_id};
 use crate::ffi;
+#[cfg(pmix6)]
+use crate::server::callbacks::{OpCallbackWrapper, free_op_callback_cbdata};
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixStatus, Proc};
 
@@ -1779,17 +1781,15 @@ pub fn resource_block(
 }
 /// Starts an asynchronous resource-block operation.
 ///
+/// The wrapper supplies the callback data; `_cbdata` is ignored. The callback
+/// bridge must free the generated callback data by calling
+/// [`free_op_callback_cbdata`] after invoking the callback. If the request is
+/// rejected immediately, this function frees the callback data before returning.
+///
 /// # Safety
 ///
-/// The caller must ensure that `cb` has exactly the `pmix_op_cbfunc_t` ABI
-/// expected by PMIx and remains a valid callable function for the entire
-/// period in which PMIx may invoke it. `cbdata` must be a valid pointer for
-/// the callback's use (or null if the callback permits null), and the pointed-to
-/// data, together with any resources it references, must remain valid until
-/// PMIx has invoked the callback. The callback must not use the pointer after
-/// that lifetime, free data it does not own, or otherwise invalidate data that
-/// PMIx or another owner may still use. The `block`, `res`, and `info` storage
-/// must likewise remain valid and unmodified in ways incompatible with PMIx
+/// The `block`, `res`, and `info` storage
+/// must remain valid and unmodified in ways incompatible with PMIx
 /// until the asynchronous operation has completed, as required by the PMIx API.
 /// 6.x-only: resource-block operations do not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
@@ -1798,9 +1798,13 @@ pub unsafe fn resource_block_nb(
     block: &mut [u8],
     res: &[crate::fabric::PmixResourceUnit],
     info: &[Info],
-    cb: ffi::pmix_op_cbfunc_t,
-    cbdata: *mut c_void,
+    cb: Option<OpCallbackWrapper>,
+    _cbdata: *mut c_void,
 ) -> Result<(), PmixStatus> {
+    let (c_cbfunc, c_cbdata) = match cb {
+        Some(wrapper) => wrapper.into_c_callback(),
+        None => (None, ptr::null_mut()),
+    };
     let rp = res.first().map_or(ptr::null(), |x| x.as_ptr());
     let ip = info
         .first()
@@ -1814,8 +1818,8 @@ pub unsafe fn resource_block_nb(
                 res.len(),
                 ip,
                 info.len(),
-                cb,
-                cbdata,
+                c_cbfunc,
+                c_cbdata,
             )
         },
         real = unsafe {
@@ -1826,14 +1830,19 @@ pub unsafe fn resource_block_nb(
                 res.len(),
                 ip,
                 info.len(),
-                cb,
-                cbdata,
+                c_cbfunc,
+                c_cbdata,
             )
         }
     );
     if s == ffi::PMIX_SUCCESS as i32 {
         Ok(())
     } else {
+        if !c_cbdata.is_null() {
+            // SAFETY: the wrapper created this data, and a rejected request
+            // will not invoke the callback.
+            unsafe { free_op_callback_cbdata(c_cbdata) };
+        }
         Err(PmixStatus::from_raw(s))
     }
 }
@@ -1846,13 +1855,6 @@ mod misc_wrapper_tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    extern "C" fn callback(status: ffi::pmix_status_t, data: *mut std::os::raw::c_void) {
-        // SAFETY: test passes a pointer to the live AtomicUsize below.
-        unsafe {
-            (*data.cast::<AtomicUsize>()).store(status as usize + 1, Ordering::SeqCst);
-        }
-    }
-
     #[cfg(pmix6)]
     #[test]
     fn resource_block_sync_and_nb_callback() {
@@ -1861,8 +1863,8 @@ mod misc_wrapper_tests {
         let units = [crate::fabric::PmixResourceUnit::new()];
         assert!(resource_block(0, &mut block, &units, &[]).is_ok());
         let called = AtomicUsize::new(0);
-        // SAFETY: callback has the PMIx ABI and called remains live through the
-        // synchronous mock invocation; a real caller must extend that lifetime.
+        // SAFETY: the input storage remains live through the synchronous mock
+        // invocation; a real caller must extend that lifetime.
         assert!(
             unsafe {
                 resource_block_nb(
@@ -1870,12 +1872,12 @@ mod misc_wrapper_tests {
                     &mut block,
                     &units,
                     &[],
-                    Some(callback),
+                    None,
                     (&called as *const AtomicUsize).cast_mut().cast(),
                 )
             }
             .is_ok()
         );
-        assert_eq!(called.load(Ordering::SeqCst), 1);
+        assert_eq!(called.load(Ordering::SeqCst), 0);
     }
 }

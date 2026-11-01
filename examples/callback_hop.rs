@@ -24,6 +24,7 @@
 //! prterun --np 2 ./target/debug/examples/callback_hop
 //! ```
 
+use pmix::events::NotificationFn;
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::mpsc;
@@ -135,7 +136,7 @@ unsafe fn on_event(
     _ninfo: usize,
     _results: *mut c_void,
     _nresults: usize,
-    cbfunc: pmix::events::pmix_event_notification_cbfunc_fn_t,
+    cbfunc: Option<pmix::events::NotificationCallbackWrapper>,
     cbdata: *mut c_void,
 ) {
     // We are on the progress thread — this marker is documentation, and any
@@ -157,16 +158,14 @@ unsafe fn on_event(
             // SAFETY: complete the event chain; return OpenPMIx's chain pointer
             // verbatim (never NULL). Address was received from OpenPMIx and is
             // valid until the chain completes.
-            unsafe {
-                cbfunc(
-                    status,
-                    ptr::null_mut(),
-                    0,
-                    None,
-                    ptr::null_mut(),
-                    chain_addr as *mut c_void,
-                );
-            }
+            Box::new(cbfunc).call(
+                pmix::PmixStatus::from_raw(status),
+                ptr::null_mut(),
+                0,
+                None,
+                ptr::null_mut(),
+                chain_addr as *mut c_void,
+            );
         }
     });
 }

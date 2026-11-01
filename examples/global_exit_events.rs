@@ -11,6 +11,7 @@
 //! the connection failure is reported and the example exits gracefully. With
 //! a DVM, run `prterun -n 2 ./target/debug/examples/global_exit_events`.
 
+use pmix::events::NotificationFn;
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::mpsc;
@@ -138,7 +139,7 @@ unsafe fn on_global_exit(
     _ninfo: usize,
     _results: *mut c_void,
     _nresults: usize,
-    cbfunc: pmix::events::pmix_event_notification_cbfunc_fn_t,
+    cbfunc: Option<pmix::events::NotificationCallbackWrapper>,
     cbdata: *mut c_void,
 ) {
     let _progress = pmix::threading::ProgressContext;
@@ -148,16 +149,14 @@ unsafe fn on_global_exit(
         if let Some(cbfunc) = cbfunc {
             // SAFETY: PMIx supplied this chain callback and cbdata for this
             // notification; completing it once is required by the API.
-            unsafe {
-                cbfunc(
-                    status,
-                    ptr::null_mut(),
-                    0,
-                    None,
-                    ptr::null_mut(),
-                    chain_addr as *mut c_void,
-                );
-            }
+            Box::new(cbfunc).call(
+                pmix::PmixStatus::Known(pmix::PmixError::ErrProcRequestedAbort),
+                ptr::null_mut(),
+                0,
+                None,
+                ptr::null_mut(),
+                chain_addr as *mut c_void,
+            );
         }
         match pmix::process_mgmt::abort(
             pmix::PmixStatus::Known(pmix::PmixError::Error),
@@ -179,7 +178,7 @@ unsafe fn on_ready_for_debug(
     _ninfo: usize,
     _results: *mut c_void,
     _nresults: usize,
-    cbfunc: pmix::events::pmix_event_notification_cbfunc_fn_t,
+    cbfunc: Option<pmix::events::NotificationCallbackWrapper>,
     cbdata: *mut c_void,
 ) {
     let _progress = pmix::threading::ProgressContext;
@@ -188,16 +187,14 @@ unsafe fn on_ready_for_debug(
         println!("[app thread] ready-for-debug status={status}");
         if let Some(cbfunc) = cbfunc {
             // SAFETY: PMIx supplied the callback and chain data for this event.
-            unsafe {
-                cbfunc(
-                    status,
-                    ptr::null_mut(),
-                    0,
-                    None,
-                    ptr::null_mut(),
-                    chain_addr as *mut c_void,
-                );
-            }
+            Box::new(cbfunc).call(
+                pmix::PmixStatus::Known(pmix::PmixError::ReadyForDebug),
+                ptr::null_mut(),
+                0,
+                None,
+                ptr::null_mut(),
+                chain_addr as *mut c_void,
+            );
         }
     });
 }

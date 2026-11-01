@@ -193,9 +193,142 @@ mod tests;
 pub use session::{PmixServer, PmixServerState};
 
 // Re-export submodule items at server:: for stable paths.
+pub use callbacks::free_op_callback_cbdata;
 pub use cred::*;
 pub use data::*;
 pub use pset::*;
+
+/// Operation completion callback utilities.
+pub mod callbacks {
+    pub use super::OpCallbackWrapper;
+
+    /// Release callback data when an operation is rejected without a callback.
+    ///
+    /// # Safety
+    /// `cbdata` must come from `OpCallbackWrapper::into_c` and must not
+    /// have been consumed or be used by a subsequent callback.
+    pub unsafe fn free_op_callback_cbdata(cbdata: *mut std::ffi::c_void) {
+        if !cbdata.is_null() {
+            unsafe { drop(Box::from_raw(cbdata.cast::<OpCallbackWrapper>())) };
+        }
+    }
+}
+
+/// An owned, one-shot operation completion callback.
+pub struct OpCallbackWrapper(Box<dyn FnOnce(PmixStatus) + Send + 'static>);
+
+impl OpCallbackWrapper {
+    /// Wrap a Rust operation completion callback.
+    pub fn new(callback: impl FnOnce(PmixStatus) + Send + 'static) -> Self {
+        Self(Box::new(callback))
+    }
+
+    /// Complete the operation, consuming the callback.
+    pub fn call(self, status: PmixStatus) {
+        (self.0)(status);
+    }
+
+    /// Transfer ownership to a one-shot C callback and its opaque data.
+    ///
+    /// Invoke the callback exactly once, or release the data with
+    /// [`callbacks::free_op_callback_cbdata`] if the operation is rejected.
+    pub fn into_c(self) -> (Option<unsafe extern "C" fn(i32, *mut c_void)>, *mut c_void) {
+        unsafe extern "C" fn bridge(status: i32, cbdata: *mut c_void) {
+            if cbdata.is_null() {
+                return;
+            }
+            // SAFETY: into_c transfers a boxed wrapper to this one-shot bridge.
+            let callback = unsafe { Box::from_raw(cbdata.cast::<OpCallbackWrapper>()) };
+            let _ = invoke_user_callback("server", move || {
+                callback.call(PmixStatus::from_raw(status));
+            });
+        }
+
+        (Some(bridge), Box::into_raw(Box::new(self)).cast())
+    }
+
+    /// Transfer ownership to C; see [`Self::into_c`] for the ownership contract.
+    pub fn into_c_callback(self) -> (Option<unsafe extern "C" fn(i32, *mut c_void)>, *mut c_void) {
+        self.into_c()
+    }
+
+    // SAFETY: The caller must ensure PMIx permits this completion callback
+    // and its opaque data to be retained and invoked from another thread.
+    unsafe fn from_raw(callback: ffi::pmix_op_cbfunc_t, cbdata: *mut c_void) -> Option<Self> {
+        callback.map(|callback| {
+            let cbdata = cbdata as usize;
+            Self::new(move |status| unsafe {
+                callback(status.to_raw(), cbdata as *mut c_void);
+            })
+        })
+    }
+}
+
+impl std::fmt::Debug for OpCallbackWrapper {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OpCallbackWrapper")
+            .finish_non_exhaustive()
+    }
+}
+
+/// Host operation upcall with a process and an array of entries.
+pub type ServerOpCallback<T> =
+    unsafe fn(*const ffi::pmix_proc_t, *const T, usize, Option<OpCallbackWrapper>, *mut c_void);
+
+/// Host operation upcall with two request arguments.
+pub type ServerOpDataCallback<A, B> = unsafe fn(A, B, Option<OpCallbackWrapper>, *mut c_void);
+
+/// Host abort upcall.
+pub type ServerAbortCallback = unsafe fn(
+    *const ffi::pmix_proc_t,
+    i32,
+    *const ffi::pmix_info_t,
+    usize,
+    *mut c_void,
+    Option<OpCallbackWrapper>,
+    *mut c_void,
+);
+
+/// Host event notification upcall.
+pub type ServerNotifyEventCallback = unsafe fn(
+    u32,
+    *const ffi::pmix_proc_t,
+    u32,
+    *const ffi::pmix_info_t,
+    usize,
+    ffi::pmix_info_t,
+    usize,
+    Option<OpCallbackWrapper>,
+    *mut c_void,
+);
+
+const SERVER_MODULE_CALLBACK_COUNT: usize = std::mem::size_of::<ffi::pmix_server_module_t>()
+    / std::mem::size_of::<Option<unsafe extern "C" fn()>>();
+
+#[repr(C)]
+#[derive(Debug)]
+struct RawPmixServerModule([Option<unsafe extern "C" fn()>; SERVER_MODULE_CALLBACK_COUNT]);
+
+const _: () = {
+    assert!(
+        std::mem::size_of::<RawPmixServerModule>()
+            == std::mem::size_of::<ffi::pmix_server_module_t>()
+    );
+    assert!(
+        std::mem::align_of::<RawPmixServerModule>()
+            == std::mem::align_of::<ffi::pmix_server_module_t>()
+    );
+};
+
+/// Zero-sized marker for shared storage of converted C callback tables.
+#[doc(hidden)]
+#[derive(Debug, Default)]
+pub struct ServerModuleCallbackState;
+
+// Keep returned C table addresses stable when the vector grows.
+static SERVER_MODULE_CALLBACK_TABLES: Mutex<Vec<std::pin::Pin<Box<RawPmixServerModule>>>> =
+    Mutex::new(Vec::new());
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixServerModule — safe wrapper around pmix_server_module_t
@@ -288,17 +421,7 @@ pub struct PmixServerModule {
     ///
     /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
     /// Complete via the provided `pmix_op_cbfunc_t` after hopping if work blocks.
-    pub abort: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            i32,
-            *const ffi::pmix_info_t,
-            usize,
-            *mut c_void,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub abort: Option<ServerAbortCallback>,
 
     /// Non-blocking fence / collective upcall (`PMIx_Fence` / `PMIx_Fence_nb`).
     ///
@@ -340,15 +463,7 @@ pub struct PmixServerModule {
     >,
 
     /// Publish callback — client requests to publish data.
-    pub publish: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub publish: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Lookup callback — client requests to lookup data.
     pub lookup: Option<
@@ -364,15 +479,7 @@ pub struct PmixServerModule {
     >,
 
     /// Unpublish callback — client requests to remove published data.
-    pub unpublish: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_pdata_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub unpublish: Option<ServerOpCallback<ffi::pmix_pdata_t>>,
 
     /// Spawn callback — client requests to spawn new processes.
     pub spawn: Option<
@@ -399,63 +506,19 @@ pub struct PmixServerModule {
     >,
 
     /// Disconnect callback — client requests to disconnect.
-    pub disconnect: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_nspace_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub disconnect: Option<ServerOpCallback<ffi::pmix_nspace_t>>,
 
     /// Register events callback.
-    pub register_events: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub register_events: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Deregister events callback.
-    pub deregister_events: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub deregister_events: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Listener callback — for server-to-server communication.
-    pub listener: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub listener: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Notify event callback — deliver notifications to the server.
-    pub notify_event: Option<
-        unsafe extern "C" fn(
-            u32,
-            *const ffi::pmix_proc_t,
-            u32,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub notify_event: Option<ServerNotifyEventCallback>,
 
     /// Query callback — client requests server-side query.
     pub query: Option<
@@ -469,26 +532,10 @@ pub struct PmixServerModule {
     >,
 
     /// Tool connection callback — accepts tool connections.
-    pub tool_connected: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub tool_connected: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Log callback — client requests logging.
-    pub log: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub log: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Allocation callback — client requests resource allocation.
     pub allocate: Option<
@@ -558,14 +605,8 @@ pub struct PmixServerModule {
     >,
 
     /// Push stdin callback.
-    pub push_stdin: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_byte_object_t,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub push_stdin:
+        Option<ServerOpDataCallback<*const ffi::pmix_proc_t, *const ffi::pmix_byte_object_t>>,
 
     /// Group operations callback.
     pub group: Option<
@@ -594,43 +635,19 @@ pub struct PmixServerModule {
     >,
 
     /// Client connected v2 callback.
-    pub client_connected2: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub client_connected2: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Tool connection v2 callback.
     ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub tool_connected2: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub tool_connected2: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Log v2 callback.
     ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub log2: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_op_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub log2: Option<ServerOpCallback<ffi::pmix_info_t>>,
 
     /// Session control callback (PMIx 5.x).
     pub session_control: Option<
@@ -647,19 +664,157 @@ pub struct PmixServerModule {
     ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub resource_block: Option<
-        unsafe extern "C" fn(*const ffi::pmix_info_t, usize, ffi::pmix_op_cbfunc_t, *mut c_void),
-    >,
+    pub resource_block: Option<ServerOpDataCallback<*const ffi::pmix_info_t, usize>>,
+
+    /// Internal marker for the converted C callback table storage.
+    #[doc(hidden)]
+    pub callback_state: ServerModuleCallbackState,
 }
 
-const _: () = assert!(
-    std::mem::size_of::<PmixServerModule>() == std::mem::size_of::<ffi::pmix_server_module_t>()
-);
+macro_rules! server_op_upcalls {
+    ($(
+        $(#[$attribute:meta])*
+        $field:ident($($argument:ident: $argument_type:ty),* $(,)?);
+    )*) => {
+        #[derive(Default)]
+        struct ServerOpUpcalls {
+            $(
+                $(#[$attribute])*
+                $field: Option<
+                    unsafe fn($($argument_type,)* Option<OpCallbackWrapper>, *mut c_void),
+                >,
+            )*
+        }
+
+        impl ServerOpUpcalls {
+            fn from_module(module: &PmixServerModule) -> Self {
+                Self {
+                    $(
+                        $(#[$attribute])*
+                        $field: module.$field,
+                    )*
+                }
+            }
+        }
+
+        static SERVER_OP_UPCALLS: LazyLock<Mutex<ServerOpUpcalls>> =
+            LazyLock::new(|| Mutex::new(ServerOpUpcalls::default()));
+
+        $(
+            $(#[$attribute])*
+            unsafe extern "C" fn $field(
+                $($argument: $argument_type,)*
+                cbfunc: ffi::pmix_op_cbfunc_t,
+                cbdata: *mut c_void,
+            ) {
+                let callback = SERVER_OP_UPCALLS
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .$field;
+
+                if let Some(callback) = callback {
+                    // SAFETY: PMIx supplies the completion callback and its
+                    // opaque data for this asynchronous host request.
+                    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+                    let _ = invoke_user_callback("server", move || {
+                        // SAFETY: Arguments are forwarded unchanged from PMIx.
+                        unsafe { callback($($argument,)* completion, cbdata) };
+                    });
+                }
+            }
+        )*
+    };
+}
+
+server_op_upcalls! {
+    abort(
+        proc: *const ffi::pmix_proc_t,
+        status: i32,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+        server_object: *mut c_void,
+    );
+    publish(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    unpublish(
+        proc: *const ffi::pmix_proc_t,
+        data: *const ffi::pmix_pdata_t,
+        ndata: usize,
+    );
+    disconnect(
+        proc: *const ffi::pmix_proc_t,
+        nspace: *const ffi::pmix_nspace_t,
+        count: usize,
+    );
+    register_events(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    deregister_events(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    listener(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    notify_event(
+        status: u32,
+        proc: *const ffi::pmix_proc_t,
+        range: u32,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+        results: ffi::pmix_info_t,
+        nresults: usize,
+    );
+    tool_connected(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    log(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    push_stdin(
+        proc: *const ffi::pmix_proc_t,
+        data: *const ffi::pmix_byte_object_t,
+    );
+    client_connected2(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    #[cfg(pmix6)]
+    tool_connected2(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    #[cfg(pmix6)]
+    log2(
+        proc: *const ffi::pmix_proc_t,
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+    #[cfg(pmix6)]
+    resource_block(
+        info: *const ffi::pmix_info_t,
+        ninfo: usize,
+    );
+}
 
 impl PmixServerModule {
     /// Convert this safe module into the raw C server module pointer.
     ///
-    /// The returned pointer points to stack memory that is valid for
+    /// The returned pointer points to shared callback-table storage valid for
     /// the duration of the `PMIx_server_init` call. Do not store the
     /// pointer beyond the call — the PMIx library copies the struct
     /// internally during initialization.
@@ -668,8 +823,93 @@ impl PmixServerModule {
     /// The caller must ensure that any callback functions stored in
     /// this module remain valid for the lifetime of the PMIx server
     /// library (i.e., until `PMIx_server_finalize` is called).
+    /// Because the PMIx server is process-wide, do not select a different
+    /// module while the server is active.
     pub fn as_c_ptr(&self) -> *const c_void {
-        self as *const Self as *const c_void
+        macro_rules! raw_upcall {
+            ($field:ident) => {
+                self.$field.map(|callback| {
+                    // SAFETY: Only the pointer representation is erased.
+                    // PMIx invokes this slot with its original C signature.
+                    unsafe {
+                        std::mem::transmute::<*const (), unsafe extern "C" fn()>(
+                            callback as *const (),
+                        )
+                    }
+                })
+            };
+            ($field:ident => $bridge:ident) => {
+                self.$field.map(|_| {
+                    // SAFETY: The bridge has this slot's original C signature.
+                    unsafe {
+                        std::mem::transmute::<*const (), unsafe extern "C" fn()>(
+                            $bridge as *const (),
+                        )
+                    }
+                })
+            };
+        }
+
+        let callbacks = [
+            raw_upcall!(client_connected),
+            raw_upcall!(client_finalized),
+            raw_upcall!(abort => abort),
+            raw_upcall!(fence_nb),
+            raw_upcall!(direct_modex),
+            raw_upcall!(publish => publish),
+            raw_upcall!(lookup),
+            raw_upcall!(unpublish => unpublish),
+            raw_upcall!(spawn),
+            raw_upcall!(connect),
+            raw_upcall!(disconnect => disconnect),
+            raw_upcall!(register_events => register_events),
+            raw_upcall!(deregister_events => deregister_events),
+            raw_upcall!(listener => listener),
+            raw_upcall!(notify_event => notify_event),
+            raw_upcall!(query),
+            raw_upcall!(tool_connected => tool_connected),
+            raw_upcall!(log => log),
+            raw_upcall!(allocate),
+            raw_upcall!(job_control),
+            raw_upcall!(monitor),
+            raw_upcall!(get_credential),
+            raw_upcall!(validate_credential),
+            raw_upcall!(iof_pull),
+            raw_upcall!(push_stdin => push_stdin),
+            raw_upcall!(group),
+            raw_upcall!(fabric),
+            raw_upcall!(client_connected2 => client_connected2),
+            #[cfg(pmix6)]
+            raw_upcall!(tool_connected2 => tool_connected2),
+            #[cfg(pmix6)]
+            raw_upcall!(log2 => log2),
+            raw_upcall!(session_control),
+            #[cfg(pmix6)]
+            raw_upcall!(resource_block => resource_block),
+        ];
+
+        *SERVER_OP_UPCALLS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = ServerOpUpcalls::from_module(self);
+
+        let mut modules = SERVER_MODULE_CALLBACK_TABLES
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+
+        let module = modules.iter().find(|module| {
+            module.0.iter().zip(&callbacks).all(|(left, right)| {
+                left.map(|callback| callback as *const ())
+                    == right.map(|callback| callback as *const ())
+            })
+        });
+        if let Some(module) = module {
+            return module.as_ref().get_ref() as *const RawPmixServerModule as *const c_void;
+        }
+
+        let module = Box::pin(RawPmixServerModule(callbacks));
+        let pointer = module.as_ref().get_ref() as *const RawPmixServerModule as *const c_void;
+        modules.push(module);
+        pointer
     }
 }
 
@@ -3258,6 +3498,32 @@ pub fn server_collect_job_info(
 #[cfg(test)]
 mod misc_wrapper_tests {
     use super::*;
+
+    #[test]
+    fn op_callback_wrapper_construction() {
+        fn assert_send<T: Send>() {}
+
+        assert_send::<OpCallbackWrapper>();
+        let callback = OpCallbackWrapper::new(|_| {});
+        callback.call(PmixStatus::from_raw(0));
+    }
+
+    #[test]
+    fn op_callback_wrapper_receives_status() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let callback = OpCallbackWrapper::new(move |status| {
+            sender.send(status.to_raw()).unwrap();
+        });
+
+        std::thread::spawn(move || {
+            callback.call(PmixStatus::from_raw(-1));
+        })
+        .join()
+        .unwrap();
+
+        assert_eq!(receiver.recv().unwrap(), -1);
+    }
+
     #[cfg(pmix6)]
     #[test]
     fn server_cpuset_and_collect_job_info_wrappers() {
