@@ -69,6 +69,7 @@
 use crate::cbdata::Registry;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::security::PmixCredential;
+use crate::server::callbacks::{ModexCallback, ReleaseCallback};
 use crate::threading::invoke_user_callback;
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
 use std::collections::HashMap;
@@ -201,6 +202,71 @@ pub use pset::*;
 /// Operation completion callback utilities.
 pub mod callbacks {
     pub use super::OpCallbackWrapper;
+    use crate::{PmixStatus, ffi};
+    use std::os::raw::{c_char, c_void};
+
+    /// An owned, one-shot release callback supplied by PMIx.
+    pub struct ReleaseCallback(
+        Box<dyn FnOnce(*mut c_void) + Send + 'static>,
+        ffi::pmix_release_cbfunc_t,
+    );
+
+    impl ReleaseCallback {
+        /// Wrap a Rust release callback for invocation with [`Self::call`].
+        pub fn new(callback: impl FnOnce(*mut c_void) + Send + 'static) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Invoke the release callback, consuming this wrapper.
+        ///
+        /// # Safety
+        /// `cbdata` must satisfy the original callback's lifetime and
+        /// thread requirements.
+        pub unsafe fn call(self, cbdata: *mut c_void) {
+            (self.0)(cbdata);
+        }
+
+        /// Restore the original C callback, consuming this wrapper.
+        ///
+        /// Returns `None` for a Rust closure created with [`Self::new`].
+        pub fn into_c_callback(self) -> Option<unsafe extern "C" fn(*mut c_void)> {
+            self.1
+        }
+    }
+
+    impl Default for ReleaseCallback {
+        fn default() -> Self {
+            Self(Box::new(|_| {}), None)
+        }
+    }
+
+    impl From<ffi::pmix_release_cbfunc_t> for ReleaseCallback {
+        fn from(callback: ffi::pmix_release_cbfunc_t) -> Self {
+            Self(
+                Box::new(move |cbdata| {
+                    if let Some(callback) = callback {
+                        // SAFETY: call requires the original callback contract.
+                        unsafe { callback(cbdata) };
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl From<ReleaseCallback> for ffi::pmix_release_cbfunc_t {
+        fn from(callback: ReleaseCallback) -> Self {
+            callback.into_c_callback()
+        }
+    }
+
+    impl std::fmt::Debug for ReleaseCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("ReleaseCallback")
+                .finish_non_exhaustive()
+        }
+    }
 
     /// Release callback data when an operation is rejected without a callback.
     ///
@@ -210,6 +276,104 @@ pub mod callbacks {
     pub unsafe fn free_op_callback_cbdata(cbdata: *mut std::ffi::c_void) {
         if !cbdata.is_null() {
             unsafe { drop(Box::from_raw(cbdata.cast::<OpCallbackWrapper>())) };
+        }
+    }
+
+    type ModexClosure = dyn FnOnce(PmixStatus, *const c_char, usize, *mut c_void, ReleaseCallback, *mut c_void)
+        + Send
+        + 'static;
+
+    type RawModexCallback = ffi::pmix_modex_cbfunc_t;
+
+    /// An owned, one-shot modex completion callback supplied by PMIx.
+    pub struct ModexCallback(Box<ModexClosure>, RawModexCallback);
+
+    impl ModexCallback {
+        /// Wrap a Rust modex callback for invocation with [`Self::call`].
+        pub fn new(
+            callback: impl FnOnce(
+                PmixStatus,
+                *const c_char,
+                usize,
+                *mut c_void,
+                ReleaseCallback,
+                *mut c_void,
+            ) + Send
+            + 'static,
+        ) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Complete the modex operation, consuming this wrapper.
+        ///
+        /// # Safety
+        /// The data buffer and opaque pointers must satisfy the original
+        /// callback's lifetime, ownership and thread requirements.
+        pub unsafe fn call(
+            self,
+            status: PmixStatus,
+            data: *const c_char,
+            len: usize,
+            cbdata: *mut c_void,
+            release: ReleaseCallback,
+            release_cbdata: *mut c_void,
+        ) {
+            (self.0)(status, data, len, cbdata, release, release_cbdata);
+        }
+
+        /// Restore the original C callback, consuming this wrapper.
+        ///
+        /// Returns `None` for a Rust closure created with [`Self::new`].
+        pub fn into_c_callback(
+            self,
+        ) -> Option<
+            unsafe extern "C" fn(
+                i32,
+                *const c_char,
+                usize,
+                *mut c_void,
+                Option<unsafe extern "C" fn(*mut c_void)>,
+                *mut c_void,
+            ),
+        > {
+            self.1
+        }
+    }
+
+    impl From<ffi::pmix_modex_cbfunc_t> for ModexCallback {
+        fn from(callback: ffi::pmix_modex_cbfunc_t) -> Self {
+            Self(
+                Box::new(move |status, data, len, cbdata, release, release_cbdata| {
+                    if let Some(callback) = callback {
+                        // SAFETY: call requires the original callback contract.
+                        unsafe {
+                            callback(
+                                status.to_raw(),
+                                data,
+                                len,
+                                cbdata,
+                                release.into_c_callback(),
+                                release_cbdata,
+                            );
+                        }
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl From<ModexCallback> for ffi::pmix_modex_cbfunc_t {
+        fn from(callback: ModexCallback) -> Self {
+            callback.into_c_callback()
+        }
+    }
+
+    impl std::fmt::Debug for ModexCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("ModexCallback")
+                .finish_non_exhaustive()
         }
     }
 }
@@ -278,6 +442,19 @@ pub type ServerOpCallback<T> =
 
 /// Host operation upcall with two request arguments.
 pub type ServerOpDataCallback<A, B> = unsafe fn(A, B, Option<OpCallbackWrapper>, *mut c_void);
+
+/// Host fence upcall completed with a one-shot [`ModexCallback`].
+pub type ServerModexCallback = unsafe fn(
+    *const ffi::pmix_proc_t,
+    *const ffi::pmix_nspace_t,
+    usize,
+    *const ffi::pmix_info_t,
+    usize,
+    *mut ffi::pmix_info_t,
+    usize,
+    Option<ModexCallback>,
+    *mut c_void,
+);
 
 /// Host abort upcall.
 pub type ServerAbortCallback = unsafe fn(
@@ -370,7 +547,7 @@ static SERVER_MODULE_CALLBACK_TABLES: Mutex<Vec<(usize, std::pin::Pin<Box<RawPmi
 /// let _ = pmix::threading::spawn_from_callback(move || {
 ///     // RM / network work is safe here
 ///     if let Some(cb) = cb {
-///         unsafe { cb(PMIX_SUCCESS, /* … */, chain as *mut _, None, std::ptr::null_mut()); }
+///         unsafe { cb.call(PmixStatus::from_raw(PMIX_SUCCESS), /* … */, chain as *mut _, ReleaseCallback::default(), std::ptr::null_mut()); }
 ///     }
 /// });
 /// // return PMIX_SUCCESS from the upcall immediately
@@ -427,24 +604,12 @@ pub struct PmixServerModule {
     ///
     /// OpenPMIx calls this once local participants have contributed. The host
     /// must share any provided modex blob with peer daemons and complete via
-    /// the provided callback — typically **after** hopping off progress
+    /// the provided [`ModexCallback`] — typically **after** hopping off progress
     /// (network / collective work must not block the upcall).
     ///
     /// **Not a CPU-pin target** — progress pinning is separate ([THREADING.md](../../THREADING.md)).
     /// Pattern: `examples/server_upcall_hop.rs`.
-    pub fence_nb: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_nspace_t,
-            usize,
-            *const ffi::pmix_info_t,
-            usize,
-            *mut ffi::pmix_info_t,
-            usize,
-            ffi::pmix_modex_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub fence_nb: Option<ServerModexCallback>,
 
     /// Direct modex request — fetch a remote proc's modex blob via the host.
     ///
@@ -678,6 +843,7 @@ macro_rules! server_op_upcalls {
     )*) => {
         #[derive(Default)]
         struct ServerOpUpcalls {
+            fence_nb: Option<ServerModexCallback>,
             $(
                 $(#[$attribute])*
                 $field: Option<
@@ -689,6 +855,7 @@ macro_rules! server_op_upcalls {
         impl ServerOpUpcalls {
             fn from_module(module: &PmixServerModule) -> Self {
                 Self {
+                    fence_nb: module.fence_nb,
                     $(
                         $(#[$attribute])*
                         $field: module.$field,
@@ -811,6 +978,36 @@ server_op_upcalls! {
     );
 }
 
+unsafe extern "C" fn fence_nb(
+    proc: *const ffi::pmix_proc_t,
+    nspace: *const ffi::pmix_nspace_t,
+    count: usize,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    results: *mut ffi::pmix_info_t,
+    nresults: usize,
+    cbfunc: ffi::pmix_modex_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .fence_nb;
+
+    if let Some(callback) = callback {
+        let completion = cbfunc.map(|callback| ModexCallback::from(Some(callback)));
+        let _ = invoke_user_callback("server", move || {
+            // SAFETY: Arguments are forwarded unchanged from PMIx, with
+            // the completion callback converted at the FFI boundary.
+            unsafe {
+                callback(
+                    proc, nspace, count, info, ninfo, results, nresults, completion, cbdata,
+                );
+            }
+        });
+    }
+}
+
 impl PmixServerModule {
     /// Convert this safe module into the raw C server module pointer.
     ///
@@ -854,7 +1051,7 @@ impl PmixServerModule {
             raw_upcall!(client_connected),
             raw_upcall!(client_finalized),
             raw_upcall!(abort => abort),
-            raw_upcall!(fence_nb),
+            raw_upcall!(fence_nb => fence_nb),
             raw_upcall!(direct_modex),
             raw_upcall!(publish => publish),
             raw_upcall!(lookup),
@@ -2824,13 +3021,13 @@ pub trait CollectInventoryCallback: Send + 'static {
 /// Results from a `server_collect_inventory` call.
 ///
 /// Contains the collected inventory as an array of info entries.
-/// The underlying C memory is automatically freed when this value
-/// is dropped.
+/// The underlying C memory is automatically freed by its [`ReleaseCallback`]
+/// when this value is dropped.
 #[derive(Debug)]
 pub struct CollectInventoryResults {
     handle: *mut ffi::pmix_info_t,
     len: usize,
-    release_fn: ffi::pmix_release_cbfunc_t,
+    release_fn: ReleaseCallback,
     release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
@@ -2850,7 +3047,7 @@ impl CollectInventoryResults {
 
 impl Drop for CollectInventoryResults {
     fn drop(&mut self) {
-        if let Some(release_fn) = self.release_fn.take() {
+        if let Some(release_fn) = std::mem::take(&mut self.release_fn).into_c_callback() {
             // SAFETY: PMIx supplied this callback and opaque data for this
             // completion; it releases the tracker-owned info array.
             unsafe { release_fn(self.release_cbdata) };
@@ -2910,7 +3107,7 @@ pub(crate) extern "C" fn collect_inventory_callback_bridge(
     let inventory = CollectInventoryResults {
         handle: info,
         len: ninfo,
-        release_fn,
+        release_fn: release_fn.into(),
         release_cbdata,
         _not_thread_safe: std::marker::PhantomData,
     };
