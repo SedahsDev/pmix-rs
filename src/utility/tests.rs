@@ -3198,7 +3198,7 @@ fn regattr_repeated_load_replaces_previous_contents() {
 #[test]
 fn regattr_array_is_raii_managed() {
     let _guard = crate::mock_ffi::MockGuard::new();
-    let mut array = regattr_create(2).unwrap();
+    let array = regattr_create(2).unwrap();
     assert_eq!(array.len(), 2);
     assert!(!array.as_mut_ptr().is_null());
 }

@@ -1701,12 +1701,24 @@ mod tests;
 // PmixRegattr — safe wrapper for pmix_regattr_t
 // ─────────────────────────────────────────────────────────────────────────────
 
+type RawRegattr = ffi::pmix_regattr_t;
+
 /// Safe owner of a PMIx attribute-registration descriptor.
-#[derive(Debug)]
 pub struct PmixRegattr {
     raw: std::mem::MaybeUninit<ffi::pmix_regattr_t>,
     constructed: bool,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
+}
+
+impl std::fmt::Debug for PmixRegattr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PmixRegattr")
+            .field("name", &self.name())
+            .field("string", &self.string())
+            .field("type_", &self.type_())
+            .field("descriptions", &self.descriptions())
+            .finish()
+    }
 }
 
 impl PmixRegattr {
@@ -1718,34 +1730,49 @@ impl PmixRegattr {
             _not_thread_safe: std::marker::PhantomData,
         };
         #[cfg(any(test, feature = "mock_ffi"))]
-        if crate::mock_ffi::is_mock_enabled() {
+        if cfg!(test) || crate::mock_ffi::is_mock_enabled() {
             // SAFETY: raw is this descriptor's uninitialized storage.
-            unsafe { crate::mock_ffi::mock_regattr_construct(this.raw.as_mut_ptr()) }
+            unsafe { crate::mock_ffi::mock_regattr_construct(this.as_mut_ptr()) }
         } else {
             // SAFETY: raw is this descriptor's uninitialized storage.
-            unsafe { ffi::PMIx_Regattr_construct(this.raw.as_mut_ptr()) }
+            unsafe { ffi::PMIx_Regattr_construct(this.as_mut_ptr()) }
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
         // SAFETY: raw is this descriptor's uninitialized storage.
         unsafe {
-            ffi::PMIx_Regattr_construct(this.raw.as_mut_ptr())
+            ffi::PMIx_Regattr_construct(this.as_mut_ptr())
         };
         this.constructed = true;
         this
     }
 
-    /// Construct a zeroed descriptor without calling PMIx, for tests.
-    pub fn test_new() -> Self {
+    /// Take ownership of an initialized PMIx descriptor.
+    ///
+    /// # Safety
+    /// The descriptor must be fully initialized by PMIx or its matching mock,
+    /// including NUL-terminated strings, and its contents must be uniquely owned
+    /// and valid for the matching descriptor destructor.
+    pub(crate) unsafe fn from_raw(raw: RawRegattr) -> Self {
         Self {
-            raw: std::mem::MaybeUninit::zeroed(),
+            raw: std::mem::MaybeUninit::new(raw),
             constructed: true,
             _not_thread_safe: std::marker::PhantomData,
         }
     }
 
+    /// Construct a zeroed descriptor without calling PMIx, for tests.
+    pub fn test_new() -> Self {
+        // SAFETY: zeroed fields form an empty descriptor valid for destruction.
+        unsafe { Self::from_raw(std::mem::MaybeUninit::zeroed().assume_init()) }
+    }
+
     fn raw(&self) -> &ffi::pmix_regattr_t {
         // SAFETY: construction or zero-initialization completed before access.
         unsafe { self.raw.assume_init_ref() }
+    }
+    /// Return the mutable descriptor pointer for internal FFI calls.
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut RawRegattr {
+        self.raw.as_mut_ptr()
     }
     fn cstr(&self, ptr: *const libc::c_char) -> Option<&str> {
         if ptr.is_null() {
@@ -1766,6 +1793,10 @@ impl PmixRegattr {
         } else {
             self.cstr(self.raw().string.as_ptr())
         }
+    }
+    /// Return the registered key, or an empty string when it is not valid UTF-8.
+    pub fn string(&self) -> &str {
+        self.key().unwrap_or("")
     }
     /// Return the PMIx data type.
     pub fn type_(&self) -> crate::PmixDataType {
@@ -1809,10 +1840,10 @@ impl PmixRegattr {
         self.drop_contents();
         // SAFETY: all C strings live through the call and PMIx copies them.
         #[cfg(any(test, feature = "mock_ffi"))]
-        if crate::mock_ffi::is_mock_enabled() {
+        if cfg!(test) || crate::mock_ffi::is_mock_enabled() {
             unsafe {
                 crate::mock_ffi::mock_regattr_load(
-                    self.raw.as_mut_ptr(),
+                    self.as_mut_ptr(),
                     name.as_ptr(),
                     key.as_ptr(),
                     ty,
@@ -1822,7 +1853,7 @@ impl PmixRegattr {
         } else {
             unsafe {
                 ffi::PMIx_Regattr_load(
-                    self.raw.as_mut_ptr(),
+                    self.as_mut_ptr(),
                     name.as_ptr(),
                     key.as_ptr(),
                     ty,
@@ -1833,7 +1864,7 @@ impl PmixRegattr {
         #[cfg(not(any(test, feature = "mock_ffi")))]
         unsafe {
             ffi::PMIx_Regattr_load(
-                self.raw.as_mut_ptr(),
+                self.as_mut_ptr(),
                 name.as_ptr(),
                 key.as_ptr(),
                 ty,
@@ -1847,28 +1878,28 @@ impl PmixRegattr {
         self.drop_contents();
         // SAFETY: both descriptors are initialized and remain borrowed for the call.
         #[cfg(any(test, feature = "mock_ffi"))]
-        if crate::mock_ffi::is_mock_enabled() {
-            unsafe { crate::mock_ffi::mock_regattr_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr()) };
+        if cfg!(test) || crate::mock_ffi::is_mock_enabled() {
+            unsafe { crate::mock_ffi::mock_regattr_xfer(self.as_mut_ptr(), src.raw.as_ptr()) };
         } else {
-            unsafe { ffi::PMIx_Regattr_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr()) };
+            unsafe { ffi::PMIx_Regattr_xfer(self.as_mut_ptr(), src.raw.as_ptr()) };
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
         unsafe {
-            ffi::PMIx_Regattr_xfer(self.raw.as_mut_ptr(), src.raw.as_ptr())
+            ffi::PMIx_Regattr_xfer(self.as_mut_ptr(), src.raw.as_ptr())
         };
         Ok(())
     }
     fn drop_contents(&mut self) {
         // SAFETY: the descriptor is initialized and exclusively borrowed.
         #[cfg(any(test, feature = "mock_ffi"))]
-        if crate::mock_ffi::is_mock_enabled() {
-            unsafe { crate::mock_ffi::mock_regattr_destruct(self.raw.as_mut_ptr()) };
+        if cfg!(test) || crate::mock_ffi::is_mock_enabled() {
+            unsafe { crate::mock_ffi::mock_regattr_destruct(self.as_mut_ptr()) };
         } else {
-            unsafe { ffi::PMIx_Regattr_destruct(self.raw.as_mut_ptr()) };
+            unsafe { ffi::PMIx_Regattr_destruct(self.as_mut_ptr()) };
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
         unsafe {
-            ffi::PMIx_Regattr_destruct(self.raw.as_mut_ptr())
+            ffi::PMIx_Regattr_destruct(self.as_mut_ptr())
         };
     }
 }
@@ -1884,14 +1915,14 @@ impl Drop for PmixRegattr {
         }
         // SAFETY: this descriptor was initialized exactly once and is dropped once.
         #[cfg(any(test, feature = "mock_ffi"))]
-        if crate::mock_ffi::is_mock_enabled() {
-            unsafe { crate::mock_ffi::mock_regattr_destruct(self.raw.as_mut_ptr()) };
+        if cfg!(test) || crate::mock_ffi::is_mock_enabled() {
+            unsafe { crate::mock_ffi::mock_regattr_destruct(self.as_mut_ptr()) };
         } else {
-            unsafe { ffi::PMIx_Regattr_destruct(self.raw.as_mut_ptr()) };
+            unsafe { ffi::PMIx_Regattr_destruct(self.as_mut_ptr()) };
         }
         #[cfg(not(any(test, feature = "mock_ffi")))]
         unsafe {
-            ffi::PMIx_Regattr_destruct(self.raw.as_mut_ptr())
+            ffi::PMIx_Regattr_destruct(self.as_mut_ptr())
         };
         self.constructed = false;
     }
@@ -1904,8 +1935,12 @@ pub struct PmixRegattrArray {
     len: usize,
 }
 impl PmixRegattrArray {
+    /// Allocate an array of attribute-registration descriptors.
+    pub fn new(len: usize) -> Result<Self, crate::PmixError> {
+        regattr_create(len)
+    }
     /// Return the mutable PMIx array pointer.
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_regattr_t {
+    pub(crate) fn as_mut_ptr(&self) -> *mut RawRegattr {
         self.ptr
     }
     /// Return the number of descriptors.
@@ -1919,11 +1954,11 @@ impl PmixRegattrArray {
 }
 impl Drop for PmixRegattrArray {
     fn drop(&mut self) {
-        if self.ptr.is_null() {
+        if self.as_mut_ptr().is_null() {
             return;
         }
         #[cfg(any(test, feature = "mock_ffi"))]
-        if crate::mock_ffi::is_mock_enabled() {
+        if cfg!(test) || crate::mock_ffi::is_mock_enabled() {
             // SAFETY: pointer and length came from the matching PMIx allocator.
             unsafe { crate::mock_ffi::mock_regattr_free(self.ptr, self.len) }
         } else {
@@ -1944,7 +1979,7 @@ pub fn regattr_create(n: usize) -> Result<PmixRegattrArray, crate::PmixError> {
         return Err(crate::PmixError::ErrBadParam);
     }
     #[cfg(any(test, feature = "mock_ffi"))]
-    let ptr = if crate::mock_ffi::is_mock_enabled() {
+    let ptr = if cfg!(test) || crate::mock_ffi::is_mock_enabled() {
         // SAFETY: n is positive and passed to the matching allocator.
         unsafe { crate::mock_ffi::mock_regattr_create(n) }
     } else {
@@ -1958,5 +1993,74 @@ pub fn regattr_create(n: usize) -> Result<PmixRegattrArray, crate::PmixError> {
         Err(crate::PmixError::ErrOutOfResource)
     } else {
         Ok(PmixRegattrArray { ptr, len: n })
+    }
+}
+
+#[cfg(test)]
+mod regattr_wrapper_tests {
+    use super::*;
+
+    #[test]
+    fn test_pmix_regattr_new() {
+        for attr in [PmixRegattr::new(), PmixRegattr::default()] {
+            assert_eq!(attr.name(), None);
+            assert_eq!(attr.string(), "");
+            assert_eq!(attr.type_().to_raw(), 0);
+            assert_eq!(attr.description(), None);
+            assert!(attr.descriptions().is_empty());
+            assert!(format!("{attr:?}").contains("PmixRegattr"));
+        }
+    }
+
+    #[test]
+    fn test_pmix_regattr_accessors() {
+        let mut raw = std::mem::MaybeUninit::uninit();
+        // SAFETY: the mock initializes this descriptor's storage.
+        unsafe { mock_ffi::mock_regattr_construct(raw.as_mut_ptr()) };
+        // SAFETY: the initialized mock descriptor's ownership is transferred here.
+        let mut attr = unsafe { PmixRegattr::from_raw(raw.assume_init()) };
+        attr.load(
+            "Host name",
+            "pmix.host",
+            PmixDataType::String.to_raw(),
+            "The host name",
+        )
+        .unwrap();
+
+        assert_eq!(attr.name(), Some("Host name"));
+        assert_eq!(attr.string(), "pmix.host");
+        assert_eq!(attr.key(), Some("pmix.host"));
+        assert_eq!(attr.type_().to_raw(), PmixDataType::String.to_raw());
+        assert_eq!(attr.description(), Some("The host name"));
+        assert_eq!(attr.descriptions(), vec!["The host name"]);
+        assert!(format!("{attr:?}").contains("pmix.host"));
+
+        // SAFETY: the descriptor is exclusively borrowed; the key stays terminated.
+        unsafe {
+            (*attr.as_mut_ptr()).string[0] = 0xff_u8 as libc::c_char;
+            (*attr.as_mut_ptr()).string[1] = 0;
+        }
+        assert_eq!(attr.string(), "");
+    }
+
+    #[test]
+    fn test_pmix_regattr_array_lifecycle() {
+        assert!(PmixRegattrArray::new(0).is_err());
+        for len in 1..=3 {
+            let array = PmixRegattrArray::new(len).unwrap();
+            assert_eq!(array.len(), len);
+            assert!(!array.is_empty());
+            assert!(!array.as_mut_ptr().is_null());
+            drop(array);
+        }
+
+        let empty = PmixRegattrArray {
+            ptr: ptr::null_mut(),
+            len: 0,
+        };
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+        assert!(empty.as_mut_ptr().is_null());
+        drop(empty);
     }
 }

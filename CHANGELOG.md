@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Breaking: Wrapped pmix_regattr_t in PmixRegattr with typed accessors. pmix_regattr_t no longer appears in public signatures. Migration: use PmixRegattr::name(), string(), type_(), description() instead of raw field access.
 - Refactor: Split the 6,298-line `src/lib.rs` into focused modules (`error`, `enums`, `types_proc`, `value_kinds`, `client`, `value_ns`, plus the inline test module as `tests.rs`). `lib.rs` is now a 4KB crate root (docs, mod decls, macro, re-exports). No public API change; cross-module private fields became `pub(crate)`.
 - Fix: Add InfoList RAII wrapper to prevent FFI memory leaks in PMIx Info list operations (#526)
 - Fix: Wrap data serialization types (PmixDataBuffer, PmixByteObject) to prevent FFI type leakage (#543)
