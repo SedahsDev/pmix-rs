@@ -79,6 +79,10 @@ fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
 /// The query is automatically freed on drop. Key strings are owned by Rust
 /// [`CString`] objects, and the query struct is freed via `PMIx_Query_free`.
 ///
+/// Use [`PmixQuery::builder`] for owned string keys and native [`Info`]
+/// qualifiers. Raw query pointers remain internal; [`PmixQueryConstructed`]
+/// provides a crate-private pointer-access seam for FFI calls.
+///
 /// # C API
 /// `typedef struct pmix_query { char **keys; pmix_info_t *qualifiers; size_t nqual; } pmix_query_t;`
 pub struct PmixQuery {
@@ -90,18 +94,144 @@ pub struct PmixQuery {
     /// individual CString-allocated strings.
     keys_array: *mut *mut c_char,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
-    _not_thread_safe: std::marker::PhantomData<*mut u8>,
+    _marker: std::marker::PhantomData<*mut u8>,
+}
+
+/// Builds an owned query from string keys and native info qualifiers.
+#[derive(Default)]
+pub struct PmixQueryBuilder {
+    keys: Vec<CString>,
+    qualifiers: Vec<crate::Info>,
+    nkeys: usize,
+    nqualifiers: usize,
+    invalid_keys: bool,
+}
+
+impl PmixQueryBuilder {
+    /// Create an empty query builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replace the requested keys.
+    ///
+    /// Interior NUL bytes are reported by [`Self::build`].
+    pub fn keys(&mut self, keys: &[String]) -> &mut Self {
+        self.keys.clear();
+        self.nkeys = 0;
+        self.invalid_keys = false;
+        for key in keys {
+            self.key(key.clone());
+        }
+        self
+    }
+
+    /// Append one requested key.
+    ///
+    /// Interior NUL bytes are reported by [`Self::build`].
+    pub fn key(&mut self, key: String) -> &mut Self {
+        match CString::new(key) {
+            Ok(key) => {
+                self.keys.push(key);
+                self.nkeys += 1;
+            }
+            Err(_) => self.invalid_keys = true,
+        }
+        self
+    }
+
+    /// Replace the qualifiers with the supplied owned info objects.
+    pub fn qualifiers(&mut self, quals: Vec<crate::Info>) -> &mut Self {
+        self.qualifiers = quals;
+        self.nqualifiers = self
+            .qualifiers
+            .iter()
+            .filter(|qual| !qual.handle.is_null())
+            .map(|qual| qual.len)
+            .sum();
+        self
+    }
+
+    /// Append an owned info object and all of its entries.
+    pub fn qualifier(&mut self, qual: crate::Info) -> &mut Self {
+        if !qual.handle.is_null() {
+            self.nqualifiers += qual.len;
+        }
+        self.qualifiers.push(qual);
+        self
+    }
+
+    /// Allocate a query owning its keys and qualifiers.
+    ///
+    /// Returns an error for missing keys, interior NUL bytes, or allocation
+    /// failure. Construction does not submit the query to a PMIx server.
+    pub fn build(self) -> Result<PmixQuery, crate::PmixStatus> {
+        if self.nkeys == 0 || self.invalid_keys {
+            return Err(PmixError::ErrBadParam.into());
+        }
+
+        let keys: Vec<&str> = self
+            .keys
+            .iter()
+            .map(|key| {
+                key.to_str()
+                    .expect("query builder keys originate from Rust strings")
+            })
+            .collect();
+        let query = PmixQuery::new(&keys)?;
+
+        if self.nqualifiers > 0 {
+            // SAFETY: query owns a newly created query with no qualifiers.
+            crate::pmix_ffi_or_mock!(
+                mock = mock_ffi::mock_query_qualifiers_create(query.handle, self.nqualifiers),
+                real = unsafe { ffi::PMIx_Query_qualifiers_create(query.handle, self.nqualifiers) },
+            );
+            // SAFETY: query.handle remains valid and owned by query.
+            let qualifiers = unsafe { (*query.handle).qualifiers };
+            if qualifiers.is_null() {
+                return Err(PmixError::ErrNomem.into());
+            }
+
+            let mut offset = 0;
+            for info in self.qualifiers {
+                if info.handle.is_null() {
+                    continue;
+                }
+                for index in 0..info.len {
+                    // SAFETY: both entries are initialized and separately owned.
+                    // Moving each qualifier into the query leaves an empty,
+                    // constructed entry for Info's normal destructor to free.
+                    unsafe {
+                        ptr::swap(
+                            qualifiers.add(offset),
+                            (info.handle as *mut ffi::pmix_info_t).add(index),
+                        );
+                    }
+                    offset += 1;
+                }
+            }
+        }
+
+        Ok(query)
+    }
 }
 
 impl std::fmt::Debug for PmixQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PmixQuery")
+            .field("handle", &self.handle)
+            .field("valid", &!self.handle.is_null())
             .field("keys", &self._keys)
             .finish_non_exhaustive()
     }
 }
 
 impl PmixQuery {
+    /// Create a typed builder for query keys and qualifiers.
+    pub fn builder() -> PmixQueryBuilder {
+        PmixQueryBuilder::new()
+    }
+
     /// Create a new query requesting the given key(s).
     ///
     /// # Parameters
@@ -187,7 +317,7 @@ impl PmixQuery {
             _keys: c_keys,
             keys_array,
 
-            _not_thread_safe: std::marker::PhantomData,
+            _marker: std::marker::PhantomData,
         })
     }
 
@@ -272,7 +402,16 @@ impl Drop for PmixQuery {
 
                 // SAFETY: handle was allocated by PMIx_Query_create. We've nulled
                 // out keys and qualifiers so PMIx_Query_free won't double-free them.
-                ffi::PMIx_Query_free(self.handle, 1);
+                #[cfg(any(test, feature = "mock_ffi"))]
+                if mock_ffi::is_mock_enabled() {
+                    mock_ffi::mock_query_free(self.handle, 1);
+                } else {
+                    ffi::PMIx_Query_free(self.handle, 1);
+                }
+                #[cfg(not(any(test, feature = "mock_ffi")))]
+                {
+                    ffi::PMIx_Query_free(self.handle, 1);
+                }
                 self.handle = ptr::null_mut();
             }
         }
@@ -837,6 +976,100 @@ pub fn log_data_nb(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn test_query_builder_new() {
+        let builder = PmixQueryBuilder::new();
+        assert!(builder.keys.is_empty());
+        assert!(builder.qualifiers.is_empty());
+        assert_eq!(builder.nkeys, 0);
+        assert_eq!(builder.nqualifiers, 0);
+        assert!(!builder.invalid_keys);
+        assert_eq!(
+            builder.build().unwrap_err(),
+            PmixStatus::Known(PmixError::ErrBadParam)
+        );
+    }
+
+    #[test]
+    fn test_query_builder_keys() {
+        let mut builder = PmixQueryBuilder::new();
+        let keys = vec!["pmix.version".to_owned(), "pmix.client.attrs".to_owned()];
+        builder.keys(&keys).key("pmix.query.local".to_owned());
+        assert_eq!(builder.nkeys, 3);
+        assert_eq!(builder.keys[0].as_bytes(), keys[0].as_bytes());
+        assert_eq!(builder.keys[1].as_bytes(), keys[1].as_bytes());
+        assert_eq!(builder.keys[2].as_bytes(), b"pmix.query.local");
+
+        builder.keys(&["invalid\0key".to_owned()]);
+        assert_eq!(
+            builder.build().unwrap_err(),
+            PmixStatus::Known(PmixError::ErrBadParam)
+        );
+    }
+
+    #[test]
+    fn test_query_builder_qualifiers() {
+        let _guard = mock_ffi::MockGuard::new();
+        let quals = vec![crate::info_with_string_key("query.scope", "local").expect("string info")];
+        let nqualifiers = quals[0].len;
+        let mut builder = PmixQueryBuilder::new();
+        builder.qualifiers(quals);
+        assert_eq!(builder.qualifiers.len(), 1);
+        assert_eq!(builder.nqualifiers, nqualifiers);
+
+        let qual = crate::info_with_string_key("query.mode", "refresh").expect("string info");
+        let expected = builder.nqualifiers + qual.len;
+        builder.qualifier(qual);
+        assert_eq!(builder.qualifiers.len(), 2);
+        assert_eq!(builder.nqualifiers, expected);
+    }
+
+    #[test]
+    fn test_query_build_success() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut builder = PmixQuery::builder();
+        builder.key("pmix.version".to_owned());
+        let expected = {
+            let quals =
+                vec![crate::info_with_string_key("query.scope", "local").expect("string info")];
+            let expected = quals[0].len;
+            builder.qualifiers(quals);
+            expected
+        };
+        let query = builder.build().expect("query construction");
+        assert!(!query.handle.is_null());
+        // SAFETY: query owns the initialized query and its key/qualifier arrays.
+        unsafe {
+            assert_eq!((*query.handle).nqual, expected);
+            assert!(!(*query.handle).qualifiers.is_null());
+            assert_eq!(
+                std::ffi::CStr::from_ptr(*(*query.handle).keys).to_bytes(),
+                b"pmix.version"
+            );
+        }
+    }
+
+    #[test]
+    fn test_query_as_mut_ptr() {
+        let _guard = mock_ffi::MockGuard::new();
+        let query = PmixQueryConstructed::construct();
+        assert!(!query.as_mut_ptr().is_null());
+        assert_eq!(query.as_mut_ptr(), query.handle);
+    }
+
+    #[test]
+    fn test_query_drop_no_panic() {
+        let _guard = mock_ffi::MockGuard::new();
+        let result = std::panic::catch_unwind(|| {
+            let mut builder = PmixQueryBuilder::new();
+            builder.key("pmix.version".to_owned()).qualifier(
+                crate::info_with_string_key("query.scope", "local").expect("string info"),
+            );
+            drop(builder.build().expect("query construction"));
+        });
+        assert!(result.is_ok());
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // PmixQuery construction tests
@@ -1961,13 +2194,13 @@ impl PmixQueryConstructed {
     }
 
     /// Return the underlying query pointer for advanced PMIx integrations.
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_query_t {
+    pub(crate) fn as_mut_ptr(&self) -> *mut ffi::pmix_query_t {
         self.handle
     }
 
     /// Allocate `n` qualifier entries using `PMIx_Query_qualifiers_create`.
     pub fn qualifiers_create(&mut self, n: usize) -> Result<(), PmixError> {
-        if self.handle.is_null() || self.destructed {
+        if self.as_mut_ptr().is_null() || self.destructed {
             return Err(PmixError::ErrBadParam);
         }
         // `PMIx_Query_qualifiers_create` returns void, so allocation failure
