@@ -2484,7 +2484,7 @@ impl PmixAppObject {
         }
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_app_t {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_app_t {
         self.ptr
     }
 
@@ -2492,6 +2492,13 @@ impl PmixAppObject {
         // SAFETY: `ptr` is either null or live calloc'd storage initialized by
         // PMIx; callers only receive a reference for the non-null case.
         unsafe { self.ptr.as_ref() }
+    }
+
+    /// Return the requested process count, or zero if unset or negative.
+    pub fn nprocs(&self) -> usize {
+        self.raw()
+            .and_then(|a| usize::try_from(a.maxprocs).ok())
+            .unwrap_or(0)
     }
     fn c_string(&self, p: *const c_char) -> Option<&str> {
         unsafe {
@@ -2519,26 +2526,26 @@ impl PmixAppObject {
     pub unsafe fn info_ptr(&self) -> *const ffi::pmix_info_t {
         self.raw().map_or(ptr::null(), |a| a.info)
     }
-    fn strings(&self, p: *mut *mut c_char) -> Option<Vec<String>> {
+    fn strings(&self, p: *mut *mut c_char) -> Vec<String> {
         if p.is_null() {
-            return None;
+            return Vec::new();
         }
         let mut out = Vec::new();
         let mut i = 0;
         // SAFETY: PMIx supplies a NULL-terminated array; entries are copied out.
         unsafe {
             while !(*p.add(i)).is_null() {
-                out.push(CStr::from_ptr(*p.add(i)).to_str().ok()?.to_owned());
+                out.push(CStr::from_ptr(*p.add(i)).to_string_lossy().into_owned());
                 i += 1;
             }
         }
-        Some(out)
+        out
     }
-    pub fn argv(&self) -> Option<Vec<String>> {
-        self.raw().and_then(|a| self.strings(a.argv))
+    pub fn argv(&self) -> Vec<String> {
+        self.raw().map_or_else(Vec::new, |a| self.strings(a.argv))
     }
-    pub fn env(&self) -> Option<Vec<String>> {
-        self.raw().and_then(|a| self.strings(a.env))
+    pub fn env(&self) -> Vec<String> {
+        self.raw().map_or_else(Vec::new, |a| self.strings(a.env))
     }
     pub fn info_create(&mut self, n: usize) {
         let Some(app) = self.raw() else { return };
@@ -2553,8 +2560,8 @@ impl PmixAppObject {
             );
         }
         crate::pmix_ffi_or_mock!(
-            mock = unsafe { crate::mock_ffi::mock_app_info_create(self.ptr, n) },
-            real = unsafe { ffi::PMIx_App_info_create(self.ptr, n) },
+            mock = unsafe { crate::mock_ffi::mock_app_info_create(self.as_mut_ptr(), n) },
+            real = unsafe { ffi::PMIx_App_info_create(self.as_mut_ptr(), n) },
         );
     }
     pub fn to_string(&self) -> Result<String, crate::PmixError> {
@@ -2615,6 +2622,70 @@ impl Drop for PmixAppObject {
 mod app_object_tests {
     use super::PmixAppObject;
     use crate::mock_ffi::MockGuard;
+
+    fn with_app_object(f: impl FnOnce(&mut PmixAppObject)) {
+        // SAFETY: null pointers and zero scalar fields form a valid empty app.
+        let mut raw = unsafe { std::mem::zeroed::<super::ffi::pmix_app_t>() };
+        // The fixture borrows stack storage, so its owning destructor must not run.
+        let mut app = std::mem::ManuallyDrop::new(PmixAppObject {
+            ptr: &mut raw,
+            _not_thread_safe: Default::default(),
+            constructed: false,
+        });
+        f(&mut app);
+    }
+
+    #[test]
+    fn test_pmix_app_object_nprocs() {
+        with_app_object(|app| {
+            assert_eq!(app.nprocs(), 0);
+            // SAFETY: the fixture provides live, initialized app storage.
+            unsafe { (*app.as_mut_ptr()).maxprocs = 4 };
+            assert_eq!(app.nprocs(), 4);
+        });
+    }
+
+    #[test]
+    fn test_pmix_app_object_cmd_valid() {
+        with_app_object(|app| {
+            let cmd = std::ffi::CString::new("/bin/echo").unwrap();
+            // SAFETY: the fixture is live and cmd remains alive through the read.
+            unsafe { (*app.as_mut_ptr()).cmd = cmd.as_ptr().cast_mut() };
+            assert_eq!(app.cmd(), Some("/bin/echo"));
+            // SAFETY: clear the borrowed pointer before cmd is dropped.
+            unsafe { (*app.as_mut_ptr()).cmd = std::ptr::null_mut() };
+        });
+    }
+
+    #[test]
+    fn test_pmix_app_object_cmd_null() {
+        with_app_object(|app| {
+            assert_eq!(app.cmd(), None);
+        });
+    }
+
+    #[test]
+    fn test_pmix_app_object_argv_empty() {
+        with_app_object(|app| {
+            assert!(app.argv().is_empty());
+        });
+    }
+
+    #[test]
+    fn test_pmix_app_object_env_empty() {
+        with_app_object(|app| {
+            assert!(app.env().is_empty());
+        });
+    }
+
+    #[test]
+    fn test_pmix_app_object_as_mut_ptr_internal() {
+        with_app_object(|app| {
+            let raw: *mut super::ffi::pmix_app_t = app.as_mut_ptr();
+            assert!(!raw.is_null());
+        });
+    }
+
     #[test]
     fn construct_drop() {
         let _g = MockGuard::new();
@@ -2625,8 +2696,8 @@ mod app_object_tests {
         let a = PmixAppObject::test_new();
         assert_eq!(a.cmd(), None);
         assert_eq!(a.cwd(), None);
-        assert_eq!(a.argv(), None);
-        assert_eq!(a.env(), None);
+        assert!(a.argv().is_empty());
+        assert!(a.env().is_empty());
         assert_eq!(a.maxprocs(), 0);
     }
     #[test]

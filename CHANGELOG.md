@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Breaking: Wrapped pmix_resource_block_directive_t in ResourceBlockDirective enum. Functions resource_block_directive_string, resource_block, and resource_block_nb now take ResourceBlockDirective instead of raw u8. Migration: use ResourceBlockDirective::Standard, ResourceBlockDirective::Debug, etc.
+- Breaking: Wrapped pmix_app_t access in PmixAppObject. as_mut_ptr() is now pub(crate); use typed accessors nprocs(), cmd(), argv(), env(), info() instead of direct struct field access.
+
 - Breaking: Wrapped pmix_query_t in PmixQuery with typed builders. pmix_query_t no longer appears in public signatures. Migration: use PmixQuery::builder().keys(...).qualifiers(...).build() and PmixQueryConstructed::as_mut_ptr() for FFI calls.
 - Breaking: Wrapped pmix_regattr_t in PmixRegattr with typed accessors. pmix_regattr_t no longer appears in public signatures. Migration: use PmixRegattr::name(), string(), type_(), description() instead of raw field access.
 - Refactor: Split the 6,298-line `src/lib.rs` into focused modules (`error`, `enums`, `types_proc`, `value_kinds`, `client`, `value_ns`, plus the inline test module as `tests.rs`). `lib.rs` is now a 4KB crate root (docs, mod decls, macro, re-exports). No public API change; cross-module private fields became `pub(crate)`.
