@@ -199,8 +199,13 @@ pub use data::*;
 pub use pset::*;
 
 /// Operation completion callback utilities.
+#[path = "callbacks.rs"]
+mod native_callbacks;
+pub use native_callbacks::*;
+
 pub mod callbacks {
     pub use super::OpCallbackWrapper;
+    pub use super::native_callbacks::*;
 
     /// Release callback data when an operation is rejected without a callback.
     ///
@@ -912,6 +917,17 @@ impl PmixServerModule {
         modules.push((self as *const Self as usize, module));
         pointer
     }
+}
+
+#[cfg(test)]
+#[test]
+fn test_server_module_field_count() {
+    let module = PmixServerModule::default();
+    let raw = module.as_c_ptr().cast::<RawPmixServerModule>();
+    // SAFETY: module remains alive while its retained callback table is inspected.
+    let fields = unsafe { &(*raw).0 };
+    assert_eq!(fields.len(), SERVER_MODULE_CALLBACK_COUNT);
+    assert!(fields.iter().all(Option::is_none));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

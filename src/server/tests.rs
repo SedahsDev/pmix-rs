@@ -69,10 +69,27 @@ fn test_server_module_defaults_all_callbacks() {
     assert!(module.session_control.is_none());
 }
 
+#[path = "callbacks.rs"]
+mod native_callbacks {
+    pub use super::super::callbacks::NativeClientConnectedCallback;
+}
+use native_callbacks::NativeClientConnectedCallback;
+
 #[test]
 fn test_server_module_clear_callback() {
-    let mut module = PmixServerModule::default();
-    assert!(module.client_connected.is_none());
+    unsafe extern "C" fn client_connected(
+        _proc: *const ffi::pmix_proc_t,
+        _info: *const ffi::pmix_info_t,
+        _ninfo: usize,
+        _cbdata: *mut std::os::raw::c_void,
+    ) {
+        unreachable!("clearing a callback must not invoke it")
+    }
+    let mut module = PmixServerModule {
+        client_connected: Some(client_connected),
+        ..Default::default()
+    };
+    assert!(module.client_connected.is_some());
     module.client_connected = None;
     assert!(module.client_connected.is_none());
 }
@@ -85,6 +102,15 @@ fn test_server_module_as_c_ptr_returns_non_null() {
         !ptr.is_null(),
         "as_c_ptr must not return null for a valid module"
     );
+}
+
+#[test]
+fn test_client_connected_roundtrip() {
+    let callback = NativeClientConnectedCallback::new(|_proc, _info, _ninfo| {
+        unreachable!("converting a callback must not invoke it")
+    });
+    let (callback, _cbdata) = callback.into_c_callback();
+    assert!(callback.is_some(), "conversion must return a C callback");
 }
 
 #[test]
