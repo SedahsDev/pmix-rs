@@ -107,6 +107,75 @@ pub enum PmixAllocDirective {
     Unknown(u8),
 }
 
+/// Directive for a PMIx resource-block operation.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum ResourceBlockDirective {
+    /// Unknown directive.
+    Unknown,
+    /// Standard resource block.
+    Standard,
+    /// Debug resource block.
+    Debug,
+    /// All resource blocks.
+    All,
+    /// External resource block.
+    External,
+    /// Extend a resource block.
+    Extend,
+    /// Release a resource block.
+    Release,
+    /// Reacquire a resource block.
+    Reacquire,
+}
+
+#[cfg(pmix6)]
+impl From<ffi::pmix_resource_block_directive_t> for ResourceBlockDirective {
+    fn from(directive: ffi::pmix_resource_block_directive_t) -> Self {
+        match directive {
+            0 => Self::Unknown,
+            1 => Self::Standard,
+            2 => Self::Debug,
+            3 => Self::All,
+            4 => Self::External,
+            5 => Self::Extend,
+            6 => Self::Release,
+            7 => Self::Reacquire,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[cfg(pmix6)]
+impl From<ResourceBlockDirective> for ffi::pmix_resource_block_directive_t {
+    fn from(directive: ResourceBlockDirective) -> Self {
+        match directive {
+            ResourceBlockDirective::Unknown => 0,
+            ResourceBlockDirective::Standard => 1,
+            ResourceBlockDirective::Debug => 2,
+            ResourceBlockDirective::All => 3,
+            ResourceBlockDirective::External => 4,
+            ResourceBlockDirective::Extend => 5,
+            ResourceBlockDirective::Release => 6,
+            ResourceBlockDirective::Reacquire => 7,
+        }
+    }
+}
+
+impl std::fmt::Display for ResourceBlockDirective {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Unknown => "UNKNOWN",
+            Self::Standard => "STANDARD",
+            Self::Debug => "DEBUG",
+            Self::All => "ALL",
+            Self::External => "EXTERNAL",
+            Self::Extend => "EXTEND",
+            Self::Release => "RELEASE",
+            Self::Reacquire => "REACQUIRE",
+        })
+    }
+}
+
 impl PmixAllocDirective {
     /// Convert a raw `pmix_alloc_directive_t` (`u8`) into a `PmixAllocDirective`.
     pub fn from_raw(directive: u8) -> Self {
@@ -1731,25 +1800,115 @@ mod tests {
             assert!(result.is_err(), "Expected error for job control");
         }
     }
+
+    #[test]
+    #[cfg(pmix6)]
+    fn test_resource_block_directive_from_raw_known() {
+        let cases: [(ffi::pmix_resource_block_directive_t, ResourceBlockDirective); 8] = [
+            (0, ResourceBlockDirective::Unknown),
+            (1, ResourceBlockDirective::Standard),
+            (2, ResourceBlockDirective::Debug),
+            (3, ResourceBlockDirective::All),
+            (4, ResourceBlockDirective::External),
+            (5, ResourceBlockDirective::Extend),
+            (6, ResourceBlockDirective::Release),
+            (7, ResourceBlockDirective::Reacquire),
+        ];
+        for (raw, expected) in cases {
+            assert_eq!(ResourceBlockDirective::from(raw), expected);
+        }
+    }
+
+    #[test]
+    #[cfg(pmix6)]
+    fn test_resource_block_directive_from_raw_unknown() {
+        for raw in 8_u8..=u8::MAX {
+            assert_eq!(
+                ResourceBlockDirective::from(raw),
+                ResourceBlockDirective::Unknown
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(pmix6)]
+    fn test_resource_block_directive_to_raw() {
+        let directives = [
+            ResourceBlockDirective::Unknown,
+            ResourceBlockDirective::Standard,
+            ResourceBlockDirective::Debug,
+            ResourceBlockDirective::All,
+            ResourceBlockDirective::External,
+            ResourceBlockDirective::Extend,
+            ResourceBlockDirective::Release,
+            ResourceBlockDirective::Reacquire,
+        ];
+        for (expected, directive) in directives.into_iter().enumerate() {
+            let raw: ffi::pmix_resource_block_directive_t = directive.into();
+            assert_eq!(raw, expected as u8);
+            assert_eq!(ResourceBlockDirective::from(raw), directive);
+        }
+    }
+
+    #[test]
+    fn test_resource_block_directive_display() {
+        let cases = [
+            (ResourceBlockDirective::Unknown, "UNKNOWN"),
+            (ResourceBlockDirective::Standard, "STANDARD"),
+            (ResourceBlockDirective::Debug, "DEBUG"),
+            (ResourceBlockDirective::All, "ALL"),
+            (ResourceBlockDirective::External, "EXTERNAL"),
+            (ResourceBlockDirective::Extend, "EXTEND"),
+            (ResourceBlockDirective::Release, "RELEASE"),
+            (ResourceBlockDirective::Reacquire, "REACQUIRE"),
+        ];
+        for (directive, expected) in cases {
+            assert_eq!(directive.to_string(), expected);
+            #[cfg(pmix6)]
+            assert_eq!(
+                resource_block_directive_string(directive).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_resource_block_directive_equality() {
+        assert_eq!(
+            ResourceBlockDirective::Unknown,
+            ResourceBlockDirective::Unknown
+        );
+        assert_eq!(
+            ResourceBlockDirective::Standard,
+            ResourceBlockDirective::Standard
+        );
+        assert_ne!(
+            ResourceBlockDirective::Standard,
+            ResourceBlockDirective::Debug
+        );
+    }
+
+    #[test]
+    fn test_resource_block_directive_clone_copy() {
+        let directive = ResourceBlockDirective::Reacquire;
+        let cloned = Clone::clone(&directive);
+        let copied = directive;
+        assert_eq!(cloned, directive);
+        assert_eq!(copied, directive);
+    }
 }
 
 /// 6.x-only: resource-block directives do not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
-pub fn resource_block_directive_string(d: ffi::pmix_resource_block_directive_t) -> &'static str {
-    let p = crate::pmix_ffi_or_mock!(
-        mock = unsafe { crate::mock_ffi::mock_resource_block_directive_string(d) },
-        real = unsafe { ffi::PMIx_Resource_block_directive_string(d) }
-    );
-    if p.is_null() {
-        ""
-    } else {
-        unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
-    }
+pub fn resource_block_directive_string(
+    directive: ResourceBlockDirective,
+) -> Result<String, PmixStatus> {
+    Ok(directive.to_string())
 }
 /// 6.x-only: resource-block operations do not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
 pub fn resource_block(
-    d: ffi::pmix_resource_block_directive_t,
+    directive: ResourceBlockDirective,
     block: &mut [u8],
     res: &[crate::fabric::PmixResourceUnit],
     info: &[Info],
@@ -1761,7 +1920,7 @@ pub fn resource_block(
     let s = crate::pmix_ffi_or_mock!(
         mock = unsafe {
             crate::mock_ffi::mock_resource_block(
-                d,
+                directive.into(),
                 block.as_mut_ptr().cast(),
                 rp,
                 res.len(),
@@ -1770,7 +1929,14 @@ pub fn resource_block(
             )
         },
         real = unsafe {
-            ffi::PMIx_Resource_block(d, block.as_mut_ptr().cast(), rp, res.len(), ip, info.len())
+            ffi::PMIx_Resource_block(
+                directive.into(),
+                block.as_mut_ptr().cast(),
+                rp,
+                res.len(),
+                ip,
+                info.len(),
+            )
         }
     );
     if s == ffi::PMIX_SUCCESS as i32 {
@@ -1794,7 +1960,7 @@ pub fn resource_block(
 /// 6.x-only: resource-block operations do not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
 pub unsafe fn resource_block_nb(
-    d: ffi::pmix_resource_block_directive_t,
+    directive: ResourceBlockDirective,
     block: &mut [u8],
     res: &[crate::fabric::PmixResourceUnit],
     info: &[Info],
@@ -1812,7 +1978,7 @@ pub unsafe fn resource_block_nb(
     let s = crate::pmix_ffi_or_mock!(
         mock = unsafe {
             crate::mock_ffi::mock_resource_block_nb(
-                d,
+                directive.into(),
                 block.as_mut_ptr().cast(),
                 rp,
                 res.len(),
@@ -1824,7 +1990,7 @@ pub unsafe fn resource_block_nb(
         },
         real = unsafe {
             ffi::PMIx_Resource_block_nb(
-                d,
+                directive.into(),
                 block.as_mut_ptr().cast(),
                 rp,
                 res.len(),
@@ -1861,14 +2027,14 @@ mod misc_wrapper_tests {
         let _guard = crate::mock_ffi::MockGuard::new();
         let mut block = [0_u8; 8];
         let units = [crate::fabric::PmixResourceUnit::new()];
-        assert!(resource_block(0, &mut block, &units, &[]).is_ok());
+        assert!(resource_block(ResourceBlockDirective::Unknown, &mut block, &units, &[]).is_ok());
         let called = AtomicUsize::new(0);
         // SAFETY: the input storage remains live through the synchronous mock
         // invocation; a real caller must extend that lifetime.
         assert!(
             unsafe {
                 resource_block_nb(
-                    0,
+                    ResourceBlockDirective::Unknown,
                     &mut block,
                     &units,
                     &[],
