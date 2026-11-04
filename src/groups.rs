@@ -20,12 +20,102 @@ use std::sync::{LazyLock, Mutex};
 ///
 /// Used by `group_join` and `group_join_nb` to specify whether
 /// to accept or decline a group invitation.
-pub use ffi::pmix_group_opt_t;
+#[cfg(test)]
+use self::GroupOption as pmix_group_opt_t;
 
 // ── One-shot completion registries (issue #67) ───────────────────────────────
 //
 // Bridges never pass a `Box` pointer as cbdata. Request IDs are encoded with
 // `encode_req_id`; the bridge does `lock → remove → unlock → invoke_user_callback`.
+
+const PMIX_GROUP_ACCEPT_VAL: u32 = 1;
+const PMIX_GROUP_DECLINE_VAL: u32 = 0;
+const PMIX_GROUP_CONSTRUCT_VAL: u32 = ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT as u32;
+const PMIX_GROUP_DESTRUCT_VAL: u32 = ffi::pmix_group_operation_t::PMIX_GROUP_DESTRUCT as u32;
+const PMIX_GROUP_NONE_VAL: u32 = ffi::pmix_group_operation_t::PMIX_GROUP_NONE as u32;
+
+/// Response to a group invitation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum GroupOption {
+    Accept = PMIX_GROUP_ACCEPT_VAL,
+    Decline = PMIX_GROUP_DECLINE_VAL,
+}
+
+impl GroupOption {
+    pub const PMIX_GROUP_ACCEPT: Self = Self::Accept;
+    pub const PMIX_GROUP_DECLINE: Self = Self::Decline;
+}
+
+impl From<GroupOption> for ffi::pmix_group_opt_t {
+    fn from(option: GroupOption) -> Self {
+        match option {
+            GroupOption::Accept => Self::PMIX_GROUP_ACCEPT,
+            GroupOption::Decline => Self::PMIX_GROUP_DECLINE,
+        }
+    }
+}
+
+impl TryFrom<ffi::pmix_group_opt_t> for GroupOption {
+    type Error = &'static str;
+
+    fn try_from(option: ffi::pmix_group_opt_t) -> Result<Self, Self::Error> {
+        match option as u32 {
+            PMIX_GROUP_ACCEPT_VAL => Ok(Self::Accept),
+            PMIX_GROUP_DECLINE_VAL => Ok(Self::Decline),
+            _ => Err("unknown PMIx group option"),
+        }
+    }
+}
+
+/// Kind of group operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum GroupOperation {
+    Construct = PMIX_GROUP_CONSTRUCT_VAL,
+    Destruct = PMIX_GROUP_DESTRUCT_VAL,
+    None = PMIX_GROUP_NONE_VAL,
+}
+
+impl From<GroupOperation> for ffi::pmix_group_operation_t {
+    fn from(operation: GroupOperation) -> Self {
+        match operation {
+            GroupOperation::Construct => Self::PMIX_GROUP_CONSTRUCT,
+            GroupOperation::Destruct => Self::PMIX_GROUP_DESTRUCT,
+            GroupOperation::None => Self::PMIX_GROUP_NONE,
+        }
+    }
+}
+
+impl TryFrom<ffi::pmix_group_operation_t> for GroupOperation {
+    type Error = &'static str;
+
+    fn try_from(operation: ffi::pmix_group_operation_t) -> Result<Self, Self::Error> {
+        match operation as u32 {
+            value if value == Self::Construct as u32 => Ok(Self::Construct),
+            value if value == Self::Destruct as u32 => Ok(Self::Destruct),
+            value if value == Self::None as u32 => Ok(Self::None),
+            _ => Err("unknown PMIx group operation"),
+        }
+    }
+}
+
+impl GroupOperation {
+    /// Return the static spelling of this operation.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Construct => "CONSTRUCT",
+            Self::Destruct => "DESTRUCT",
+            Self::None => "NONE",
+        }
+    }
+}
+
+impl std::fmt::Display for GroupOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 static GROUP_CONSTRUCT_REGISTRY: LazyLock<Registry<GroupConstructCallbackWrapper>> =
     LazyLock::new(Registry::new);
@@ -573,7 +663,7 @@ pub fn group_invite_nb(
 pub fn group_join(
     group_id: &str,
     leader: &Proc,
-    option: ffi::pmix_group_opt_t,
+    option: GroupOption,
     info: &[Info],
 ) -> Result<GroupResults, PmixStatus> {
     if group_id.is_empty() {
@@ -601,7 +691,7 @@ pub fn group_join(
         ffi::PMIx_Group_join(
             group_id_c.as_ptr(),
             leader_ptr,
-            option,
+            option.into(),
             info_ptr,
             ninfo,
             &mut results,
@@ -712,7 +802,7 @@ pub unsafe extern "C" fn group_join_callback_bridge(
 pub fn group_join_nb(
     group_id: &str,
     leader: &Proc,
-    option: ffi::pmix_group_opt_t,
+    option: GroupOption,
     info: &[Info],
     callback: GroupJoinCallbackWrapper,
 ) -> Result<(), PmixStatus> {
@@ -740,7 +830,7 @@ pub fn group_join_nb(
         ffi::PMIx_Group_join_nb(
             group_id_c.as_ptr(),
             leader_ptr,
-            option,
+            option.into(),
             info_ptr,
             ninfo,
             Some(group_join_callback_bridge),
@@ -1423,7 +1513,7 @@ mod tests {
     #[test]
     fn test_group_join_empty_group_id() {
         let leader = test_proc(0);
-        let result = group_join("", &leader, ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+        let result = group_join("", &leader, GroupOption::Accept, &[]);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1434,12 +1524,7 @@ mod tests {
     #[test]
     fn test_group_join_interior_nul_group_id() {
         let leader = test_proc(0);
-        let result = group_join(
-            "group\0id",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("group\0id", &leader, GroupOption::Accept, &[]);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1450,12 +1535,7 @@ mod tests {
     #[test]
     fn test_group_join_accept_option() {
         let leader = test_proc(0);
-        let result = group_join(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("grp", &leader, GroupOption::Accept, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -1472,12 +1552,7 @@ mod tests {
     #[test]
     fn test_group_join_decline_option() {
         let leader = test_proc(0);
-        let result = group_join(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_DECLINE,
-            &[],
-        );
+        let result = group_join("grp", &leader, GroupOption::Decline, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -1497,13 +1572,7 @@ mod tests {
     fn test_group_join_nb_empty_group_id() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("", &leader, GroupOption::Accept, &[], cb);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1515,13 +1584,7 @@ mod tests {
     fn test_group_join_nb_interior_nul_group_id() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "group\0id",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("group\0id", &leader, GroupOption::Accept, &[], cb);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1533,13 +1596,7 @@ mod tests {
     fn test_group_join_nb_valid_params_reaches_ffi() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("grp", &leader, GroupOption::Accept, &[], cb);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2266,13 +2323,7 @@ mod tests {
     fn test_group_join_nb_decline_option() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_DECLINE,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("grp", &leader, GroupOption::Decline, &[], cb);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2492,12 +2543,7 @@ mod tests {
     #[test]
     fn test_group_join_leader_rank_zero() {
         let leader = test_proc(0);
-        let result = group_join(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("grp", &leader, GroupOption::Accept, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2514,12 +2560,7 @@ mod tests {
     #[test]
     fn test_group_join_leader_high_rank() {
         let leader = test_proc(9999);
-        let result = group_join(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("grp", &leader, GroupOption::Accept, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2677,13 +2718,7 @@ mod tests {
     fn test_group_join_nb_accept_option_reaches_ffi() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "test_grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("test_grp", &leader, GroupOption::Accept, &[], cb);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2832,7 +2867,8 @@ mod tests {
 ///
 /// 6.x-only: `PMIx_Group_operation_string` does not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
-pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
+pub fn group_operation_string(op: GroupOperation) -> &'static str {
+    let op = op.into();
     let p = crate::pmix_ffi_or_mock!(
         mock = unsafe { crate::mock_ffi::mock_group_operation_string(op) },
         real = unsafe { ffi::PMIx_Group_operation_string(op) }
@@ -2848,8 +2884,112 @@ pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
 #[test]
 fn test_misc_group_string_wrapper() {
     let _guard = crate::mock_ffi::MockGuard::new();
-    assert_eq!(
-        group_operation_string(crate::ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT),
-        "unknown"
-    );
+    assert_eq!(group_operation_string(GroupOperation::Construct), "unknown");
+}
+
+#[cfg(test)]
+mod enum_tests {
+    use super::*;
+
+    #[test]
+    fn test_group_option_accept() {
+        let raw: ffi::pmix_group_opt_t = GroupOption::Accept.into();
+        assert_eq!(raw as u32, 1);
+        assert_eq!(GroupOption::Accept as u32, PMIX_GROUP_ACCEPT_VAL);
+        assert_eq!(pmix_group_opt_t::PMIX_GROUP_ACCEPT, GroupOption::Accept);
+    }
+
+    #[test]
+    fn test_group_option_decline() {
+        let raw: ffi::pmix_group_opt_t = GroupOption::Decline.into();
+        assert_eq!(raw as u32, 0);
+        assert_eq!(GroupOption::Decline as u32, PMIX_GROUP_DECLINE_VAL);
+        assert_eq!(pmix_group_opt_t::PMIX_GROUP_DECLINE, GroupOption::Decline);
+    }
+
+    #[test]
+    fn test_group_operation_construct() {
+        assert_eq!(
+            GroupOperation::Construct as u32,
+            ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT as u32
+        );
+    }
+
+    #[test]
+    fn test_group_operation_destruct() {
+        assert_eq!(
+            GroupOperation::Destruct as u32,
+            ffi::pmix_group_operation_t::PMIX_GROUP_DESTRUCT as u32
+        );
+    }
+
+    #[test]
+    fn test_group_operation_none() {
+        assert_eq!(
+            GroupOperation::None as u32,
+            ffi::pmix_group_operation_t::PMIX_GROUP_NONE as u32
+        );
+    }
+
+    #[test]
+    fn test_group_operation_from_raw() {
+        assert_eq!(
+            GroupOperation::try_from(ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT),
+            Ok(GroupOperation::Construct)
+        );
+        assert_eq!(
+            GroupOperation::try_from(ffi::pmix_group_operation_t::PMIX_GROUP_DESTRUCT),
+            Ok(GroupOperation::Destruct)
+        );
+        assert_eq!(
+            GroupOperation::try_from(ffi::pmix_group_operation_t::PMIX_GROUP_NONE),
+            Ok(GroupOperation::None)
+        );
+    }
+
+    #[test]
+    fn test_group_operation_to_raw() {
+        for (operation, expected) in [
+            (
+                GroupOperation::Construct,
+                ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT,
+            ),
+            (
+                GroupOperation::Destruct,
+                ffi::pmix_group_operation_t::PMIX_GROUP_DESTRUCT,
+            ),
+            (
+                GroupOperation::None,
+                ffi::pmix_group_operation_t::PMIX_GROUP_NONE,
+            ),
+        ] {
+            let raw: ffi::pmix_group_operation_t = operation.into();
+            assert_eq!(raw, expected);
+        }
+    }
+
+    #[test]
+    fn test_group_option_from_to_raw_roundtrip() {
+        for option in [GroupOption::Accept, GroupOption::Decline] {
+            let raw: ffi::pmix_group_opt_t = option.into();
+            assert_eq!(GroupOption::try_from(raw), Ok(option));
+        }
+    }
+
+    #[test]
+    fn test_group_operation_display() {
+        assert_eq!(GroupOperation::Construct.to_string(), "CONSTRUCT");
+        assert_eq!(GroupOperation::Destruct.to_string(), "DESTRUCT");
+        assert_eq!(GroupOperation::None.to_string(), "NONE");
+    }
+
+    #[test]
+    fn test_group_operation_as_str() {
+        let construct: &'static str = GroupOperation::Construct.as_str();
+        let destruct: &'static str = GroupOperation::Destruct.as_str();
+        let none: &'static str = GroupOperation::None.as_str();
+        assert_eq!(construct, "CONSTRUCT");
+        assert_eq!(destruct, "DESTRUCT");
+        assert_eq!(none, "NONE");
+    }
 }

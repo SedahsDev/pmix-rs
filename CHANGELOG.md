@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Breaking: Wrapped pmix_group_opt_t in GroupOption enum and pmix_group_operation_t in GroupOperation enum. group_join() and group_join_nb() now take GroupOption instead of pmix_group_opt_t. Migration: use GroupOption::Accept or GroupOption::Decline instead of raw FFI values. GroupOperation implements Display and as_str() for string conversion.
+
 - Breaking: Wrapped pmix_query_t in PmixQuery with typed builders. pmix_query_t no longer appears in public signatures. Migration: use PmixQuery::builder().keys(...).qualifiers(...).build() and PmixQueryConstructed::as_mut_ptr() for FFI calls.
 - Breaking: Wrapped pmix_regattr_t in PmixRegattr with typed accessors. pmix_regattr_t no longer appears in public signatures. Migration: use PmixRegattr::name(), string(), type_(), description() instead of raw field access.
 - Refactor: Split the 6,298-line `src/lib.rs` into focused modules (`error`, `enums`, `types_proc`, `value_kinds`, `client`, `value_ns`, plus the inline test module as `tests.rs`). `lib.rs` is now a 4KB crate root (docs, mod decls, macro, re-exports). No public API change; cross-module private fields became `pub(crate)`.
