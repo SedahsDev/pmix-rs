@@ -13,11 +13,29 @@
 use crate::mock_ffi;
 use crate::{
     IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType,
-    PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus, ffi,
+    PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus, Proc, ffi,
 };
 use std::ffi::CStr;
 use std::ptr;
 use std::sync::{Arc, LazyLock, Mutex};
+
+/// Load a namespace and rank into a process identifier.
+///
+/// # Panics
+/// Panics if the namespace exceeds the PMIx namespace buffer or the resulting
+/// identifier cannot be represented as a `Proc`.
+pub fn load_procid(dst: &mut Proc, nspace: &CStr, rank: u32) {
+    let mut raw: ffi::pmix_proc_t = dst.clone().into();
+    let nspace_bytes = nspace.to_bytes_with_nul();
+    for (slot, &byte) in raw.nspace[..nspace_bytes.len()]
+        .iter_mut()
+        .zip(nspace_bytes)
+    {
+        *slot = byte as libc::c_char;
+    }
+    raw.rank = rank;
+    *dst = Proc::try_from(raw).unwrap_or_else(|_| panic!("invalid process identifier"));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_Initialized
@@ -959,7 +977,7 @@ static IOF_REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Has
 /// Context stored per IO pull registration, carrying both callbacks.
 ///
 /// Type aliases for the callback types used below.
-type IoDataCallback = Box<dyn Fn(usize, IOFChannelFlags, &ffi::pmix_proc_t, &[u8]) + Send>;
+type IoDataCallback = Box<dyn Fn(usize, IOFChannelFlags, &Proc, &[u8]) + Send>;
 type IoRegCallback = Box<dyn Fn(PmixStatus, usize) + Send>;
 
 struct IoPullContext {
@@ -990,6 +1008,10 @@ extern "C" fn io_callback_bridge(
     // SAFETY: source is valid for the duration of this callback.
     // PMIx guarantees the source pointer points to a valid pmix_proc_t.
     let source_proc = unsafe { &*source };
+    let source_proc = match Proc::try_from(*source_proc) {
+        Ok(proc) => proc,
+        Err(_) => return,
+    };
 
     // SAFETY: payload is valid for the duration of this callback.
     // Extract bytes from the pmix_byte_object_t.
@@ -1007,7 +1029,7 @@ extern "C" fn io_callback_bridge(
     let channel_flags = IOFChannelFlags(channel);
     let _ = invoke_user_callback("utility", move || {
         let ctx = ctx.lock().unwrap_or_else(|e| e.into_inner());
-        (ctx.io_cb)(iofhdlr, channel_flags, source_proc, bytes);
+        (ctx.io_cb)(iofhdlr, channel_flags, &source_proc, bytes);
     });
 }
 
@@ -1047,14 +1069,8 @@ extern "C" fn reg_callback_bridge(
 /// * `channel` — the IO channel (`stdin`, `stdout`, `stderr`, `stddiag`).
 /// * `source` — the process that produced the IO data.
 /// * `payload` — the raw byte payload (may be empty).
-pub trait IoForwardHandler:
-    Fn(usize, IOFChannelFlags, &ffi::pmix_proc_t, &[u8]) + Send + 'static
-{
-}
-impl<F> IoForwardHandler for F where
-    F: Fn(usize, IOFChannelFlags, &ffi::pmix_proc_t, &[u8]) + Send + 'static
-{
-}
+pub trait IoForwardHandler: Fn(usize, IOFChannelFlags, &Proc, &[u8]) + Send + 'static {}
+impl<F> IoForwardHandler for F where F: Fn(usize, IOFChannelFlags, &Proc, &[u8]) + Send + 'static {}
 
 /// Callback trait for registration completion notification.
 pub trait IoForwardRegHandler: Fn(PmixStatus, usize) + Send + 'static {}
@@ -1084,7 +1100,7 @@ impl<F> IoForwardRegHandler for F where F: Fn(PmixStatus, usize) + Send + 'stati
 ///     `pmix_iof_channel_t channel, pmix_iof_cbfunc_t cbfunc,`
 ///     `pmix_hdlr_reg_cbfunc_t regcbfunc, void *regcbdata);`
 pub fn iof_pull<F, G>(
-    procs: &[ffi::pmix_proc_t],
+    procs: &[Proc],
     directives: &[ffi::pmix_info_t],
     channel: IOFChannelFlags,
     cb: F,
@@ -1094,6 +1110,8 @@ where
     F: IoForwardHandler,
     G: IoForwardRegHandler,
 {
+    let procs: Vec<ffi::pmix_proc_t> = procs.iter().cloned().map(Into::into).collect();
+
     // Box both closures into a single context struct.
     let ctx = IoPullContext {
         io_cb: Box::new(cb),
@@ -1154,7 +1172,7 @@ where
 /// Same as `PMIx_IOF_pull`, using the asynchronous registration callback
 /// internally to obtain the real registration handle.
 pub fn iof_pull_blocking<F>(
-    procs: &[ffi::pmix_proc_t],
+    procs: &[Proc],
     directives: &[ffi::pmix_info_t],
     channel: IOFChannelFlags,
     cb: F,
@@ -1162,6 +1180,7 @@ pub fn iof_pull_blocking<F>(
 where
     F: IoForwardHandler,
 {
+    let procs: Vec<ffi::pmix_proc_t> = procs.iter().cloned().map(Into::into).collect();
     let (tx, rx) = std::sync::mpsc::channel::<(PmixStatus, usize)>();
     let ctx = IoPullContext {
         io_cb: Box::new(cb),
@@ -1568,7 +1587,7 @@ extern "C" fn push_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std:
 ///     `pmix_byte_object_t *bo, const pmix_info_t directives[], size_t ndirs,`
 ///     `pmix_op_cbfunc_t cbfunc, void *cbdata);`
 pub fn iof_push<F>(
-    targets: &[ffi::pmix_proc_t],
+    targets: &[Proc],
     bo: PmixByteObject,
     directives: &[ffi::pmix_info_t],
     cb: F,
@@ -1576,6 +1595,8 @@ pub fn iof_push<F>(
 where
     F: IoForwardPushHandler,
 {
+    let targets: Vec<ffi::pmix_proc_t> = targets.iter().cloned().map(Into::into).collect();
+
     // Allocate the C byte_object_t on the heap.
     let c_bo_ptr = bo.as_c_mut_ptr();
 
@@ -1651,10 +1672,12 @@ where
 /// # C API
 /// Same as `PMIx_IOF_push` with `cbfunc` set to NULL (blocking mode).
 pub fn iof_push_blocking(
-    targets: &[ffi::pmix_proc_t],
+    targets: &[Proc],
     bo: PmixByteObject,
     directives: &[ffi::pmix_info_t],
 ) -> Result<(), PmixStatus> {
+    let targets: Vec<ffi::pmix_proc_t> = targets.iter().cloned().map(Into::into).collect();
+
     // Allocate the C byte_object_t on the heap.
     let c_bo_ptr = bo.as_c_mut_ptr();
 
