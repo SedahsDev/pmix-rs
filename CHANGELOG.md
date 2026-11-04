@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Breaking: Wrapped 10 data-plane/job callback fields of `PmixServerModule` (direct_modex, connect, disconnect, spawn, abort, log, log2, query, listener, monitor). Migration: use `Native...Callback::new(closure)` instead of raw function pointers. Each callback type provides `as_c_callback()` for FFI conversion.
 - Breaking: Wrapped pmix_resource_block_directive_t in ResourceBlockDirective enum. Functions resource_block_directive_string, resource_block, and resource_block_nb now take ResourceBlockDirective instead of raw u8. Migration: use ResourceBlockDirective::Standard, ResourceBlockDirective::Debug, etc.
 - Breaking: Wrapped pmix_app_t access in PmixAppObject. as_mut_ptr() is now pub(crate); use typed accessors nprocs(), cmd(), argv(), env(), info() instead of direct struct field access.
 
