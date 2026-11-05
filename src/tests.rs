@@ -18,7 +18,7 @@ fn test_proc_utils_mock_wrappers_and_predicates() {
     assert!(!nspace_invalid("a"));
     proc.xfer_procid(&other);
     proc.proc_load("other", 3).unwrap();
-    let mut raw: pmix_proc_t = unsafe { std::mem::zeroed() };
+    let mut raw = Proc::new("", 0).unwrap();
     load_procid(&mut raw, "raw", 4).unwrap();
 }
 
@@ -387,6 +387,13 @@ fn test_pmix_proc_state_from_raw_unknown() {
         PmixProcState::from_raw(99),
         PmixProcState::Unknown(99)
     ));
+}
+
+#[test]
+fn proc_state_from_raw_to_raw_roundtrip() {
+    for raw in 0..=255 {
+        assert_eq!(PmixProcState::from_raw(raw).to_raw(), raw);
+    }
 }
 
 #[test]

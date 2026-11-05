@@ -3,6 +3,7 @@ use crate::ffi::*;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 use crate::pmix_ffi_or_mock;
+pub use crate::value_kinds::Proc;
 use crate::*;
 use cstring_array::CStringArray;
 use std::ffi::{CStr, CString, NulError};
@@ -102,7 +103,25 @@ impl PmixEnvar {
     }
 }
 
+/// A process identity token wrapping PMIx's `pmix_proc_t` by value.
+///
+/// `Proc` is `Clone + Send + Sync`; it does not borrow C-owned memory.
+/// Internal `from_raw` / `to_raw` helpers and the corresponding `From`
+/// implementations convert at FFI boundaries.
 impl Proc {
+    /// Wrap a raw PMIx process identity.
+    fn from_raw(raw: ffi::pmix_proc_t) -> Self {
+        Self {
+            handle: raw,
+            len: 1,
+        }
+    }
+
+    /// Copy this process identity into its raw FFI representation.
+    fn to_raw(&self) -> ffi::pmix_proc_t {
+        self.handle
+    }
+
     pub fn new(nspace: &str, rank: u32) -> Result<Self, PmixError> {
         if nspace.len() > ffi::PMIX_MAX_NSLEN as usize {
             return Err(PmixError::ErrBadParam);
@@ -140,6 +159,28 @@ impl Proc {
 
     pub fn set_rank(&mut self, rank: u32) {
         self.handle.rank = rank;
+    }
+}
+
+impl From<ffi::pmix_proc_t> for Proc {
+    fn from(raw: ffi::pmix_proc_t) -> Self {
+        Self::from_raw(raw)
+    }
+}
+
+impl From<Proc> for ffi::pmix_proc_t {
+    fn from(proc: Proc) -> Self {
+        proc.to_raw()
+    }
+}
+
+impl Default for Proc {
+    fn default() -> Self {
+        // SAFETY: pmix_proc_t contains only an inline namespace and an integer rank.
+        let mut raw: ffi::pmix_proc_t = unsafe { mem::zeroed() };
+        // SAFETY: `raw` is valid writable storage for the PMIx constructor.
+        unsafe { PMIx_Proc_construct(&mut raw) };
+        Self::from_raw(raw)
     }
 }
 
@@ -248,13 +289,19 @@ pub fn check_reserved_key(key: &str) -> bool {
         real = unsafe { ffi::PMIx_Check_reserved_key(key.as_ptr()) }
     )
 }
-/// Load a namespace and rank into a raw PMIx process object.
-pub fn load_procid(dst: &mut pmix_proc_t, nspace: &str, rank: u32) -> Result<(), NulError> {
+/// Load a namespace and rank into a PMIx process identity.
+pub fn load_procid<T: Clone + Into<Proc> + From<Proc>>(
+    dst: &mut T,
+    nspace: &str,
+    rank: u32,
+) -> Result<(), NulError> {
     let ns = CString::new(nspace)?; /* SAFETY: `dst` is exclusively borrowed and `ns` is valid for this call. */
+    let mut raw = Into::<Proc>::into(dst.clone()).to_raw();
     pmix_ffi_or_mock!(
-        mock = unsafe { mock_ffi::mock_load_procid(dst, ns.as_ptr(), rank) },
-        real = unsafe { ffi::PMIx_Load_procid(dst, ns.as_ptr(), rank) }
+        mock = unsafe { mock_ffi::mock_load_procid(&mut raw, ns.as_ptr(), rank) },
+        real = unsafe { ffi::PMIx_Load_procid(&mut raw, ns.as_ptr(), rank) }
     );
+    *dst = Proc::from_raw(raw).into();
     Ok(())
 }
 /// Return whether a rank is valid.
@@ -298,8 +345,11 @@ pub fn load_key(dst: &mut [c_char], src: &str) {
 
 /// Owned array allocated by PMIx for process identifiers.
 pub struct PmixProcArray {
-    ptr: *mut pmix_proc_t,
+    ptr: *mut Proc,
     len: usize,
+    raw: *mut pmix_proc_t,
+    // Proc includes Rust-side metadata, so it cannot alias the C allocation.
+    procs: Box<[Proc]>,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 impl PmixProcArray {
@@ -308,20 +358,34 @@ impl PmixProcArray {
             return Some(Self {
                 ptr: std::ptr::null_mut(),
                 len,
+                raw: std::ptr::null_mut(),
+                procs: Vec::new().into_boxed_slice(),
                 _not_thread_safe: std::marker::PhantomData,
             });
         }
-        let ptr = pmix_ffi_or_mock!(
+        let raw = pmix_ffi_or_mock!(
             mock = unsafe { mock_ffi::mock_proc_create(len) },
             real = unsafe { ffi::PMIx_Proc_create(len) }
         );
-        (!ptr.is_null()).then_some(Self {
-            ptr,
+        if raw.is_null() {
+            return None;
+        }
+        let mut procs = (0..len)
+            .map(|index| {
+                // SAFETY: PMIx initialized all `len` elements of this allocation.
+                Proc::from_raw(unsafe { *raw.add(index) })
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Some(Self {
+            ptr: procs.as_mut_ptr(),
             len,
+            raw,
+            procs,
             _not_thread_safe: std::marker::PhantomData,
         })
     }
-    pub fn as_mut_ptr(&mut self) -> *mut pmix_proc_t {
+    pub fn as_mut_ptr(&mut self) -> *mut Proc {
         self.ptr
     }
     pub fn len(&self) -> usize {
@@ -333,11 +397,15 @@ impl PmixProcArray {
 }
 impl Drop for PmixProcArray {
     fn drop(&mut self) {
-        if !self.ptr.is_null() {
+        if !self.raw.is_null() {
+            for (index, proc) in self.procs.iter().enumerate() {
+                // SAFETY: the retained PMIx allocation has one slot per native element.
+                unsafe { self.raw.add(index).write(proc.to_raw()) };
+            }
             /* SAFETY: pointer and length came from the matching PMIx allocator. */
             pmix_ffi_or_mock!(
-                mock = unsafe { mock_ffi::mock_proc_free(self.ptr, self.len) },
-                real = unsafe { ffi::PMIx_Proc_free(self.ptr, self.len) }
+                mock = unsafe { mock_ffi::mock_proc_free(self.raw, self.len) },
+                real = unsafe { ffi::PMIx_Proc_free(self.raw, self.len) }
             );
         }
     }
@@ -346,6 +414,7 @@ impl Drop for PmixProcArray {
 /// Owned, constructed PMIx process information object.
 pub struct PmixProcInfo {
     raw: mem::MaybeUninit<pmix_proc_info_t>,
+    proc: std::cell::OnceCell<Proc>,
     constructed: bool,
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
@@ -353,6 +422,7 @@ impl PmixProcInfo {
     pub fn new() -> Self {
         let mut x = Self {
             raw: mem::MaybeUninit::uninit(),
+            proc: std::cell::OnceCell::new(),
             constructed: false,
             _not_thread_safe: std::marker::PhantomData,
         }; /* SAFETY: PMIx initializes the writable storage supplied by `x`. */
@@ -367,6 +437,7 @@ impl PmixProcInfo {
     pub fn test_new() -> Self {
         Self {
             raw: mem::MaybeUninit::zeroed(),
+            proc: std::cell::OnceCell::new(),
             constructed: true,
             _not_thread_safe: std::marker::PhantomData,
         }
@@ -375,8 +446,9 @@ impl PmixProcInfo {
         /* SAFETY: `new` and `test_new` initialize the storage before access. */
         unsafe { self.raw.assume_init_ref() }
     }
-    pub fn proc_ptr(&self) -> *const pmix_proc_t {
-        &self.raw().proc_
+    pub fn proc_ptr(&self) -> *const Proc {
+        // Cache a native identity rather than casting the embedded C object.
+        self.proc.get_or_init(|| Proc::from_raw(self.raw().proc_)) as *const Proc
     }
     pub fn hostname(&self) -> Option<&str> {
         cstr_ref(self.raw().hostname)
@@ -580,5 +652,94 @@ impl Drop for PmixNodePidArray {
                 real = unsafe { ffi::PMIx_Node_pid_free(self.ptr, self.len) }
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod proc_conversion_tests {
+    use super::*;
+
+    #[test]
+    fn proc_default_has_empty_namespace() {
+        let proc = Proc::default();
+        assert_eq!(proc.to_raw().nspace[0], 0);
+    }
+
+    #[test]
+    fn test_pmix_proc_t_layout() {
+        let alignment = mem::align_of::<u32>();
+        let namespace_len = ffi::PMIX_MAX_NSLEN as usize + 1;
+        let rank_offset = (namespace_len + alignment - 1) & !(alignment - 1);
+        let size = rank_offset + mem::size_of::<u32>();
+        assert_eq!(mem::offset_of!(ffi::pmix_proc_t, nspace), 0);
+        assert_eq!(mem::offset_of!(ffi::pmix_proc_t, rank), rank_offset);
+        assert_eq!(mem::align_of::<ffi::pmix_proc_t>(), alignment);
+        assert_eq!(mem::size_of::<ffi::pmix_proc_t>(), size);
+    }
+
+    #[test]
+    fn test_proc_ref_to_raw() {
+        let proc = Proc::new("proc-ref", 42).unwrap();
+        let proc_ref = &proc;
+        let raw = proc_ref.to_raw();
+        assert_eq!(raw.nspace[0], b'p' as c_char);
+        assert_eq!(raw.rank, 42);
+    }
+
+    #[test]
+    fn test_proc_ref_to_raw_consistent() {
+        let proc = Proc::new("consistent", 7).unwrap();
+        let proc_ref = &proc;
+        let first = proc_ref.to_raw();
+        let second = proc_ref.to_raw();
+        assert_eq!(first.nspace, second.nspace);
+        assert_eq!(first.rank, second.rank);
+    }
+
+    #[test]
+    fn test_proc_ref_to_raw_long_namespace() {
+        let nspace = "n".repeat(ffi::PMIX_MAX_NSLEN as usize);
+        let proc = Proc::new(&nspace, 17).unwrap();
+        let proc_ref = &proc;
+        let raw = proc_ref.to_raw();
+        let expected = vec![b'n' as c_char; nspace.len()];
+        assert_eq!(&raw.nspace[..nspace.len()], &expected);
+        assert_eq!(raw.nspace[nspace.len()], 0);
+    }
+
+    #[test]
+    fn test_proc_ref_to_raw_max_rank() {
+        let proc = Proc::new("max-rank", u32::MAX).unwrap();
+        let proc_ref = &proc;
+        assert_eq!(proc_ref.to_raw().rank, u32::MAX);
+    }
+
+    #[test]
+    fn test_proc_ref_to_raw_zero_rank() {
+        let proc = Proc::new("zero-rank", 0).unwrap();
+        let proc_ref = &proc;
+        assert_eq!(proc_ref.to_raw().rank, 0);
+    }
+
+    #[test]
+    fn proc_is_clone_send_sync() {
+        fn assert_traits<T: Clone + Send + Sync>() {}
+        assert_traits::<Proc>();
+    }
+
+    #[test]
+    fn proc_raw_conversions_preserve_identity() {
+        // SAFETY: pmix_proc_t contains only an inline namespace and an integer rank.
+        let mut raw: ffi::pmix_proc_t = unsafe { mem::zeroed() };
+        raw.nspace[0] = b'n' as c_char;
+        raw.rank = 42;
+
+        let proc = Proc::from_raw(raw);
+        assert_eq!(proc.get_rank(), raw.rank);
+        assert_eq!(proc.to_raw().nspace, raw.nspace);
+
+        let converted: ffi::pmix_proc_t = Proc::from(raw).into();
+        assert_eq!(converted.nspace, raw.nspace);
+        assert_eq!(converted.rank, raw.rank);
     }
 }
