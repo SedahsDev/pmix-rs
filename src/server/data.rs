@@ -38,6 +38,66 @@ fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
         .collect()
 }
 
+/// Results of a collect inventory operation.
+///
+/// This type encapsulates the results of a server-side inventory collection.
+/// It stores the collected data as a vector of `Info` objects, providing access
+/// methods for iterating over the results.
+#[allow(dead_code)]
+pub struct CollectInventoryResults {
+    /// The collected inventory data.
+    data: Vec<Info>,
+}
+
+#[allow(dead_code)]
+impl CollectInventoryResults {
+    /// Creates a new `CollectInventoryResults` from a slice of `Info`.
+    ///
+    /// # Parameters
+    /// * `data` — the collected inventory data.
+    ///
+    /// # Returns
+    /// * `Self` — a new instance of `CollectInventoryResults`.
+    pub fn new(data: Vec<Info>) -> Self {
+        Self { data }
+    }
+
+    /// Iterates over the collected inventory data.
+    ///
+    /// # Returns
+    /// * `impl Iterator<Item = &Info>` — an iterator over the collected data.
+    pub fn iter(&self) -> impl Iterator<Item = &Info> {
+        self.data.iter()
+    }
+
+    /// Gets a reference to the inventory data at the specified index.
+    ///
+    /// # Parameters
+    /// * `index` — the index of the data to retrieve.
+    ///
+    /// # Returns
+    /// * `Option<&Info>` — a reference to the data at the index, or `None` if the index is out of bounds.
+    pub fn get(&self, index: usize) -> Option<&Info> {
+        self.data.get(index)
+    }
+
+    /// Gets the number of items in the inventory data.
+    ///
+    /// # Returns
+    /// * `usize` — the number of items in the inventory data.
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Checks if the inventory data is empty.
+    ///
+    /// # Returns
+    /// * `bool` — `true` if the inventory data is empty, `false` otherwise.
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PMIx_server_publish — publish key-value data through the server
 // ─────────────────────────────────────────────────────────────────────────────

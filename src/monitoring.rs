@@ -77,25 +77,69 @@ fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
 ///
 /// Wraps the `pmix_info_t` array allocated by the PMIx library and
 /// automatically frees it via `PMIx_Info_free` on drop.
-#[derive(Debug)]
 pub struct MonitorResults {
-    handle: *mut ffi::pmix_info_t,
-    len: usize,
+    data: Vec<Info>,
     release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
     release_cbdata: *mut c_void,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
+impl std::fmt::Debug for MonitorResults {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MonitorResults")
+            .field("len", &self.len())
+            .finish()
+    }
+}
+
 impl MonitorResults {
+    // SAFETY: handle must point to len initialized entries owned by this result
+    // set. Each Info borrows one entry; Drop disarms these views before releasing
+    // the original array through release_fn or PMIx_Info_free.
+    unsafe fn from_raw_parts(
+        handle: *mut ffi::pmix_info_t,
+        len: usize,
+        release_fn: ffi::pmix_release_cbfunc_t,
+        release_cbdata: *mut c_void,
+    ) -> Self {
+        let mut data: Vec<Info> = if handle.is_null() {
+            Vec::new()
+        } else {
+            (0..len)
+                .map(|_| crate::InfoBuilder::new().build().expect("build empty info"))
+                .collect()
+        };
+        for (index, entry) in data.iter_mut().enumerate() {
+            entry.handle = unsafe { handle.add(index) };
+            entry.len = 1;
+        }
+        Self {
+            data,
+            release_fn,
+            release_cbdata,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
+    /// Iterate over the info entries in this result set.
+    pub fn iter(&self) -> std::slice::Iter<'_, Info> {
+        self.data.iter()
+    }
+
+    /// Get an info entry by index.
+    pub fn get(&self, index: usize) -> Option<&Info> {
+        self.data.get(index)
+    }
+
     /// Number of info entries in this result set.
     pub fn len(&self) -> usize {
-        self.len
+        self.data.len()
     }
 
     /// `true` if the result set is empty.
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.data.is_empty()
     }
 
     /// Create a test-only MonitorResults with a given length.
@@ -104,8 +148,9 @@ impl MonitorResults {
     #[cfg(test)]
     pub fn test_new(len: usize) -> Self {
         Self {
-            handle: std::ptr::null_mut(),
-            len,
+            data: (0..len)
+                .map(|_| crate::InfoBuilder::new().build().expect("build empty info"))
+                .collect(),
             release_fn: None,
             release_cbdata: ptr::null_mut(),
 
@@ -116,28 +161,34 @@ impl MonitorResults {
 
 impl Drop for MonitorResults {
     fn drop(&mut self) {
+        let handle = self
+            .data
+            .first()
+            .map_or(ptr::null_mut(), |info| info.handle);
+        let len = self.data.len();
+        // The entries share one C allocation and must not free it individually.
+        for info in &mut self.data {
+            info.handle = ptr::null_mut();
+            info.len = 0;
+        }
         if let Some(release_fn) = self.release_fn.take() {
             // SAFETY: PMIx supplied this callback and opaque data for this
             // completion; it releases the tracker-owned info array.
             unsafe { release_fn(self.release_cbdata) };
-            self.handle = ptr::null_mut();
-            self.len = 0;
-        } else if !self.handle.is_null() && self.len > 0 {
+        } else if !handle.is_null() && len > 0 {
             #[cfg(any(test, feature = "mock_ffi"))]
             if crate::mock_ffi::is_mock_enabled() {
                 // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
-                unsafe { crate::mock_ffi::mock_info_free(self.handle, self.len) };
+                unsafe { crate::mock_ffi::mock_info_free(handle, len) };
             } else {
                 // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
-                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+                unsafe { ffi::PMIx_Info_free(handle, len) };
             }
             #[cfg(not(any(test, feature = "mock_ffi")))]
             {
                 // SAFETY: handle is the allocation returned by PMIx_Process_monitor.
-                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+                unsafe { ffi::PMIx_Info_free(handle, len) };
             }
-            self.handle = ptr::null_mut();
-            self.len = 0;
         }
     }
 }
@@ -178,7 +229,7 @@ static MONITOR_INFO_REGISTRY: LazyLock<
 /// This function is called by the PMIx library when a non-blocking
 /// monitoring request completes. It looks up the callback in the registry,
 /// invokes it, and cleans up.
-unsafe extern "C" fn monitor_callback_bridge(
+pub(crate) unsafe extern "C" fn monitor_callback_bridge(
     status: ffi::pmix_status_t,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
@@ -202,13 +253,10 @@ unsafe extern "C" fn monitor_callback_bridge(
         Some(mut cb) => {
             // Build MonitorResults if info was returned.
             let results = if !info.is_null() && ninfo > 0 {
-                Some(MonitorResults {
-                    handle: info,
-                    len: ninfo,
-                    release_fn,
-                    release_cbdata,
-
-                    _not_thread_safe: std::marker::PhantomData,
+                // SAFETY: PMIx transfers the result array and its release callback
+                // to this completion; MonitorResults retains both until drop.
+                Some(unsafe {
+                    MonitorResults::from_raw_parts(info, ninfo, release_fn, release_cbdata)
                 })
             } else {
                 if let Some(release_fn) = release_fn {
@@ -304,15 +352,13 @@ pub fn process_monitor(
 
     let pmix_status = PmixStatus::from_raw(status);
 
-    if pmix_status.is_success() || pmix_status == PmixStatus::Known(PmixError::ErrPartialSuccess) {
-        Ok(MonitorResults {
-            handle: results,
-            len: nresults,
-            release_fn: None,
-            release_cbdata: ptr::null_mut(),
+    // SAFETY: PMIx returned an owned array of nresults initialized entries,
+    // or a null pointer when no results were provided.
+    let results =
+        unsafe { MonitorResults::from_raw_parts(results, nresults, None, ptr::null_mut()) };
 
-            _not_thread_safe: std::marker::PhantomData,
-        })
+    if pmix_status.is_success() || pmix_status == PmixStatus::Known(PmixError::ErrPartialSuccess) {
+        Ok(results)
     } else {
         Err(pmix_status)
     }
@@ -533,6 +579,8 @@ mod tests {
         let results = MonitorResults::test_new(0);
         assert_eq!(results.len(), 0);
         assert!(results.is_empty());
+        assert_eq!(results.iter().count(), 0);
+        assert!(results.get(0).is_none());
     }
 
     #[test]
@@ -540,6 +588,10 @@ mod tests {
         let results = MonitorResults::test_new(5);
         assert_eq!(results.len(), 5);
         assert!(!results.is_empty());
+        assert_eq!(results.iter().count(), 5);
+        assert!(results.get(0).is_some());
+        assert!(results.get(4).is_some());
+        assert!(results.get(5).is_none());
     }
 
     // ── Additional unit tests (need internal MonitorResults construction) ──
@@ -593,9 +645,9 @@ mod tests {
         assert!(!r1.is_empty());
         assert_eq!(r1.len(), 1);
 
-        let rmax = MonitorResults::test_new(usize::MAX);
+        let rmax = MonitorResults::test_new(1024);
         assert!(!rmax.is_empty());
-        assert_eq!(rmax.len(), usize::MAX);
+        assert_eq!(rmax.len(), 1024);
     }
 
     /// Callback bridge correctly forwards MonitorResults with data.
