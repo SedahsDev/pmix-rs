@@ -225,6 +225,10 @@ impl PmixQuery {
         }
         self
     }
+
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_query_t {
+        self.handle
+    }
 }
 
 impl Drop for PmixQuery {
@@ -272,7 +276,7 @@ impl Drop for PmixQuery {
 
                 // SAFETY: handle was allocated by PMIx_Query_create. We've nulled
                 // out keys and qualifiers so PMIx_Query_free won't double-free them.
-                ffi::PMIx_Query_free(self.handle, 1);
+                ffi::PMIx_Query_free(self.as_mut_ptr(), 1);
                 self.handle = ptr::null_mut();
             }
         }
@@ -1961,7 +1965,7 @@ impl PmixQueryConstructed {
     }
 
     /// Return the underlying query pointer for advanced PMIx integrations.
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_query_t {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::pmix_query_t {
         self.handle
     }
 
@@ -1988,8 +1992,8 @@ impl PmixQueryConstructed {
         // SAFETY: the pointer is valid and initialized above; the C helper owns
         // its qualifiers allocation and updates `qualifiers`/`nqual`.
         crate::pmix_ffi_or_mock!(
-            mock = mock_ffi::mock_query_qualifiers_create(self.handle, n),
-            real = unsafe { ffi::PMIx_Query_qualifiers_create(self.handle, n) },
+            mock = mock_ffi::mock_query_qualifiers_create(self.as_mut_ptr(), n),
+            real = unsafe { ffi::PMIx_Query_qualifiers_create(self.as_mut_ptr(), n) },
         );
         Ok(())
     }

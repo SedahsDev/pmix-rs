@@ -11,6 +11,85 @@ use std::os::raw::{c_char, c_void};
 use std::ptr::{null, null_mut};
 use std::{fmt, mem, ptr};
 
+pub use group_enums::{GroupOperation, GroupOption};
+
+mod group_enums {
+    use crate::ffi;
+
+    /// Response to a group invitation.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum GroupOption {
+        Decline = 0,
+        Accept = 1,
+    }
+
+    impl GroupOption {
+        pub(crate) fn from_raw(raw: ffi::pmix_group_opt_t) -> Self {
+            match raw {
+                ffi::pmix_group_opt_t::PMIX_GROUP_DECLINE => Self::Decline,
+                ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT => Self::Accept,
+            }
+        }
+
+        pub(crate) fn to_raw(self) -> ffi::pmix_group_opt_t {
+            match self {
+                Self::Decline => ffi::pmix_group_opt_t::PMIX_GROUP_DECLINE,
+                Self::Accept => ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+            }
+        }
+    }
+
+    impl From<ffi::pmix_group_opt_t> for GroupOption {
+        fn from(raw: ffi::pmix_group_opt_t) -> Self {
+            Self::from_raw(raw)
+        }
+    }
+
+    impl From<GroupOption> for ffi::pmix_group_opt_t {
+        fn from(option: GroupOption) -> Self {
+            option.to_raw()
+        }
+    }
+
+    /// Operation to perform on a group.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum GroupOperation {
+        Construct = 0,
+        Destruct = 1,
+        None = 2,
+    }
+
+    impl GroupOperation {
+        pub(crate) fn from_raw(raw: ffi::pmix_group_operation_t) -> Self {
+            match raw {
+                ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT => Self::Construct,
+                ffi::pmix_group_operation_t::PMIX_GROUP_DESTRUCT => Self::Destruct,
+                ffi::pmix_group_operation_t::PMIX_GROUP_NONE => Self::None,
+            }
+        }
+
+        pub(crate) fn to_raw(self) -> ffi::pmix_group_operation_t {
+            match self {
+                Self::Construct => ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT,
+                Self::Destruct => ffi::pmix_group_operation_t::PMIX_GROUP_DESTRUCT,
+                Self::None => ffi::pmix_group_operation_t::PMIX_GROUP_NONE,
+            }
+        }
+    }
+
+    impl From<ffi::pmix_group_operation_t> for GroupOperation {
+        fn from(raw: ffi::pmix_group_operation_t) -> Self {
+            Self::from_raw(raw)
+        }
+    }
+
+    impl From<GroupOperation> for ffi::pmix_group_operation_t {
+        fn from(operation: GroupOperation) -> Self {
+            operation.to_raw()
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixProcState
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1307,6 +1386,50 @@ impl std::fmt::Display for PmixAllocDirective {
         match self {
             Self::AllocDirective => write!(f, "ALLOC_DIRECTIVE"),
             Self::Unknown(v) => write!(f, "UNKNOWN DIRECTIVE ({v})"),
+        }
+    }
+}
+
+pub use resource_block_directive::ResourceBlockDirective;
+
+mod resource_block_directive {
+    /// Directive for a resource block operation.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum ResourceBlockDirective {
+        Unknown = 0,
+        Standard = 1,
+    }
+
+    impl ResourceBlockDirective {
+        pub fn from_raw(raw: u8) -> Self {
+            match raw {
+                1 => Self::Standard,
+                _ => Self::Unknown,
+            }
+        }
+
+        pub fn to_raw(self) -> u8 {
+            self as u8
+        }
+
+        pub fn as_str(&self) -> &'static str {
+            match self {
+                Self::Unknown => "UNKNOWN",
+                Self::Standard => "STANDARD",
+            }
+        }
+    }
+
+    impl From<u8> for ResourceBlockDirective {
+        fn from(raw: u8) -> Self {
+            Self::from_raw(raw)
+        }
+    }
+
+    impl From<ResourceBlockDirective> for u8 {
+        fn from(directive: ResourceBlockDirective) -> Self {
+            directive.to_raw()
         }
     }
 }

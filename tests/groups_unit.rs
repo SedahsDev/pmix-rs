@@ -3,6 +3,7 @@
 //! Focus on code paths not yet exercised by existing tests.
 //! All tests run WITHOUT PMIx_Init — they test the Rust wrapper layer only.
 
+use pmix::enums::GroupOption;
 use pmix::groups::*;
 use pmix::{InfoBuilder, PmixStatus, Proc};
 
@@ -147,12 +148,7 @@ fn test_group_invite_with_multiple_procs() {
 fn test_group_join_with_directives() {
     let leader = test_proc(0);
     let directives = vec![InfoBuilder::new().build().expect("build info")];
-    let result = group_join(
-        "join_grp",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &directives,
-    );
+    let result = group_join("join_grp", &leader, GroupOption::Accept, &directives);
     match result {
         Ok(_) => {}
         Err(e) => {
@@ -165,12 +161,7 @@ fn test_group_join_with_directives() {
 fn test_group_join_with_different_leaders() {
     for rank in [0u32, 1, 42, u32::MAX] {
         let leader = test_proc(rank);
-        let result = group_join(
-            "join_grp",
-            &leader,
-            pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("join_grp", &leader, GroupOption::Accept, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {

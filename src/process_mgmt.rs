@@ -2484,10 +2484,6 @@ impl PmixAppObject {
         }
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut ffi::pmix_app_t {
-        self.ptr
-    }
-
     fn raw(&self) -> Option<&ffi::pmix_app_t> {
         // SAFETY: `ptr` is either null or live calloc'd storage initialized by
         // PMIx; callers only receive a reference for the non-null case.

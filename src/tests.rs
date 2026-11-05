@@ -18,7 +18,7 @@ fn test_proc_utils_mock_wrappers_and_predicates() {
     assert!(!nspace_invalid("a"));
     proc.xfer_procid(&other);
     proc.proc_load("other", 3).unwrap();
-    let mut raw: pmix_proc_t = unsafe { std::mem::zeroed() };
+    let mut raw: crate::ffi::pmix_proc_t = unsafe { std::mem::zeroed() };
     load_procid(&mut raw, "raw", 4).unwrap();
 }
 
@@ -107,7 +107,12 @@ fn test_info_into_raw_skips_drop_free() {
     }
 }
 
-use crate::*;
+use crate::ffi::{
+    PMIX_BOOL, PMIX_BYTE, PMIX_BYTE_OBJECT, PMIX_COLLECT_DATA, PMIX_DATA_ARRAY, PMIX_DOUBLE,
+    PMIX_FLOAT, PMIX_INT, PMIX_INT8, PMIX_INT16, PMIX_INT32, PMIX_INT64, PMIX_PID, PMIX_POINTER,
+    PMIX_PROC_RANK, PMIX_SIZE, PMIX_STATUS, PMIX_STRING, PMIX_UINT, PMIX_UINT8, PMIX_UINT16,
+    PMIX_UINT32, PMIX_UINT64, PMIX_UNDEF, PMIx_Info_free, pmix_data_type_t,
+};
 use crate::*;
 
 // ──────────────────────────────────────────────────────────────────────

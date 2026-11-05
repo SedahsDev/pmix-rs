@@ -1,6 +1,7 @@
 //! Integration tests for `PMIx_Group_join_nb` via the safe `group_join_nb()` wrapper.
 
-use pmix::groups::{GroupJoinCallbackWrapper, group_join_nb, pmix_group_opt_t};
+use pmix::enums::GroupOption;
+use pmix::groups::{GroupJoinCallbackWrapper, group_join_nb};
 use pmix::{Info, Proc};
 
 #[test]
@@ -8,7 +9,7 @@ fn group_join_nb_compiles() {
     let wrapper = GroupJoinCallbackWrapper::new(|_status, _info| {});
     let proc = Proc::new("test_ns", 0).unwrap();
     let info: &[Info] = &[];
-    let opt = pmix_group_opt_t::PMIX_GROUP_DECLINE;
+    let opt = GroupOption::Decline;
     let result = group_join_nb("test_group", &proc, opt, info, wrapper);
     assert!(
         result.is_err(),
@@ -30,7 +31,7 @@ fn group_join_nb_callback_not_invoked_on_failure() {
     });
     let proc = Proc::new("test_ns", 0).unwrap();
     let info: &[Info] = &[];
-    let opt = pmix_group_opt_t::PMIX_GROUP_DECLINE;
+    let opt = GroupOption::Decline;
     let result = group_join_nb("test_group", &proc, opt, info, wrapper);
     assert!(result.is_err());
     assert!(

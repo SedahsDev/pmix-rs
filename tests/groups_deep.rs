@@ -8,7 +8,7 @@
 
 mod daemon_helper;
 
-use pmix::groups::pmix_group_opt_t;
+use pmix::enums::GroupOption;
 use pmix::groups::*;
 use pmix::{InfoBuilder, PmixStatus, Proc};
 
@@ -155,7 +155,7 @@ fn test_group_invite_does_not_panic_on_empty_id() {
 fn test_group_join_does_not_panic_on_empty_id() {
     let result = std::panic::catch_unwind(|| {
         let leader = Proc::new("ns", 0).expect("leader");
-        let _ = group_join("", &leader, pmix_group_opt_t::PMIX_GROUP_DECLINE, &[]);
+        let _ = group_join("", &leader, GroupOption::Decline, &[]);
     });
     assert!(result.is_ok());
 }
@@ -197,7 +197,7 @@ fn test_group_invite_empty_group_id_rejected() {
 #[test]
 fn test_group_join_empty_group_id_rejected() {
     let leader = Proc::new("ns", 0).expect("leader");
-    let result = group_join("", &leader, pmix_group_opt_t::PMIX_GROUP_DECLINE, &[]);
+    let result = group_join("", &leader, GroupOption::Decline, &[]);
     assert!(result.is_err());
 }
 
@@ -240,7 +240,7 @@ fn test_group_invite_nb_empty_group_id_rejected() {
 fn test_group_join_nb_empty_group_id_rejected() {
     let leader = Proc::new("ns", 0).expect("leader");
     let cb = GroupJoinCallbackWrapper::new(|_s, _i| {});
-    let result = group_join_nb("", &leader, pmix_group_opt_t::PMIX_GROUP_DECLINE, &[], cb);
+    let result = group_join_nb("", &leader, GroupOption::Decline, &[], cb);
     assert!(result.is_err());
 }
 
@@ -369,12 +369,7 @@ fn test_group_invite_nb_success() {
 fn test_group_join_success() {
     daemon_helper::ensure_pmix_init();
     let leader = Proc::new("ns", 0).expect("leader");
-    let result = group_join(
-        "join_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-    );
+    let result = group_join("join_group", &leader, GroupOption::Decline, &[]);
     let _ = result;
 }
 
@@ -384,12 +379,7 @@ fn test_group_join_with_info() {
     daemon_helper::ensure_pmix_init();
     let leader = Proc::new("ns", 0).expect("leader");
     let info = vec![InfoBuilder::new().build().expect("build info")];
-    let result = group_join(
-        "join_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &info,
-    );
+    let result = group_join("join_group", &leader, GroupOption::Decline, &info);
     let _ = result;
 }
 
@@ -401,13 +391,7 @@ fn test_group_join_nb_success() {
     daemon_helper::ensure_pmix_init();
     let leader = Proc::new("ns", 0).expect("leader");
     let cb = GroupJoinCallbackWrapper::new(|_s, _i| {});
-    let result = group_join_nb(
-        "join_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-        cb,
-    );
+    let result = group_join_nb("join_group", &leader, GroupOption::Decline, &[], cb);
     assert!(result.is_ok());
 }
 
@@ -488,12 +472,7 @@ fn test_group_construct_then_join_then_leave() {
     daemon_helper::ensure_pmix_init();
     let proc = Proc::new("ns", 0).expect("proc");
     let _ = group_construct("lifecycle_group", &[proc.clone()], &[]);
-    let _ = group_join(
-        "lifecycle_group",
-        &proc,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-    );
+    let _ = group_join("lifecycle_group", &proc, GroupOption::Decline, &[]);
     let _ = group_leave("lifecycle_group", &[]);
 }
 
@@ -505,12 +484,7 @@ fn test_group_full_lifecycle() {
     let proc2 = Proc::new("ns", 1).expect("proc2");
     let _ = group_construct("full_group", &[proc.clone()], &[]);
     let _ = group_invite("full_group", &[proc2.clone()], &[]);
-    let _ = group_join(
-        "full_group",
-        &proc2,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-    );
+    let _ = group_join("full_group", &proc2, GroupOption::Decline, &[]);
     let _ = group_leave("full_group", &[]);
     let _ = group_destruct("full_group", &[]);
 }

@@ -2582,10 +2582,8 @@ impl Drop for PmixDataArrayArray {
         }
     }
 }
-pub fn data_array_create(
-    n: usize,
-    ty: ffi::pmix_data_type_t,
-) -> Result<PmixDataArrayArray, PmixStatus> {
+pub fn data_array_create(n: usize, ty: PmixDataType) -> Result<PmixDataArrayArray, PmixStatus> {
+    let ty = ty as ffi::pmix_data_type_t;
     // SAFETY: PMIx receives the requested count/type and returns a valid allocation or null.
     let p = unsafe {
         crate::pmix_ffi_or_mock!(
@@ -2716,7 +2714,7 @@ mod data_utils_tests {
     #[test]
     fn create_arrays_drop_without_panic() {
         let _guard = MockGuard::new();
-        drop(data_array_create(2, crate::mock_ffi::PMIX_INT as ffi::pmix_data_type_t).unwrap());
+        drop(data_array_create(2, PmixDataType::Int32).unwrap());
         drop(byte_object_create(2).unwrap());
     }
 }

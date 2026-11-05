@@ -20,7 +20,7 @@ use std::sync::{LazyLock, Mutex};
 ///
 /// Used by `group_join` and `group_join_nb` to specify whether
 /// to accept or decline a group invitation.
-pub use ffi::pmix_group_opt_t;
+pub use crate::enums::{GroupOperation, GroupOption};
 
 // ── One-shot completion registries (issue #67) ───────────────────────────────
 //
@@ -41,6 +41,11 @@ static GROUP_LEAVE_REGISTRY: LazyLock<Registry<GroupLeaveCallbackWrapper>> =
 
 static GROUP_DESTRUCT_REGISTRY: LazyLock<Registry<GroupDestructCallbackWrapper>> =
     LazyLock::new(Registry::new);
+
+impl GroupOption {
+    pub const PMIX_GROUP_DECLINE: Self = Self::Decline;
+    pub const PMIX_GROUP_ACCEPT: Self = Self::Accept;
+}
 
 fn flat_procs(procs: &[Proc]) -> Vec<ffi::pmix_proc_t> {
     procs
@@ -573,7 +578,7 @@ pub fn group_invite_nb(
 pub fn group_join(
     group_id: &str,
     leader: &Proc,
-    option: ffi::pmix_group_opt_t,
+    option: GroupOption,
     info: &[Info],
 ) -> Result<GroupResults, PmixStatus> {
     if group_id.is_empty() {
@@ -601,7 +606,7 @@ pub fn group_join(
         ffi::PMIx_Group_join(
             group_id_c.as_ptr(),
             leader_ptr,
-            option,
+            option.to_raw(),
             info_ptr,
             ninfo,
             &mut results,
@@ -712,7 +717,7 @@ pub unsafe extern "C" fn group_join_callback_bridge(
 pub fn group_join_nb(
     group_id: &str,
     leader: &Proc,
-    option: ffi::pmix_group_opt_t,
+    option: GroupOption,
     info: &[Info],
     callback: GroupJoinCallbackWrapper,
 ) -> Result<(), PmixStatus> {
@@ -740,7 +745,7 @@ pub fn group_join_nb(
         ffi::PMIx_Group_join_nb(
             group_id_c.as_ptr(),
             leader_ptr,
-            option,
+            option.to_raw(),
             info_ptr,
             ninfo,
             Some(group_join_callback_bridge),
@@ -1017,6 +1022,29 @@ pub fn group_destruct_nb(
         let mut registry = GROUP_DESTRUCT_REGISTRY.lock();
         registry.remove(&req_id);
         Err(pmix_status)
+    }
+}
+
+/// Return the static PMIx spelling for a group operation.
+///
+/// 6.x-only: `PMIx_Group_operation_string` does not exist in OpenPMIx 5.0.
+#[cfg(pmix6)]
+pub fn group_operation_string(op: GroupOperation) -> &'static str {
+    let p = crate::pmix_ffi_or_mock!(
+        mock = unsafe { crate::mock_ffi::mock_group_operation_string(op.to_raw()) },
+        real = unsafe { ffi::PMIx_Group_operation_string(op.to_raw()) }
+    );
+    if p.is_null() {
+        return "";
+    }
+    unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
+}
+
+/// Return the static PMIx spelling for a group option.
+pub fn group_option_string(opt: GroupOption) -> &'static str {
+    match opt {
+        GroupOption::Decline => "DECLINE",
+        GroupOption::Accept => "ACCEPT",
     }
 }
 
@@ -1423,7 +1451,7 @@ mod tests {
     #[test]
     fn test_group_join_empty_group_id() {
         let leader = test_proc(0);
-        let result = group_join("", &leader, ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+        let result = group_join("", &leader, GroupOption::Accept, &[]);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1434,12 +1462,7 @@ mod tests {
     #[test]
     fn test_group_join_interior_nul_group_id() {
         let leader = test_proc(0);
-        let result = group_join(
-            "group\0id",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("group\0id", &leader, GroupOption::Accept, &[]);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1450,12 +1473,7 @@ mod tests {
     #[test]
     fn test_group_join_accept_option() {
         let leader = test_proc(0);
-        let result = group_join(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("grp", &leader, GroupOption::Accept, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -1472,12 +1490,7 @@ mod tests {
     #[test]
     fn test_group_join_decline_option() {
         let leader = test_proc(0);
-        let result = group_join(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_DECLINE,
-            &[],
-        );
+        let result = group_join("grp", &leader, GroupOption::Decline, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -1497,13 +1510,7 @@ mod tests {
     fn test_group_join_nb_empty_group_id() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("", &leader, GroupOption::Accept, &[], cb);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1515,13 +1522,7 @@ mod tests {
     fn test_group_join_nb_interior_nul_group_id() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "group\0id",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("group\0id", &leader, GroupOption::Accept, &[], cb);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("expected Err"),
@@ -1533,13 +1534,7 @@ mod tests {
     fn test_group_join_nb_valid_params_reaches_ffi() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("grp", &leader, GroupOption::Accept, &[], cb);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2266,13 +2261,7 @@ mod tests {
     fn test_group_join_nb_decline_option() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_DECLINE,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("grp", &leader, GroupOption::Decline, &[], cb);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2492,12 +2481,7 @@ mod tests {
     #[test]
     fn test_group_join_leader_rank_zero() {
         let leader = test_proc(0);
-        let result = group_join(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("grp", &leader, GroupOption::Accept, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2514,12 +2498,7 @@ mod tests {
     #[test]
     fn test_group_join_leader_high_rank() {
         let leader = test_proc(9999);
-        let result = group_join(
-            "grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-        );
+        let result = group_join("grp", &leader, GroupOption::Accept, &[]);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2677,13 +2656,7 @@ mod tests {
     fn test_group_join_nb_accept_option_reaches_ffi() {
         let leader = test_proc(0);
         let cb = GroupJoinCallbackWrapper::new(|_, _| {});
-        let result = group_join_nb(
-            "test_grp",
-            &leader,
-            ffi::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-            &[],
-            cb,
-        );
+        let result = group_join_nb("test_grp", &leader, GroupOption::Accept, &[], cb);
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2828,28 +2801,10 @@ mod tests {
     }
 }
 
-/// Return the static PMIx spelling for a group operation.
-///
-/// 6.x-only: `PMIx_Group_operation_string` does not exist in OpenPMIx 5.0.
-#[cfg(pmix6)]
-pub fn group_operation_string(op: ffi::pmix_group_operation_t) -> &'static str {
-    let p = crate::pmix_ffi_or_mock!(
-        mock = unsafe { crate::mock_ffi::mock_group_operation_string(op) },
-        real = unsafe { ffi::PMIx_Group_operation_string(op) }
-    );
-    if p.is_null() {
-        return "";
-    }
-    unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
-}
-
 #[cfg(test)]
 #[cfg(pmix6)]
 #[test]
 fn test_misc_group_string_wrapper() {
     let _guard = crate::mock_ffi::MockGuard::new();
-    assert_eq!(
-        group_operation_string(crate::ffi::pmix_group_operation_t::PMIX_GROUP_CONSTRUCT),
-        "unknown"
-    );
+    assert_eq!(group_operation_string(GroupOperation::Construct), "unknown");
 }

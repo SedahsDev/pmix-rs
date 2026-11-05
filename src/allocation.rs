@@ -1733,23 +1733,18 @@ mod tests {
     }
 }
 
+#[cfg(pmix6)]
+use crate::enums::ResourceBlockDirective;
+
 /// 6.x-only: resource-block directives do not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
-pub fn resource_block_directive_string(d: ffi::pmix_resource_block_directive_t) -> &'static str {
-    let p = crate::pmix_ffi_or_mock!(
-        mock = unsafe { crate::mock_ffi::mock_resource_block_directive_string(d) },
-        real = unsafe { ffi::PMIx_Resource_block_directive_string(d) }
-    );
-    if p.is_null() {
-        ""
-    } else {
-        unsafe { std::ffi::CStr::from_ptr(p).to_str().unwrap_or("") }
-    }
+pub fn resource_block_directive_string(d: ResourceBlockDirective) -> &'static str {
+    d.as_str()
 }
 /// 6.x-only: resource-block operations do not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
 pub fn resource_block(
-    d: ffi::pmix_resource_block_directive_t,
+    d: ResourceBlockDirective,
     block: &mut [u8],
     res: &[crate::fabric::PmixResourceUnit],
     info: &[Info],
@@ -1761,7 +1756,7 @@ pub fn resource_block(
     let s = crate::pmix_ffi_or_mock!(
         mock = unsafe {
             crate::mock_ffi::mock_resource_block(
-                d,
+                d.to_raw(),
                 block.as_mut_ptr().cast(),
                 rp,
                 res.len(),
@@ -1770,7 +1765,14 @@ pub fn resource_block(
             )
         },
         real = unsafe {
-            ffi::PMIx_Resource_block(d, block.as_mut_ptr().cast(), rp, res.len(), ip, info.len())
+            ffi::PMIx_Resource_block(
+                d.to_raw(),
+                block.as_mut_ptr().cast(),
+                rp,
+                res.len(),
+                ip,
+                info.len(),
+            )
         }
     );
     if s == ffi::PMIX_SUCCESS as i32 {
@@ -1794,7 +1796,7 @@ pub fn resource_block(
 /// 6.x-only: resource-block operations do not exist in OpenPMIx 5.0.
 #[cfg(pmix6)]
 pub unsafe fn resource_block_nb(
-    d: ffi::pmix_resource_block_directive_t,
+    d: ResourceBlockDirective,
     block: &mut [u8],
     res: &[crate::fabric::PmixResourceUnit],
     info: &[Info],
@@ -1812,7 +1814,7 @@ pub unsafe fn resource_block_nb(
     let s = crate::pmix_ffi_or_mock!(
         mock = unsafe {
             crate::mock_ffi::mock_resource_block_nb(
-                d,
+                d.to_raw(),
                 block.as_mut_ptr().cast(),
                 rp,
                 res.len(),
@@ -1824,7 +1826,7 @@ pub unsafe fn resource_block_nb(
         },
         real = unsafe {
             ffi::PMIx_Resource_block_nb(
-                d,
+                d.to_raw(),
                 block.as_mut_ptr().cast(),
                 rp,
                 res.len(),
@@ -1861,14 +1863,16 @@ mod misc_wrapper_tests {
         let _guard = crate::mock_ffi::MockGuard::new();
         let mut block = [0_u8; 8];
         let units = [crate::fabric::PmixResourceUnit::new()];
-        assert!(resource_block(0, &mut block, &units, &[]).is_ok());
+        assert!(
+            resource_block(ResourceBlockDirective::from_raw(0), &mut block, &units, &[]).is_ok()
+        );
         let called = AtomicUsize::new(0);
         // SAFETY: the input storage remains live through the synchronous mock
         // invocation; a real caller must extend that lifetime.
         assert!(
             unsafe {
                 resource_block_nb(
-                    0,
+                    ResourceBlockDirective::from_raw(0),
                     &mut block,
                     &units,
                     &[],

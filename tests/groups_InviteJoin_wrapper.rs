@@ -209,7 +209,7 @@ fn test_group_join_empty_group_id() {
     let err = extract_err(group_join(
         "",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
     ));
     assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
@@ -222,7 +222,7 @@ fn test_group_join_no_init() {
     let err = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
     ));
     assert!(!err.is_success());
@@ -236,7 +236,7 @@ fn test_group_join_with_info() {
     let err = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[info],
     ));
     assert!(!err.is_success());
@@ -249,13 +249,13 @@ fn test_group_join_deterministic() {
     let err1 = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
     ));
     let err2 = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
     ));
     assert_eq!(err1, err2);
@@ -268,7 +268,7 @@ fn test_group_join_join_and_construct() {
     let err = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_DECLINE,
+        pmix::enums::GroupOption::Decline,
         &[],
     ));
     assert!(!err.is_success());
@@ -281,19 +281,19 @@ fn test_group_join_idempotent() {
     let err1 = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
     ));
     let err2 = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
     ));
     let err3 = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
     ));
     assert_eq!(err1, err2);
@@ -309,7 +309,7 @@ fn test_group_join_multiple_info() {
     let err = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[i1, i2],
     ));
     assert!(!err.is_success());
@@ -334,7 +334,7 @@ fn test_group_join_nb_empty_group_id() {
     let err = unwrap_err_result(group_join_nb(
         "",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
         cb,
     ));
@@ -360,7 +360,7 @@ fn test_group_join_nb_no_init() {
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
         cb,
     ));
@@ -383,7 +383,7 @@ fn test_group_join_nb_with_info() {
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[info],
         cb,
     ));
@@ -405,7 +405,7 @@ fn test_group_join_nb_deterministic() {
     let err1 = unwrap_err_result(group_join_nb(
         "",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
         cb1,
     ));
@@ -418,7 +418,7 @@ fn test_group_join_nb_deterministic() {
     let err2 = unwrap_err_result(group_join_nb(
         "",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        pmix::enums::GroupOption::Accept,
         &[],
         cb2,
     ));
@@ -449,7 +449,7 @@ fn test_group_join_nb_join_and_construct() {
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_DECLINE,
+        pmix::enums::GroupOption::Decline,
         &[],
         cb,
     ));

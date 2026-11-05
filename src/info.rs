@@ -662,7 +662,7 @@ impl PmixInfoList {
             real = unsafe { crate::ffi::PMIx_Info_list_convert(self.as_ptr(), &mut array) },
         ))
         .map(|()| ConvertedInfoArray {
-            array,
+            array: std::mem::MaybeUninit::new(array),
             _not_thread_safe: std::marker::PhantomData,
         })
     }
@@ -671,7 +671,7 @@ impl PmixInfoList {
 /// An owned array returned by [`PmixInfoList::convert`].
 #[allow(dead_code)]
 pub(crate) struct ConvertedInfoArray {
-    array: crate::ffi::pmix_data_array_t,
+    array: std::mem::MaybeUninit<crate::ffi::pmix_data_array_t>,
     _not_thread_safe: std::marker::PhantomData<*mut ()>,
 }
 
@@ -679,13 +679,14 @@ impl ConvertedInfoArray {
     /// Borrow the PMIx array for a synchronous consumer.
     #[allow(dead_code)]
     pub(crate) fn raw(&self) -> &crate::ffi::pmix_data_array_t {
-        &self.array
+        // SAFETY: convert constructs this wrapper with an initialized array.
+        unsafe { self.array.assume_init_ref() }
     }
 
     /// Return the mutable PMIx array pointer expected by C APIs.
     #[allow(dead_code)]
     pub(crate) fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_data_array_t {
-        &mut self.array
+        self.array.as_mut_ptr()
     }
 }
 
@@ -693,7 +694,7 @@ impl std::ops::Deref for ConvertedInfoArray {
     type Target = crate::ffi::pmix_data_array_t;
 
     fn deref(&self) -> &Self::Target {
-        &self.array
+        self.raw()
     }
 }
 
@@ -702,10 +703,10 @@ impl Drop for ConvertedInfoArray {
         crate::pmix_ffi_or_mock!(
             // SAFETY: self.array owns a valid, destructible mock data array and
             // this Drop implementation destroys it exactly once.
-            mock = unsafe { crate::mock_ffi::mock_data_array_destruct(&mut self.array) },
+            mock = unsafe { crate::mock_ffi::mock_data_array_destruct(self.array.as_mut_ptr()) },
             // SAFETY: self.array owns a valid, destructible PMIx data array and
             // this Drop implementation destroys it exactly once.
-            real = unsafe { crate::ffi::PMIx_Data_array_destruct(&mut self.array) },
+            real = unsafe { crate::ffi::PMIx_Data_array_destruct(self.array.as_mut_ptr()) },
         );
     }
 }

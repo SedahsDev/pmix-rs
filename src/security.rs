@@ -81,7 +81,7 @@ pub struct PmixCredential {
 /// originating `PmixCredential`, so this must not outlive it.
 #[derive(Debug)]
 #[allow(dead_code)]
-pub(crate) struct CredentialByteObject<'a> {
+pub struct CredentialByteObject<'a> {
     inner: Box<ffi::pmix_byte_object_t>,
     _marker: std::marker::PhantomData<&'a PmixCredential>,
 }
@@ -95,20 +95,6 @@ impl CredentialByteObject<'_> {
     #[allow(dead_code)]
     pub(crate) fn as_ptr(&self) -> *const ffi::pmix_byte_object_t {
         self.inner.as_ref()
-    }
-}
-
-impl Deref for CredentialByteObject<'_> {
-    type Target = ffi::pmix_byte_object_t;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for CredentialByteObject<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
     }
 }
 
@@ -972,8 +958,8 @@ mod tests {
     fn test_credential_as_raw() {
         let cred = PmixCredential::from_bytes(b"test");
         let raw = cred.as_raw();
-        assert_eq!(raw.size, 4);
-        assert!(!raw.bytes.is_null());
+        assert_eq!(raw.inner.size, 4);
+        assert!(!raw.inner.bytes.is_null());
     }
 
     // ── PmixCredential clone ───────────────────────────────────────────────
@@ -1083,8 +1069,8 @@ mod tests {
     fn test_credential_as_raw_empty() {
         let cred = PmixCredential::empty();
         let raw = cred.as_raw();
-        assert!(raw.bytes.is_null());
-        assert_eq!(raw.size, 0);
+        assert!(raw.inner.bytes.is_null());
+        assert_eq!(raw.inner.size, 0);
     }
 
     // ── CredentialResults ──────────────────────────────────────────────────

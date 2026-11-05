@@ -88,7 +88,7 @@ macro_rules! pmix_ffi_or_mock {
     }};
 }
 
-use crate::ffi::*;
+pub(crate) use crate::ffi::*;
 use cstring_array::CStringArray;
 use std::ffi::{CStr, CString, NulError};
 use std::mem::zeroed;
