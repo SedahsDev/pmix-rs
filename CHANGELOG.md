@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Breaking: Wrapped pmix_group_opt_t in GroupOption enum and pmix_group_operation_t in GroupOperation enum. group_join() and group_join_nb() now take GroupOption instead of pmix_group_opt_t. Migration: use GroupOption::Accept or GroupOption::Decline instead of raw FFI values. GroupOperation implements Display and as_str() for string conversion.
+- Breaking: Wrapped 11 server module callback fields (client_connected, client_connected2, client_finalized, tool_connected, tool_connected2, publish, lookup, unpublish, register_events, deregister_events, notify_event) with native Rust types. pmix_server_*_fn_t no longer appears in public signatures. Migration: use Native*Callback types from src/server/callbacks.rs.
 - Breaking: Wrapped pmix_resource_block_directive_t in ResourceBlockDirective enum. Functions resource_block_directive_string, resource_block, and resource_block_nb now take ResourceBlockDirective instead of raw u8. Migration: use ResourceBlockDirective::Standard, ResourceBlockDirective::Debug, etc.
 - Breaking: Wrapped pmix_app_t access in PmixAppObject. as_mut_ptr() is now pub(crate); use typed accessors nprocs(), cmd(), argv(), env(), info() instead of direct struct field access.
 
