@@ -52,11 +52,11 @@ impl PmixInfo {
         }
     }
     /// Return an immutable pointer to the underlying PMIx info value.
-    pub fn as_ptr(&self) -> *const crate::ffi::pmix_info_t {
+    pub(crate) fn as_ptr(&self) -> *const crate::ffi::pmix_info_t {
         &self.raw
     }
     /// Return a mutable pointer to the underlying PMIx info value.
-    pub fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_info_t {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_info_t {
         &mut self.raw
     }
 }
@@ -426,7 +426,8 @@ impl PmixInfoList {
     /// PMIx returns its sentinel rather than NULL for an empty real list, so
     /// checking `len` first is required to avoid traversing that sentinel.
     /// Nested pointers in the snapshots remain valid only while PMIx owns them.
-    pub fn iter(&self) -> Vec<crate::ffi::pmix_info_t> {
+    #[allow(dead_code)]
+    pub(crate) fn iter(&self) -> Vec<crate::ffi::pmix_info_t> {
         if self.is_empty() {
             return Vec::new();
         }
@@ -678,13 +679,13 @@ pub(crate) struct ConvertedInfoArray {
 impl ConvertedInfoArray {
     /// Borrow the PMIx array for a synchronous consumer.
     #[allow(dead_code)]
-    pub(crate) fn raw(&self) -> &crate::ffi::pmix_data_array_t {
+    fn raw(&self) -> &crate::ffi::pmix_data_array_t {
         &self.array
     }
 
     /// Return the mutable PMIx array pointer expected by C APIs.
     #[allow(dead_code)]
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_data_array_t {
+    fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_data_array_t {
         &mut self.array
     }
 }

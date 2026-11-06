@@ -245,21 +245,30 @@ unsafe fn copy_pmix_byte_object(cred: *const ffi::pmix_byte_object_t) -> Vec<u8>
 /// `info` must be non-null and point to a valid `pmix_info_t[ninfo]` array.
 /// The returned array is owned by the caller and must be released with
 /// `PMIx_Info_free` when it is no longer needed.
-unsafe fn copy_info_array(info: *const ffi::pmix_info_t, ninfo: usize) -> *mut ffi::pmix_info_t {
+unsafe fn copy_info_array(
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+) -> Result<Vec<Info>, PmixStatus> {
+    let mut data = Vec::new();
     if info.is_null() || ninfo == 0 {
-        return ptr::null_mut();
-    }
-    let copied = unsafe { ffi::PMIx_Info_create(ninfo) };
-    if copied.is_null() {
-        return ptr::null_mut();
+        return Ok(data);
     }
     for i in 0..ninfo {
-        if unsafe { ffi::PMIx_Info_xfer(copied.add(i), info.add(i)) } != ffi::PMIX_SUCCESS as i32 {
-            unsafe { ffi::PMIx_Info_free(copied, ninfo) };
-            return ptr::null_mut();
+        let copied = unsafe { ffi::PMIx_Info_create(1) };
+        if copied.is_null() {
+            return Err(PmixStatus::Known(PmixError::ErrNomem));
         }
+        if unsafe { ffi::PMIx_Info_xfer(copied, info.add(i)) } != ffi::PMIX_SUCCESS as i32 {
+            unsafe { ffi::PMIx_Info_free(copied, 1) };
+            return Err(PmixStatus::Known(PmixError::ErrNomem));
+        }
+        data.push(Info {
+            handle: copied,
+            len: 1,
+            _not_thread_safe: std::marker::PhantomData,
+        });
     }
-    copied
+    Ok(data)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,7 +387,7 @@ pub trait CredentialCallback: Send {
 pub struct CredentialResults {
     /// Info entries returned by the server (e.g., credential metadata,
     /// effective userid/groupid).
-    info: Vec<Info>,
+    data: Vec<Info>,
     /// Number of info entries.
     ninfo: usize,
 }
@@ -386,7 +395,17 @@ pub struct CredentialResults {
 impl CredentialResults {
     /// Get the info entries.
     pub fn info(&self) -> &[Info] {
-        &self.info
+        &self.data
+    }
+
+    /// Iterate over the info entries.
+    pub fn iter(&self) -> std::slice::Iter<'_, Info> {
+        self.data.iter()
+    }
+
+    /// Get an info entry by index.
+    pub fn get(&self, index: usize) -> Option<&Info> {
+        self.data.get(index)
     }
 
     /// Number of info entries.
@@ -511,7 +530,7 @@ extern "C" fn credential_callback_bridge(
             // Free the original C-allocated info array.
             let n = info_vec.len();
             CredentialResults {
-                info: info_vec,
+                data: info_vec,
                 ninfo: n,
             }
         }
@@ -600,15 +619,55 @@ pub fn get_credential_nb(
 ///
 /// Wraps the `pmix_info_t*` array returned by `PMIx_Validate_credential`
 /// and automatically frees it via `PMIx_Info_free` on drop.
-#[derive(Debug)]
 pub struct ValidationResults {
+    data: Vec<Info>,
+}
+
+impl std::fmt::Debug for ValidationResults {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ValidationResults")
+            .field("len", &self.len())
+            .finish()
+    }
+}
+
+impl ValidationResults {
+    /// Create an empty result set.
+    pub fn empty() -> Self {
+        Self { data: Vec::new() }
+    }
+
+    /// Iterate over the info entries.
+    pub fn iter(&self) -> std::slice::Iter<'_, Info> {
+        self.data.iter()
+    }
+
+    /// Get an info entry by index.
+    pub fn get(&self, index: usize) -> Option<&Info> {
+        self.data.get(index)
+    }
+
+    /// Number of info entries.
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// `true` if there are no info entries.
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+}
+
+/// Releases the original PMIx array after its entries have been copied.
+#[derive(Debug)]
+struct ValidationInfoArray {
     handle: *mut ffi::pmix_info_t,
     len: usize,
     /// Makes this type `!Send` + `!Sync` (owns PMIx/C memory — not free-threaded).
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
-impl ValidationResults {
+impl ValidationInfoArray {
     /// Create an empty `ValidationResults` with no info entries.
     ///
     /// Useful for testing and as a default value when validation
@@ -633,9 +692,9 @@ impl ValidationResults {
     }
 }
 
-impl Drop for ValidationResults {
+impl Drop for ValidationInfoArray {
     fn drop(&mut self) {
-        if !self.handle.is_null() && self.len > 0 {
+        if !self.handle.is_null() && !self.is_empty() {
             unsafe {
                 // SAFETY: handle was returned by PMIx_Validate_credential
                 // as an allocated pmix_info_t array. PMIx_Info_free releases it.
@@ -686,8 +745,7 @@ pub fn validate_credential(
     // Create a C pmix_byte_object_t for the credential.
     let cred_c = credential.as_c_mut_ptr();
 
-    let mut results: *mut ffi::pmix_info_t = ptr::null_mut();
-    let mut nresults: usize = 0;
+    let mut results = ValidationInfoArray::empty();
 
     let status = unsafe {
         // SAFETY: PMIx_Validate_credential is a synchronous PMIx API call.
@@ -699,8 +757,8 @@ pub fn validate_credential(
             cred_c as *const ffi::pmix_byte_object_t,
             info_ptr,
             ninfo,
-            &mut results,
-            &mut nresults,
+            &mut results.handle,
+            &mut results.len,
         )
     };
 
@@ -712,19 +770,11 @@ pub fn validate_credential(
     let pmix_status = PmixStatus::from_raw(status);
 
     if pmix_status.is_success() {
-        Ok(ValidationResults {
-            handle: results,
-            len: nresults,
-
-            _not_thread_safe: std::marker::PhantomData,
-        })
+        let data = unsafe { copy_info_array(results.handle, results.len()) }?;
+        Ok(ValidationResults { data })
     } else {
         // On error, free any results that may have been allocated.
-        if !results.is_null() && nresults > 0 {
-            unsafe {
-                ffi::PMIx_Info_free(results, nresults);
-            }
-        }
+        drop(results);
         Err(pmix_status)
     }
 }
@@ -823,21 +873,9 @@ extern "C" fn validation_callback_bridge(
 
     // Build ValidationResults from the info array.
     let (results, pmix_status) = if !info.is_null() && ninfo > 0 {
-        let copied = unsafe { copy_info_array(info, ninfo) };
-        if copied.is_null() {
-            (
-                ValidationResults::empty(),
-                PmixStatus::Known(PmixError::ErrNomem),
-            )
-        } else {
-            (
-                ValidationResults {
-                    handle: copied,
-                    len: ninfo,
-                    _not_thread_safe: std::marker::PhantomData,
-                },
-                pmix_status,
-            )
+        match unsafe { copy_info_array(info, ninfo) } {
+            Ok(data) => (ValidationResults { data }, pmix_status),
+            Err(status) => (ValidationResults::empty(), status),
         }
     } else {
         (ValidationResults::empty(), pmix_status)
@@ -1415,6 +1453,8 @@ mod tests {
         let results = CredentialResults::default();
         let info: &[Info] = results.info();
         assert!(info.is_empty());
+        assert_eq!(results.iter().count(), 0);
+        assert!(results.get(0).is_none());
     }
 
     // ── ValidationResults edge case tests ──────────────────────────────────
@@ -1425,7 +1465,7 @@ mod tests {
         let results = ValidationResults::empty();
         let s = format!("{:?}", results);
         assert!(s.contains("ValidationResults"));
-        assert!(s.contains("handle"));
+        assert!(s.contains("len"));
     }
 
     /// Test ValidationResults empty constructor sets null handle.
@@ -1434,6 +1474,8 @@ mod tests {
         let results = ValidationResults::empty();
         assert!(results.is_empty());
         assert_eq!(results.len(), 0);
+        assert_eq!(results.iter().count(), 0);
+        assert!(results.get(0).is_none());
     }
 
     // ── CredentialCallback recording tests ────────────────────────────────

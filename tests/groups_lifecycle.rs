@@ -518,7 +518,7 @@ fn group_invite_nb_error_is_valid_status() {
 #[test]
 fn group_join_empty_group_id() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join("", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+    let result = group_join("", &leader, GroupOption::Accept, &[]);
     let err = extract_err(result);
     assert_eq!(
         err,
@@ -531,12 +531,7 @@ fn group_join_empty_group_id() {
 #[test]
 fn group_join_accept_without_init() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("my_group", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join accept without init should fail"
@@ -547,12 +542,7 @@ fn group_join_accept_without_init() {
 #[test]
 fn group_join_decline_without_init() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-    );
+    let result = group_join("my_group", &leader, GroupOption::Decline, &[]);
     assert!(
         result.is_err(),
         "group_join decline without init should fail"
@@ -563,12 +553,7 @@ fn group_join_decline_without_init() {
 #[test]
 fn group_join_error_is_valid_status() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("my_group", &leader, GroupOption::Accept, &[]);
     let err = extract_err(result);
     assert!(err.to_raw() < 0, "error status should be negative");
 }
@@ -584,13 +569,7 @@ fn group_join_nb_empty_group_id() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb(
-        "",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("", &leader, GroupOption::Accept, &[], callback);
     let err = extract_err(result);
     assert_eq!(
         err,
@@ -606,13 +585,7 @@ fn group_join_nb_accept_without_init() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("my_group", &leader, GroupOption::Accept, &[], callback);
     assert!(
         result.is_err(),
         "group_join_nb accept without init should fail"
@@ -626,13 +599,7 @@ fn group_join_nb_decline_without_init() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("my_group", &leader, GroupOption::Decline, &[], callback);
     assert!(
         result.is_err(),
         "group_join_nb decline without init should fail"
@@ -646,13 +613,7 @@ fn group_join_nb_error_is_valid_status() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked");
     });
-    let result = group_join_nb(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("my_group", &leader, GroupOption::Accept, &[], callback);
     let err = extract_err(result);
     assert!(err.to_raw() < 0, "error status should be negative");
 }
@@ -757,12 +718,7 @@ fn group_invite_no_panic_on_valid_params() {
 #[test]
 fn group_join_no_panic_on_valid_params() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let _result = group_join(
-        "valid_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let _result = group_join("valid_group", &leader, GroupOption::Accept, &[]);
 }
 
 /// group_leave should not panic with valid parameters.
@@ -799,13 +755,7 @@ fn group_invite_nb_no_panic_on_valid_params() {
 fn group_join_nb_no_panic_on_valid_params() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {});
-    let _result = group_join_nb(
-        "valid_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let _result = group_join_nb("valid_group", &leader, GroupOption::Accept, &[], callback);
 }
 
 /// group_leave_nb should not panic with valid parameters.
@@ -829,12 +779,7 @@ fn all_blocking_functions_reject_empty_group_id() {
     let construct_err = extract_err(group_construct("", &[proc], &[]));
     let destruct_err = unwrap_err_result(group_destruct("", &[]));
     let invite_err = extract_err(group_invite("", &[proc2], &[]));
-    let join_err = extract_err(group_join(
-        "",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    ));
+    let join_err = extract_err(group_join("", &leader, GroupOption::Accept, &[]));
     let leave_err = unwrap_err_result(group_leave("", &[]));
 
     let expected = PmixStatus::Known(PmixError::ErrBadParam);
@@ -872,7 +817,7 @@ fn all_nb_functions_reject_empty_group_id() {
     let join_nb_err = extract_err(group_join_nb(
         "",
         &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        GroupOption::Accept,
         &[],
         GroupJoinCallbackWrapper::new(|_, _| {}),
     ));
@@ -951,13 +896,13 @@ fn destruct_and_leave_callbacks_status_only() {
 /// pmix_group_opt_t has PMIX_GROUP_ACCEPT variant.
 #[test]
 fn pmix_group_opt_accept_exists() {
-    let _opt = pmix_group_opt_t::PMIX_GROUP_ACCEPT;
+    let _opt = GroupOption::Accept;
 }
 
 /// pmix_group_opt_t has PMIX_GROUP_DECLINE variant.
 #[test]
 fn pmix_group_opt_decline_exists() {
-    let _opt = pmix_group_opt_t::PMIX_GROUP_DECLINE;
+    let _opt = GroupOption::Decline;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

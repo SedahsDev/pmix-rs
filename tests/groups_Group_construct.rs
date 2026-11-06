@@ -14,7 +14,7 @@
 
 mod daemon_helper;
 
-use pmix::groups::pmix_group_opt_t;
+use pmix::groups::GroupOption;
 use pmix::groups::*;
 use pmix::{PmixError, PmixStatus, Proc};
 
@@ -283,7 +283,7 @@ fn group_invite_nb_without_init_fails() {
 #[test]
 fn group_join_empty_group_id_bad_param() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join("", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+    let result = group_join("", &leader, GroupOption::Accept, &[]);
     let err = extract_err(result);
     assert_eq!(
         err,
@@ -296,12 +296,7 @@ fn group_join_empty_group_id_bad_param() {
 #[test]
 fn group_join_accept_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("my_group", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join accept without PMIx_Init should fail"
@@ -312,12 +307,7 @@ fn group_join_accept_without_init_fails() {
 #[test]
 fn group_join_decline_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-    );
+    let result = group_join("my_group", &leader, GroupOption::Decline, &[]);
     assert!(
         result.is_err(),
         "group_join decline without PMIx_Init should fail"
@@ -328,12 +318,7 @@ fn group_join_decline_without_init_fails() {
 #[test]
 fn group_join_with_info_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("create leader");
-    let result = group_join(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("my_group", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with info without init should fail"
@@ -351,13 +336,7 @@ fn group_join_nb_empty_group_id_bad_param() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb(
-        "",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("", &leader, GroupOption::Accept, &[], callback);
     let err = extract_err(result);
     assert_eq!(
         err,
@@ -373,13 +352,7 @@ fn group_join_nb_without_init_fails() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("my_group", &leader, GroupOption::Accept, &[], callback);
     assert!(
         result.is_err(),
         "group_join_nb without PMIx_Init should fail"
