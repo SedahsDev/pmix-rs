@@ -97,7 +97,8 @@ fn test_server_module_layout_matches_c() {
 
 #[test]
 fn test_server_module_typed_callbacks_convert_to_c() {
-    unsafe extern "C" fn fence(
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn fence(
         _requestor: *const ffi::pmix_proc_t,
         _procs: *const [std::os::raw::c_char; 256],
         _nprocs: usize,
@@ -105,7 +106,7 @@ fn test_server_module_typed_callbacks_convert_to_c() {
         _ninfo: usize,
         _data: *mut ffi::pmix_info_t,
         _ndata: usize,
-        _cbfunc: ffi::pmix_modex_cbfunc_t,
+        _cbfunc: Option<crate::server::callbacks::ModexCallback>,
         _cbdata: *mut std::os::raw::c_void,
     ) {
     }
@@ -386,7 +387,7 @@ fn test_collect_inventory_results_construction() {
         handle: std::ptr::null_mut(),
         len: 0,
 
-        release_fn: None,
+        release_fn: None.into(),
         release_cbdata: std::ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     };
@@ -918,7 +919,7 @@ fn test_collect_inventory_results_empty() {
         handle: ptr::null_mut(),
         len: 0,
 
-        release_fn: None,
+        release_fn: None.into(),
         release_cbdata: std::ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     };
@@ -1047,7 +1048,7 @@ fn test_collect_inventory_results_len_zero() {
         handle: ptr::null_mut(),
         len: 0,
 
-        release_fn: None,
+        release_fn: None.into(),
         release_cbdata: std::ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     };
@@ -1061,7 +1062,7 @@ fn test_collect_inventory_results_debug_format() {
         handle: ptr::null_mut(),
         len: 0,
 
-        release_fn: None,
+        release_fn: None.into(),
         release_cbdata: std::ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     };
@@ -1077,7 +1078,7 @@ fn test_collect_inventory_results_non_null_handle() {
         handle: 0x1 as *mut ffi::pmix_info_t, // dummy non-null
         len: 0,
 
-        release_fn: None,
+        release_fn: None.into(),
         release_cbdata: std::ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     };
@@ -1092,7 +1093,7 @@ fn test_collect_inventory_results_drop_noop_null() {
         handle: ptr::null_mut(),
         len: 0,
 
-        release_fn: None,
+        release_fn: None.into(),
         release_cbdata: std::ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     };
@@ -1516,7 +1517,7 @@ fn test_collect_inventory_callback_captures_status_and_inventory() {
         handle: ptr::null_mut(),
         len: 0,
 
-        release_fn: None,
+        release_fn: None.into(),
         release_cbdata: std::ptr::null_mut(),
         _not_thread_safe: std::marker::PhantomData,
     };
