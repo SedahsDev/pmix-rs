@@ -102,6 +102,31 @@ impl PmixEnvar {
     }
 }
 
+impl From<Proc> for crate::ffi::pmix_proc_t {
+    fn from(proc: Proc) -> Self {
+        proc.handle
+    }
+}
+
+impl TryFrom<crate::ffi::pmix_proc> for Proc {
+    type Error = crate::PmixStatus;
+
+    fn try_from(raw: crate::ffi::pmix_proc) -> Result<Self, Self::Error> {
+        let nspace_len = raw
+            .nspace
+            .iter()
+            .position(|&byte| byte == 0)
+            .ok_or(crate::PmixStatus::from_raw(-27))?;
+        if nspace_len == 0 || nspace_len >= crate::ffi::PMIX_MAX_NSLEN as usize {
+            return Err(crate::PmixStatus::from_raw(-27));
+        }
+        Ok(Proc {
+            handle: raw,
+            len: 1,
+        })
+    }
+}
+
 impl Proc {
     pub fn new(nspace: &str, rank: u32) -> Result<Self, PmixError> {
         if nspace.len() > ffi::PMIX_MAX_NSLEN as usize {
@@ -248,12 +273,12 @@ pub fn check_reserved_key(key: &str) -> bool {
         real = unsafe { ffi::PMIx_Check_reserved_key(key.as_ptr()) }
     )
 }
-/// Load a namespace and rank into a raw PMIx process object.
-pub fn load_procid(dst: &mut pmix_proc_t, nspace: &str, rank: u32) -> Result<(), NulError> {
+/// Load a namespace and rank into a PMIx process object.
+pub fn load_procid(dst: &mut Proc, nspace: &str, rank: u32) -> Result<(), NulError> {
     let ns = CString::new(nspace)?; /* SAFETY: `dst` is exclusively borrowed and `ns` is valid for this call. */
     pmix_ffi_or_mock!(
-        mock = unsafe { mock_ffi::mock_load_procid(dst, ns.as_ptr(), rank) },
-        real = unsafe { ffi::PMIx_Load_procid(dst, ns.as_ptr(), rank) }
+        mock = unsafe { mock_ffi::mock_load_procid(&mut dst.handle, ns.as_ptr(), rank) },
+        real = unsafe { ffi::PMIx_Load_procid(&mut dst.handle, ns.as_ptr(), rank) }
     );
     Ok(())
 }
@@ -321,9 +346,7 @@ impl PmixProcArray {
             _not_thread_safe: std::marker::PhantomData,
         })
     }
-    pub fn as_mut_ptr(&mut self) -> *mut pmix_proc_t {
-        self.ptr
-    }
+
     pub fn len(&self) -> usize {
         self.len
     }
@@ -375,9 +398,7 @@ impl PmixProcInfo {
         /* SAFETY: `new` and `test_new` initialize the storage before access. */
         unsafe { self.raw.assume_init_ref() }
     }
-    pub fn proc_ptr(&self) -> *const pmix_proc_t {
-        &self.raw().proc_
-    }
+
     pub fn hostname(&self) -> Option<&str> {
         cstr_ref(self.raw().hostname)
     }
@@ -580,5 +601,92 @@ impl Drop for PmixNodePidArray {
                 real = unsafe { ffi::PMIx_Node_pid_free(self.ptr, self.len) }
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_proc(nspace: &str, rank: u32) -> Proc {
+        let mut handle = crate::ffi::pmix_proc_t {
+            nspace: std::array::from_fn(|_| 0),
+            rank,
+        };
+        for (dst, &byte) in handle.nspace.iter_mut().zip(nspace.as_bytes()) {
+            *dst = byte as c_char;
+        }
+        Proc { handle, len: 1 }
+    }
+
+    #[test]
+    fn test_pmix_proc_t_layout() {
+        let raw: ffi::pmix_proc_t = test_proc("layout", 0).into();
+        assert_eq!(mem::offset_of!(ffi::pmix_proc_t, nspace), 0);
+        assert_eq!(
+            mem::offset_of!(ffi::pmix_proc_t, rank),
+            mem::size_of_val(&raw.nspace)
+        );
+        assert_eq!(mem::align_of_val(&raw), mem::align_of_val(&raw.rank));
+    }
+
+    #[test]
+    fn test_proc_from_raw_roundtrip() {
+        let proc = test_proc("test_namespace", 42);
+        let raw: crate::ffi::pmix_proc_t = proc.clone().into();
+        let proc2 = Proc::try_from(raw).unwrap();
+        assert_eq!(proc.handle.nspace, proc2.handle.nspace);
+        assert_eq!(proc.get_rank(), proc2.get_rank());
+    }
+
+    #[test]
+    fn test_pmix_proc_size() {
+        let raw: ffi::pmix_proc_t = test_proc("size", 0).into();
+        assert_eq!(
+            mem::size_of::<ffi::pmix_proc_t>(),
+            mem::size_of_val(&raw.nspace) + mem::size_of_val(&raw.rank)
+        );
+    }
+
+    #[test]
+    fn test_proc_into_ffi_conversion() {
+        let proc = test_proc("test_nspace", 42);
+        let raw: crate::ffi::pmix_proc_t = proc.into();
+        // Verify the raw struct has correct values
+        let nspace_str = unsafe { std::ffi::CStr::from_ptr(raw.nspace.as_ptr()) }.to_string_lossy();
+        assert_eq!(nspace_str, "test_nspace");
+        assert_eq!(raw.rank, 42);
+    }
+
+    #[test]
+    fn test_proc_try_from_empty_nspace_fails() {
+        let raw: crate::ffi::pmix_proc_t = test_proc("", 0).into();
+        assert!(Proc::try_from(raw).is_err());
+    }
+
+    #[test]
+    fn test_proc_try_from_unterminated_nspace_fails() {
+        let mut raw: crate::ffi::pmix_proc_t = test_proc("", 0).into();
+        raw.nspace.fill(b'x' as c_char);
+        assert!(Proc::try_from(raw).is_err());
+    }
+
+    #[test]
+    fn test_load_procid_updates_proc() {
+        let mut proc = test_proc("old_namespace", 1);
+        load_procid(&mut proc, "new_namespace", 42).unwrap();
+        let raw: crate::ffi::pmix_proc_t = proc.into();
+        let nspace = unsafe { CStr::from_ptr(raw.nspace.as_ptr()) };
+        assert_eq!(nspace.to_bytes(), b"new_namespace");
+        assert_eq!(raw.rank, 42);
+    }
+
+    #[test]
+    fn test_load_procid_rejects_interior_nul() {
+        let mut proc = test_proc("old_namespace", 1);
+        let original = proc.handle;
+        assert!(load_procid(&mut proc, "invalid\0namespace", 42).is_err());
+        assert_eq!(proc.handle.nspace, original.nspace);
+        assert_eq!(proc.get_rank(), original.rank);
     }
 }
