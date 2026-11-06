@@ -1604,20 +1604,13 @@ fn test_device_type_display() {
 ///
 /// Without `PMIx_server_init`, the library returns `PMIX_ERR_INIT`.
 /// This test exercises the pure-Rust error path — no DVM needed.
-#[test]
 /// `generate_ppn` returns the same error for different valid inputs
 /// when not initialized — the error is deterministic.
-#[test]
 /// `generate_ppn` with empty string returns `Err`.
-#[test]
 /// `generate_ppn` with range notation returns `Err` without server init.
-#[test]
 /// `generate_ppn` with single node (no semicolons) returns `Err` without server init.
-#[test]
 /// `generate_ppn` with many processes returns `Err` without server init.
-#[test]
 /// `generate_ppn` with irregular distribution returns `Err` without server init.
-#[test]
 /// `generate_ppn` returns PMIX_ERR_BAD_PARAM for input containing null bytes.
 #[test]
 fn test_generate_ppn_null_byte_rejected() {
@@ -2136,7 +2129,7 @@ fn test_register_attributes_error_deterministic() {
 #[ignore = "requires PMIx daemon and initialization"]
 fn test_iof_pull_requires_dvm() {
     use crate::IOFChannelFlags;
-    let procs: &[ffi::pmix_proc_t] = &[];
+    let procs: &[crate::Proc] = &[];
     let directives: &[ffi::pmix_info_t] = &[];
     let channel = IOFChannelFlags::STDOUT;
     let result = iof_pull::<_, _>(
@@ -2156,7 +2149,7 @@ fn test_iof_pull_requires_dvm() {
 #[ignore = "requires PMIx daemon and initialization"]
 fn test_iof_pull_blocking_requires_dvm() {
     use crate::IOFChannelFlags;
-    let procs: &[ffi::pmix_proc_t] = &[];
+    let procs: &[crate::Proc] = &[];
     let directives: &[ffi::pmix_info_t] = &[];
     let channel = IOFChannelFlags::STDOUT;
     let result = iof_pull_blocking::<_>(procs, directives, channel, |_h, _ch, _src, _data| {});
@@ -2169,7 +2162,7 @@ fn test_iof_pull_blocking_requires_dvm() {
 #[ignore = "requires PMIx daemon and initialization"]
 fn test_iof_push_requires_dvm() {
     use crate::IOFChannelFlags;
-    let targets: &[ffi::pmix_proc_t] = &[];
+    let targets: &[crate::Proc] = &[];
     let bo = PmixByteObject::from_slice(b"test");
     let directives: &[ffi::pmix_info_t] = &[];
     let result = iof_push::<_>(targets, bo, directives, |_status| {});
@@ -2181,7 +2174,7 @@ fn test_iof_push_requires_dvm() {
 #[test]
 #[ignore = "requires PMIx daemon and initialization"]
 fn test_iof_push_blocking_requires_dvm() {
-    let targets: &[ffi::pmix_proc_t] = &[];
+    let targets: &[crate::Proc] = &[];
     let bo = PmixByteObject::from_slice(b"test");
     let directives: &[ffi::pmix_info_t] = &[];
     let result = iof_push_blocking(targets, bo, directives);
@@ -3075,7 +3068,7 @@ fn test_register_attributes_empty_attrs_extended() {
 /// iof_pull returns error without daemon.
 #[test]
 fn test_iof_pull_without_daemon() {
-    let procs: &[ffi::pmix_proc_t] = &[];
+    let procs: &[crate::Proc] = &[];
     let directives: &[ffi::pmix_info_t] = &[];
     let result = iof_pull::<_, _>(
         procs,
@@ -3105,7 +3098,7 @@ fn test_iof_pull_blocking_returns_real_refid() {
 /// iof_pull_blocking returns error without daemon.
 #[test]
 fn test_iof_pull_blocking_without_daemon() {
-    let procs: &[ffi::pmix_proc_t] = &[];
+    let procs: &[crate::Proc] = &[];
     let directives: &[ffi::pmix_info_t] = &[];
     let result = iof_pull_blocking(procs, directives, IOFChannelFlags::STDOUT, |_, _, _, _| {});
     assert!(result.is_err());
