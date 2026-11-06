@@ -206,12 +206,7 @@ fn test_group_invite_callback_wrapper_new() {
 #[test]
 fn test_group_join_empty_group_id() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
-    let err = extract_err(group_join(
-        "",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    ));
+    let err = extract_err(group_join("", &leader, GroupOption::Accept, &[]));
     assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
 }
 
@@ -219,12 +214,7 @@ fn test_group_join_empty_group_id() {
 #[test]
 fn test_group_join_no_init() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
-    let err = extract_err(group_join(
-        "test_group",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    ));
+    let err = extract_err(group_join("test_group", &leader, GroupOption::Accept, &[]));
     assert!(!err.is_success());
 }
 
@@ -236,7 +226,7 @@ fn test_group_join_with_info() {
     let err = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        GroupOption::Accept,
         &[info],
     ));
     assert!(!err.is_success());
@@ -246,18 +236,8 @@ fn test_group_join_with_info() {
 #[test]
 fn test_group_join_deterministic() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
-    let err1 = extract_err(group_join(
-        "test_group",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    ));
-    let err2 = extract_err(group_join(
-        "test_group",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    ));
+    let err1 = extract_err(group_join("test_group", &leader, GroupOption::Accept, &[]));
+    let err2 = extract_err(group_join("test_group", &leader, GroupOption::Accept, &[]));
     assert_eq!(err1, err2);
 }
 
@@ -265,12 +245,7 @@ fn test_group_join_deterministic() {
 #[test]
 fn test_group_join_join_and_construct() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
-    let err = extract_err(group_join(
-        "test_group",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-    ));
+    let err = extract_err(group_join("test_group", &leader, GroupOption::Decline, &[]));
     assert!(!err.is_success());
 }
 
@@ -278,24 +253,9 @@ fn test_group_join_join_and_construct() {
 #[test]
 fn test_group_join_idempotent() {
     let leader = Proc::new("test_ns", 0).expect("create proc");
-    let err1 = extract_err(group_join(
-        "test_group",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    ));
-    let err2 = extract_err(group_join(
-        "test_group",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    ));
-    let err3 = extract_err(group_join(
-        "test_group",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    ));
+    let err1 = extract_err(group_join("test_group", &leader, GroupOption::Accept, &[]));
+    let err2 = extract_err(group_join("test_group", &leader, GroupOption::Accept, &[]));
+    let err3 = extract_err(group_join("test_group", &leader, GroupOption::Accept, &[]));
     assert_eq!(err1, err2);
     assert_eq!(err2, err3);
 }
@@ -309,7 +269,7 @@ fn test_group_join_multiple_info() {
     let err = extract_err(group_join(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        GroupOption::Accept,
         &[i1, i2],
     ));
     assert!(!err.is_success());
@@ -331,13 +291,7 @@ fn test_group_join_nb_empty_group_id() {
     let cb = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
         called_clone.store(true, Ordering::SeqCst);
     });
-    let err = unwrap_err_result(group_join_nb(
-        "",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        cb,
-    ));
+    let err = unwrap_err_result(group_join_nb("", &leader, GroupOption::Accept, &[], cb));
     assert_eq!(err, PmixStatus::Known(PmixError::ErrBadParam));
     assert!(
         !called.load(Ordering::SeqCst),
@@ -360,7 +314,7 @@ fn test_group_join_nb_no_init() {
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        GroupOption::Accept,
         &[],
         cb,
     ));
@@ -383,7 +337,7 @@ fn test_group_join_nb_with_info() {
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        GroupOption::Accept,
         &[info],
         cb,
     ));
@@ -402,26 +356,14 @@ fn test_group_join_nb_deterministic() {
     let cb1 = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
         c1.store(true, Ordering::SeqCst);
     });
-    let err1 = unwrap_err_result(group_join_nb(
-        "",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        cb1,
-    ));
+    let err1 = unwrap_err_result(group_join_nb("", &leader, GroupOption::Accept, &[], cb1));
 
     let called2 = Arc::new(AtomicBool::new(false));
     let c2 = Arc::clone(&called2);
     let cb2 = GroupJoinCallbackWrapper::new(move |_status: PmixStatus, _results: GroupResults| {
         c2.store(true, Ordering::SeqCst);
     });
-    let err2 = unwrap_err_result(group_join_nb(
-        "",
-        &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        cb2,
-    ));
+    let err2 = unwrap_err_result(group_join_nb("", &leader, GroupOption::Accept, &[], cb2));
 
     assert_eq!(err1, err2);
     assert!(!called1.load(Ordering::SeqCst));
@@ -449,7 +391,7 @@ fn test_group_join_nb_join_and_construct() {
     let err = unwrap_err_result(group_join_nb(
         "test_group",
         &leader,
-        pmix::groups::pmix_group_opt_t::PMIX_GROUP_DECLINE,
+        GroupOption::Decline,
         &[],
         cb,
     ));

@@ -55,7 +55,8 @@ mod asserts {
     assert_impl_all!(crate::PmixTimeval: Send, Sync);
     assert_impl_all!(crate::PmixEnvar: Send, Sync);
     assert_impl_all!(crate::InitOptions: Send, Sync);
-    assert_impl_all!(crate::groups::pmix_group_opt_t: Send, Sync);
+    assert_impl_all!(crate::groups::GroupOption: Send, Sync);
+    assert_impl_all!(crate::groups::GroupOperation: Send, Sync);
 
     // Rust-owned wrappers and materialized results.  These do not retain a
     // PMIx allocation after construction.  `utility::PmixByteObject` is the

@@ -41,7 +41,7 @@ fn unwrap_err_result(result: Result<(), PmixStatus>) -> PmixStatus {
 #[test]
 fn group_join_empty_group_id_bad_param() {
     let leader = Proc::new("test_ns", 0).expect("create leader proc");
-    let result = group_join("", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+    let result = group_join("", &leader, GroupOption::Accept, &[]);
     let err = extract_err(result);
     assert_eq!(
         err,
@@ -54,12 +54,7 @@ fn group_join_empty_group_id_bad_param() {
 #[test]
 fn group_join_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("create leader proc");
-    let result = group_join(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("my_group", &leader, GroupOption::Accept, &[]);
     assert!(result.is_err(), "group_join without PMIx_Init should fail");
 }
 
@@ -67,12 +62,7 @@ fn group_join_without_init_fails() {
 #[test]
 fn group_join_decline_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("create leader proc");
-    let result = group_join(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-    );
+    let result = group_join("my_group", &leader, GroupOption::Decline, &[]);
     assert!(
         result.is_err(),
         "group_join with decline option without init should fail"
@@ -83,12 +73,7 @@ fn group_join_decline_without_init_fails() {
 #[test]
 fn group_join_cross_namespace_leader_without_init_fails() {
     let leader = Proc::new("other_namespace", 42).expect("cross-ns leader");
-    let result = group_join(
-        "cross_ns_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("cross_ns_group", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with cross-namespace leader without init should fail"
@@ -100,7 +85,7 @@ fn group_join_cross_namespace_leader_without_init_fails() {
 fn group_join_long_group_id_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("create leader proc");
     let long_id = "g".repeat(256);
-    let result = group_join(&long_id, &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+    let result = group_join(&long_id, &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with long group_id without init should fail"
@@ -114,7 +99,7 @@ fn group_join_special_chars_group_id_without_init_fails() {
     let result = group_join(
         "group-with_special.chars123",
         &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        GroupOption::Accept,
         &[],
     );
     assert!(
@@ -127,12 +112,7 @@ fn group_join_special_chars_group_id_without_init_fails() {
 #[test]
 fn group_join_leader_rank_zero_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("rank 0 leader");
-    let result = group_join(
-        "rank_zero_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("rank_zero_group", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with rank-0 leader without init should fail"
@@ -143,12 +123,7 @@ fn group_join_leader_rank_zero_without_init_fails() {
 #[test]
 fn group_join_leader_high_rank_without_init_fails() {
     let leader = Proc::new("test_ns", 9999).expect("high rank leader");
-    let result = group_join(
-        "high_rank_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("high_rank_group", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with high-rank leader without init should fail"
@@ -159,7 +134,7 @@ fn group_join_leader_high_rank_without_init_fails() {
 #[test]
 fn group_join_numeric_group_id_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("create leader proc");
-    let result = group_join("12345", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+    let result = group_join("12345", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with numeric group_id without init should fail"
@@ -177,13 +152,7 @@ fn group_join_nb_empty_group_id_bad_param() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb(
-        "",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("", &leader, GroupOption::Accept, &[], callback);
     let err = unwrap_err_result(result);
     assert_eq!(
         err,
@@ -199,13 +168,7 @@ fn group_join_nb_without_init_fails() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked on synchronous failure");
     });
-    let result = group_join_nb(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("my_group", &leader, GroupOption::Accept, &[], callback);
     assert!(
         result.is_err(),
         "group_join_nb without PMIx_Init should fail"
@@ -219,13 +182,7 @@ fn group_join_nb_decline_without_init_fails() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked");
     });
-    let result = group_join_nb(
-        "my_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("my_group", &leader, GroupOption::Decline, &[], callback);
     assert!(
         result.is_err(),
         "group_join_nb with decline option without init should fail"
@@ -242,7 +199,7 @@ fn group_join_nb_cross_namespace_leader_without_init_fails() {
     let result = group_join_nb(
         "cross_ns_group",
         &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        GroupOption::Accept,
         &[],
         callback,
     );
@@ -262,7 +219,7 @@ fn group_join_nb_special_chars_group_id_without_init_fails() {
     let result = group_join_nb(
         "group-with_special.chars123",
         &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
+        GroupOption::Accept,
         &[],
         callback,
     );
@@ -279,13 +236,7 @@ fn group_join_nb_numeric_group_id_without_init_fails() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked");
     });
-    let result = group_join_nb(
-        "12345",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("12345", &leader, GroupOption::Accept, &[], callback);
     assert!(
         result.is_err(),
         "group_join_nb with numeric group_id without init should fail"
@@ -300,13 +251,7 @@ fn group_join_nb_long_group_id_without_init_fails() {
         panic!("callback should not be invoked");
     });
     let long_id = "g".repeat(256);
-    let result = group_join_nb(
-        &long_id,
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb(&long_id, &leader, GroupOption::Accept, &[], callback);
     assert!(
         result.is_err(),
         "group_join_nb with long group_id without init should fail"
@@ -370,12 +315,7 @@ fn group_join_callback_wrapper_is_send() {
 #[test]
 fn group_join_leader_max_rank_without_init_fails() {
     let leader = Proc::new("test_ns", u32::MAX).expect("max rank leader");
-    let result = group_join(
-        "max_rank_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("max_rank_group", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with max-rank leader without init should fail"
@@ -386,12 +326,7 @@ fn group_join_leader_max_rank_without_init_fails() {
 #[test]
 fn group_join_leader_empty_namespace_without_init_fails() {
     let leader = Proc::new("", 0).expect("empty ns leader");
-    let result = group_join(
-        "empty_ns_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
+    let result = group_join("empty_ns_group", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with empty-ns leader without init should fail"
@@ -402,7 +337,7 @@ fn group_join_leader_empty_namespace_without_init_fails() {
 #[test]
 fn group_join_single_char_group_id_without_init_fails() {
     let leader = Proc::new("test_ns", 0).expect("create leader proc");
-    let result = group_join("x", &leader, pmix_group_opt_t::PMIX_GROUP_ACCEPT, &[]);
+    let result = group_join("x", &leader, GroupOption::Accept, &[]);
     assert!(
         result.is_err(),
         "group_join with single-char group_id without init should fail"
@@ -416,13 +351,7 @@ fn group_join_nb_single_char_group_id_without_init_fails() {
     let callback = GroupJoinCallbackWrapper::new(|_status, _info| {
         panic!("callback should not be invoked");
     });
-    let result = group_join_nb(
-        "x",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        callback,
-    );
+    let result = group_join_nb("x", &leader, GroupOption::Accept, &[], callback);
     assert!(
         result.is_err(),
         "group_join_nb with single-char group_id without init should fail"
@@ -433,18 +362,8 @@ fn group_join_nb_single_char_group_id_without_init_fails() {
 #[test]
 fn group_join_both_options_without_init_fail() {
     let leader = Proc::new("test_ns", 0).expect("create leader proc");
-    let accept_result = group_join(
-        "test_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-    );
-    let decline_result = group_join(
-        "test_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-    );
+    let accept_result = group_join("test_group", &leader, GroupOption::Accept, &[]);
+    let decline_result = group_join("test_group", &leader, GroupOption::Decline, &[]);
     assert!(accept_result.is_err(), "accept should fail without init");
     assert!(decline_result.is_err(), "decline should fail without init");
 }
@@ -455,20 +374,9 @@ fn group_join_nb_both_options_without_init_fail() {
     let leader = Proc::new("test_ns", 0).expect("create leader proc");
     let accept_cb = GroupJoinCallbackWrapper::new(|_, _| {});
     let decline_cb = GroupJoinCallbackWrapper::new(|_, _| {});
-    let accept_result = group_join_nb(
-        "test_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_ACCEPT,
-        &[],
-        accept_cb,
-    );
-    let decline_result = group_join_nb(
-        "test_group",
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        &[],
-        decline_cb,
-    );
+    let accept_result = group_join_nb("test_group", &leader, GroupOption::Accept, &[], accept_cb);
+    let decline_result =
+        group_join_nb("test_group", &leader, GroupOption::Decline, &[], decline_cb);
     assert!(accept_result.is_err(), "accept should fail without init");
     assert!(decline_result.is_err(), "decline should fail without init");
 }

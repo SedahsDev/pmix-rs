@@ -10,9 +10,9 @@ mod daemon_helper;
 
 use pmix::groups::{
     GroupConstructCallbackWrapper, GroupDestructCallbackWrapper, GroupInviteCallbackWrapper,
-    GroupJoinCallbackWrapper, GroupLeaveCallbackWrapper, GroupResults, group_construct,
-    group_construct_nb, group_destruct, group_destruct_nb, group_invite, group_invite_nb,
-    group_join, group_join_nb, group_leave, group_leave_nb, pmix_group_opt_t,
+    GroupJoinCallbackWrapper, GroupLeaveCallbackWrapper, GroupOption, GroupResults,
+    group_construct, group_construct_nb, group_destruct, group_destruct_nb, group_invite,
+    group_invite_nb, group_join, group_join_nb, group_leave, group_leave_nb,
 };
 use pmix::server::{PmixServerModule, server_finalize, server_init};
 use pmix::{InfoBuilder, PmixStatus, Proc};
@@ -49,7 +49,7 @@ fn test_group_invite_nb_type() {
 
 #[test]
 fn test_group_join_type() {
-    let _f: fn(&str, &Proc, pmix_group_opt_t, &[pmix::Info]) -> Result<GroupResults, PmixStatus> =
+    let _f: fn(&str, &Proc, GroupOption, &[pmix::Info]) -> Result<GroupResults, PmixStatus> =
         group_join;
 }
 
@@ -58,7 +58,7 @@ fn test_group_join_nb_type() {
     let _f: fn(
         &str,
         &Proc,
-        pmix_group_opt_t,
+        GroupOption,
         &[pmix::Info],
         GroupJoinCallbackWrapper,
     ) -> Result<(), PmixStatus> = group_join_nb;
@@ -126,22 +126,11 @@ fn test_groups_all_ffi_operations() {
 
     // ── Blocking group_join ──
     let leader = Proc::new("test-nspace", 0).expect("proc");
-    let _ = group_join(
-        group_id,
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        directives,
-    );
+    let _ = group_join(group_id, &leader, GroupOption::Decline, directives);
 
     // ── Blocking group_join_nb ──
     let cb = GroupJoinCallbackWrapper::new(|_status, _info| {});
-    let _ = group_join_nb(
-        group_id,
-        &leader,
-        pmix_group_opt_t::PMIX_GROUP_DECLINE,
-        directives,
-        cb,
-    );
+    let _ = group_join_nb(group_id, &leader, GroupOption::Decline, directives, cb);
 
     // ── Blocking group_leave ──
     let _ = group_leave(group_id, directives);

@@ -49,6 +49,8 @@ pub mod events;
 pub mod fabric;
 #[allow(clippy::upper_case_acronyms, clippy::enum_variant_names)]
 pub(crate) mod ffi;
+/// Group management APIs, including [`GroupOption`](groups::GroupOption) and
+/// [`GroupOperation`](groups::GroupOperation).
 pub mod groups;
 pub mod info;
 pub mod info_list;
