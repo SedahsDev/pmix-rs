@@ -79,9 +79,8 @@ fn flat_infos(infos: &[Info]) -> Vec<ffi::pmix_info_t> {
 /// Blocking calls own their returned array and release it with
 /// `PMIx_Info_free`. Non-blocking calls view a PMIx-owned tracker array and
 /// retain the release callback that frees the tracker and array.
-#[derive(Debug)]
 pub struct GroupResults {
-    handle: *mut ffi::pmix_info_t,
+    data: Vec<Info>,
     len: usize,
     release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
     release_cbdata: *mut c_void,
@@ -89,7 +88,48 @@ pub struct GroupResults {
     _not_thread_safe: std::marker::PhantomData<*mut u8>,
 }
 
+impl std::fmt::Debug for GroupResults {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroupResults")
+            .field("len", &self.len)
+            .finish_non_exhaustive()
+    }
+}
+
 impl GroupResults {
+    pub fn iter(&self) -> std::slice::Iter<'_, Info> {
+        self.data.iter()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&Info> {
+        self.data.get(index)
+    }
+
+    unsafe fn from_raw(
+        handle: *mut ffi::pmix_info_t,
+        len: usize,
+        release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+        release_cbdata: *mut c_void,
+    ) -> Self {
+        let len = if handle.is_null() { 0 } else { len };
+        let mut data = Vec::with_capacity(len);
+        for index in 0..len {
+            data.push(Info {
+                // SAFETY: the caller retains the initialized array until Drop.
+                handle: unsafe { handle.add(index) },
+                len: 1,
+                _not_thread_safe: std::marker::PhantomData,
+            });
+        }
+        Self {
+            data,
+            len,
+            release_fn,
+            release_cbdata,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }
@@ -100,27 +140,34 @@ impl GroupResults {
 
 impl Drop for GroupResults {
     fn drop(&mut self) {
+        let handle = self
+            .data
+            .first()
+            .map_or(ptr::null_mut(), |info| info.handle);
+        // These entries view one backing array, which must be released once
+        // rather than freeing each entry through Info::drop.
+        for info in self.data.drain(..) {
+            std::mem::forget(info);
+        }
         if let Some(release_fn) = self.release_fn.take() {
             // SAFETY: PMIx supplied this callback and opaque data for this
             // completion; it releases the tracker-owned info array.
             unsafe { release_fn(self.release_cbdata) };
-            self.handle = ptr::null_mut();
             self.len = 0;
-        } else if !self.handle.is_null() && self.len > 0 {
+        } else if !handle.is_null() && self.len > 0 {
             #[cfg(any(test, feature = "mock_ffi"))]
             if crate::mock_ffi::is_mock_enabled() {
                 // SAFETY: handle is the single allocation returned by PMIx_Group_*.
-                unsafe { crate::mock_ffi::mock_info_free(self.handle, self.len) };
+                unsafe { crate::mock_ffi::mock_info_free(handle, self.len) };
             } else {
                 // SAFETY: handle is the single allocation returned by PMIx_Group_*.
-                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+                unsafe { ffi::PMIx_Info_free(handle, self.len) };
             }
             #[cfg(not(any(test, feature = "mock_ffi")))]
             {
                 // SAFETY: handle is the single allocation returned by PMIx_Group_*.
-                unsafe { ffi::PMIx_Info_free(self.handle, self.len) };
+                unsafe { ffi::PMIx_Info_free(handle, self.len) };
             }
-            self.handle = ptr::null_mut();
             self.len = 0;
         }
     }
@@ -194,21 +241,8 @@ pub fn group_construct(
         return Err(pmix_status);
     }
 
-    Ok(GroupResults {
-        handle: if results.is_null() || nresults == 0 {
-            ptr::null_mut()
-        } else {
-            results
-        },
-        len: if results.is_null() || nresults == 0 {
-            0
-        } else {
-            nresults
-        },
-        release_fn: None,
-        release_cbdata: ptr::null_mut(),
-        _not_thread_safe: std::marker::PhantomData,
-    })
+    // SAFETY: the successful blocking call returned an owned results array.
+    Ok(unsafe { GroupResults::from_raw(results, nresults, None, ptr::null_mut()) })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,7 +274,7 @@ impl GroupConstructCallbackWrapper {
 /// # Safety
 /// `cbdata` is an opaque request ID from [`encode_req_id`]. OpenPMIx invokes
 /// this from the progress thread exactly once per accepted request.
-pub unsafe extern "C" fn group_construct_callback_bridge(
+pub(crate) unsafe extern "C" fn group_construct_callback_bridge(
     status: i32,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
@@ -263,20 +297,18 @@ pub unsafe extern "C" fn group_construct_callback_bridge(
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
-    let rust_results = GroupResults {
-        handle: if pmix_status.is_success() && !info.is_null() && ninfo > 0 {
-            info
-        } else {
-            ptr::null_mut()
-        },
-        len: if pmix_status.is_success() && !info.is_null() {
-            ninfo
-        } else {
-            0
-        },
-        release_fn,
-        release_cbdata,
-        _not_thread_safe: std::marker::PhantomData,
+    // SAFETY: PMIx retains the successful result array until its release callback.
+    let rust_results = unsafe {
+        GroupResults::from_raw(
+            if pmix_status.is_success() {
+                info
+            } else {
+                ptr::null_mut()
+            },
+            ninfo,
+            release_fn,
+            release_cbdata,
+        )
     };
     let _ = invoke_user_callback("groups", move || {
         (cb_wrapper.callback)(pmix_status, rust_results);
@@ -405,21 +437,8 @@ pub fn group_invite(
         return Err(pmix_status);
     }
 
-    Ok(GroupResults {
-        handle: if results.is_null() || nresult == 0 {
-            ptr::null_mut()
-        } else {
-            results
-        },
-        len: if results.is_null() || nresult == 0 {
-            0
-        } else {
-            nresult
-        },
-        release_fn: None,
-        release_cbdata: ptr::null_mut(),
-        _not_thread_safe: std::marker::PhantomData,
-    })
+    // SAFETY: the successful blocking call returned an owned results array.
+    Ok(unsafe { GroupResults::from_raw(results, nresult, None, ptr::null_mut()) })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -447,7 +466,7 @@ impl GroupInviteCallbackWrapper {
 /// # Safety
 /// `cbdata` is an opaque request ID from [`encode_req_id`]. OpenPMIx invokes
 /// this from the progress thread exactly once per accepted request.
-pub unsafe extern "C" fn group_invite_callback_bridge(
+pub(crate) unsafe extern "C" fn group_invite_callback_bridge(
     status: i32,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
@@ -470,20 +489,18 @@ pub unsafe extern "C" fn group_invite_callback_bridge(
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
-    let rust_results = GroupResults {
-        handle: if pmix_status.is_success() && !info.is_null() && ninfo > 0 {
-            info
-        } else {
-            ptr::null_mut()
-        },
-        len: if pmix_status.is_success() && !info.is_null() {
-            ninfo
-        } else {
-            0
-        },
-        release_fn,
-        release_cbdata,
-        _not_thread_safe: std::marker::PhantomData,
+    // SAFETY: PMIx retains the successful result array until its release callback.
+    let rust_results = unsafe {
+        GroupResults::from_raw(
+            if pmix_status.is_success() {
+                info
+            } else {
+                ptr::null_mut()
+            },
+            ninfo,
+            release_fn,
+            release_cbdata,
+        )
     };
     let _ = invoke_user_callback("groups", move || {
         (cb_wrapper.callback)(pmix_status, rust_results);
@@ -614,21 +631,8 @@ pub fn group_join(
         return Err(pmix_status);
     }
 
-    Ok(GroupResults {
-        handle: if results.is_null() || nresult == 0 {
-            ptr::null_mut()
-        } else {
-            results
-        },
-        len: if results.is_null() || nresult == 0 {
-            0
-        } else {
-            nresult
-        },
-        release_fn: None,
-        release_cbdata: ptr::null_mut(),
-        _not_thread_safe: std::marker::PhantomData,
-    })
+    // SAFETY: the successful blocking call returned an owned results array.
+    Ok(unsafe { GroupResults::from_raw(results, nresult, None, ptr::null_mut()) })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -656,7 +660,7 @@ impl GroupJoinCallbackWrapper {
 /// # Safety
 /// `cbdata` is an opaque request ID from [`encode_req_id`]. OpenPMIx invokes
 /// this from the progress thread exactly once per accepted request.
-pub unsafe extern "C" fn group_join_callback_bridge(
+pub(crate) unsafe extern "C" fn group_join_callback_bridge(
     status: i32,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
@@ -679,20 +683,18 @@ pub unsafe extern "C" fn group_join_callback_bridge(
         return;
     };
     let pmix_status = PmixStatus::from_raw(status);
-    let rust_results = GroupResults {
-        handle: if pmix_status.is_success() && !info.is_null() && ninfo > 0 {
-            info
-        } else {
-            ptr::null_mut()
-        },
-        len: if pmix_status.is_success() && !info.is_null() {
-            ninfo
-        } else {
-            0
-        },
-        release_fn,
-        release_cbdata,
-        _not_thread_safe: std::marker::PhantomData,
+    // SAFETY: PMIx retains the successful result array until its release callback.
+    let rust_results = unsafe {
+        GroupResults::from_raw(
+            if pmix_status.is_success() {
+                info
+            } else {
+                ptr::null_mut()
+            },
+            ninfo,
+            release_fn,
+            release_cbdata,
+        )
     };
     let _ = invoke_user_callback("groups", move || {
         (cb_wrapper.callback)(pmix_status, rust_results);

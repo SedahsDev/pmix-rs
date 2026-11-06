@@ -430,7 +430,7 @@ impl Drop for PmixQuery {
 /// Wraps the `pmix_info_t*` array returned by `PMIx_Query_info` and
 /// automatically frees it via `PMIx_Info_free` on drop.
 pub struct QueryResults {
-    handle: *mut ffi::pmix_info_t,
+    data: Vec<Info>,
     len: usize,
     release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
     release_cbdata: *mut c_void,
@@ -447,6 +447,36 @@ impl std::fmt::Debug for QueryResults {
 }
 
 impl QueryResults {
+    // These Info wrappers borrow entries from the single PMIx-owned allocation.
+    // Drop forgets the wrappers before releasing that allocation.
+    fn wrap_infos(handle: *mut ffi::pmix_info_t, len: usize) -> Vec<Info> {
+        if handle.is_null() || len == 0 {
+            return Vec::new();
+        }
+
+        let mut data = Vec::with_capacity(len);
+        for index in 0..len {
+            data.push(Info {
+                // SAFETY: callers supply an array of len initialized entries
+                // that remains alive until QueryResults is dropped.
+                handle: unsafe { handle.add(index) },
+                len: 1,
+                _not_thread_safe: std::marker::PhantomData,
+            });
+        }
+        data
+    }
+
+    /// Iterate over the info entries in this result set.
+    pub fn iter(&self) -> impl Iterator<Item = &Info> {
+        self.data.iter()
+    }
+
+    /// Return the info entry at the given index, if present.
+    pub fn get(&self, index: usize) -> Option<&Info> {
+        self.data.get(index)
+    }
+
     /// Number of info entries in this result set.
     pub fn len(&self) -> usize {
         self.len
@@ -460,27 +490,36 @@ impl QueryResults {
 
 impl Drop for QueryResults {
     fn drop(&mut self) {
+        let handle = self
+            .data
+            .first()
+            .map_or(ptr::null_mut(), |info| info.handle);
+
+        // The entries are views into one allocation, not separately allocated
+        // Info arrays. Only the PMIx allocation owner may free them.
+        for info in self.data.drain(..) {
+            std::mem::forget(info);
+        }
+
         if let Some(release_fn) = self.release_fn.take() {
             // SAFETY: PMIx supplied this callback and opaque data for this
             // completion; it releases the tracker-owned info array.
             unsafe { release_fn(self.release_cbdata) };
-            self.handle = ptr::null_mut();
             self.len = 0;
-        } else if !self.handle.is_null() && self.len > 0 {
+        } else if !handle.is_null() && self.len > 0 {
             unsafe {
                 // SAFETY: handle was returned by PMIx_Query_info as an
                 // allocated pmix_info_t array. PMIx_Info_free releases it.
                 #[cfg(any(test, feature = "mock_ffi"))]
                 if mock_ffi::is_mock_enabled() {
-                    mock_ffi::mock_info_free(self.handle, self.len);
+                    mock_ffi::mock_info_free(handle, self.len);
                 } else {
-                    ffi::PMIx_Info_free(self.handle, self.len);
+                    ffi::PMIx_Info_free(handle, self.len);
                 }
                 #[cfg(not(any(test, feature = "mock_ffi")))]
                 {
-                    ffi::PMIx_Info_free(self.handle, self.len);
+                    ffi::PMIx_Info_free(handle, self.len);
                 }
-                self.handle = ptr::null_mut();
                 self.len = 0;
             }
         }
@@ -550,7 +589,7 @@ pub fn query_info(queries: &[PmixQuery]) -> Result<QueryResults, PmixStatus> {
     // On success or partial success, return the results.
     if pmix_status.is_success() || pmix_status == PmixStatus::Known(PmixError::ErrPartialSuccess) {
         Ok(QueryResults {
-            handle: results,
+            data: QueryResults::wrap_infos(results, nresults),
             len: nresults,
             release_fn: None,
             release_cbdata: ptr::null_mut(),
@@ -601,7 +640,7 @@ static QUERY_REGISTRY: LazyLock<Registry<Box<dyn QueryCallback>>> = LazyLock::ne
 ///
 /// The PMIx callback supplies release_fn and release_cbdata for releasing the
 /// PMIx-owned result array after the result is no longer needed.
-extern "C" fn query_callback_bridge(
+pub(crate) extern "C" fn query_callback_bridge(
     status: ffi::pmix_status_t,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
@@ -634,7 +673,7 @@ extern "C" fn query_callback_bridge(
 
     let pmix_status = PmixStatus::from_raw(status);
     let results = QueryResults {
-        handle: info,
+        data: QueryResults::wrap_infos(info, ninfo),
         len: ninfo,
         release_fn,
         release_cbdata,
@@ -829,7 +868,7 @@ static LOG_INFO_REGISTRY: LazyLock<Mutex<HashMap<usize, RetainedLogInfos>>> =
 /// Called by PMIx when the non-blocking log request completes. The `cbdata`
 /// parameter encodes the request ID. We look up the registered closure and
 /// invoke it with the result status.
-extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
+pub(crate) extern "C" fn log_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut c_void) {
     if cbdata.is_null() {
         return;
     }
@@ -1212,7 +1251,7 @@ mod tests {
     #[test]
     fn test_query_results_empty() {
         let results = QueryResults {
-            handle: std::ptr::null_mut(),
+            data: Vec::new(),
             len: 0,
             release_fn: None,
             release_cbdata: std::ptr::null_mut(),
@@ -1226,7 +1265,7 @@ mod tests {
     #[test]
     fn test_query_results_nonempty() {
         let results = QueryResults {
-            handle: std::ptr::null_mut(),
+            data: Vec::new(),
             len: 3,
             release_fn: None,
             release_cbdata: std::ptr::null_mut(),
@@ -1240,7 +1279,7 @@ mod tests {
     #[test]
     fn test_query_results_debug() {
         let results = QueryResults {
-            handle: std::ptr::null_mut(),
+            data: Vec::new(),
             len: 5,
             release_fn: None,
             release_cbdata: std::ptr::null_mut(),
@@ -1255,7 +1294,7 @@ mod tests {
     #[test]
     fn test_query_results_drop_null_handle() {
         let results = QueryResults {
-            handle: std::ptr::null_mut(),
+            data: Vec::new(),
             len: 0,
             release_fn: None,
             release_cbdata: std::ptr::null_mut(),
@@ -1268,7 +1307,7 @@ mod tests {
     #[test]
     fn test_query_results_drop_null_handle_nonzero_len() {
         let results = QueryResults {
-            handle: std::ptr::null_mut(),
+            data: Vec::new(),
             len: 5,
             release_fn: None,
             release_cbdata: std::ptr::null_mut(),
@@ -1707,7 +1746,7 @@ mod tests {
             count: count.clone(),
         });
         let results = QueryResults {
-            handle: std::ptr::null_mut(),
+            data: Vec::new(),
             len: 0,
             release_fn: None,
             release_cbdata: std::ptr::null_mut(),
@@ -1862,16 +1901,26 @@ mod tests {
 
     #[test]
     fn test_query_results_len_large() {
+        let len = 1024;
+        // SAFETY: calloc provides suitably aligned, zero-initialized storage
+        // for len empty info entries, released by QueryResults::drop.
+        let handle = unsafe {
+            libc::calloc(len, std::mem::size_of::<ffi::pmix_info_t>()) as *mut ffi::pmix_info_t
+        };
+        assert!(!handle.is_null());
         let results = QueryResults {
-            handle: std::ptr::null_mut(),
-            len: usize::MAX,
+            data: QueryResults::wrap_infos(handle, len),
+            len,
             release_fn: None,
             release_cbdata: std::ptr::null_mut(),
 
             _not_thread_safe: std::marker::PhantomData,
         };
         assert!(!results.is_empty());
-        assert_eq!(results.len(), usize::MAX);
+        assert_eq!(results.len(), len);
+        assert_eq!(results.iter().count(), len);
+        assert!(results.get(len - 1).is_some());
+        assert!(results.get(len).is_none());
         drop(results);
     }
 

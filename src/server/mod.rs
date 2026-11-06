@@ -3069,7 +3069,7 @@ static COLLECT_INVENTORY_REGISTRY: LazyLock<Registry<Box<dyn CollectInventoryCal
 /// The `cbdata` parameter encodes the request ID. We look up the
 /// registered Rust callback and invoke it with the result status
 /// and the collected inventory info array.
-pub(crate) extern "C" fn collect_inventory_callback_bridge(
+extern "C" fn collect_inventory_callback_bridge(
     status: ffi::pmix_status_t,
     info: *mut ffi::pmix_info_t,
     ninfo: usize,
