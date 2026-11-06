@@ -1176,6 +1176,12 @@ mod tests {
     #![allow(clippy::too_many_arguments)]
     use super::*;
     use crate::mock_ffi::MockGuard;
+
+    /// Serializes tests that mutate the process-wide handler / pending
+    /// registration statics. Without it the parallel test harness races on
+    /// them: one test's `clear_handler_registry()` or `pop()` can observe
+    /// another test's entry (flaky `Option::unwrap()` on `None`).
+    static TEST_REGISTRY_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
     use std::sync::mpsc;
 
     #[test]
@@ -1250,6 +1256,9 @@ mod tests {
 
     #[test]
     fn test_handler_registry_insert_lookup_remove() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let ref_id: EventHandlerRef = 424242;
         {
             let mut registry = HANDLER_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
@@ -1263,6 +1272,9 @@ mod tests {
 
     #[test]
     fn test_notification_bridge_invokes_user_fn() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         static CALLED: AtomicBool = AtomicBool::new(false);
         static SAW_CBDATA: AtomicUsize = AtomicUsize::new(0);
 
@@ -1323,6 +1335,9 @@ mod tests {
 
     #[test]
     fn test_notification_bridge_unknown_ref_invokes_cbfunc() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Registry miss must still complete the OpenPMIx event chain — a
         // silent return stalls blocking notify_event forever.
         static CBFUNC_CALLED: AtomicBool = AtomicBool::new(false);
@@ -1391,6 +1406,9 @@ mod tests {
 
     #[test]
     fn test_pending_registration_delivery_and_rekey() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         static CALLED: AtomicUsize = AtomicUsize::new(0);
         unsafe fn handler(
             _id: EventHandlerRef,
@@ -1497,6 +1515,9 @@ mod tests {
 
     #[test]
     fn test_pending_consult_skipped_for_deregistering_ref() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         static CALLED: AtomicBool = AtomicBool::new(false);
 
         unsafe fn handler(
@@ -1558,6 +1579,9 @@ mod tests {
 
     #[test]
     fn test_notification_bridge_user_panic_completes_chain_and_is_contained() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // A panicking user handler must not unwind into OpenPMIx (UB) and must
         // still complete the event chain so blocking notify_event cannot hang.
         static CBFUNC_CALLED: AtomicBool = AtomicBool::new(false);
@@ -1635,6 +1659,9 @@ mod tests {
 
     #[test]
     fn test_clear_handler_registry_drops_parked_fns() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let ref_id: EventHandlerRef = 424_251;
         HANDLER_REGISTRY
             .lock()
@@ -1667,6 +1694,9 @@ mod tests {
     /// `try_lock` below would fail and the test would fail.
     #[test]
     fn test_event_handler_lock_not_held_during_user_callback() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         static ENTER_TX: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
         static RELEASE_RX: Mutex<Option<mpsc::Receiver<()>>> = Mutex::new(None);
 
@@ -1746,6 +1776,9 @@ mod tests {
 
     #[test]
     fn test_handler_reg_cb_bridge_parks_fn_on_success() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         static REG_REFID: AtomicUsize = AtomicUsize::new(0);
 
         unsafe extern "C" fn reg_cb(
@@ -1789,6 +1822,9 @@ mod tests {
 
     #[test]
     fn test_handler_reg_cb_bridge_error_frees_state() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         static REG_STATUS: AtomicI32 = AtomicI32::new(0);
 
         unsafe extern "C" fn reg_cb(
@@ -1825,6 +1861,9 @@ mod tests {
 
     #[test]
     fn test_deregister_removes_registry_entry() {
+        let _serial = TEST_REGISTRY_GUARD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let ref_id: EventHandlerRef = 424247;
         HANDLER_REGISTRY
             .lock()
