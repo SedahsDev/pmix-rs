@@ -1708,7 +1708,8 @@ fn test_buffer_debug_fields() {
 /// Null PmixDataBuffer Debug shows "null".
 #[test]
 fn test_null_buffer_debug() {
-    let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
+    let mut buf = data_buffer_create().expect("create buffer");
+    data_buffer_release(&mut buf);
     let debug = format!("{:?}", buf);
     assert!(
         debug.contains("null"),

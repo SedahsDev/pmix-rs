@@ -243,7 +243,7 @@ impl Drop for PmixValueArray {
 
 #[cfg(test)]
 mod value_utils_tests {
-    use crate::*;
+    use super::pmix_value_cmp_t;
     use crate::*;
     #[test]
     fn mock_value_utilities() {

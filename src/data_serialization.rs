@@ -130,6 +130,16 @@ impl PmixByteObject {
         self.inner.size
     }
 
+    /// Get the byte object's data as a slice.
+    pub fn data(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    /// Get the number of bytes in the byte object.
+    pub fn len(&self) -> usize {
+        self.inner.size
+    }
+
     /// Check if the byte object is empty.
     pub fn is_empty(&self) -> bool {
         self.inner.bytes.is_null() || self.inner.size == 0
