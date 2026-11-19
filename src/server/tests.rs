@@ -101,12 +101,135 @@ fn test_server_module_as_c_ptr_returns_non_null() {
 }
 
 #[test]
+fn test_server_module_as_c_ptr() {
+    let module = PmixServerModule {
+        fence_nb: Some(
+            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
+                unreachable!("converting a callback must not invoke it")
+            },
+        ),
+        ..Default::default()
+    };
+    let module_ptr = module.as_c_ptr().cast::<PmixServerModule>();
+    assert!(!module_ptr.is_null());
+    // SAFETY: The pointer comes from the live module and is only read here.
+    let c_module = unsafe { &*module_ptr };
+    assert!(c_module.fence_nb.is_some());
+    assert!(c_module.client_connected.is_none());
+    assert!(c_module.client_finalized.is_none());
+    assert!(c_module.abort.is_none());
+    assert!(c_module.direct_modex.is_none());
+    assert!(c_module.publish.is_none());
+    assert!(c_module.lookup.is_none());
+    assert!(c_module.unpublish.is_none());
+    assert!(c_module.spawn.is_none());
+    assert!(c_module.connect.is_none());
+    assert!(c_module.disconnect.is_none());
+    assert!(c_module.register_events.is_none());
+    assert!(c_module.deregister_events.is_none());
+    assert!(c_module.listener.is_none());
+    assert!(c_module.notify_event.is_none());
+    assert!(c_module.query.is_none());
+    assert!(c_module.tool_connected.is_none());
+    assert!(c_module.log.is_none());
+    assert!(c_module.allocate.is_none());
+    assert!(c_module.job_control.is_none());
+    assert!(c_module.monitor.is_none());
+    assert!(c_module.get_credential.is_none());
+    assert!(c_module.validate_credential.is_none());
+    assert!(c_module.iof_pull.is_none());
+    assert!(c_module.push_stdin.is_none());
+    assert!(c_module.group.is_none());
+    assert!(c_module.fabric.is_none());
+    assert!(c_module.client_connected2.is_none());
+    assert!(c_module.session_control.is_none());
+}
+
+#[test]
 fn test_client_connected_roundtrip() {
     let callback = NativeClientConnectedCallback::new(|_proc, _info, _ninfo| {
         unreachable!("converting a callback must not invoke it")
     });
     let (callback, _cbdata) = callback.into_c_callback();
     assert!(callback.is_some(), "conversion must return a C callback");
+}
+
+unsafe extern "C" fn invoke_server_fence_nb_test_closure(
+    procs: *const ffi::pmix_proc_t,
+    nprocs: usize,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    data: *mut std::os::raw::c_char,
+    ndata: usize,
+    cbfunc: Option<
+        unsafe extern "C" fn(
+            i32,
+            *const std::os::raw::c_char,
+            usize,
+            *mut std::os::raw::c_void,
+            Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+            *mut std::os::raw::c_void,
+        ),
+    >,
+    cbdata: *mut std::os::raw::c_void,
+) -> i32 {
+    // SAFETY: cbdata points to the live closure reference supplied by the test.
+    let closure = unsafe { &*cbdata.cast::<&dyn Fn(usize, bool)>() };
+    closure(
+        data as usize,
+        procs.is_null()
+            && nprocs == 0
+            && info.is_null()
+            && ninfo == 0
+            && ndata == 3
+            && cbfunc.is_none(),
+    );
+    0
+}
+
+#[test]
+fn test_server_fence_nb_callback_wrapper() {
+    let wrapper = ServerFenceNbCallback::new(invoke_server_fence_nb_test_closure);
+    let (callback, cbdata) = wrapper.into_c_callback();
+    assert!(callback.is_some(), "conversion must return a C callback");
+    assert!(
+        !cbdata.is_null(),
+        "conversion must retain the closure context"
+    );
+}
+
+#[test]
+fn test_server_fence_nb_callback_wrapper_invokes_closure() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let invoked = Arc::new(AtomicBool::new(false));
+    let captured = invoked.clone();
+    let mut data = [1u8, 2, 3];
+    let expected_data = data.as_mut_ptr() as usize;
+    let closure: &dyn Fn(usize, bool) = &move |data, valid| {
+        captured.store(valid && data == expected_data, Ordering::SeqCst);
+    };
+    let wrapper = ServerFenceNbCallback::new(invoke_server_fence_nb_test_closure);
+    let (callback, cbdata) = wrapper.into_c_callback();
+    let callback = callback.expect("conversion must return a C callback");
+    // SAFETY: The callback and context come from the same conversion. The
+    // closure only checks its arguments, and the data buffer remains live.
+    // The closure reference passed as native cbdata also remains live.
+    unsafe {
+        callback(
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+            data.as_mut_ptr().cast(),
+            data.len(),
+            None,
+            (&closure as *const &dyn Fn(usize, bool)).cast_mut().cast(),
+            cbdata,
+        );
+    }
+    assert!(invoked.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -120,20 +243,12 @@ fn test_server_module_layout_matches_c() {
 #[test]
 fn test_server_module_typed_callbacks_convert_to_c() {
     #[allow(clippy::too_many_arguments)]
-    unsafe fn fence(
-        _requestor: *const ffi::pmix_proc_t,
-        _procs: *const [std::os::raw::c_char; 256],
-        _nprocs: usize,
-        _info: *const ffi::pmix_info_t,
-        _ninfo: usize,
-        _data: *mut ffi::pmix_info_t,
-        _ndata: usize,
-        _cbfunc: Option<crate::server::callbacks::ModexCallback>,
-        _cbdata: *mut std::os::raw::c_void,
-    ) {
-    }
     let module = PmixServerModule {
-        fence_nb: Some(fence),
+        fence_nb: Some(
+            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
+                unreachable!("converting a callback must not invoke it")
+            },
+        ),
         direct_modex: None,
         ..Default::default()
     };
@@ -143,12 +258,29 @@ fn test_server_module_typed_callbacks_convert_to_c() {
 
 #[test]
 fn test_server_module_as_c_ptr_consistent() {
-    let module = PmixServerModule::default();
-    let ptr1 = module.as_c_ptr();
-    let ptr2 = module.as_c_ptr();
+    let module = PmixServerModule {
+        fence_nb: Some(
+            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
+                unreachable!("converting a callback must not invoke it")
+            },
+        ),
+        ..Default::default()
+    };
+    let ptr1 = module.as_c_ptr().cast::<PmixServerModule>();
+    let ptr2 = module.as_c_ptr().cast::<PmixServerModule>();
     assert_eq!(
         ptr1, ptr2,
         "as_c_ptr should return consistent pointer for same module"
+    );
+    assert!(!ptr1.is_null());
+    // SAFETY: Both pointers come from the live module and are only read here.
+    let (module1, module2) = unsafe { (&*ptr1, &*ptr2) };
+    assert!(module1.fence_nb.is_some());
+    assert!(module2.fence_nb.is_some());
+    assert_eq!(
+        module1.fence_nb.map(|callback| callback as usize),
+        module2.fence_nb.map(|callback| callback as usize),
+        "as_c_ptr should preserve the converted fence callback"
     );
 }
 
