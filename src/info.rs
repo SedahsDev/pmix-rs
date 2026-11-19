@@ -679,13 +679,13 @@ pub(crate) struct ConvertedInfoArray {
 impl ConvertedInfoArray {
     /// Borrow the PMIx array for a synchronous consumer.
     #[allow(dead_code)]
-    fn raw(&self) -> &crate::ffi::pmix_data_array_t {
+    pub(crate) fn raw(&self) -> &crate::ffi::pmix_data_array_t {
         &self.array
     }
 
     /// Return the mutable PMIx array pointer expected by C APIs.
     #[allow(dead_code)]
-    fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_data_array_t {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut crate::ffi::pmix_data_array_t {
         &mut self.array
     }
 }

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Breaking: Wrapped 10 server-module callback fields (allocate, job_control, session_control, resource_block, get_credential, validate_credential, iof_pull, push_stdin, group, fabric) with native Rust types. pmix_server_*_fn_t no longer appears in public signatures. Migration: use Native*Callback types from src/server/callbacks.rs.
+- Breaking: Raw pointer accessors on PmixDataArray, PmixByteObject, and PmixDataBuffer are now pub(crate), removing public access to pmix_data_array_t, pmix_byte_object_t, and pmix_data_buffer_t. Migration: replace calls to these pointer accessors and direct FFI field access with the wrappers' safe typed accessors, such as len() and data().
 
 - Breaking: Wrapped pmix_group_opt_t in GroupOption enum and pmix_group_operation_t in GroupOperation enum. group_join() and group_join_nb() now take GroupOption instead of pmix_group_opt_t. Migration: use GroupOption::Accept or GroupOption::Decline instead of raw FFI values. GroupOperation implements Display and as_str() for string conversion.
 - Breaking: Wrapped 11 server module callback fields (client_connected, client_connected2, client_finalized, tool_connected, tool_connected2, publish, lookup, unpublish, register_events, deregister_events, notify_event) with native Rust types. pmix_server_*_fn_t no longer appears in public signatures. Migration: use Native*Callback types from src/server/callbacks.rs.
