@@ -204,6 +204,8 @@ pub use pset::*;
 mod native_callbacks;
 pub use native_callbacks::*;
 
+pub use callbacks::ServerFenceNbCallback;
+
 pub mod callbacks {
     pub use super::OpCallbackWrapper;
     pub use super::native_callbacks::*;

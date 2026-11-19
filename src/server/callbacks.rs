@@ -2,12 +2,112 @@
 //!
 //! This module provides native Rust wrappers around PMIx callback types,
 //! preventing FFI types from leaking into public APIs.
+//!
+//! Registerable server callbacks use the `module` form of
+//! `native_server_callback!` to wrap a native function pointer and own a module
+//! containing that pointer. Unlike one-shot completion callbacks, server
+//! callbacks receive PMIx-owned completion data, not wrapper-owned context.
+//! Consequently, registration cannot adapt an arbitrary capturing closure.
+//!
+//! The remaining 32 server callback types can follow this pattern by supplying
+//! their FFI typedef, module field, and exact C signature. Keep optional
+//! callbacks as `Option<Wrapper>` in `PmixServerModule`; borrow `Some` before
+//! calling `as_c_ptr()`, and represent an absent module with a null pointer.
+//! The extra ownership argument returned by `into_c_callback()` is only for
+//! one-shot use and must not be confused with the native callback's cbdata.
 
 use crate::PmixStatus;
-use crate::ffi::{pmix_data_range_t, pmix_info_t, pmix_op_cbfunc_t, pmix_pdata_t, pmix_proc_t};
-use std::os::raw::c_void;
+use crate::ffi::{
+    pmix_data_range_t, pmix_info_t, pmix_modex_cbfunc_t, pmix_op_cbfunc_t, pmix_pdata_t,
+    pmix_proc_t, pmix_server_fencenb_fn_t, pmix_server_module_t,
+};
+use std::os::raw::{c_char, c_void};
 
 macro_rules! native_server_callback {
+    (
+        $(#[$meta:meta])*
+        $name:ident, $free:ident,
+        module: $module:ident, $field:ident: $callback_type:ty,
+        ($($arg:ident: $arg_type:ty),* $(,)?) $(-> $return_type:ty)?
+    ) => {
+        $(#[$meta])*
+        pub struct $name {
+            module: Box<$module>,
+        }
+
+        impl $name {
+            /// Wrap a native function pointer without invoking it.
+            ///
+            /// Capturing closures cannot be registered through this interface:
+            /// the native callback has no wrapper-owned context argument.
+            /// Represent an absent callback with `Option<Self>::None`.
+            pub fn new(
+                callback: unsafe extern "C" fn($($arg_type),*) $(-> $return_type)?,
+            ) -> Self {
+                let callback: $callback_type = Some(callback);
+                // SAFETY: PMIx server module fields are nullable function
+                // pointers, for which an all-zero representation means None.
+                let mut module = Box::new(unsafe { std::mem::zeroed::<$module>() });
+                module.$field = callback;
+                Self { module }
+            }
+
+            /// Borrow a native module containing only this callback.
+            ///
+            /// All other module fields are null. The allocation remains stable
+            /// when this wrapper moves, but is freed when the wrapper is dropped.
+            /// Any C code retaining this pointer must finish using it before
+            /// then and must not modify or free the borrowed module.
+            pub fn as_c_ptr(&self) -> *const $module {
+                self.module.as_ref()
+            }
+
+            /// Transfer ownership to a one-shot callback and its wrapper data.
+            ///
+            /// This adapter has an additional trailing ownership argument and
+            /// is not the native module callback. Invoke it exactly once, or
+            /// release unused wrapper data with the corresponding free function.
+            /// Never do both or access the wrapper data concurrently.
+            pub fn into_c_callback(
+                self,
+            ) -> (
+                Option<unsafe extern "C" fn($($arg_type,)* *mut c_void) $(-> $return_type)?>,
+                *mut c_void,
+            ) {
+                unsafe extern "C" fn c_callback(
+                    $($arg: $arg_type,)*
+                    wrapper_cbdata: *mut c_void,
+                ) $(-> $return_type)? {
+                    // SAFETY: the caller supplies the live pointer returned
+                    // by into_c_callback, exactly once.
+                    let wrapper = unsafe { Box::from_raw(wrapper_cbdata.cast::<$name>()) };
+                    let callback = wrapper.module.$field.expect("callback is present");
+                    // SAFETY: the caller must satisfy the native callback's
+                    // argument requirements in addition to owning wrapper_cbdata.
+                    unsafe { callback($($arg),*) }
+                }
+
+                let cbdata = Box::into_raw(Box::new(self)).cast::<c_void>();
+                (Some(c_callback), cbdata)
+            }
+        }
+
+        /// Release unused wrapper data without invoking its callback.
+        ///
+        /// # Safety
+        ///
+        /// A non-null pointer must come from this wrapper's into_c_callback
+        /// and must not have been consumed by the callback or previously freed.
+        /// No other thread may access it during or after this call.
+        pub unsafe fn $free(cbdata: *mut c_void) {
+            if !cbdata.is_null() {
+                // SAFETY: the caller guarantees ownership of this live Box.
+                unsafe {
+                    drop(Box::from_raw(cbdata.cast::<$name>()));
+                }
+            }
+        }
+    };
     (
         $(#[$meta:meta])*
         $name:ident, $free:ident,
@@ -73,6 +173,22 @@ macro_rules! native_server_callback {
         }
     };
 }
+
+native_server_callback!(
+    /// A native server fence callback with an owned registration module.
+    ServerFenceNbCallback, free_fence_nb_cbdata,
+    module: pmix_server_module_t, fence_nb: pmix_server_fencenb_fn_t,
+    (
+        procs: *const pmix_proc_t,
+        nprocs: usize,
+        info: *const pmix_info_t,
+        ninfo: usize,
+        data: *mut c_char,
+        ndata: usize,
+        cbfunc: pmix_modex_cbfunc_t,
+        cbdata: *mut c_void,
+    ) -> pmix_status_t
+);
 
 native_server_callback!(
     /// A one-shot Rust callback for client connections.
@@ -192,6 +308,94 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe extern "C" fn fence_nb_callback(
+        procs: *const pmix_proc_t,
+        nprocs: usize,
+        info: *const pmix_info_t,
+        ninfo: usize,
+        data: *mut c_char,
+        ndata: usize,
+        cbfunc: pmix_modex_cbfunc_t,
+        cbdata: *mut c_void,
+    ) -> pmix_status_t {
+        assert!(procs.is_null());
+        assert_eq!(nprocs, 3);
+        assert!(info.is_null());
+        assert_eq!(ninfo, 7);
+        assert!(data.is_null());
+        assert_eq!(ndata, 11);
+        assert!(cbfunc.is_none());
+        assert!(cbdata.is_null());
+        -17
+    }
+
+    #[test]
+    fn fence_nb() {
+        let absent: Option<ServerFenceNbCallback> = None;
+        assert!(
+            absent
+                .as_ref()
+                .map_or(std::ptr::null(), ServerFenceNbCallback::as_c_ptr)
+                .is_null()
+        );
+
+        for invoke in [true, false] {
+            let wrapper = ServerFenceNbCallback::new(fence_nb_callback);
+            let module = wrapper.as_c_ptr();
+            assert!(!module.is_null());
+            assert_eq!(module, wrapper.as_c_ptr());
+
+            // SAFETY: wrapper owns the live module. The test callback only
+            // checks its arguments and does not dereference any pointers.
+            let result = unsafe {
+                ((*module).fence_nb.expect("fence callback"))(
+                    std::ptr::null(),
+                    3,
+                    std::ptr::null(),
+                    7,
+                    std::ptr::null_mut(),
+                    11,
+                    None,
+                    std::ptr::null_mut(),
+                )
+            };
+            assert_eq!(result, -17);
+
+            let (callback, cbdata) = wrapper.into_c_callback();
+            assert!(callback.is_some());
+            assert!(!cbdata.is_null());
+
+            if invoke {
+                // SAFETY: cbdata is live and consumed exactly once. The
+                // native callback checks but never dereferences its arguments.
+                let result = unsafe {
+                    callback.unwrap()(
+                        std::ptr::null(),
+                        3,
+                        std::ptr::null(),
+                        7,
+                        std::ptr::null_mut(),
+                        11,
+                        None,
+                        std::ptr::null_mut(),
+                        cbdata,
+                    )
+                };
+                assert_eq!(result, -17);
+            } else {
+                // SAFETY: cbdata has not been invoked or freed.
+                unsafe {
+                    free_fence_nb_cbdata(cbdata);
+                }
+            }
+        }
+
+        // SAFETY: the free function explicitly accepts null.
+        unsafe {
+            free_fence_nb_cbdata(std::ptr::null_mut());
+        }
+    }
 
     struct DropCounter(Arc<AtomicUsize>);
 
