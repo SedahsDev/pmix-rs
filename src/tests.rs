@@ -107,7 +107,7 @@ fn test_info_into_raw_skips_drop_free() {
     }
 }
 
-use crate::*;
+use crate::ffi::*;
 use crate::*;
 
 // ──────────────────────────────────────────────────────────────────────

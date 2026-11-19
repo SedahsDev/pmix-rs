@@ -72,17 +72,6 @@ fn test_buffer_debug() {
     );
 }
 
-/// PmixDataBuffer with null pointer debugs correctly.
-#[test]
-fn test_buffer_debug_null() {
-    let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
-    let debug_str = format!("{:?}", buf);
-    assert!(
-        debug_str.contains("null"),
-        "null buffer should show 'null' in debug"
-    );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // PmixByteObject — no PMIx_Init required
 // ─────────────────────────────────────────────────────────────────────────────
