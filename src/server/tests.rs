@@ -52,6 +52,53 @@ fn test_server_module_additional_fields() {
     assert!(module.session_control.is_none());
 }
 
+// These tests inspect callback pointers but never invoke them.
+macro_rules! callback_for_construction_test {
+    ($callback_type:ty) => {{
+        extern "C" fn placeholder() {}
+
+        // SAFETY: Each wrapper contains exactly one C function pointer.
+        // The source is a valid, non-null function pointer, and the tests
+        // never call it through the wrapper's different callback signature.
+        // Inferred raw module callback pointers are also never called.
+        unsafe {
+            std::mem::transmute_copy::<extern "C" fn(), $callback_type>(
+                &(placeholder as extern "C" fn()),
+            )
+        }
+    }};
+}
+
+#[test]
+fn test_direct_modex_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeDirectModexCallback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
+#[test]
+fn test_connect_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeConnectCallback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
+#[test]
+fn test_disconnect_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeDisconnectCallback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
+#[test]
+fn test_spawn_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeSpawnCallback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
+#[test]
+fn test_abort_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeAbortCallback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
 // ── New: PmixServerModule callback manipulation ──────────────────────────
 
 #[test]
@@ -257,6 +304,33 @@ fn test_server_module_typed_callbacks_convert_to_c() {
 }
 
 #[test]
+fn test_server_module_with_wrapped_callbacks() {
+    let module = PmixServerModule {
+        direct_modex: Some(callback_for_construction_test!(_)),
+        connect: Some(callback_for_construction_test!(_)),
+        disconnect: Some(callback_for_construction_test!(_)),
+        spawn: Some(callback_for_construction_test!(_)),
+        abort: Some(callback_for_construction_test!(_)),
+        log: Some(callback_for_construction_test!(_)),
+
+        query: Some(callback_for_construction_test!(_)),
+        listener: Some(callback_for_construction_test!(_)),
+        monitor: Some(callback_for_construction_test!(_)),
+        ..Default::default()
+    };
+
+    assert!(module.direct_modex.is_some());
+    assert!(module.connect.is_some());
+    assert!(module.disconnect.is_some());
+    assert!(module.spawn.is_some());
+    assert!(module.abort.is_some());
+    assert!(module.log.is_some());
+    assert!(module.query.is_some());
+    assert!(module.listener.is_some());
+    assert!(module.monitor.is_some());
+}
+
+#[test]
 fn test_server_module_as_c_ptr_consistent() {
     let module = PmixServerModule {
         fence_nb: Some(
@@ -297,6 +371,36 @@ fn test_server_module_field_count() {
     let module = PmixServerModule::default();
     let debug_str = format!("{:?}", module);
     assert!(debug_str.starts_with("PmixServerModule"));
+}
+
+#[test]
+fn test_log_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeLogCallback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
+#[test]
+fn test_log2_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeLog2Callback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
+#[test]
+fn test_query_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeQueryCallback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
+#[test]
+fn test_listener_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeListenerCallback);
+    assert!(callback.as_c_ptr().is_some());
+}
+
+#[test]
+fn test_monitor_callback_construction() {
+    let callback = callback_for_construction_test!(super::callbacks::NativeMonitorCallback);
+    assert!(callback.as_c_ptr().is_some());
 }
 
 // ── PmixServerHandle tests ───────────────────────────────────────────────
