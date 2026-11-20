@@ -226,7 +226,7 @@ fn test_fabric_double_deregister() {
 #[ignore = "requires PMIx daemon"]
 fn test_fabric_register_nb() {
     let mut fabric = PmixFabric::unamed();
-    let _result = fabric_register_nb(&mut fabric, &[], Box::new(TestFabricCallback));
+    let _result = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
 }
 
 /// Test fabric_update_nb with a callback.
@@ -261,5 +261,9 @@ fn test_fabric_register_nb_recording() {
         status: std::cell::Cell::new(None),
     };
     let mut fabric = PmixFabric::unamed();
-    let _result = fabric_register_nb(&mut fabric, &[], Box::new(cb));
+    let _result = fabric_register_nb(
+        &mut fabric,
+        &[],
+        Box::new(move |status| cb.status.set(Some(status))),
+    );
 }

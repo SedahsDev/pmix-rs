@@ -146,11 +146,7 @@ fn test_fabric_register_nb_without_init() {
     let mut fabric = PmixFabric::new(Some("test")).expect("fabric new failed");
     let info = InfoBuilder::new().build().expect("build info");
     let directives: &[pmix::Info] = std::slice::from_ref(&info);
-    struct NopFabricCb;
-    impl FabricCallback for NopFabricCb {
-        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
-    }
-    let cb: Box<dyn FabricCallback> = Box::new(NopFabricCb);
+    let cb: Box<dyn FnMut(PmixStatus) + Send + 'static> = Box::new(|_status| {});
     assert!(
         fabric_register_nb(&mut fabric, directives, cb).is_err(),
         "fabric_register_nb should fail without init"
