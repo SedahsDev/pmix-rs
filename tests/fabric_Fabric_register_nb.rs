@@ -56,7 +56,7 @@ impl FabricCallback for RecordingCallback {
 fn test_register_nb_unamed() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+    let result = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
     // With server: Ok(()) → callback invoked later
     // Without server: Err(INIT) → wrapper reclaimed, callback NOT invoked
     assert!(result.is_err() || result.is_ok());
@@ -68,7 +68,7 @@ fn test_register_nb_unamed() {
 fn test_register_nb_empty_directives() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+    let result = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
     assert!(result.is_err() || result.is_ok());
 }
 
@@ -80,7 +80,7 @@ fn test_register_nb_single_directive() {
     let mut fabric = PmixFabric::unamed();
     let info = InfoBuilder::new().build().expect("build info");
     let directives: &[Info] = std::slice::from_ref(&info);
-    let result = fabric_register_nb(&mut fabric, directives, Box::new(NopCallback));
+    let result = fabric_register_nb(&mut fabric, directives, Box::new(|_| {}));
     assert!(result.is_err() || result.is_ok());
 }
 
@@ -94,7 +94,7 @@ fn test_register_nb_multiple_directives() {
         InfoBuilder::new().build().expect("build info"),
         InfoBuilder::new().build().expect("build info"),
     ];
-    let result = fabric_register_nb(&mut fabric, &directives, Box::new(NopCallback));
+    let result = fabric_register_nb(&mut fabric, &directives, Box::new(|_| {}));
     assert!(result.is_err() || result.is_ok());
 }
 
@@ -104,7 +104,11 @@ fn test_register_nb_multiple_directives() {
 fn test_register_nb_callback_not_invoked_on_error() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let _result = fabric_register_nb(&mut fabric, &[], Box::new(PanicCallback));
+    let _result = fabric_register_nb(
+        &mut fabric,
+        &[],
+        Box::new(|status| Box::new(PanicCallback).on_complete(status)),
+    );
     // If FFI returns error, wrapper is reclaimed and callback is NOT invoked.
     // If FFI returns success, callback IS invoked later (panic → test fails).
     // In user-space, this test is ignored because FFI segfaults.
@@ -117,7 +121,7 @@ fn test_register_nb_wrapper_reclamation_loop() {
     daemon_helper::ensure_pmix_init();
     for _ in 0..10 {
         let mut fabric = PmixFabric::unamed();
-        let _ = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+        let _ = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
     }
 }
 
@@ -128,7 +132,7 @@ fn test_register_nb_no_panic_unamed() {
     daemon_helper::ensure_pmix_init();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut f = PmixFabric::unamed();
-        fabric_register_nb(&mut f, &[], Box::new(NopCallback))
+        fabric_register_nb(&mut f, &[], Box::new(|_| {}))
     }));
     // Result may be Err (no server) or Ok (server present).
     // Key point: no panic.
@@ -148,8 +152,9 @@ fn test_register_nb_recording_callback() {
     let result = fabric_register_nb(
         &mut fabric,
         &[],
-        Box::new(RecordingCallback {
-            status: Arc::clone(&status),
+        Box::new({
+            let status = Arc::clone(&status);
+            move |result| *status.lock().unwrap() = Some(result)
         }),
     );
     if result.is_err() {
@@ -271,7 +276,11 @@ fn test_recording_callback_is_send() {
 #[test]
 fn test_register_nb_signature() {
     fn _check_sig(
-        _f: fn(&mut PmixFabric, &[Info], Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
+        _f: fn(
+            &mut PmixFabric,
+            &[Info],
+            Box<dyn FnMut(PmixStatus) + Send>,
+        ) -> Result<(), PmixStatus>,
     ) {
     }
     _check_sig(fabric_register_nb);

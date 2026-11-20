@@ -335,11 +335,7 @@ fn test_fabric_register_update_deregister_lifecycle() {
 fn test_fabric_register_nb_success() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::new(Some("nb_test")).expect("create");
-    struct NoopFabricCb;
-    impl FabricCallback for NoopFabricCb {
-        fn on_complete(self: Box<Self>, _status: PmixStatus) {}
-    }
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(NoopFabricCb));
+    let result = fabric_register_nb(&mut fabric, &[], Box::new(|_status: PmixStatus| {}));
     assert!(result.is_ok());
 }
 
