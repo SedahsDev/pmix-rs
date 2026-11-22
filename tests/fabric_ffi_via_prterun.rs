@@ -284,15 +284,8 @@ fn test_fabric_deregister_via_dvm() {
 #[ignore = "requires DVM-launched process (prterun)"]
 fn test_fabric_register_nb_via_dvm() {
     daemon_helper::ensure_pmix_init();
-    use pmix::fabric::FabricCallback;
-
-    struct TestCallback;
-    impl FabricCallback for TestCallback {
-        fn on_complete(self: Box<Self>, _status: pmix::PmixStatus) {}
-    }
-
     let mut fabric = pmix::fabric::PmixFabric::unamed();
-    let result = pmix::fabric::fabric_register_nb(&mut fabric, &[], Box::new(TestCallback));
+    let result = pmix::fabric::fabric_register_nb(&mut fabric, &[], Box::new(|_status| {}));
     if result.is_ok() {
         assert!(fabric.is_registered());
         let _ = pmix::fabric::fabric_deregister(&mut fabric);

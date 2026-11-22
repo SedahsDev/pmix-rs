@@ -341,13 +341,13 @@ pub fn group_construct(
 
 /// Non-blocking group construct callback wrapper.
 pub struct GroupConstructCallbackWrapper {
-    callback: Box<dyn Fn(PmixStatus, GroupResults) + Send + 'static>,
+    callback: Box<dyn FnMut(PmixStatus, GroupResults) + Send + 'static>,
 }
 
 impl GroupConstructCallbackWrapper {
     pub fn new<F>(f: F) -> Self
     where
-        F: Fn(PmixStatus, GroupResults) + Send + 'static,
+        F: FnMut(PmixStatus, GroupResults) + Send + 'static,
     {
         Self {
             callback: Box::new(f),
@@ -380,7 +380,7 @@ pub(crate) unsafe extern "C" fn group_construct_callback_bridge(
         let mut registry = GROUP_CONSTRUCT_REGISTRY.lock();
         registry.remove(&req_id)
     };
-    let Some(cb_wrapper) = cb else {
+    let Some(mut cb_wrapper) = cb else {
         if let Some(release_fn) = release_fn {
             unsafe { release_fn(release_cbdata) };
         }

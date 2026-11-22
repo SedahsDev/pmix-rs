@@ -119,8 +119,8 @@ fn test_register_same_fabric_three_times() {
 fn test_register_nb_same_fabric_twice() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let result1 = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
-    let result2 = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+    let result1 = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
+    let result2 = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
 
     assert!(result1.is_err());
     assert!(result2.is_err());
@@ -205,7 +205,7 @@ fn test_register_empty_directives_idempotent() {
 fn test_register_nb_empty_directives() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+    let result = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
     assert!(result.is_err());
 }
 
@@ -217,7 +217,7 @@ fn test_register_nb_single_directive() {
     let mut fabric = PmixFabric::unamed();
     let info = InfoBuilder::new().build().expect("build info");
     let directives: &[Info] = std::slice::from_ref(&info);
-    let result = fabric_register_nb(&mut fabric, directives, Box::new(NopCallback));
+    let result = fabric_register_nb(&mut fabric, directives, Box::new(|_| {}));
     assert!(result.is_err());
 }
 
@@ -230,7 +230,7 @@ fn test_register_nb_multiple_directives() {
     let info1 = InfoBuilder::new().build().expect("build info");
     let info2 = InfoBuilder::new().build().expect("build info");
     let directives = vec![info1, info2];
-    let result = fabric_register_nb(&mut fabric, &directives, Box::new(NopCallback));
+    let result = fabric_register_nb(&mut fabric, &directives, Box::new(|_| {}));
     assert!(result.is_err());
 }
 
@@ -402,7 +402,7 @@ fn test_full_nb_lifecycle_without_server() {
     let mut fabric = PmixFabric::new(Some("nb_lifecycle")).unwrap();
 
     // Register nb fails (no server).
-    let reg = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+    let reg = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
     assert!(reg.is_err());
     assert!(!fabric.is_registered());
 
@@ -551,7 +551,11 @@ fn test_fabric_deregister_signature() {
 #[test]
 fn test_fabric_register_nb_signature() {
     fn _check_sig(
-        _f: fn(&mut PmixFabric, &[Info], Box<dyn FabricCallback>) -> Result<(), PmixStatus>,
+        _f: fn(
+            &mut PmixFabric,
+            &[Info],
+            Box<dyn FnMut(PmixStatus) + Send>,
+        ) -> Result<(), PmixStatus>,
     ) {
     }
     _check_sig(fabric_register_nb);
@@ -581,7 +585,11 @@ fn test_fabric_deregister_nb_signature() {
 fn test_register_nb_callback_not_invoked_on_error() {
     daemon_helper::ensure_pmix_init();
     let mut fabric = PmixFabric::unamed();
-    let result = fabric_register_nb(&mut fabric, &[], Box::new(PanicCallback));
+    let result = fabric_register_nb(
+        &mut fabric,
+        &[],
+        Box::new(|status| Box::new(PanicCallback).on_complete(status)),
+    );
     assert!(result.is_err());
     // If PanicCallback was invoked, the test would have panicked.
 }
@@ -609,7 +617,7 @@ fn test_register_nb_wrapper_reclamation_loop() {
     daemon_helper::ensure_pmix_init();
     for _ in 0..100 {
         let mut fabric = PmixFabric::unamed();
-        let _ = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+        let _ = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
     }
 }
 
@@ -743,7 +751,7 @@ fn test_register_nb_no_panic_unamed() {
     daemon_helper::ensure_pmix_init();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut f = PmixFabric::unamed();
-        fabric_register_nb(&mut f, &[], Box::new(NopCallback))
+        fabric_register_nb(&mut f, &[], Box::new(|_| {}))
     }));
     assert!(result.is_ok());
 }
@@ -911,7 +919,7 @@ fn test_register_deregister_reregister() {
 fn test_nb_lifecycle_with_daemon() {
     let mut fabric = PmixFabric::unamed();
 
-    let reg = fabric_register_nb(&mut fabric, &[], Box::new(NopCallback));
+    let reg = fabric_register_nb(&mut fabric, &[], Box::new(|_| {}));
     if reg.is_err() {
         return;
     }

@@ -16,12 +16,17 @@
 //! The extra ownership argument returned by `into_c_callback()` is only for
 //! one-shot use and must not be confused with the native callback's cbdata.
 
-use crate::PmixStatus;
+use crate::allocation::{JobControlResults, ResourceBlockDirective, SessionControlResults};
+use crate::data_serialization::PmixDataBuffer;
+use crate::ffi::pmix_iof_channel_t as IOFChannel;
 use crate::ffi::{pmix_app_t, pmix_data_buffer_t, pmix_query_t};
 use crate::ffi::{
-    pmix_data_range_t, pmix_info_t, pmix_modex_cbfunc_t, pmix_op_cbfunc_t, pmix_pdata_t,
-    pmix_proc_t, pmix_server_fencenb_fn_t, pmix_server_module_t,
+    pmix_data_range_t, pmix_info_t, pmix_modex_cbfunc_t, pmix_nspace_t, pmix_op_cbfunc_t,
+    pmix_pdata_t, pmix_proc_t, pmix_server_fencenb_fn_t, pmix_server_module_t,
 };
+use crate::security::PmixCredential;
+use crate::server::OpCallbackWrapper;
+use crate::{Info, PmixStatus};
 use std::os::raw::{c_char, c_int, c_void};
 
 macro_rules! native_server_callback {
@@ -40,13 +45,38 @@ macro_rules! native_server_callback {
         #[allow(clippy::type_complexity)]
         impl $name {
             /// Wrap a native function pointer without invoking it.
-            pub fn new(cb: extern "C" fn($($arg_type),*) -> $return_type) -> Self {
-                Self { cb: Some(cb) }
+            ///
+            /// Accepts a plain Rust function pointer; non-capturing closures
+            /// coerce to it.
+            pub fn new(cb: fn($($arg_type),*) -> $return_type) -> Self {
+                // SAFETY: On every platform this crate supports, a Rust
+                // function pointer and an `extern "C"` function pointer with
+                // the same non-variadic signature share the same
+                // representation; `PmixServerModule::as_c_ptr` already erases
+                // fn-pointer ABIs the same way.
+                Self {
+                    cb: Some(unsafe {
+                        std::mem::transmute::<
+                            fn($($arg_type),*) -> $return_type,
+                            extern "C" fn($($arg_type),*) -> $return_type,
+                        >(cb)
+                    }),
+                }
             }
 
             /// Return the wrapped native function pointer.
             pub fn as_c_ptr(&self) -> Option<extern "C" fn($($arg_type),*) -> $return_type> {
                 self.cb
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(
+                    f,
+                    concat!(stringify!($name), "({})"),
+                    if self.cb.is_some() { "Some(..)" } else { "None" }
+                )
             }
         }
 
@@ -206,6 +236,111 @@ macro_rules! native_server_callback {
     };
 }
 
+macro_rules! native_rust_server_callback {
+    (
+        $(#[$meta:meta])*
+        $name:ident, $test:ident,
+        ($($arg:ident: $arg_type:ty),* $(,)?) $(-> $return_type:ty)?
+    ) => {
+        $(#[$meta])*
+        pub struct $name {
+            inner: Box<dyn FnMut($($arg_type),*) $(-> $return_type)? + Send + 'static>,
+        }
+
+        impl $name {
+            /// Create a callback wrapper from a mutable closure.
+            ///
+            /// The closure must not panic when invoked from C.
+            pub fn new<F>(callback: F) -> Self
+            where
+                F: FnMut($($arg_type),*) $(-> $return_type)? + Send + 'static,
+            {
+                Self {
+                    inner: Box::new(callback),
+                }
+            }
+
+            /// Invoke the wrapped mutable callback.
+            pub fn call(&mut self, $($arg: $arg_type),*) $(-> $return_type)? {
+                (self.inner)($($arg),*)
+            }
+
+            /// Borrow the boxed closure as opaque callback data.
+            ///
+            /// This is a context pointer, not a callable C function pointer.
+            /// A matching trampoline must cast it back to the original boxed
+            /// closure type before invocation. Ownership remains with this
+            /// wrapper: C must not free the pointer or retain it after the
+            /// wrapper moves or is dropped. Access must be exclusive, including
+            /// against Rust access to this wrapper, and must not be reentrant.
+            pub fn as_c_ptr(&mut self) -> *mut c_void {
+                std::ptr::from_mut(&mut self.inner).cast::<c_void>()
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter
+                    .debug_struct(stringify!($name))
+                    .field("inner", &format_args!("{:p}", self.inner.as_ref()))
+                    .finish()
+            }
+        }
+
+        #[cfg(test)]
+        #[test]
+        fn $test() {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            struct DropProbe(Arc<AtomicUsize>);
+
+            impl Drop for DropProbe {
+                fn drop(&mut self) {
+                    self.0.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            type Callback =
+                Box<dyn FnMut($($arg_type),*) $(-> $return_type)? + Send + 'static>;
+
+            let drops = Arc::new(AtomicUsize::new(0));
+            let mut probe = Some(DropProbe(Arc::clone(&drops)));
+            let mut wrapper = $name::new(
+                move |$($arg: $arg_type),*| $(-> $return_type)? {
+                    let _ = ($($arg,)*);
+                    let _ = probe.as_mut();
+                    panic!("the context round-trip test must not invoke the callback");
+                },
+            );
+            let original = wrapper.inner.as_ref() as *const _ as *const ();
+            let cbdata = wrapper.as_c_ptr();
+            assert!(!cbdata.is_null());
+
+            // SAFETY: cbdata borrows this live, unmoved wrapper's boxed
+            // closure. Its exact type is Callback, and there is no concurrent
+            // or reentrant access to the wrapper.
+            let recovered = unsafe { &mut *cbdata.cast::<Callback>() };
+            let round_tripped = recovered.as_ref() as *const _ as *const ();
+            assert_eq!(original, round_tripped);
+            assert_eq!(drops.load(Ordering::SeqCst), 0);
+
+            let original_callback = std::mem::replace(
+                recovered,
+                Box::new(|$($arg: $arg_type),*| $(-> $return_type)? {
+                    let _ = ($($arg,)*);
+                    panic!("the replacement callback must not be invoked");
+                }),
+            );
+            drop(original_callback);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+            drop(wrapper);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+        }
+    };
+}
+
 native_server_callback!(
     /// A native server fence callback with an owned registration module.
     ServerFenceNbCallback, free_fence_nb_cbdata,
@@ -333,19 +468,24 @@ native_server_callback!(
 );
 
 native_server_callback!(
-    /// A native direct modex callback.
+    /// Native `dmodex_cbfunc_t` data-plane upcall wrapper.
     pointer: NativeDirectModexCallback,
     (
         nspace: *const c_char,
         rank: c_int,
         data: *mut c_void,
-        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void, *const pmix_data_buffer_t, *mut c_void)>,
+        cbfunc: Option<extern "C" fn(
+            pmix_status_t,
+            *mut c_void,
+            *const pmix_data_buffer_t,
+            *mut c_void,
+        )>,
         cbdata: *mut c_void,
     ) -> pmix_status_t
 );
 
 native_server_callback!(
-    /// A native connect callback.
+    /// Native `connect_cbfunc_t` job upcall wrapper.
     pointer: NativeConnectCallback,
     (
         nspace: *const c_char,
@@ -354,24 +494,22 @@ native_server_callback!(
         results: *mut pmix_pdata_t,
         nresults: usize,
         cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
-        cbdata: *mut c_void,
     ) -> pmix_status_t
 );
 
 native_server_callback!(
-    /// A native disconnect callback.
+    /// Native `op_cbfunc_t` disconnect upcall wrapper.
     pointer: NativeDisconnectCallback,
     (
         nspace: *const c_char,
         info: *const pmix_info_t,
         ninfo: usize,
         cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
-        cbdata: *mut c_void,
     ) -> pmix_status_t
 );
 
 native_server_callback!(
-    /// A native spawn callback.
+    /// Native `spawn_cbfunc_t` job upcall wrapper.
     pointer: NativeSpawnCallback,
     (
         info: *const pmix_info_t,
@@ -380,12 +518,11 @@ native_server_callback!(
         napps: usize,
         jobid: *mut pmix_proc_t,
         cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
-        cbdata: *mut c_void,
     ) -> pmix_status_t
 );
 
 native_server_callback!(
-    /// A native abort callback.
+    /// Native `op_cbfunc_t` abort upcall wrapper.
     pointer: NativeAbortCallback,
     (
         nspace: *const c_char,
@@ -393,12 +530,11 @@ native_server_callback!(
         error_code: c_int,
         errmsg: *const c_char,
         cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
-        cbdata: *mut c_void,
     ) -> pmix_status_t
 );
 
 native_server_callback!(
-    /// A native log callback.
+    /// Native `pmix_server_log_fn_t` upcall wrapper.
     pointer: NativeLogCallback,
     (
         info: *const pmix_info_t,
@@ -409,11 +545,10 @@ native_server_callback!(
 );
 
 native_server_callback!(
-    /// A native log callback with process identification.
+    /// Native `pmix_server_log2_fn_t` upcall wrapper.
     pointer: NativeLog2Callback,
     (
-        nspace: *const c_char,
-        rank: c_int,
+        proc: *const pmix_proc_t,
         info: *const pmix_info_t,
         ninfo: usize,
         cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
@@ -422,20 +557,25 @@ native_server_callback!(
 );
 
 native_server_callback!(
-    /// A native query callback.
+    /// Native `pmix_query_cbfunc_t` upcall wrapper.
     pointer: NativeQueryCallback,
     (
         nspace: *const c_char,
         rank: c_int,
         queries: *const pmix_query_t,
         nqueries: usize,
-        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void, *const pmix_data_buffer_t, *mut c_void)>,
+        cbfunc: Option<extern "C" fn(
+            pmix_status_t,
+            *mut c_void,
+            *const pmix_data_buffer_t,
+            *mut c_void,
+        )>,
         cbdata: *mut c_void,
     ) -> pmix_status_t
 );
 
 native_server_callback!(
-    /// A native listener callback.
+    /// Native event listener upcall wrapper.
     pointer: NativeListenerCallback,
     (
         nspace: *const c_char,
@@ -448,12 +588,11 @@ native_server_callback!(
         results: *mut pmix_pdata_t,
         nresults: usize,
         cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
-        cbdata: *mut c_void,
     ) -> pmix_status_t
 );
 
 native_server_callback!(
-    /// A native monitor callback.
+    /// Native event monitor upcall wrapper.
     pointer: NativeMonitorCallback,
     (
         status: pmix_status_t,
@@ -461,8 +600,74 @@ native_server_callback!(
         info: *const pmix_info_t,
         ninfo: usize,
         cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
-        cbdata: *mut c_void,
     ) -> pmix_status_t
+);
+
+native_rust_server_callback!(
+    /// A native Rust allocation callback.
+    NativeAllocateCallback, native_allocate_context_round_trip,
+    (
+        directives: &[Info],
+        info: &[Info],
+        buffer: &mut PmixDataBuffer,
+    ) -> PmixStatus
+);
+
+native_rust_server_callback!(
+    /// A native Rust job-control completion callback.
+    NativeJobControlCallback, native_job_control_context_round_trip,
+    (status: PmixStatus, results: JobControlResults)
+);
+
+native_rust_server_callback!(
+    /// A native Rust session-control completion callback.
+    NativeSessionControlCallback, native_session_control_context_round_trip,
+    (status: PmixStatus, results: SessionControlResults)
+);
+
+native_rust_server_callback!(
+    /// A native Rust resource-block callback.
+    NativeResourceBlockCallback, native_resource_block_context_round_trip,
+    (
+        directive: ResourceBlockDirective,
+        info: &mut [Info],
+    ) -> PmixStatus
+);
+
+native_rust_server_callback!(
+    /// A native Rust credential-generation callback.
+    NativeGetCredentialCallback, native_get_credential_context_round_trip,
+    (info: &[Info], credential: &mut PmixCredential) -> PmixStatus
+);
+
+native_rust_server_callback!(
+    /// A native Rust credential-validation callback.
+    NativeValidateCredentialCallback, native_validate_credential_context_round_trip,
+    (credential: &PmixCredential, info: &[Info]) -> PmixStatus
+);
+
+native_rust_server_callback!(
+    /// A native Rust I/O-forwarding pull callback.
+    NativeIOFPullCallback, native_iof_pull_context_round_trip,
+    (channel: IOFChannel, data: &mut [u8]) -> PmixStatus
+);
+
+native_rust_server_callback!(
+    /// A native Rust standard-input callback.
+    NativePushStdinCallback, native_push_stdin_context_round_trip,
+    (data: &[u8]) -> PmixStatus
+);
+
+native_rust_server_callback!(
+    /// A native Rust group-operation callback.
+    NativeGroupCallback, native_group_context_round_trip,
+    (status: PmixStatus, results: Vec<Info>)
+);
+
+native_rust_server_callback!(
+    /// A native Rust fabric-operation callback.
+    NativeFabricCallback, native_fabric_context_round_trip,
+    (status: PmixStatus)
 );
 
 // PMIx status type alias for FFI compatibility
@@ -481,7 +686,7 @@ mod tests {
             $new:ident, $as_c_ptr:ident, $roundtrip:ident,
             ($($arg:ident: $arg_type:ty = $value:expr),* $(,)?)
         ) => {
-            extern "C" fn $callback($($arg: $arg_type),*) -> pmix_status_t {
+            extern "Rust" fn $callback($($arg: $arg_type),*) -> pmix_status_t {
                 -17
             }
 
@@ -894,7 +1099,6 @@ mod tests {
             _results: *mut pmix_pdata_t = std::ptr::null_mut(),
             _nresults: usize = 7,
             _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
-            _cbdata: *mut c_void = std::ptr::null_mut(),
         )
     );
 
@@ -908,7 +1112,6 @@ mod tests {
             _info: *const pmix_info_t = std::ptr::null(),
             _ninfo: usize = 3,
             _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
-            _cbdata: *mut c_void = std::ptr::null_mut(),
         )
     );
 
@@ -924,7 +1127,6 @@ mod tests {
             _napps: usize = 7,
             _jobid: *mut pmix_proc_t = std::ptr::null_mut(),
             _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
-            _cbdata: *mut c_void = std::ptr::null_mut(),
         )
     );
 
@@ -939,7 +1141,6 @@ mod tests {
             _error_code: c_int = -23,
             _errmsg: *const c_char = std::ptr::null(),
             _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
-            _cbdata: *mut c_void = std::ptr::null_mut(),
         )
     );
 
@@ -962,8 +1163,7 @@ mod tests {
         test_native_log2_callback_as_c_ptr,
         test_native_log2_callback_roundtrip,
         (
-            _nspace: *const c_char = std::ptr::null(),
-            _rank: c_int = 3,
+            _proc: *const pmix_proc_t = std::ptr::null(),
             _info: *const pmix_info_t = std::ptr::null(),
             _ninfo: usize = 7,
             _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
@@ -1002,7 +1202,6 @@ mod tests {
             _results: *mut pmix_pdata_t = std::ptr::null_mut(),
             _nresults: usize = 13,
             _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
-            _cbdata: *mut c_void = std::ptr::null_mut(),
         )
     );
 
@@ -1017,7 +1216,6 @@ mod tests {
             _info: *const pmix_info_t = std::ptr::null(),
             _ninfo: usize = 3,
             _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
-            _cbdata: *mut c_void = std::ptr::null_mut(),
         )
     );
 }

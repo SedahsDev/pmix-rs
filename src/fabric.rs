@@ -286,6 +286,15 @@ pub trait FabricCallback: Send {
     fn on_complete(self: Box<Self>, status: PmixStatus);
 }
 
+/// A native Rust completion callback for fabric operations.
+pub type NativeFabricCallback = Box<dyn FnMut(PmixStatus) + Send + 'static>;
+
+impl<F: FnMut(PmixStatus) + Send + ?Sized> FabricCallback for F {
+    fn on_complete(mut self: Box<Self>, status: PmixStatus) {
+        self(status);
+    }
+}
+
 /// Internal wrapper that converts a Rust `FabricCallback` trait object
 /// into an `extern "C"` callback compatible with `pmix_op_cbfunc_t`.
 struct FabricCallbackWrapper {
@@ -373,10 +382,10 @@ pub fn fabric_register(fabric: &mut PmixFabric, directives: &[Info]) -> Result<(
 /// `                                      const pmix_info_t directives[],`
 /// `                                      size_t ndirs,`
 /// `                                      pmix_op_cbfunc_t cbfunc, void *cbdata);`
-pub fn fabric_register_nb(
+pub fn fabric_register_nb<C: FabricCallback + ?Sized + 'static>(
     fabric: &mut PmixFabric,
     directives: &[Info],
-    callback: Box<dyn FabricCallback>,
+    callback: Box<C>,
 ) -> Result<(), PmixStatus> {
     let flat_infos = flat_infos(directives);
     let (dirs_ptr, ndirs) = if flat_infos.is_empty() {
@@ -385,8 +394,14 @@ pub fn fabric_register_nb(
         (flat_infos.as_ptr(), flat_infos.len())
     };
 
+    let mut callback = Some(callback);
+    let callback: NativeFabricCallback = Box::new(move |status| {
+        if let Some(callback) = callback.take() {
+            callback.on_complete(status);
+        }
+    });
     let wrapper = FabricCallbackWrapper {
-        callback,
+        callback: Box::new(callback),
         _directives: Some(flat_infos),
         registered: Some(Arc::clone(&fabric.registered)),
         register_complete: Some(Arc::clone(&fabric.register_complete)),
@@ -1683,6 +1698,42 @@ pub fn compute_distances_nb(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fabric_register_nb(
+        fabric: &mut PmixFabric,
+        directives: &[Info],
+        callback: Box<dyn FabricCallback>,
+    ) -> Result<(), PmixStatus> {
+        let mut callback = Some(callback);
+        super::fabric_register_nb(
+            fabric,
+            directives,
+            Box::new(move |status| {
+                if let Some(callback) = callback.take() {
+                    callback.on_complete(status);
+                }
+            }),
+        )
+    }
+
+    #[test]
+    fn test_native_fabric_callback_round_trip() {
+        let _guard = mock_ffi::MockGuard::new();
+        let mut fabric = PmixFabric::unamed();
+        let completed = Arc::new(AtomicBool::new(false));
+        let callback_completed = Arc::clone(&completed);
+        let callback: NativeFabricCallback = Box::new(move |status| {
+            assert!(status.is_success());
+            callback_completed.store(true, Ordering::Release);
+        });
+
+        super::fabric_register_nb(&mut fabric, &[], callback).unwrap();
+
+        assert!(completed.load(Ordering::Acquire));
+        assert!(fabric.is_registered());
+        assert!(fabric.sync_after_register());
+        assert!(!fabric.sync_after_register());
+    }
 
     // ── PmixFabric construction tests ──
 
