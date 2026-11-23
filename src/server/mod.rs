@@ -450,6 +450,11 @@ pub type ServerOpCallback<T> =
 /// Host operation upcall with two request arguments.
 pub type ServerOpDataCallback<A, B> = unsafe fn(A, B, Option<OpCallbackWrapper>, *mut c_void);
 
+/// Signature of the `push_stdin` upcall. Kept crate-internal so the bindgen
+/// `pmix_byte_object_t` parameter does not appear in a public API position (#522a).
+pub(crate) type ServerPushStdinCallback =
+    Option<ServerOpDataCallback<*const ffi::pmix_proc_t, *const ffi::pmix_byte_object_t>>;
+
 /// Host fence upcall completed with a one-shot [`ModexCallback`].
 pub type ServerModexCallback = unsafe fn(
     *const ffi::pmix_proc_t,
@@ -777,8 +782,7 @@ pub struct PmixServerModule {
     >,
 
     /// Push stdin callback.
-    pub push_stdin:
-        Option<ServerOpDataCallback<*const ffi::pmix_proc_t, *const ffi::pmix_byte_object_t>>,
+    pub push_stdin: ServerPushStdinCallback,
 
     /// Group operations callback.
     pub group: Option<

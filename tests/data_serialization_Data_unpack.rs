@@ -101,14 +101,6 @@ fn test_buffer_debug_output() {
     assert!(debug.contains("bytes_used"));
 }
 
-/// Null PmixDataBuffer Debug output shows "null".
-#[test]
-fn test_buffer_debug_null() {
-    let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
-    let debug = format!("{:?}", buf);
-    assert!(debug.contains("null"));
-}
-
 /// Multiple buffers can coexist without interfering.
 #[test]
 fn test_multiple_buffers_independent() {

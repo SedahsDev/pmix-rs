@@ -1196,29 +1196,32 @@ fn test_pack_with_target_zero_num_vals() {
 // from_raw null pointer edge case
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// PmixDataBuffer::from_raw(null) produces an invalid buffer.
-#[test]
-fn test_buffer_from_raw_null() {
-    let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
-    assert!(!buf.is_valid(), "null buffer should be invalid");
-    assert_eq!(
-        buf.bytes_allocated(),
-        0,
-        "null buffer should report 0 allocated"
-    );
-    assert_eq!(buf.bytes_used(), 0, "null buffer should report 0 used");
-}
+// PmixDataBuffer::from_raw is pub(crate), so null-buffer construction must
+// be tested in the crate's unit tests rather than this integration test.
+//
+// /// PmixDataBuffer::from_raw(null) produces an invalid buffer.
+// #[test]
+// fn test_buffer_from_raw_null() {
+//     let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
+//     assert!(!buf.is_valid(), "null buffer should be invalid");
+//     assert_eq!(
+//         buf.bytes_allocated(),
+//         0,
+//         "null buffer should report 0 allocated"
+//     );
+//     assert_eq!(buf.bytes_used(), 0, "null buffer should report 0 used");
+// }
 
-/// PmixDataBuffer::from_raw(null) Debug shows null.
-#[test]
-fn test_buffer_from_raw_null_debug() {
-    let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
-    let debug = format!("{:?}", buf);
-    assert!(
-        debug.contains("null"),
-        "null buffer debug should show 'null'"
-    );
-}
+// /// PmixDataBuffer::from_raw(null) Debug shows null.
+// #[test]
+// fn test_buffer_from_raw_null_debug() {
+//     let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
+//     let debug = format!("{:?}", buf);
+//     assert!(
+//         debug.contains("null"),
+//         "null buffer debug should show 'null'"
+//     );
+// }
 
 // The following test was removed because as_mut_ptr() is now pub(crate)
 // and cannot be called from this test module.
@@ -1230,26 +1233,26 @@ fn test_buffer_from_raw_null_debug() {
 //     assert!(buf.as_mut_ptr().is_null());
 // }
 
-/// Drop of null PmixDataBuffer does nothing (no crash).
-#[test]
-fn test_buffer_from_raw_null_drop() {
-    let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
-    // Drop should be safe — it checks is_valid() before calling release
-    drop(buf);
-}
+// /// Drop of null PmixDataBuffer does nothing (no crash).
+// #[test]
+// fn test_buffer_from_raw_null_drop() {
+//     let buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
+//     // Drop should be safe — it checks is_valid() before calling release
+//     drop(buf);
+// }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // data_buffer_release on null buffer
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// data_buffer_release on a null-created buffer is safe.
-#[test]
-fn test_release_null_buffer() {
-    let mut buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
-    // data_buffer_release checks is_valid() which returns false for null
-    data_buffer_release(&mut buf);
-    // Should not crash
-}
+// /// data_buffer_release on a null-created buffer is safe.
+// #[test]
+// fn test_release_null_buffer() {
+//     let mut buf = unsafe { PmixDataBuffer::from_raw(std::ptr::null_mut()) };
+//     // data_buffer_release checks is_valid() which returns false for null
+//     data_buffer_release(&mut buf);
+//     // Should not crash
+// }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Comprehensive type system checks
