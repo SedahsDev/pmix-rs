@@ -19,15 +19,73 @@
 use crate::allocation::{JobControlResults, ResourceBlockDirective, SessionControlResults};
 use crate::data_serialization::PmixDataBuffer;
 use crate::ffi::pmix_iof_channel_t as IOFChannel;
+use crate::ffi::{pmix_app_t, pmix_data_buffer_t, pmix_query_t};
 use crate::ffi::{
-    pmix_data_range_t, pmix_info_t, pmix_modex_cbfunc_t, pmix_op_cbfunc_t, pmix_pdata_t,
-    pmix_proc_t, pmix_server_fencenb_fn_t, pmix_server_module_t,
+    pmix_data_range_t, pmix_info_t, pmix_modex_cbfunc_t, pmix_nspace_t, pmix_op_cbfunc_t,
+    pmix_pdata_t, pmix_proc_t, pmix_server_fencenb_fn_t, pmix_server_module_t,
 };
 use crate::security::PmixCredential;
+use crate::server::OpCallbackWrapper;
 use crate::{Info, PmixStatus};
-use std::os::raw::{c_char, c_void};
+use std::os::raw::{c_char, c_int, c_void};
 
 macro_rules! native_server_callback {
+    (
+        $(#[$meta:meta])*
+        pointer: $name:ident,
+        ($($arg:ident: $arg_type:ty),* $(,)?) -> $return_type:ty
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone)]
+        #[allow(clippy::type_complexity)]
+        pub struct $name {
+            cb: Option<extern "C" fn($($arg_type),*) -> $return_type>,
+        }
+
+        #[allow(clippy::type_complexity)]
+        impl $name {
+            /// Wrap a native function pointer without invoking it.
+            ///
+            /// Accepts a plain Rust function pointer; non-capturing closures
+            /// coerce to it.
+            pub fn new(cb: fn($($arg_type),*) -> $return_type) -> Self {
+                // SAFETY: On every platform this crate supports, a Rust
+                // function pointer and an `extern "C"` function pointer with
+                // the same non-variadic signature share the same
+                // representation; `PmixServerModule::as_c_ptr` already erases
+                // fn-pointer ABIs the same way.
+                Self {
+                    cb: Some(unsafe {
+                        std::mem::transmute::<
+                            fn($($arg_type),*) -> $return_type,
+                            extern "C" fn($($arg_type),*) -> $return_type,
+                        >(cb)
+                    }),
+                }
+            }
+
+            /// Return the wrapped native function pointer.
+            pub fn as_c_ptr(&self) -> Option<extern "C" fn($($arg_type),*) -> $return_type> {
+                self.cb
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(
+                    f,
+                    concat!(stringify!($name), "({})"),
+                    if self.cb.is_some() { "Some(..)" } else { "None" }
+                )
+            }
+        }
+
+        // SAFETY: The wrapper contains only a Send function pointer.
+        unsafe impl Send for $name {}
+
+        // SAFETY: The wrapper contains only a Sync function pointer.
+        unsafe impl Sync for $name {}
+    };
     (
         $(#[$meta:meta])*
         $name:ident, $free:ident,
@@ -408,6 +466,143 @@ native_server_callback!(
         completion_cbdata: *mut c_void,
     ) -> pmix_status_t
 );
+
+native_server_callback!(
+    /// Native `dmodex_cbfunc_t` data-plane upcall wrapper.
+    pointer: NativeDirectModexCallback,
+    (
+        nspace: *const c_char,
+        rank: c_int,
+        data: *mut c_void,
+        cbfunc: Option<extern "C" fn(
+            pmix_status_t,
+            *mut c_void,
+            *const pmix_data_buffer_t,
+            *mut c_void,
+        )>,
+        cbdata: *mut c_void,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native `connect_cbfunc_t` job upcall wrapper.
+    pointer: NativeConnectCallback,
+    (
+        nspace: *const c_char,
+        info: *const pmix_info_t,
+        ninfo: usize,
+        results: *mut pmix_pdata_t,
+        nresults: usize,
+        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native `op_cbfunc_t` disconnect upcall wrapper.
+    pointer: NativeDisconnectCallback,
+    (
+        nspace: *const c_char,
+        info: *const pmix_info_t,
+        ninfo: usize,
+        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native `spawn_cbfunc_t` job upcall wrapper.
+    pointer: NativeSpawnCallback,
+    (
+        info: *const pmix_info_t,
+        ninfo: usize,
+        apps: *const pmix_app_t,
+        napps: usize,
+        jobid: *mut pmix_proc_t,
+        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native `op_cbfunc_t` abort upcall wrapper.
+    pointer: NativeAbortCallback,
+    (
+        nspace: *const c_char,
+        rank: c_int,
+        error_code: c_int,
+        errmsg: *const c_char,
+        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native `pmix_server_log_fn_t` upcall wrapper.
+    pointer: NativeLogCallback,
+    (
+        info: *const pmix_info_t,
+        ninfo: usize,
+        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
+        cbdata: *mut c_void,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native `pmix_server_log2_fn_t` upcall wrapper.
+    pointer: NativeLog2Callback,
+    (
+        proc: *const pmix_proc_t,
+        info: *const pmix_info_t,
+        ninfo: usize,
+        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
+        cbdata: *mut c_void,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native `pmix_query_cbfunc_t` upcall wrapper.
+    pointer: NativeQueryCallback,
+    (
+        nspace: *const c_char,
+        rank: c_int,
+        queries: *const pmix_query_t,
+        nqueries: usize,
+        cbfunc: Option<extern "C" fn(
+            pmix_status_t,
+            *mut c_void,
+            *const pmix_data_buffer_t,
+            *mut c_void,
+        )>,
+        cbdata: *mut c_void,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native event listener upcall wrapper.
+    pointer: NativeListenerCallback,
+    (
+        nspace: *const c_char,
+        rank: c_int,
+        evhdlr_registration_id: c_int,
+        status: pmix_status_t,
+        source: *const pmix_proc_t,
+        info: *const pmix_info_t,
+        ninfo: usize,
+        results: *mut pmix_pdata_t,
+        nresults: usize,
+        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
+    ) -> pmix_status_t
+);
+
+native_server_callback!(
+    /// Native event monitor upcall wrapper.
+    pointer: NativeMonitorCallback,
+    (
+        status: pmix_status_t,
+        source: *const pmix_proc_t,
+        info: *const pmix_info_t,
+        ninfo: usize,
+        cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)>,
+    ) -> pmix_status_t
+);
+
 native_rust_server_callback!(
     /// A native Rust allocation callback.
     NativeAllocateCallback, native_allocate_context_round_trip,
@@ -484,6 +679,49 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    macro_rules! test_native_function_pointer_callback {
+        (
+            $callback:ident, $wrapper:ident,
+            $new:ident, $as_c_ptr:ident, $roundtrip:ident,
+            ($($arg:ident: $arg_type:ty = $value:expr),* $(,)?)
+        ) => {
+            extern "Rust" fn $callback($($arg: $arg_type),*) -> pmix_status_t {
+                -17
+            }
+
+            #[test]
+            fn $new() {
+                fn assert_traits<T: Clone + Send + Sync>() {}
+                assert_traits::<$wrapper>();
+
+                let wrapper = $wrapper::new($callback);
+                assert!(wrapper.cb.is_some());
+            }
+
+            #[test]
+            fn $as_c_ptr() {
+                let wrapper = $wrapper::new($callback);
+                assert!(wrapper.as_c_ptr().is_some());
+
+                let empty = $wrapper { cb: None };
+                assert!(empty.as_c_ptr().is_none());
+
+                let absent: Option<$wrapper> = None;
+                assert!(absent.as_ref().and_then($wrapper::as_c_ptr).is_none());
+            }
+
+            #[test]
+            fn $roundtrip() {
+                let callback = {
+                    let wrapper = $wrapper::new($callback);
+                    let cloned = wrapper.clone();
+                    cloned.as_c_ptr().expect("native callback")
+                };
+                assert_eq!(callback($($value),*), -17);
+            }
+        };
+    }
 
     unsafe extern "C" fn fence_nb_callback(
         procs: *const pmix_proc_t,
@@ -833,5 +1071,151 @@ mod tests {
             -17
         },
         -17
+    );
+
+    test_native_function_pointer_callback!(
+        direct_modex_callback, NativeDirectModexCallback,
+        test_native_direct_modex_callback_new,
+        test_native_direct_modex_callback_as_c_ptr,
+        test_native_direct_modex_callback_roundtrip,
+        (
+            _nspace: *const c_char = std::ptr::null(),
+            _rank: c_int = 3,
+            _data: *mut c_void = std::ptr::null_mut(),
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void, *const pmix_data_buffer_t, *mut c_void)> = None,
+            _cbdata: *mut c_void = std::ptr::null_mut(),
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        connect_callback, NativeConnectCallback,
+        test_native_connect_callback_new,
+        test_native_connect_callback_as_c_ptr,
+        test_native_connect_callback_roundtrip,
+        (
+            _nspace: *const c_char = std::ptr::null(),
+            _info: *const pmix_info_t = std::ptr::null(),
+            _ninfo: usize = 3,
+            _results: *mut pmix_pdata_t = std::ptr::null_mut(),
+            _nresults: usize = 7,
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        disconnect_callback, NativeDisconnectCallback,
+        test_native_disconnect_callback_new,
+        test_native_disconnect_callback_as_c_ptr,
+        test_native_disconnect_callback_roundtrip,
+        (
+            _nspace: *const c_char = std::ptr::null(),
+            _info: *const pmix_info_t = std::ptr::null(),
+            _ninfo: usize = 3,
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        spawn_callback, NativeSpawnCallback,
+        test_native_spawn_callback_new,
+        test_native_spawn_callback_as_c_ptr,
+        test_native_spawn_callback_roundtrip,
+        (
+            _info: *const pmix_info_t = std::ptr::null(),
+            _ninfo: usize = 3,
+            _apps: *const pmix_app_t = std::ptr::null(),
+            _napps: usize = 7,
+            _jobid: *mut pmix_proc_t = std::ptr::null_mut(),
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        abort_callback, NativeAbortCallback,
+        test_native_abort_callback_new,
+        test_native_abort_callback_as_c_ptr,
+        test_native_abort_callback_roundtrip,
+        (
+            _nspace: *const c_char = std::ptr::null(),
+            _rank: c_int = 3,
+            _error_code: c_int = -23,
+            _errmsg: *const c_char = std::ptr::null(),
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        log_callback, NativeLogCallback,
+        test_native_log_callback_new,
+        test_native_log_callback_as_c_ptr,
+        test_native_log_callback_roundtrip,
+        (
+            _info: *const pmix_info_t = std::ptr::null(),
+            _ninfo: usize = 3,
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
+            _cbdata: *mut c_void = std::ptr::null_mut(),
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        log2_callback, NativeLog2Callback,
+        test_native_log2_callback_new,
+        test_native_log2_callback_as_c_ptr,
+        test_native_log2_callback_roundtrip,
+        (
+            _proc: *const pmix_proc_t = std::ptr::null(),
+            _info: *const pmix_info_t = std::ptr::null(),
+            _ninfo: usize = 7,
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
+            _cbdata: *mut c_void = std::ptr::null_mut(),
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        query_callback, NativeQueryCallback,
+        test_native_query_callback_new,
+        test_native_query_callback_as_c_ptr,
+        test_native_query_callback_roundtrip,
+        (
+            _nspace: *const c_char = std::ptr::null(),
+            _rank: c_int = 3,
+            _queries: *const pmix_query_t = std::ptr::null(),
+            _nqueries: usize = 7,
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void, *const pmix_data_buffer_t, *mut c_void)> = None,
+            _cbdata: *mut c_void = std::ptr::null_mut(),
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        listener_callback, NativeListenerCallback,
+        test_native_listener_callback_new,
+        test_native_listener_callback_as_c_ptr,
+        test_native_listener_callback_roundtrip,
+        (
+            _nspace: *const c_char = std::ptr::null(),
+            _rank: c_int = 3,
+            _evhdlr_registration_id: c_int = 7,
+            _status: pmix_status_t = -23,
+            _source: *const pmix_proc_t = std::ptr::null(),
+            _info: *const pmix_info_t = std::ptr::null(),
+            _ninfo: usize = 11,
+            _results: *mut pmix_pdata_t = std::ptr::null_mut(),
+            _nresults: usize = 13,
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
+        )
+    );
+
+    test_native_function_pointer_callback!(
+        monitor_callback, NativeMonitorCallback,
+        test_native_monitor_callback_new,
+        test_native_monitor_callback_as_c_ptr,
+        test_native_monitor_callback_roundtrip,
+        (
+            _status: pmix_status_t = -23,
+            _source: *const pmix_proc_t = std::ptr::null(),
+            _info: *const pmix_info_t = std::ptr::null(),
+            _ninfo: usize = 3,
+            _cbfunc: Option<extern "C" fn(pmix_status_t, *mut c_void)> = None,
+        )
     );
 }
