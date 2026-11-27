@@ -2154,14 +2154,14 @@ fn status_after_panic(
     taken: &CompletionTaken,
     complete_on_panic: impl FnOnce() -> bool,
 ) -> ffi::pmix_status_t {
-    if !ok && taken.claim() {
-        if !complete_on_panic() {
-            // The claim was won but there was no C completion callback to
-            // invoke: report the failure so a status-honoring PMIx caller
-            // (pmix_server_ops.c & friends) releases `cbdata` itself instead
-            // of leaking it on a SUCCESS it reads as "host owns the callback".
-            return status_panic();
-        }
+    // Short-circuit order matters: claim() runs only when the host did not
+    // complete (or panic), and the completion runs only when the claim wins.
+    if !ok && taken.claim() && !complete_on_panic() {
+        // The claim was won but there was no C completion callback to
+        // invoke: report the failure so a status-honoring PMIx caller
+        // (pmix_server_ops.c & friends) releases `cbdata` itself instead
+        // of leaking it on a SUCCESS it reads as "host owns the callback".
+        return status_panic();
     }
     status_success()
 }
