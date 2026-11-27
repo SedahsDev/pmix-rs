@@ -99,7 +99,6 @@ impl InfoView {
     /// # Safety
     /// `ptr` must be null-free for this call: point to one initialized
     /// element that stays alive as long as the returned reference.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) unsafe fn from_raw_ptr<'a>(ptr: *const ffi::pmix_info_t) -> &'a Self {
         // SAFETY: InfoView is repr(transparent) over pmix_info_t, so the
         // pointer representation is identical; the caller guarantees the
@@ -107,7 +106,17 @@ impl InfoView {
         unsafe { &*ptr.cast::<Self>() }
     }
 
-    /// Wrap a by-value `pmix_info_t` (a shallow copy of the POD).
+    /// Wrap a by-value `pmix_info_t`.
+    ///
+    /// # Shallow-copy aliasing
+    ///
+    /// `from_value` copies only the POD (`key`, `flags`, `value` header).
+    /// Any inner pointers of the copied `value` union (e.g. a PMIX_STRING
+    /// `string` pointer) alias the original entry's allocations. The view
+    /// is therefore only sound while those original allocations live —
+    /// never free or mutate the source entry while a `from_value` view
+    /// borrows from it.
+    #[allow(dead_code)] // no 5.x/6.x server slot passes results by value; kept for by-value info copies
     pub(crate) fn from_value(raw: ffi::pmix_info_t) -> Self {
         Self { raw }
     }
@@ -137,13 +146,24 @@ impl InfoView {
         Some(unsafe { self.raw.value.data.flag })
     }
 
-    /// `PMIX_STRING` value, or `None` when the entry is not a string.
+    /// `PMIX_STRING` value, or `None` when the entry is not a string or the
+    /// string pointer is null.
+    ///
+    /// A PMIX_STRING entry with a null `string` arm is not an error in PMIx;
+    /// this returns `None` instead of dereferencing the null pointer
+    /// (`CStr::from_ptr` on null is undefined behavior).
     pub fn as_str(&self) -> Option<&str> {
         if self.value_type() != PmixDataType::String {
             return None;
         }
         // SAFETY: value_type() is PMIX_STRING, so the `string` union arm is
-        // a valid NUL-terminated pointer for the lifetime of the entry.
+        // the active one; reading it (even as a null check) is sound.
+        if unsafe { self.raw.value.data.string }.is_null() {
+            return None;
+        }
+        // SAFETY: value_type() is PMIX_STRING and the pointer is non-null, so
+        // the `string` union arm is a valid NUL-terminated pointer for the
+        // lifetime of the entry.
         unsafe { CStr::from_ptr(self.raw.value.data.string) }
             .to_str()
             .ok()
@@ -253,6 +273,7 @@ impl NspaceView {
     /// # Safety
     /// `ptr` must point to one initialized element that stays alive as long
     /// as the returned reference.
+    #[cfg_attr(not(test), allow(dead_code))] // no 5.x/6.x slot slices nspace arrays; used by unit tests
     pub(crate) unsafe fn from_raw_ptr<'a>(ptr: *const ffi::pmix_nspace_t) -> &'a Self {
         // SAFETY: repr(transparent) over the fixed-size C array type; the
         // caller guarantees initialization and lifetime.
@@ -351,7 +372,7 @@ impl AppView {
     /// # Safety
     /// `ptr` must point to one initialized element that stays alive as long
     /// as the returned reference.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(not(test), allow(dead_code))] // the spawn trampoline slices whole arrays via `view_slice`
     pub(crate) unsafe fn from_raw_ptr<'a>(ptr: *const ffi::pmix_app_t) -> &'a Self {
         // SAFETY: repr(transparent) over pmix_app_t; caller guarantees
         // initialization and lifetime.
@@ -390,29 +411,57 @@ impl AppView {
     }
 
     /// The command-line arguments (`argv`).
+    ///
+    /// The returned strings borrow the C `argv` array that backs this
+    /// view: the borrow is tied to `&self`, and the strings are only valid
+    /// while the C side keeps the array alive (the duration of the
+    /// upcall). Copy any string you need to keep before the upcall
+    /// returns.
     pub fn argv(&self) -> Vec<&str> {
-        read_str_array(self.raw.argv)
+        // SAFETY: PMIx app argv arrays are NULL-terminated arrays of
+        // NUL-terminated strings owned by the C side for the duration of
+        // the upcall that backs this view.
+        unsafe { read_str_array(self.raw.argv) }
     }
 
     /// The environment strings (`env`).
+    ///
+    /// Same borrow rules as [`Self::argv`]: valid only while the C `env`
+    /// array lives (the duration of the upcall).
     pub fn env(&self) -> Vec<&str> {
-        read_str_array(self.raw.env)
+        // SAFETY: PMIx app env arrays are NULL-terminated arrays of
+        // NUL-terminated strings owned by the C side for the duration of
+        // the upcall that backs this view.
+        unsafe { read_str_array(self.raw.env) }
     }
 }
 
-fn read_str_array(array: *mut *mut c_char) -> Vec<&'static str> {
+/// Read a NULL-terminated C string-pointer array (`char **`) as borrowed
+/// Rust strings.
+///
+/// # Safety contract
+///
+/// * `array` must be null or point to a NULL-terminated array of
+///   NUL-terminated, UTF-8 C strings that stay alive for the chosen
+///   lifetime `'a` (in practice: for the duration of the upcall that
+///   owns them — hence the caller-provided lifetime, never `'static`).
+/// * The loop stops at the first NULL array entry; an array without a
+///   NULL terminator is undefined behavior on the C side and cannot be
+///   recovered here. PMIx guarantees termination for `argv` / `env` /
+///   `keys` arrays.
+/// * Entries that are null or not valid UTF-8 are skipped, and reading
+///   stops at the first such entry.
+pub(crate) unsafe fn read_str_array<'a>(array: *mut *mut c_char) -> Vec<&'a str> {
     let mut out = Vec::new();
     if array.is_null() {
         return out;
     }
     let mut index = 0;
-    // SAFETY: PMIx argv/env arrays are NULL-terminated; entries are copied
-    // out as borrowed strings before the upcall returns.
+    // SAFETY: the caller guarantees a NULL-terminated pointer array whose
+    // entries are NUL-terminated UTF-8 strings for lifetime `'a`.
     unsafe {
-        while !(*array.add(index)).is_null() {
-            if let Some(value) = AppView::c_str(*array.add(index)) {
-                out.push(value);
-            }
+        while let Some(entry) = AppView::c_str(*array.add(index)) {
+            out.push(entry);
             index += 1;
         }
     }
@@ -445,7 +494,7 @@ impl QueryView {
     /// # Safety
     /// `ptr` must point to one initialized element that stays alive as long
     /// as the returned reference.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(not(test), allow(dead_code))] // the query trampoline slices whole arrays via `view_slice`
     pub(crate) unsafe fn from_raw_ptr<'a>(ptr: *const ffi::pmix_query_t) -> &'a Self {
         // SAFETY: repr(transparent) over pmix_query_t; caller guarantees
         // initialization and lifetime.
@@ -453,8 +502,14 @@ impl QueryView {
     }
 
     /// The query keys (a NULL-terminated C array of strings).
+    ///
+    /// The returned strings borrow the C `keys` array: the borrow is tied
+    /// to `&self` and is only valid for the duration of the upcall.
     pub fn keys(&self) -> Vec<&str> {
-        read_str_array(self.raw.keys)
+        // SAFETY: PMIx query key arrays are NULL-terminated arrays of
+        // NUL-terminated strings owned by the C side for the duration of
+        // the upcall that backs this view.
+        unsafe { read_str_array(self.raw.keys) }
     }
 
     /// The query qualifiers.
@@ -470,7 +525,43 @@ impl std::fmt::Debug for QueryView {
         formatter
             .debug_struct("QueryView")
             .field("keys", &self.keys())
-            .finish_non_exhaustive()
+            .finish()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ResourceUnitView — pmix_resource_unit_t (PMIx 6.x)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Borrowed view over a `ffi::pmix_resource_unit_t` resource-block unit
+/// (PMIx 6.x `resource_block` upcall only).
+#[cfg(pmix6)]
+#[repr(transparent)]
+pub struct ResourceUnitView {
+    raw: ffi::pmix_resource_unit_t,
+}
+
+#[cfg(pmix6)]
+impl ResourceUnitView {
+    /// The unit's device type bitmask (`pmix_device_type_t`).
+    pub fn device_type(&self) -> u64 {
+        self.raw.type_
+    }
+
+    /// The number of units of this type.
+    pub fn count(&self) -> usize {
+        self.raw.count
+    }
+}
+
+#[cfg(pmix6)]
+impl std::fmt::Debug for ResourceUnitView {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResourceUnitView")
+            .field("device_type", &self.device_type())
+            .field("count", &self.count())
+            .finish()
     }
 }
 

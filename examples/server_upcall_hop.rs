@@ -40,12 +40,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use pmix::PmixStatus;
-use pmix::Proc;
 use pmix::server::PmixServer;
 use pmix::server::PmixServerModule;
-use pmix::server::callbacks::{DmodexResponseCallback, ModexCallback, ReleaseCallback};
+use pmix::server::callbacks::{ModexCallback, ReleaseCallback};
 use pmix::threading::{CallbackChannel, ProgressContext, spawn_from_callback};
-use pmix::views::{InfoView, NspaceView, ProcView};
+use pmix::views::{InfoView, ProcView};
 
 /// Counts successful async completions from hopped-off upcall work.
 static COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
@@ -86,7 +85,6 @@ fn main() {
     // hop, complete via the native completion wrapper later.
     let hop = CallbackChannel::<&'static str>::new();
     let tx = hop.sender();
-    let requestor = Proc::new("demo", 0).expect("demo proc");
     let completion = ModexCallback::new(
         move |status: PmixStatus, _data, _len, _cbdata, _rel, _rel_cbdata| {
             COMPLETIONS.fetch_add(1, Ordering::SeqCst);
@@ -104,10 +102,12 @@ fn main() {
             // path — demonstrates the hop rules without a full RM collective.
             unsafe {
                 host_fence_nb(
-                    ProcView::from_proc(&requestor),
+                    // The participant array (empty = all ranks in the nspace).
                     &[],
                     &[],
-                    &mut [],
+                    // No modex blob in the demo.
+                    ptr::null_mut(),
+                    0,
                     Some(completion),
                     // Tag the chain pointer (null in this self-drive).
                     ptr::null_mut(),
@@ -143,13 +143,15 @@ fn main() {
 
 /// Host `fence_nb` upcall — **progress context**.
 ///
-/// Native signature (#520): views instead of raw bindgen pointers. Must not
-/// block on PMIx; hop and call `cbfunc` later.
+/// Native signature (#520): `(procs[], info[], data, ndata, cbfunc, cbdata)`
+/// — the participant array, the collective directives, the modex blob, and
+/// the modex completion. Must not block on PMIx; hop and call `cbfunc`
+/// later.
 unsafe fn host_fence_nb(
-    _requestor: &ProcView,
-    procs: &[NspaceView],
+    procs: &[ProcView],
     info: &[InfoView],
-    results: &mut [InfoView],
+    _data: *mut std::os::raw::c_char,
+    _ndata: usize,
     cbfunc: Option<ModexCallback>,
     cbdata: *mut c_void,
 ) {
@@ -159,7 +161,6 @@ unsafe fn host_fence_nb(
     // the upcall frame and raw pointers are !Send.
     let nprocs = procs.len();
     let ninfo = info.len();
-    let nresults = results.len();
 
     // *mut c_void is !Send — carry the chain address as usize across the hop.
     let chain_addr = cbdata as usize;
@@ -167,7 +168,7 @@ unsafe fn host_fence_nb(
     let spawn_result = spawn_from_callback(move || {
         // Application / RM thread — blocking work and delayed completion are OK.
         println!(
-            "[app thread] fence_nb: nprocs={nprocs} ninfo={ninfo} nresults={nresults} — collective/RM work safe here"
+            "[app thread] fence_nb: nprocs={nprocs} ninfo={ninfo} — collective/RM work safe here"
         );
         // Real RMs would exchange the modex blob with peer daemons here,
         // then complete. Return the chain pointer verbatim.
@@ -198,13 +199,12 @@ unsafe fn host_fence_nb(
 
 /// Host `direct_modex` upcall — **progress context**.
 ///
-/// Same hop-then-`cbfunc` rules as fence; completes through the native
-/// [`DmodexResponseCallback`] wrapper.
+/// Same hop-then-`cbfunc` rules as fence; the `direct_modex` slot also
+/// completes through a [`ModexCallback`] (the modex completion shape).
 unsafe fn host_direct_modex(
     _proc: &ProcView,
-    _nspace: &NspaceView,
     _info: &[InfoView],
-    cbfunc: Option<DmodexResponseCallback>,
+    cbfunc: Option<ModexCallback>,
     cbdata: *mut c_void,
 ) {
     let _ctx = ProgressContext;
@@ -219,9 +219,11 @@ unsafe fn host_direct_modex(
             unsafe {
                 cb.call(
                     PmixStatus::from_raw(0),
-                    ptr::null_mut(),
+                    ptr::null(),
                     0,
                     chain_addr as *mut c_void,
+                    ReleaseCallback::default(),
+                    ptr::null_mut(),
                 )
             };
         }

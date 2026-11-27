@@ -73,8 +73,11 @@ pub trait NotificationFn: Send + 'static {
     /// # Parameters
     /// - `status`: The status of the notification operation
     /// - `results`: Info entries produced by handlers that ran before this
-    ///   one (empty when there are none). Forward the array (possibly
-    ///   modified in place) through `cbfunc` to complete the event chain.
+    ///   one (empty when there are none). This array is **input data** —
+    ///   PMIx hands it to this handler for the duration of the callback
+    ///   only. The event chain is completed by invoking `cbfunc` (with the
+    ///   results, possibly modified in place, and `cbdata`); the slice is
+    ///   NOT an output parameter of `on_notification` itself.
     /// - `cbfunc`: Optional continuation callback (may be null)
     /// - `cbdata`: Opaque data for the continuation callback
     /// - `notification_cbdata`: Opaque data for this notification callback
