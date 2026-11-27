@@ -3880,3 +3880,32 @@ fn test_log_trampoline_void_slot_panic_calls_cbfunc_exactly_once() {
         );
     }
 }
+
+/// The raw-pointer extraction path (`into_c_callback`) must respect a
+/// completion right the trampoline's panic path already claimed: the
+/// tracked wrapper yields `None` instead of handing out a pointer that
+/// would become a second completion (pass-5 review — the extract path
+/// cannot lose a claim; a blind store here re-opened the async-handoff
+/// double-completion window `claim()` exists to close).
+#[test]
+fn test_tracked_into_c_callback_respects_a_won_claim() {
+    // Fresh flag: extraction claims and hands out the single-owner pointer.
+    let taken = CompletionTaken::new();
+    let wrapper = ModexCallback::from_raw_tracked(Some(panic_path_modex_completion), taken.clone())
+        .expect("tracked wrapper around a real C callback");
+    assert!(
+        wrapper.into_c_callback().is_some(),
+        "an unclaimed tracked wrapper must still extract"
+    );
+
+    // Claimed the way the trampoline's panic path does: extraction must
+    // yield None — the completion right is already owned elsewhere.
+    let taken = CompletionTaken::new();
+    let wrapper = ModexCallback::from_raw_tracked(Some(panic_path_modex_completion), taken.clone())
+        .expect("tracked wrapper around a real C callback");
+    assert!(taken.claim(), "the trampoline wins the one-shot claim");
+    assert!(
+        wrapper.into_c_callback().is_none(),
+        "extracting after a won claim must yield None — the pointer would be a second completion"
+    );
+}
