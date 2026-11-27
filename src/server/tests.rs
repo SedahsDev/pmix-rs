@@ -146,10 +146,9 @@ use super::NativeClientConnectedCallback;
 
 #[test]
 fn test_server_module_clear_callback() {
-    unsafe extern "C" fn client_connected(
-        _proc: *const ffi::pmix_proc_t,
-        _info: *const ffi::pmix_info_t,
-        _ninfo: usize,
+    unsafe fn client_connected(
+        _proc: &crate::views::ProcView,
+        _info: &[crate::views::InfoView],
         _cbdata: *mut std::os::raw::c_void,
     ) {
         unreachable!("clearing a callback must not invoke it")
@@ -176,11 +175,9 @@ fn test_server_module_as_c_ptr_returns_non_null() {
 #[test]
 fn test_server_module_as_c_ptr() {
     let module = PmixServerModule {
-        fence_nb: Some(
-            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
-                unreachable!("converting a callback must not invoke it")
-            },
-        ),
+        fence_nb: Some(|_proc, _procs, _info, _results, _cbfunc, _cbdata| {
+            unreachable!("converting a callback must not invoke it")
+        }),
         ..Default::default()
     };
     let module_ptr = module.as_c_ptr().cast::<PmixServerModule>();
@@ -317,11 +314,9 @@ fn test_server_module_layout_matches_c() {
 fn test_server_module_typed_callbacks_convert_to_c() {
     #[allow(clippy::too_many_arguments)]
     let module = PmixServerModule {
-        fence_nb: Some(
-            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
-                unreachable!("converting a callback must not invoke it")
-            },
-        ),
+        fence_nb: Some(|_proc, _procs, _info, _results, _cbfunc, _cbdata| {
+            unreachable!("converting a callback must not invoke it")
+        }),
         direct_modex: None,
         ..Default::default()
     };
@@ -359,11 +354,9 @@ fn test_server_module_with_wrapped_callbacks() {
 #[test]
 fn test_server_module_as_c_ptr_consistent() {
     let module = PmixServerModule {
-        fence_nb: Some(
-            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
-                unreachable!("converting a callback must not invoke it")
-            },
-        ),
+        fence_nb: Some(|_proc, _procs, _info, _results, _cbfunc, _cbdata| {
+            unreachable!("converting a callback must not invoke it")
+        }),
         ..Default::default()
     };
     let ptr1 = module.as_c_ptr().cast::<PmixServerModule>();
@@ -3141,5 +3134,157 @@ fn test_mock_wrapper_server_get_credential_returns_error_on_config() {
     assert!(
         result.is_err(),
         "server_get_credential should fail with configured error"
+    );
+}
+
+// ─── Native trampoline conversion tests (#520) ───────────────────────────
+
+/// Raw C data used by the trampoline conversion tests.
+struct RawUpcallData {
+    proc: ffi::pmix_proc_t,
+    infos: [ffi::pmix_info_t; 2],
+}
+
+impl RawUpcallData {
+    fn new() -> Self {
+        let mut data = RawUpcallData {
+            proc: unsafe { std::mem::zeroed() },
+            infos: [unsafe { std::mem::zeroed() }, unsafe { std::mem::zeroed() }],
+        };
+        for (slot, byte) in data.proc.nspace.iter_mut().zip(b"job.5".iter()) {
+            *slot = *byte as std::os::raw::c_char;
+        }
+        data.proc.rank = 2;
+        for (entry, key) in data.infos.iter_mut().zip(["pmix.alpha", "pmix.beta"]) {
+            for (slot, byte) in entry.key.iter_mut().zip(key.as_bytes().iter()) {
+                *slot = *byte as std::os::raw::c_char;
+            }
+        }
+        data
+    }
+}
+
+/// Records the completion callback invocation from the trampoline.
+static TRAMPOLINE_COMPLETION_STATUS: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "C" fn trampoline_test_completion(status: i32, _cbdata: *mut std::os::raw::c_void) {
+    TRAMPOLINE_COMPLETION_STATUS.fetch_add(status as usize + 1, Ordering::SeqCst);
+}
+
+/// Records what the native `publish` callback observed, and proves the
+/// completion wrapper bridges back to the C callback.
+static PUBLISH_SEEN: Mutex<Vec<(String, u32, Vec<String>)>> = Mutex::new(Vec::new());
+
+/// Native `publish` callback for the trampoline tests (plain `unsafe fn` —
+/// module fields hold function pointers, not closures).
+unsafe fn publish_recorder(
+    proc: &crate::views::ProcView,
+    info: &[crate::views::InfoView],
+    completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    PUBLISH_SEEN.lock().unwrap().push((
+        proc.nspace().to_string(),
+        proc.rank(),
+        info.iter().map(|entry| entry.key().to_string()).collect(),
+    ));
+    // Prove the completion wrapper bridges back to the C callback.
+    if let Some(completion) = completion {
+        completion.call(crate::PmixStatus::from_raw(0));
+    }
+}
+
+/// Lengths observed by the null-slice `publish` callback.
+static PUBLISH_NULL_SEEN: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+unsafe fn publish_null_recorder(
+    _proc: &crate::views::ProcView,
+    info: &[crate::views::InfoView],
+    _completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    PUBLISH_NULL_SEEN.lock().unwrap().push(info.len());
+}
+
+type PublishTrampoline = unsafe extern "C" fn(
+    *const ffi::pmix_proc_t,
+    *const ffi::pmix_info_t,
+    usize,
+    ffi::pmix_op_cbfunc_t,
+    *mut std::os::raw::c_void,
+);
+
+fn publish_trampoline(module: &PmixServerModule) -> PublishTrampoline {
+    // Register the trampolines (this also fills SERVER_OP_UPCALLS).
+    let raw = module.as_c_ptr().cast::<RawPmixServerModule>();
+    // `publish` is slot 5 of the callback table (see as_c_ptr). SAFETY: the
+    // slot holds the `publish` trampoline with exactly this C signature;
+    // only the fn-pointer representation is erased.
+    unsafe { std::mem::transmute::<Option<unsafe extern "C" fn()>, PublishTrampoline>((*raw).0[5]) }
+}
+
+/// The `publish` trampoline converts raw C arguments into native views with
+/// the correct data and hands the user callback a working completion wrapper.
+#[test]
+fn test_publish_trampoline_converts_raw_args_to_views() {
+    let data = RawUpcallData::new();
+    let module = PmixServerModule {
+        publish: Some(publish_recorder),
+        ..Default::default()
+    };
+    let trampoline = publish_trampoline(&module);
+
+    TRAMPOLINE_COMPLETION_STATUS.store(0, Ordering::SeqCst);
+    PUBLISH_SEEN.lock().unwrap().clear();
+    // SAFETY: `data` stays alive for the synchronous trampoline call.
+    unsafe {
+        trampoline(
+            &data.proc,
+            data.infos.as_ptr(),
+            data.infos.len(),
+            Some(trampoline_test_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        );
+    }
+
+    let seen = PUBLISH_SEEN.lock().unwrap();
+    assert_eq!(seen.len(), 1, "the native publish callback must run");
+    assert_eq!(
+        seen[0],
+        (
+            "job.5".to_string(),
+            2,
+            vec!["pmix.alpha".to_string(), "pmix.beta".to_string()]
+        ),
+        "views must carry the raw C data (nspace, rank, keys)"
+    );
+    assert_eq!(
+        TRAMPOLINE_COMPLETION_STATUS.load(Ordering::SeqCst),
+        1,
+        "the completion wrapper must bridge back to the C callback"
+    );
+}
+
+/// The `publish` trampoline maps a null info pointer (with any length) to an
+/// empty slice instead of constructing a dangling reference.
+#[test]
+fn test_publish_trampoline_maps_null_to_empty_slice() {
+    let module = PmixServerModule {
+        publish: Some(publish_null_recorder),
+        ..Default::default()
+    };
+    let trampoline = publish_trampoline(&module);
+
+    PUBLISH_NULL_SEEN.lock().unwrap().clear();
+    let data = RawUpcallData::new();
+    // SAFETY: the info pointer/length pair is null + 0, which must map to an
+    // empty slice; the proc is a live stack object for the synchronous call.
+    unsafe { trampoline(&data.proc, std::ptr::null(), 0, None, std::ptr::null_mut()) };
+
+    let seen = PUBLISH_NULL_SEEN.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(
+        seen[0], 0,
+        "null + 0 must reach the callback as an empty slice"
     );
 }

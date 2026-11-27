@@ -71,6 +71,9 @@ use crate::cbdata::Registry;
 use crate::security::PmixCredential;
 use crate::server::callbacks::{ModexCallback, ReleaseCallback};
 use crate::threading::invoke_user_callback;
+use crate::views::{
+    AppView, InfoView, NspaceView, PdataView, ProcView, QueryView, view_slice, view_slice_mut,
+};
 use crate::{Info, PmixError, PmixOwnedValue, PmixStatus, Proc, ffi};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -383,6 +386,588 @@ pub mod callbacks {
                 .finish_non_exhaustive()
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Completion-callback wrappers for the remaining server cbfunc types
+    // (#520 / #541): one native wrapper per distinct C signature, following
+    // the ModexCallback / OpCallbackWrapper / ReleaseCallback pattern. The
+    // bindgen fn-pointer types stay inside these wrappers; public surfaces
+    // use native view types.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// An owned, one-shot direct-modex response callback supplied by PMIx
+    /// (`pmix_dmodex_response_fn_t`).
+    ///
+    /// Complete a `direct_modex` host upcall by handing PMIx the requested
+    /// modex blob (or an error status) via [`Self::call`].
+    #[allow(clippy::type_complexity)]
+    pub struct DmodexResponseCallback(
+        Box<dyn FnOnce(PmixStatus, *mut c_char, usize, *mut c_void) + Send + 'static>,
+        ffi::pmix_dmodex_response_fn_t,
+    );
+
+    impl DmodexResponseCallback {
+        /// Wrap a Rust completion callback (native surface).
+        pub fn new(
+            callback: impl FnOnce(PmixStatus, *mut c_char, usize, *mut c_void) + Send + 'static,
+        ) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Complete the direct-modex request, consuming this wrapper.
+        ///
+        /// # Safety
+        ///
+        /// `cbdata` must be the opaque pointer PMIx supplied with this
+        /// completion callback; `data`/`sz` must satisfy PMIx's ownership
+        /// requirements for the response blob.
+        pub unsafe fn call(
+            self,
+            status: PmixStatus,
+            data: *mut c_char,
+            sz: usize,
+            cbdata: *mut c_void,
+        ) {
+            (self.0)(status, data, sz, cbdata);
+        }
+
+        /// Restore the original C callback, consuming this wrapper.
+        ///
+        /// Returns `None` for a Rust closure created with [`Self::new`].
+        pub fn into_c_callback(
+            self,
+        ) -> Option<unsafe extern "C" fn(i32, *mut c_char, usize, *mut c_void)> {
+            self.1
+        }
+    }
+
+    impl DmodexResponseCallback {
+        /// Wrap the optional C completion callback supplied by PMIx.
+        pub(crate) fn from_raw(callback: ffi::pmix_dmodex_response_fn_t) -> Option<Self> {
+            callback.map(|callback| Self::from(Some(callback)))
+        }
+    }
+
+    impl From<ffi::pmix_dmodex_response_fn_t> for DmodexResponseCallback {
+        fn from(callback: ffi::pmix_dmodex_response_fn_t) -> Self {
+            Self(
+                Box::new(move |status, data, sz, cbdata| {
+                    if let Some(callback) = callback {
+                        // SAFETY: call requires the original callback contract.
+                        unsafe { callback(status.to_raw(), data, sz, cbdata) };
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl From<DmodexResponseCallback> for ffi::pmix_dmodex_response_fn_t {
+        fn from(callback: DmodexResponseCallback) -> Self {
+            callback.into_c_callback()
+        }
+    }
+
+    impl std::fmt::Debug for DmodexResponseCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("DmodexResponseCallback")
+                .finish_non_exhaustive()
+        }
+    }
+
+    /// An owned, one-shot lookup completion callback supplied by PMIx
+    /// (`pmix_lookup_cbfunc_t`).
+    #[allow(clippy::type_complexity)]
+    pub struct LookupCallback(
+        Box<dyn FnOnce(PmixStatus, &[crate::views::PdataView], *mut c_void) + Send + 'static>,
+        #[allow(dead_code)] ffi::pmix_lookup_cbfunc_t,
+    );
+
+    impl LookupCallback {
+        /// Wrap a Rust completion callback (native surface).
+        pub fn new(
+            callback: impl FnOnce(PmixStatus, &[crate::views::PdataView], *mut c_void) + Send + 'static,
+        ) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Complete the lookup, consuming this wrapper.
+        ///
+        /// Pass the requested pdata back (the same view slice the upcall
+        /// received, or an empty slice).
+        ///
+        /// # Safety
+        ///
+        /// `cbdata` must be the opaque pointer PMIx supplied with this
+        /// completion callback; `data` must point to PMIx-compatible
+        /// `pmix_pdata_t` storage.
+        pub unsafe fn call(
+            self,
+            status: PmixStatus,
+            data: &[crate::views::PdataView],
+            cbdata: *mut c_void,
+        ) {
+            (self.0)(status, data, cbdata);
+        }
+    }
+
+    impl LookupCallback {
+        /// Wrap the optional C completion callback supplied by PMIx.
+        pub(crate) fn from_raw(callback: ffi::pmix_lookup_cbfunc_t) -> Option<Self> {
+            callback.map(|callback| Self::from(Some(callback)))
+        }
+    }
+
+    impl From<ffi::pmix_lookup_cbfunc_t> for LookupCallback {
+        fn from(callback: ffi::pmix_lookup_cbfunc_t) -> Self {
+            Self(
+                Box::new(move |status, data, cbdata| {
+                    if let Some(callback) = callback {
+                        // SAFETY: call requires the original callback contract.
+                        unsafe {
+                            callback(
+                                status.to_raw(),
+                                data.as_ptr().cast::<ffi::pmix_pdata_t>().cast_mut(),
+                                data.len(),
+                                cbdata,
+                            )
+                        };
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl std::fmt::Debug for LookupCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("LookupCallback")
+                .finish_non_exhaustive()
+        }
+    }
+
+    /// An owned, one-shot spawn completion callback supplied by PMIx
+    /// (`pmix_spawn_cbfunc_t`).
+    #[allow(clippy::type_complexity)]
+    pub struct SpawnCallback(
+        Box<dyn FnOnce(PmixStatus, &crate::views::NspaceView, *mut c_void) + Send + 'static>,
+        ffi::pmix_spawn_cbfunc_t,
+    );
+
+    impl SpawnCallback {
+        /// Wrap a Rust completion callback (native surface).
+        pub fn new(
+            callback: impl FnOnce(PmixStatus, &crate::views::NspaceView, *mut c_void) + Send + 'static,
+        ) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Complete the spawn, consuming this wrapper, with the new job's
+        /// nspace.
+        ///
+        /// # Safety
+        ///
+        /// `cbdata` must be the opaque pointer PMIx supplied with this
+        /// completion callback.
+        pub unsafe fn call(
+            self,
+            status: PmixStatus,
+            nspace: &crate::views::NspaceView,
+            cbdata: *mut c_void,
+        ) {
+            (self.0)(status, nspace, cbdata);
+        }
+
+        /// Restore the original C callback, consuming this wrapper.
+        ///
+        /// Returns `None` for a Rust closure created with [`Self::new`].
+        pub fn into_c_callback(
+            self,
+        ) -> Option<unsafe extern "C" fn(i32, *mut c_char, *mut c_void)> {
+            self.1
+        }
+    }
+
+    impl SpawnCallback {
+        /// Wrap the optional C completion callback supplied by PMIx.
+        pub(crate) fn from_raw(callback: ffi::pmix_spawn_cbfunc_t) -> Option<Self> {
+            callback.map(|callback| Self::from(Some(callback)))
+        }
+    }
+
+    impl From<ffi::pmix_spawn_cbfunc_t> for SpawnCallback {
+        fn from(callback: ffi::pmix_spawn_cbfunc_t) -> Self {
+            Self(
+                Box::new(move |status, nspace, cbdata| {
+                    if let Some(callback) = callback {
+                        // SAFETY: call requires the original callback contract.
+                        unsafe {
+                            callback(status.to_raw(), nspace.raw_copy().as_mut_ptr(), cbdata)
+                        };
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl From<SpawnCallback> for ffi::pmix_spawn_cbfunc_t {
+        fn from(callback: SpawnCallback) -> Self {
+            callback.into_c_callback()
+        }
+    }
+
+    impl std::fmt::Debug for SpawnCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("SpawnCallback")
+                .finish_non_exhaustive()
+        }
+    }
+
+    /// An owned, one-shot client-connection completion callback supplied by
+    /// PMIx (`pmix_connection_cbfunc_t`).
+    #[allow(clippy::type_complexity)]
+    pub struct ConnectionCallback(
+        Box<dyn FnOnce(std::os::raw::c_int, *mut c_void) + Send + 'static>,
+        ffi::pmix_connection_cbfunc_t,
+    );
+
+    impl ConnectionCallback {
+        /// Wrap a Rust completion callback (native surface).
+        pub fn new(
+            callback: impl FnOnce(std::os::raw::c_int, *mut c_void) + Send + 'static,
+        ) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Complete the connection handshake, consuming this wrapper, with
+        /// the accepted socket descriptor.
+        ///
+        /// # Safety
+        ///
+        /// `cbdata` must be the opaque pointer PMIx supplied with this
+        /// completion callback; `incoming_sd` must be a live socket.
+        pub unsafe fn call(self, incoming_sd: std::os::raw::c_int, cbdata: *mut c_void) {
+            (self.0)(incoming_sd, cbdata);
+        }
+
+        /// Restore the original C callback, consuming this wrapper.
+        ///
+        /// Returns `None` for a Rust closure created with [`Self::new`].
+        pub fn into_c_callback(
+            self,
+        ) -> Option<unsafe extern "C" fn(std::os::raw::c_int, *mut c_void)> {
+            self.1
+        }
+    }
+
+    impl ConnectionCallback {
+        /// Wrap the optional C completion callback supplied by PMIx.
+        pub(crate) fn from_raw(callback: ffi::pmix_connection_cbfunc_t) -> Option<Self> {
+            callback.map(|callback| Self::from(Some(callback)))
+        }
+    }
+
+    impl From<ffi::pmix_connection_cbfunc_t> for ConnectionCallback {
+        fn from(callback: ffi::pmix_connection_cbfunc_t) -> Self {
+            Self(
+                Box::new(move |incoming_sd, cbdata| {
+                    if let Some(callback) = callback {
+                        // SAFETY: call requires the original callback contract.
+                        unsafe { callback(incoming_sd, cbdata) };
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl From<ConnectionCallback> for ffi::pmix_connection_cbfunc_t {
+        fn from(callback: ConnectionCallback) -> Self {
+            callback.into_c_callback()
+        }
+    }
+
+    impl std::fmt::Debug for ConnectionCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("ConnectionCallback")
+                .finish_non_exhaustive()
+        }
+    }
+
+    /// An owned, one-shot info-array completion callback supplied by PMIx
+    /// (`pmix_info_cbfunc_t`) — used by `query`, `allocate`, `job_control`,
+    /// `monitor`, `group`, `fabric`, and `session_control`.
+    #[allow(clippy::type_complexity)]
+    pub struct InfoCallback(
+        Box<
+            dyn FnOnce(
+                    PmixStatus,
+                    &[crate::views::InfoView],
+                    *mut c_void,
+                    ReleaseCallback,
+                    *mut c_void,
+                ) + Send
+                + 'static,
+        >,
+        #[allow(dead_code)] ffi::pmix_info_cbfunc_t,
+    );
+
+    impl InfoCallback {
+        /// Wrap a Rust completion callback (native surface).
+        pub fn new(
+            callback: impl FnOnce(
+                PmixStatus,
+                &[crate::views::InfoView],
+                *mut c_void,
+                ReleaseCallback,
+                *mut c_void,
+            ) + Send
+            + 'static,
+        ) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Complete the request, consuming this wrapper.
+        ///
+        /// # Safety
+        ///
+        /// `cbdata` must be the opaque pointer PMIx supplied with this
+        /// completion callback; `info` must point to PMIx-compatible
+        /// `pmix_info_t` storage, and the release pair must be the one PMIx
+        /// supplied (or `ReleaseCallback::default()` with null cbdata when
+        /// there is none).
+        pub unsafe fn call(
+            self,
+            status: PmixStatus,
+            info: &[crate::views::InfoView],
+            cbdata: *mut c_void,
+            release: ReleaseCallback,
+            release_cbdata: *mut c_void,
+        ) {
+            (self.0)(status, info, cbdata, release, release_cbdata);
+        }
+    }
+
+    impl InfoCallback {
+        /// Wrap the optional C completion callback supplied by PMIx.
+        pub(crate) fn from_raw(callback: ffi::pmix_info_cbfunc_t) -> Option<Self> {
+            callback.map(|callback| Self::from(Some(callback)))
+        }
+    }
+
+    impl From<ffi::pmix_info_cbfunc_t> for InfoCallback {
+        fn from(callback: ffi::pmix_info_cbfunc_t) -> Self {
+            Self(
+                Box::new(move |status, info, cbdata, release, release_cbdata| {
+                    if let Some(callback) = callback {
+                        // SAFETY: call requires the original callback contract.
+                        unsafe {
+                            callback(
+                                status.to_raw(),
+                                info.as_ptr().cast::<ffi::pmix_info_t>().cast_mut(),
+                                info.len(),
+                                cbdata,
+                                release.into_c_callback(),
+                                release_cbdata,
+                            )
+                        };
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl std::fmt::Debug for InfoCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("InfoCallback")
+                .finish_non_exhaustive()
+        }
+    }
+
+    /// An owned, one-shot credential completion callback supplied by PMIx
+    /// (`pmix_credential_cbfunc_t`).
+    #[allow(clippy::type_complexity)]
+    pub struct CredentialCallback(
+        Box<
+            dyn FnOnce(PmixStatus, Option<&[u8]>, &[crate::views::InfoView], *mut c_void)
+                + Send
+                + 'static,
+        >,
+        #[allow(dead_code)] ffi::pmix_credential_cbfunc_t,
+    );
+
+    impl CredentialCallback {
+        /// Wrap a Rust completion callback (native surface).
+        pub fn new(
+            callback: impl FnOnce(PmixStatus, Option<&[u8]>, &[crate::views::InfoView], *mut c_void)
+            + Send
+            + 'static,
+        ) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Complete the credential request, consuming this wrapper.
+        ///
+        /// # Safety
+        ///
+        /// `cbdata` must be the opaque pointer PMIx supplied with this
+        /// completion callback; the credential and info arrays must remain
+        /// valid for the synchronous duration of the call (PMIx copies them).
+        pub unsafe fn call(
+            self,
+            status: PmixStatus,
+            credential: Option<&[u8]>,
+            info: &[crate::views::InfoView],
+            cbdata: *mut c_void,
+        ) {
+            (self.0)(status, credential, info, cbdata);
+        }
+    }
+
+    impl CredentialCallback {
+        /// Wrap the optional C completion callback supplied by PMIx.
+        pub(crate) fn from_raw(callback: ffi::pmix_credential_cbfunc_t) -> Option<Self> {
+            callback.map(|callback| Self::from(Some(callback)))
+        }
+    }
+
+    impl From<ffi::pmix_credential_cbfunc_t> for CredentialCallback {
+        fn from(callback: ffi::pmix_credential_cbfunc_t) -> Self {
+            Self(
+                Box::new(move |status, credential, info, cbdata| {
+                    if let Some(callback) = callback {
+                        // A stack byte object mirrors the credential for the
+                        // duration of the synchronous one-shot call; PMIx
+                        // copies it before returning.
+                        let bo = credential.map(|bytes| ffi::pmix_byte_object_t {
+                            bytes: if bytes.is_empty() {
+                                std::ptr::null_mut()
+                            } else {
+                                bytes.as_ptr() as *mut c_char
+                            },
+                            size: bytes.len(),
+                        });
+                        // SAFETY: call requires the original callback contract.
+                        unsafe {
+                            callback(
+                                status.to_raw(),
+                                bo.as_ref()
+                                    .map_or(std::ptr::null_mut(), |bo| bo as *const _ as *mut _),
+                                info.as_ptr().cast::<ffi::pmix_info_t>().cast_mut(),
+                                info.len(),
+                                cbdata,
+                            )
+                        };
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl std::fmt::Debug for CredentialCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("CredentialCallback")
+                .finish_non_exhaustive()
+        }
+    }
+
+    /// An owned, one-shot I/O-forwarding completion callback supplied by PMIx
+    /// (`pmix_iof_cbfunc_t`).
+    #[allow(clippy::type_complexity)]
+    pub struct IofCallback(
+        Box<
+            dyn FnOnce(usize, u32, &crate::views::ProcView, &[u8], &[crate::views::InfoView])
+                + Send
+                + 'static,
+        >,
+        #[allow(dead_code)] ffi::pmix_iof_cbfunc_t,
+    );
+
+    impl IofCallback {
+        /// Wrap a Rust completion callback (native surface).
+        pub fn new(
+            callback: impl FnOnce(usize, u32, &crate::views::ProcView, &[u8], &[crate::views::InfoView])
+            + Send
+            + 'static,
+        ) -> Self {
+            Self(Box::new(callback), None)
+        }
+
+        /// Complete the I/O-forwarding registration, consuming this wrapper.
+        ///
+        /// # Safety
+        ///
+        /// The source view, payload, and info array must remain valid for the
+        /// synchronous duration of the call; `iofhdlr` must be the handle
+        /// PMIx assigned.
+        pub unsafe fn call(
+            self,
+            iofhdlr: usize,
+            channel: u32,
+            source: &crate::views::ProcView,
+            payload: &[u8],
+            info: &[crate::views::InfoView],
+        ) {
+            (self.0)(iofhdlr, channel, source, payload, info);
+        }
+    }
+
+    impl IofCallback {
+        /// Wrap the optional C completion callback supplied by PMIx.
+        pub(crate) fn from_raw(callback: ffi::pmix_iof_cbfunc_t) -> Option<Self> {
+            callback.map(|callback| Self::from(Some(callback)))
+        }
+    }
+
+    impl From<ffi::pmix_iof_cbfunc_t> for IofCallback {
+        fn from(callback: ffi::pmix_iof_cbfunc_t) -> Self {
+            Self(
+                Box::new(move |iofhdlr, channel, source, payload, info| {
+                    if let Some(callback) = callback {
+                        // Stack byte object and info pointer mirror the payload
+                        // for the synchronous one-shot call; PMIx copies them.
+                        let bo = ffi::pmix_byte_object_t {
+                            bytes: if payload.is_empty() {
+                                std::ptr::null_mut()
+                            } else {
+                                payload.as_ptr() as *mut c_char
+                            },
+                            size: payload.len(),
+                        };
+                        // SAFETY: call requires the original callback contract.
+                        unsafe {
+                            callback(
+                                iofhdlr,
+                                channel as ffi::pmix_iof_channel_t,
+                                source.raw_ptr().cast_mut(),
+                                &bo as *const _ as *mut _,
+                                info.as_ptr().cast::<ffi::pmix_info_t>().cast_mut(),
+                                info.len(),
+                            )
+                        };
+                    }
+                }),
+                callback,
+            )
+        }
+    }
+
+    impl std::fmt::Debug for IofCallback {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("IofCallback")
+                .finish_non_exhaustive()
+        }
+    }
 }
 
 /// An owned, one-shot operation completion callback.
@@ -444,49 +1029,127 @@ impl std::fmt::Debug for OpCallbackWrapper {
 }
 
 /// Host operation upcall with a process and an array of entries.
-pub type ServerOpCallback<T> =
-    unsafe fn(*const ffi::pmix_proc_t, *const T, usize, Option<OpCallbackWrapper>, *mut c_void);
+///
+/// `T` is the borrowed view type of the entries: `InfoView` for info
+/// arrays, `PdataView` for pdata arrays, `NspaceView` for nspace arrays.
+pub type ServerOpCallback<T> = unsafe fn(&ProcView, &[T], Option<OpCallbackWrapper>, *mut c_void);
 
 /// Host operation upcall with two request arguments.
 pub type ServerOpDataCallback<A, B> = unsafe fn(A, B, Option<OpCallbackWrapper>, *mut c_void);
+
+/// Host `resource_block` upcall (6.x-only).
+pub type ServerResourceBlockCallback =
+    unsafe fn(&[InfoView], (), Option<OpCallbackWrapper>, *mut c_void);
 
 /// Signature of the `push_stdin` upcall. Kept crate-internal so the bindgen
 /// `pmix_byte_object_t` parameter does not appear in a public API position (#522a).
 pub(crate) type ServerPushStdinCallback =
     Option<ServerOpDataCallback<*const ffi::pmix_proc_t, *const ffi::pmix_byte_object_t>>;
 
+/// Host `client_connected` upcall.
+pub type ServerClientConnectedCallback = unsafe fn(&ProcView, &[InfoView], *mut c_void);
+
+/// Host `client_finalized` upcall.
+pub type ServerClientFinalizedCallback = unsafe fn(&ProcView, *mut c_void);
+
+/// Host `direct_modex` upcall completed with a one-shot
+/// [`DmodexResponseCallback`](callbacks::DmodexResponseCallback).
+pub type ServerDirectModexCallback = unsafe fn(
+    &ProcView,
+    &NspaceView,
+    &[InfoView],
+    Option<callbacks::DmodexResponseCallback>,
+    *mut c_void,
+);
+
+/// Host `lookup` upcall completed with a one-shot
+/// [`LookupCallback`](callbacks::LookupCallback).
+pub type ServerLookupCallback =
+    unsafe fn(&ProcView, &[PdataView], &[InfoView], Option<callbacks::LookupCallback>, *mut c_void);
+
+/// Host `spawn` upcall completed with a one-shot
+/// [`SpawnCallback`](callbacks::SpawnCallback).
+pub type ServerSpawnCallback =
+    unsafe fn(&ProcView, &[AppView], Option<callbacks::SpawnCallback>, *mut c_void);
+
+/// Host `connect` upcall completed with a one-shot
+/// [`ConnectionCallback`](callbacks::ConnectionCallback).
+pub type ServerConnectCallback = unsafe fn(
+    &ProcView,
+    &[NspaceView],
+    &[InfoView],
+    Option<callbacks::ConnectionCallback>,
+    *mut c_void,
+);
+
+/// Host `query` upcall completed with a one-shot
+/// [`InfoCallback`](callbacks::InfoCallback).
+pub type ServerQueryCallback =
+    unsafe fn(&ProcView, &[QueryView], Option<callbacks::InfoCallback>, *mut c_void);
+
+/// Host allocate-style upcall (`allocate`, `job_control`, `monitor`)
+/// completed with a one-shot [`InfoCallback`](callbacks::InfoCallback).
+pub type ServerAllocateCallback =
+    unsafe fn(&ProcView, &[InfoView], Option<callbacks::InfoCallback>, *mut c_void);
+
+/// Host `fabric` upcall completed with a one-shot
+/// [`InfoCallback`](callbacks::InfoCallback).
+pub type ServerFabricCallback =
+    unsafe fn(&ProcView, u32, &[InfoView], Option<callbacks::InfoCallback>, *mut c_void);
+
+/// Host `get_credential` / `validate_credential` upcalls completed with a
+/// one-shot [`CredentialCallback`](callbacks::CredentialCallback).
+pub type ServerCredentialCallback =
+    unsafe fn(&ProcView, &[InfoView], Option<callbacks::CredentialCallback>, *mut c_void);
+
+/// Host `iof_pull` upcall completed with a one-shot
+/// [`IofCallback`](callbacks::IofCallback).
+pub type ServerIofPullCallback =
+    unsafe fn(&ProcView, u32, &[InfoView], Option<callbacks::IofCallback>, *mut c_void);
+
+/// Host `group` upcall completed with a one-shot
+/// [`InfoCallback`](callbacks::InfoCallback).
+pub type ServerGroupCallback = unsafe fn(
+    &ProcView,
+    u32,
+    &[NspaceView],
+    &[InfoView],
+    Option<callbacks::InfoCallback>,
+    *mut c_void,
+);
+
+/// Host `session_control` upcall completed with a one-shot
+/// [`InfoCallback`](callbacks::InfoCallback).
+pub type ServerSessionControlCallback =
+    unsafe fn(i32, &[InfoView], Option<callbacks::InfoCallback>, *mut c_void);
+
 /// Host fence upcall completed with a one-shot [`ModexCallback`].
+///
+/// The `results` array is mutable: the host may update the returned info
+/// entries before handing them back through the completion callback.
 pub type ServerModexCallback = unsafe fn(
-    *const ffi::pmix_proc_t,
-    *const ffi::pmix_nspace_t,
-    usize,
-    *const ffi::pmix_info_t,
-    usize,
-    *mut ffi::pmix_info_t,
-    usize,
+    &ProcView,
+    &[NspaceView],
+    &[InfoView],
+    &mut [InfoView],
     Option<ModexCallback>,
     *mut c_void,
 );
 
 /// Host abort upcall.
-pub type ServerAbortCallback = unsafe fn(
-    *const ffi::pmix_proc_t,
-    i32,
-    *const ffi::pmix_info_t,
-    usize,
-    *mut c_void,
-    Option<OpCallbackWrapper>,
-    *mut c_void,
-);
+pub type ServerAbortCallback =
+    unsafe fn(&ProcView, i32, &[InfoView], *mut c_void, Option<OpCallbackWrapper>, *mut c_void);
 
 /// Host event notification upcall.
+///
+/// `results` is the single `pmix_info_t` result PMIx passes by value; the
+/// `nresults` length describes the accompanying results array.
 pub type ServerNotifyEventCallback = unsafe fn(
     u32,
-    *const ffi::pmix_proc_t,
+    &ProcView,
     u32,
-    *const ffi::pmix_info_t,
-    usize,
-    ffi::pmix_info_t,
+    &[InfoView],
+    InfoView,
     usize,
     Option<OpCallbackWrapper>,
     *mut c_void,
@@ -597,14 +1260,12 @@ pub struct PmixServerModule {
     /// Called when a client process connects to this server.
     ///
     /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
-    pub client_connected: Option<
-        unsafe extern "C" fn(*const ffi::pmix_proc_t, *const ffi::pmix_info_t, usize, *mut c_void),
-    >,
+    pub client_connected: Option<ServerClientConnectedCallback>,
 
     /// Called when a client process finalizes its connection.
     ///
     /// Runs in **progress context** — see [struct-level progress rules](PmixServerModule#progress-thread-rules-read-before-implementing-any-field).
-    pub client_finalized: Option<unsafe extern "C" fn(*const ffi::pmix_proc_t, *mut c_void)>,
+    pub client_finalized: Option<ServerClientFinalizedCallback>,
 
     /// Called when a client requests an abort.
     ///
@@ -628,365 +1289,906 @@ pub struct PmixServerModule {
     /// Same progress-thread rules as [`Self::fence_nb`]: schedule the remote
     /// fetch off-progress and invoke the provided callback when the blob is
     /// ready (or on error). See `examples/server_upcall_hop.rs`.
-    pub direct_modex: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_nspace_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_dmodex_response_fn_t,
-            *mut c_void,
-        ),
-    >,
+    pub direct_modex: Option<ServerDirectModexCallback>,
 
     /// Publish callback — client requests to publish data.
-    pub publish: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub publish: Option<ServerOpCallback<InfoView>>,
 
     /// Lookup callback — client requests to lookup data.
-    pub lookup: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_pdata_t,
-            usize,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_lookup_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub lookup: Option<ServerLookupCallback>,
 
     /// Unpublish callback — client requests to remove published data.
-    pub unpublish: Option<ServerOpCallback<ffi::pmix_pdata_t>>,
+    pub unpublish: Option<ServerOpCallback<PdataView>>,
 
     /// Spawn callback — client requests to spawn new processes.
-    pub spawn: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_app_t,
-            usize,
-            ffi::pmix_spawn_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub spawn: Option<ServerSpawnCallback>,
 
     /// Connect callback — client requests to establish a connection.
-    pub connect: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_nspace_t,
-            usize,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_connection_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub connect: Option<ServerConnectCallback>,
 
     /// Disconnect callback — client requests to disconnect.
-    pub disconnect: Option<ServerOpCallback<ffi::pmix_nspace_t>>,
+    pub disconnect: Option<ServerOpCallback<NspaceView>>,
 
     /// Register events callback.
-    pub register_events: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub register_events: Option<ServerOpCallback<InfoView>>,
 
     /// Deregister events callback.
-    pub deregister_events: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub deregister_events: Option<ServerOpCallback<InfoView>>,
 
     /// Listener callback — for server-to-server communication.
-    pub listener: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub listener: Option<ServerOpCallback<InfoView>>,
 
     /// Notify event callback — deliver notifications to the server.
     pub notify_event: Option<ServerNotifyEventCallback>,
 
     /// Query callback — client requests server-side query.
-    pub query: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_query_t,
-            usize,
-            ffi::pmix_info_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub query: Option<ServerQueryCallback>,
 
     /// Tool connection callback — accepts tool connections.
-    pub tool_connected: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub tool_connected: Option<ServerOpCallback<InfoView>>,
 
     /// Log callback — client requests logging.
-    pub log: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub log: Option<ServerOpCallback<InfoView>>,
 
     /// Allocation callback — client requests resource allocation.
-    pub allocate: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_info_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub allocate: Option<ServerAllocateCallback>,
 
     /// Job control callback.
-    pub job_control: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_info_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub job_control: Option<ServerAllocateCallback>,
 
     /// Monitoring callback — client requests monitoring.
-    pub monitor: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_info_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub monitor: Option<ServerAllocateCallback>,
 
     /// Get credential callback.
-    pub get_credential: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_credential_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub get_credential: Option<ServerCredentialCallback>,
 
     /// Validate credential callback.
-    pub validate_credential: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_credential_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub validate_credential: Option<ServerCredentialCallback>,
 
     /// I/O forwarding pull callback.
-    pub iof_pull: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            u32,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_iof_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub iof_pull: Option<ServerIofPullCallback>,
 
     /// Push stdin callback.
     pub push_stdin: ServerPushStdinCallback,
 
     /// Group operations callback.
-    pub group: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            u32,
-            *const ffi::pmix_nspace_t,
-            usize,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_info_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub group: Option<ServerGroupCallback>,
 
     /// Fabric operations callback.
-    pub fabric: Option<
-        unsafe extern "C" fn(
-            *const ffi::pmix_proc_t,
-            u32,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_info_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub fabric: Option<ServerFabricCallback>,
 
     /// Client connected v2 callback.
-    pub client_connected2: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub client_connected2: Option<ServerOpCallback<InfoView>>,
 
     /// Tool connection v2 callback.
     ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub tool_connected2: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub tool_connected2: Option<ServerOpCallback<InfoView>>,
 
     /// Log v2 callback.
     ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub log2: Option<ServerOpCallback<ffi::pmix_info_t>>,
+    pub log2: Option<ServerOpCallback<InfoView>>,
 
     /// Session control callback (PMIx 5.x).
-    pub session_control: Option<
-        unsafe extern "C" fn(
-            i32,
-            *const ffi::pmix_info_t,
-            usize,
-            ffi::pmix_info_cbfunc_t,
-            *mut c_void,
-        ),
-    >,
+    pub session_control: Option<ServerSessionControlCallback>,
 
     /// Resource block callback.
     ///
     /// 6.x-only: absent from the OpenPMIx 5.0 server module.
     #[cfg(pmix6)]
-    pub resource_block: Option<ServerOpDataCallback<*const ffi::pmix_info_t, usize>>,
+    pub resource_block: Option<ServerResourceBlockCallback>,
 
     /// Internal marker for the converted C callback table storage.
     #[doc(hidden)]
     pub callback_state: ServerModuleCallbackState,
 }
 
+/// Registry machinery for the server-module host upcalls: one slot per
+/// `PmixServerModule` callback field, storing the native (Rust-ABI) user
+/// callback. The C-ABI trampolines below convert PMIx's raw arguments into
+/// native view types and forward to the slot.
 macro_rules! server_op_upcalls {
-    ($(
-        $(#[$attribute:meta])*
-        $field:ident($($argument:ident: $argument_type:ty),* $(,)?);
-    )*) => {
+    ($($(#[$attribute:meta])* $field:ident: $callback:ty;)*) => {
         #[derive(Default)]
         struct ServerOpUpcalls {
             fence_nb: Option<ServerModexCallback>,
-            $(
-                $(#[$attribute])*
-                $field: Option<
-                    unsafe fn($($argument_type,)* Option<OpCallbackWrapper>, *mut c_void),
-                >,
-            )*
+            $( $(#[$attribute])* $field: $callback, )*
         }
 
         impl ServerOpUpcalls {
             fn from_module(module: &PmixServerModule) -> Self {
                 Self {
                     fence_nb: module.fence_nb,
-                    $(
-                        $(#[$attribute])*
-                        $field: module.$field,
-                    )*
+                    $( $(#[$attribute])* $field: module.$field, )*
                 }
             }
         }
 
         static SERVER_OP_UPCALLS: LazyLock<Mutex<ServerOpUpcalls>> =
             LazyLock::new(|| Mutex::new(ServerOpUpcalls::default()));
-
-        $(
-            $(#[$attribute])*
-            unsafe extern "C" fn $field(
-                $($argument: $argument_type,)*
-                cbfunc: ffi::pmix_op_cbfunc_t,
-                cbdata: *mut c_void,
-            ) {
-                let callback = SERVER_OP_UPCALLS
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .$field;
-
-                if let Some(callback) = callback {
-                    // SAFETY: PMIx supplies the completion callback and its
-                    // opaque data for this asynchronous host request.
-                    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
-                    let _ = invoke_user_callback("server", move || {
-                        // SAFETY: Arguments are forwarded unchanged from PMIx.
-                        unsafe { callback($($argument,)* completion, cbdata) };
-                    });
-                }
-            }
-        )*
     };
 }
 
 server_op_upcalls! {
-    abort(
-        proc: *const ffi::pmix_proc_t,
-        status: i32,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-        server_object: *mut c_void,
-    );
-    publish(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
-    unpublish(
-        proc: *const ffi::pmix_proc_t,
-        data: *const ffi::pmix_pdata_t,
-        ndata: usize,
-    );
-    disconnect(
-        proc: *const ffi::pmix_proc_t,
-        nspace: *const ffi::pmix_nspace_t,
-        count: usize,
-    );
-    register_events(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
-    deregister_events(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
-    listener(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
-    notify_event(
-        status: u32,
-        proc: *const ffi::pmix_proc_t,
-        range: u32,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-        results: ffi::pmix_info_t,
-        nresults: usize,
-    );
-    tool_connected(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
-    log(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
-    push_stdin(
-        proc: *const ffi::pmix_proc_t,
-        data: *const ffi::pmix_byte_object_t,
-    );
-    client_connected2(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
+    client_connected: Option<ServerClientConnectedCallback>;
+    client_finalized: Option<ServerClientFinalizedCallback>;
+    abort: Option<ServerAbortCallback>;
+    direct_modex: Option<ServerDirectModexCallback>;
+    publish: Option<ServerOpCallback<InfoView>>;
+    lookup: Option<ServerLookupCallback>;
+    unpublish: Option<ServerOpCallback<PdataView>>;
+    spawn: Option<ServerSpawnCallback>;
+    connect: Option<ServerConnectCallback>;
+    disconnect: Option<ServerOpCallback<NspaceView>>;
+    register_events: Option<ServerOpCallback<InfoView>>;
+    deregister_events: Option<ServerOpCallback<InfoView>>;
+    listener: Option<ServerOpCallback<InfoView>>;
+    notify_event: Option<ServerNotifyEventCallback>;
+    query: Option<ServerQueryCallback>;
+    tool_connected: Option<ServerOpCallback<InfoView>>;
+    log: Option<ServerOpCallback<InfoView>>;
+    allocate: Option<ServerAllocateCallback>;
+    job_control: Option<ServerAllocateCallback>;
+    monitor: Option<ServerAllocateCallback>;
+    get_credential: Option<ServerCredentialCallback>;
+    validate_credential: Option<ServerCredentialCallback>;
+    iof_pull: Option<ServerIofPullCallback>;
+    push_stdin: ServerPushStdinCallback;
+    group: Option<ServerGroupCallback>;
+    fabric: Option<ServerFabricCallback>;
+    client_connected2: Option<ServerOpCallback<InfoView>>;
     #[cfg(pmix6)]
-    tool_connected2(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
+    tool_connected2: Option<ServerOpCallback<InfoView>>;
     #[cfg(pmix6)]
-    log2(
-        proc: *const ffi::pmix_proc_t,
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
+    log2: Option<ServerOpCallback<InfoView>>;
+    session_control: Option<ServerSessionControlCallback>;
     #[cfg(pmix6)]
-    resource_block(
-        info: *const ffi::pmix_info_t,
-        ninfo: usize,
-    );
+    resource_block: Option<ServerResourceBlockCallback>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C-ABI trampolines. Each keeps the raw C signature of its
+// `pmix_server_module_t` slot (they are transmuted into that struct by
+// `PmixServerModule::as_c_ptr`), converts raw pointers/lengths into native
+// view types, wraps the completion callback, and forwards to the user
+// callback registered in `SERVER_OP_UPCALLS`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+unsafe extern "C" fn client_connected(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    server_object: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .client_connected;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies the connecting client's proc and info array
+        // for the duration of this upcall; null + 0 maps to an empty slice.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, server_object)
+        });
+    }
+}
+
+unsafe extern "C" fn client_finalized(proc: *const ffi::pmix_proc_t, server_object: *mut c_void) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .client_finalized;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies the finalizing client's proc for this upcall.
+        let proc = unsafe { ProcView::from_raw_ptr(proc) };
+        let _ = invoke_user_callback("server", move || unsafe { callback(proc, server_object) });
+    }
+}
+
+unsafe extern "C" fn abort(
+    proc: *const ffi::pmix_proc_t,
+    status: i32,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    server_object: *mut c_void,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .abort;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall; null
+        // + 0 maps to an empty slice.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, status, info, server_object, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn direct_modex(
+    proc: *const ffi::pmix_proc_t,
+    nspace: *const ffi::pmix_nspace_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_dmodex_response_fn_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .direct_modex;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/nspace/info for this upcall; null
+        // + 0 maps to an empty slice.
+        let (proc, nspace, info) = unsafe {
+            (
+                ProcView::from_raw_ptr(proc),
+                NspaceView::from_raw_ptr(nspace),
+                view_slice(info.cast(), ninfo),
+            )
+        };
+        let completion = callbacks::DmodexResponseCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, nspace, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn publish(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .publish;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn lookup(
+    proc: *const ffi::pmix_proc_t,
+    pdata: *const ffi::pmix_pdata_t,
+    npdata: usize,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_lookup_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .lookup;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/pdata/info arrays for this upcall.
+        let (proc, pdata, info) = unsafe {
+            (
+                ProcView::from_raw_ptr(proc),
+                view_slice(pdata.cast(), npdata),
+                view_slice(info.cast(), ninfo),
+            )
+        };
+        let completion = callbacks::LookupCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, pdata, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn unpublish(
+    proc: *const ffi::pmix_proc_t,
+    data: *const ffi::pmix_pdata_t,
+    ndata: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .unpublish;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/pdata arrays for this upcall.
+        let (proc, data) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(data.cast(), ndata)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, data, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn spawn(
+    proc: *const ffi::pmix_proc_t,
+    apps: *const ffi::pmix_app_t,
+    napps: usize,
+    cbfunc: ffi::pmix_spawn_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .spawn;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/app arrays for this upcall.
+        let (proc, apps) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(apps.cast(), napps)) };
+        let completion = callbacks::SpawnCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, apps, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn connect(
+    proc: *const ffi::pmix_proc_t,
+    procs: *const ffi::pmix_proc_t,
+    nprocs: usize,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_connection_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .connect;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/proc/info arrays for this upcall.
+        let (proc, procs, info) = unsafe {
+            (
+                ProcView::from_raw_ptr(proc),
+                view_slice(procs.cast(), nprocs),
+                view_slice(info.cast(), ninfo),
+            )
+        };
+        let completion = callbacks::ConnectionCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, procs, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn disconnect(
+    proc: *const ffi::pmix_proc_t,
+    nspace: *const ffi::pmix_nspace_t,
+    count: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .disconnect;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/nspace arrays for this upcall.
+        let (proc, nspace) = unsafe {
+            (
+                ProcView::from_raw_ptr(proc),
+                view_slice(nspace.cast(), count),
+            )
+        };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, nspace, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn register_events(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .register_events;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn deregister_events(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .deregister_events;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn listener(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .listener;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn notify_event(
+    status: u32,
+    proc: *const ffi::pmix_proc_t,
+    range: u32,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    results: ffi::pmix_info_t,
+    nresults: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .notify_event;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info for this upcall; `results`
+        // is a shallow by-value copy of the POD (borrow-free).
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let results = InfoView::from_value(results);
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(
+                status, proc, range, info, results, nresults, completion, cbdata,
+            )
+        });
+    }
+}
+
+unsafe extern "C" fn query(
+    proc: *const ffi::pmix_proc_t,
+    queries: *const ffi::pmix_query_t,
+    nqueries: usize,
+    cbfunc: ffi::pmix_info_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .query;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/query arrays for this upcall.
+        let (proc, queries) = unsafe {
+            (
+                ProcView::from_raw_ptr(proc),
+                view_slice(queries.cast(), nqueries),
+            )
+        };
+        let completion = callbacks::InfoCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, queries, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn tool_connected(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .tool_connected;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn log(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .log;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn allocate(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_info_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .allocate;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let completion = callbacks::InfoCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn job_control(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_info_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .job_control;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let completion = callbacks::InfoCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn monitor(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_info_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .monitor;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let completion = callbacks::InfoCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn get_credential(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_credential_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get_credential;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let completion = callbacks::CredentialCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn validate_credential(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_credential_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .validate_credential;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let completion = callbacks::CredentialCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn iof_pull(
+    proc: *const ffi::pmix_proc_t,
+    channel: u32,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_iof_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .iof_pull;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let completion = callbacks::IofCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, channel, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn push_stdin(
+    proc: *const ffi::pmix_proc_t,
+    data: *const ffi::pmix_byte_object_t,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .push_stdin;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            // SAFETY: Arguments are forwarded unchanged from PMIx; the
+            // push_stdin callback is crate-internal (#522a).
+            callback(proc, data, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn group(
+    proc: *const ffi::pmix_proc_t,
+    op: u32,
+    nspace: *const ffi::pmix_nspace_t,
+    nspaces: usize,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_info_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .group;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/nspace/info arrays for this upcall.
+        let (proc, nspace, info) = unsafe {
+            (
+                ProcView::from_raw_ptr(proc),
+                view_slice(nspace.cast(), nspaces),
+                view_slice(info.cast(), ninfo),
+            )
+        };
+        let completion = callbacks::InfoCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, op, nspace, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn fabric(
+    proc: *const ffi::pmix_proc_t,
+    version: u32,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_info_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .fabric;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        let completion = callbacks::InfoCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, version, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn client_connected2(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .client_connected2;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+#[cfg(pmix6)]
+unsafe extern "C" fn tool_connected2(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .tool_connected2;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+#[cfg(pmix6)]
+unsafe extern "C" fn log2(
+    proc: *const ffi::pmix_proc_t,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .log2;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/info arrays for this upcall.
+        let (proc, info) =
+            unsafe { (ProcView::from_raw_ptr(proc), view_slice(info.cast(), ninfo)) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(proc, info, completion, cbdata)
+        });
+    }
+}
+
+unsafe extern "C" fn session_control(
+    session: i32,
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_info_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .session_control;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies a valid info array for this upcall.
+        let info = unsafe { view_slice(info.cast::<InfoView>(), ninfo) };
+        let completion = callbacks::InfoCallback::from_raw(cbfunc);
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(session, info, completion, cbdata)
+        });
+    }
+}
+
+#[cfg(pmix6)]
+unsafe extern "C" fn resource_block(
+    info: *const ffi::pmix_info_t,
+    ninfo: usize,
+    cbfunc: ffi::pmix_op_cbfunc_t,
+    cbdata: *mut c_void,
+) {
+    let callback = SERVER_OP_UPCALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .resource_block;
+    if let Some(callback) = callback {
+        // SAFETY: PMIx supplies a valid info array for this upcall.
+        let info = unsafe { view_slice(info.cast::<InfoView>(), ninfo) };
+        // SAFETY: PMIx supplies the completion callback and its opaque data.
+        let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+        let _ = invoke_user_callback("server", move || unsafe {
+            callback(info, (), completion, cbdata)
+        });
+    }
 }
 
 unsafe extern "C" fn fence_nb(
@@ -1006,15 +2208,21 @@ unsafe extern "C" fn fence_nb(
         .fence_nb;
 
     if let Some(callback) = callback {
+        // SAFETY: PMIx supplies valid proc/nspace/info/results arrays for
+        // this upcall; null + 0 maps to an empty slice.
+        let (proc, nspace, info, results) = unsafe {
+            (
+                ProcView::from_raw_ptr(proc),
+                view_slice(nspace.cast::<NspaceView>(), count),
+                view_slice(info.cast::<InfoView>(), ninfo),
+                view_slice_mut(results.cast::<InfoView>(), nresults),
+            )
+        };
         let completion = cbfunc.map(|callback| ModexCallback::from(Some(callback)));
-        let _ = invoke_user_callback("server", move || {
-            // SAFETY: Arguments are forwarded unchanged from PMIx, with
-            // the completion callback converted at the FFI boundary.
-            unsafe {
-                callback(
-                    proc, nspace, count, info, ninfo, results, nresults, completion, cbdata,
-                );
-            }
+        let _ = invoke_user_callback("server", move || unsafe {
+            // SAFETY: raw arguments are converted to native views at the
+            // FFI boundary; the completion callback is wrapped.
+            callback(proc, nspace, info, results, completion, cbdata);
         });
     }
 }
@@ -1058,40 +2266,42 @@ impl PmixServerModule {
             };
         }
 
+        // Every field now bridges through a C-ABI trampoline that converts
+        // raw arguments into native view types at the FFI boundary (#520).
         let callbacks = [
-            raw_upcall!(client_connected),
-            raw_upcall!(client_finalized),
+            raw_upcall!(client_connected => client_connected),
+            raw_upcall!(client_finalized => client_finalized),
             raw_upcall!(abort => abort),
             raw_upcall!(fence_nb => fence_nb),
-            raw_upcall!(direct_modex),
+            raw_upcall!(direct_modex => direct_modex),
             raw_upcall!(publish => publish),
-            raw_upcall!(lookup),
+            raw_upcall!(lookup => lookup),
             raw_upcall!(unpublish => unpublish),
-            raw_upcall!(spawn),
-            raw_upcall!(connect),
+            raw_upcall!(spawn => spawn),
+            raw_upcall!(connect => connect),
             raw_upcall!(disconnect => disconnect),
             raw_upcall!(register_events => register_events),
             raw_upcall!(deregister_events => deregister_events),
             raw_upcall!(listener => listener),
             raw_upcall!(notify_event => notify_event),
-            raw_upcall!(query),
+            raw_upcall!(query => query),
             raw_upcall!(tool_connected => tool_connected),
             raw_upcall!(log => log),
-            raw_upcall!(allocate),
-            raw_upcall!(job_control),
-            raw_upcall!(monitor),
-            raw_upcall!(get_credential),
-            raw_upcall!(validate_credential),
-            raw_upcall!(iof_pull),
+            raw_upcall!(allocate => allocate),
+            raw_upcall!(job_control => job_control),
+            raw_upcall!(monitor => monitor),
+            raw_upcall!(get_credential => get_credential),
+            raw_upcall!(validate_credential => validate_credential),
+            raw_upcall!(iof_pull => iof_pull),
             raw_upcall!(push_stdin => push_stdin),
-            raw_upcall!(group),
-            raw_upcall!(fabric),
+            raw_upcall!(group => group),
+            raw_upcall!(fabric => fabric),
             raw_upcall!(client_connected2 => client_connected2),
             #[cfg(pmix6)]
             raw_upcall!(tool_connected2 => tool_connected2),
             #[cfg(pmix6)]
             raw_upcall!(log2 => log2),
-            raw_upcall!(session_control),
+            raw_upcall!(session_control => session_control),
             #[cfg(pmix6)]
             raw_upcall!(resource_block => resource_block),
         ];
