@@ -3909,3 +3909,37 @@ fn test_tracked_into_c_callback_respects_a_won_claim() {
         "extracting after a won claim must yield None — the pointer would be a second completion"
     );
 }
+
+/// C `pmix_spawn_cbfunc_t` mock for the extract-path test: records
+/// invocations, never dereferences its arguments.
+static SPAWN_EXTRACT_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "C" fn spawn_extract_completion(
+    _status: i32,
+    _nspace: *mut std::os::raw::c_char,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    SPAWN_EXTRACT_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// The `SpawnCallback` extract path is a separate copy of the `ModexCallback`
+/// one (pass-6 review): a Spawn-only revert would otherwise stay green.
+#[test]
+fn test_tracked_spawn_into_c_callback_respects_a_won_claim() {
+    let taken = CompletionTaken::new();
+    let wrapper = callbacks::SpawnCallback::from_raw(Some(spawn_extract_completion), taken.clone())
+        .expect("tracked wrapper around a real C callback");
+    assert!(
+        wrapper.into_c_callback().is_some(),
+        "an unclaimed tracked wrapper must still extract"
+    );
+
+    let taken = CompletionTaken::new();
+    let wrapper = callbacks::SpawnCallback::from_raw(Some(spawn_extract_completion), taken.clone())
+        .expect("tracked wrapper around a real C callback");
+    assert!(taken.claim(), "the trampoline wins the one-shot claim");
+    assert!(
+        wrapper.into_c_callback().is_none(),
+        "extracting after a won claim must yield None — the pointer would be a second completion"
+    );
+}

@@ -339,8 +339,13 @@ pub mod callbacks {
         /// For a tracked wrapper (server trampoline origin) this marks
         /// the shared [`CompletionTaken`] flag on extract: the marking
         /// closure is dropped and the bare C function pointer escapes,
-        /// so any completion through it must still be visible to the
-        /// trampoline's panic path.
+        /// so the extract CLAIMS the one-shot completion right here.
+        ///
+        /// Returns `None` for a Rust closure created with [`Self::new`]
+        /// and when the claim is lost (the trampoline's panic path or an
+        /// earlier completion already owned the right): in the lost
+        /// case the caller must NOT invoke anything and must NOT free
+        /// `cbdata` — the claim winner owns both.
         pub fn into_c_callback(
             self,
         ) -> Option<
@@ -658,8 +663,13 @@ pub mod callbacks {
         /// For a tracked wrapper (server trampoline origin) this marks
         /// the shared [`CompletionTaken`] flag on extract: the marking
         /// closure is dropped and the bare C function pointer escapes,
-        /// so any completion through it must still be visible to the
-        /// trampoline's panic path.
+        /// so the extract CLAIMS the one-shot completion right here.
+        ///
+        /// Returns `None` for a Rust closure created with [`Self::new`]
+        /// and when the claim is lost (the trampoline's panic path or an
+        /// earlier completion already owned the right): in the lost
+        /// case the caller must NOT invoke anything and must NOT free
+        /// `cbdata` — the claim winner owns both.
         pub fn into_c_callback(
             self,
         ) -> Option<unsafe extern "C" fn(i32, *mut c_char, *mut c_void)> {
@@ -2087,9 +2097,9 @@ fn status_not_supported() -> ffi::pmix_status_t {
 }
 
 /// `PMIX_ERROR` — the status a trampoline-supplied panic completion
-/// carries into the C completion callback (the trampoline still
-/// returns `PMIX_SUCCESS` afterwards; see the status-return policy
-/// above).
+/// carries into the C completion callback, and the trampoline's own
+/// return when a won claim found no C callback to invoke (see the
+/// status-return policy above).
 fn status_panic() -> ffi::pmix_status_t {
     PmixStatus::Known(PmixError::Error).to_raw()
 }
@@ -2123,7 +2133,9 @@ impl CompletionTaken {
     }
 
     /// Claim the one-shot right to invoke the C completion callback:
-    /// the first claim wins, every later caller loses. The wrapper invokes the C callback only if it wins; the
+    /// the first claim wins, every later caller (the trampoline's panic
+    /// path, the raw-pointer extract path, or a second completion
+    /// attempt) loses and must invoke nothing. The wrapper invokes the C callback only if it wins; the
     /// trampoline's panic path invokes it only if it wins — the loser
     /// never calls, closing the async-handoff double-completion window.
     pub(crate) fn claim(&self) -> bool {
@@ -2141,14 +2153,19 @@ impl CompletionTaken {
 /// * panicked — the trampoline tries to [`CompletionTaken::claim`] the
 ///   one-shot completion right. If it wins (the host never completed),
 ///   it invokes the C completion exactly once with `PMIX_ERROR` via
-///   `complete_on_panic`; if it loses (the host completed through the
-///   wrapper before or while panicking), it invokes nothing. Either
-///   way the return is `PMIX_SUCCESS`: status-honoring PMIx callers
-///   (pmix_server_ops.c, pmix_server_fence.c, pmix_server_connect.c,
-///   ptl_base_sendrecv.c) treat SUCCESS as "the host owns the
-///   callback" and do not release `cbdata` again, while the
-///   status-ignoring pmix_server_execute_collective still gets the
-///   callback it needs to unblock the collective.
+///   `complete_on_panic` and returns `PMIX_SUCCESS`: status-honoring
+///   PMIx callers (pmix_server_ops.c, pmix_server_fence.c,
+///   pmix_server_connect.c, ptl_base_sendrecv.c) treat SUCCESS as
+///   "the host owns the callback" and do not release `cbdata` again,
+///   while the status-ignoring pmix_server_execute_collective still
+///   gets the callback it needs to unblock the collective. If the
+///   claim wins but no C completion callback was supplied,
+///   `complete_on_panic` reports that nothing was invoked and the
+///   trampoline returns `PMIX_ERROR` instead, so a status-honoring
+///   caller releases `cbdata` itself rather than leaking it.
+/// * panicked with the claim lost (the host completed through the
+///   wrapper before or while panicking): nothing is invoked and the
+///   return is `PMIX_SUCCESS` — the completion right was the host's.
 fn status_after_panic(
     ok: bool,
     taken: &CompletionTaken,
