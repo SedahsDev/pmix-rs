@@ -160,8 +160,7 @@ unsafe fn on_event(
             // valid until the chain completes.
             Box::new(cbfunc).call(
                 pmix::PmixStatus::from_raw(status),
-                ptr::null_mut(),
-                0,
+                &mut [],
                 None,
                 ptr::null_mut(),
                 chain_addr as *mut c_void,

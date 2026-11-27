@@ -151,8 +151,7 @@ unsafe fn on_global_exit(
             // notification; completing it once is required by the API.
             Box::new(cbfunc).call(
                 pmix::PmixStatus::Known(pmix::PmixError::ErrProcRequestedAbort),
-                ptr::null_mut(),
-                0,
+                &mut [],
                 None,
                 ptr::null_mut(),
                 chain_addr as *mut c_void,
@@ -189,8 +188,7 @@ unsafe fn on_ready_for_debug(
             // SAFETY: PMIx supplied the callback and chain data for this event.
             Box::new(cbfunc).call(
                 pmix::PmixStatus::Known(pmix::PmixError::ReadyForDebug),
-                ptr::null_mut(),
-                0,
+                &mut [],
                 None,
                 ptr::null_mut(),
                 chain_addr as *mut c_void,

@@ -2130,11 +2130,11 @@ fn test_register_attributes_error_deterministic() {
 fn test_iof_pull_requires_dvm() {
     use crate::IOFChannelFlags;
     let procs: &[crate::Proc] = &[];
-    let directives: &[ffi::pmix_info_t] = &[];
+    let directives = crate::Info::empty();
     let channel = IOFChannelFlags::STDOUT;
     let result = iof_pull::<_, _>(
         procs,
-        directives,
+        &directives,
         channel,
         |_h, _ch, _src, _data| {},
         |_status, _handle| {},
@@ -2150,9 +2150,9 @@ fn test_iof_pull_requires_dvm() {
 fn test_iof_pull_blocking_requires_dvm() {
     use crate::IOFChannelFlags;
     let procs: &[crate::Proc] = &[];
-    let directives: &[ffi::pmix_info_t] = &[];
+    let directives = crate::Info::empty();
     let channel = IOFChannelFlags::STDOUT;
-    let result = iof_pull_blocking::<_>(procs, directives, channel, |_h, _ch, _src, _data| {});
+    let result = iof_pull_blocking::<_>(procs, &directives, channel, |_h, _ch, _src, _data| {});
     // Without DVM this returns Err(PMIX_ERR_INIT).
     let _ = result;
 }
@@ -2164,8 +2164,8 @@ fn test_iof_push_requires_dvm() {
     use crate::IOFChannelFlags;
     let targets: &[crate::Proc] = &[];
     let bo = PmixByteObject::from_slice(b"test");
-    let directives: &[ffi::pmix_info_t] = &[];
-    let result = iof_push::<_>(targets, bo, directives, |_status| {});
+    let directives = crate::Info::empty();
+    let result = iof_push::<_>(targets, bo, &directives, |_status| {});
     // Without DVM this returns Err(PMIX_ERR_INIT).
     let _ = result;
 }
@@ -2176,8 +2176,8 @@ fn test_iof_push_requires_dvm() {
 fn test_iof_push_blocking_requires_dvm() {
     let targets: &[crate::Proc] = &[];
     let bo = PmixByteObject::from_slice(b"test");
-    let directives: &[ffi::pmix_info_t] = &[];
-    let result = iof_push_blocking(targets, bo, directives);
+    let directives = crate::Info::empty();
+    let result = iof_push_blocking(targets, bo, &directives);
     // Without DVM this returns Err(PMIX_ERR_INIT).
     let _ = result;
 }
@@ -2186,8 +2186,8 @@ fn test_iof_push_blocking_requires_dvm() {
 #[test]
 #[ignore = "requires PMIx daemon and initialization"]
 fn test_iof_deregister_requires_dvm() {
-    let directives: &[ffi::pmix_info_t] = &[];
-    let result = iof_deregister(0, directives, |_status| {});
+    let directives = crate::Info::empty();
+    let result = iof_deregister(0, &directives, |_status| {});
     // Without DVM this returns Err(PMIX_ERR_INIT).
     let _ = result;
 }
@@ -2196,8 +2196,8 @@ fn test_iof_deregister_requires_dvm() {
 #[test]
 #[ignore = "requires PMIx daemon and initialization"]
 fn test_iof_deregister_blocking_requires_dvm() {
-    let directives: &[ffi::pmix_info_t] = &[];
-    let result = iof_deregister_blocking(0, directives);
+    let directives = crate::Info::empty();
+    let result = iof_deregister_blocking(0, &directives);
     // Without DVM this returns Err(PMIX_ERR_INIT).
     let _ = result;
 }
@@ -3069,10 +3069,10 @@ fn test_register_attributes_empty_attrs_extended() {
 #[test]
 fn test_iof_pull_without_daemon() {
     let procs: &[crate::Proc] = &[];
-    let directives: &[ffi::pmix_info_t] = &[];
+    let directives = crate::Info::empty();
     let result = iof_pull::<_, _>(
         procs,
-        directives,
+        &directives,
         IOFChannelFlags::STDOUT,
         |_, _, _, _| {},
         |_, _| {},
@@ -3088,7 +3088,12 @@ fn test_iof_pull_blocking_returns_real_refid() {
     mock_ffi::mock_set_iof_handle(42);
     IOF_REGISTRY.lock().unwrap().clear();
 
-    let result = iof_pull_blocking(&[], &[], IOFChannelFlags::STDOUT, |_, _, _, _| {});
+    let result = iof_pull_blocking(
+        &[],
+        &crate::Info::empty(),
+        IOFChannelFlags::STDOUT,
+        |_, _, _, _| {},
+    );
 
     assert_eq!(result, Ok(42));
     assert!(IOF_REGISTRY.lock().unwrap().contains_key(&42));
@@ -3099,8 +3104,8 @@ fn test_iof_pull_blocking_returns_real_refid() {
 #[test]
 fn test_iof_pull_blocking_without_daemon() {
     let procs: &[crate::Proc] = &[];
-    let directives: &[ffi::pmix_info_t] = &[];
-    let result = iof_pull_blocking(procs, directives, IOFChannelFlags::STDOUT, |_, _, _, _| {});
+    let directives = crate::Info::empty();
+    let result = iof_pull_blocking(procs, &directives, IOFChannelFlags::STDOUT, |_, _, _, _| {});
     assert!(result.is_err());
 }
 
@@ -3141,16 +3146,16 @@ fn test_iof_push_blocking_without_daemon() {
 /// iof_deregister returns error without daemon.
 #[test]
 fn test_iof_deregister_without_daemon() {
-    let directives: &[ffi::pmix_info_t] = &[];
-    let result = iof_deregister(999, directives, |_| {});
+    let directives = crate::Info::empty();
+    let result = iof_deregister(999, &directives, |_| {});
     assert!(result.is_err());
 }
 
 /// iof_deregister_blocking returns error without daemon.
 #[test]
 fn test_iof_deregister_blocking_without_daemon() {
-    let directives: &[ffi::pmix_info_t] = &[];
-    let result = iof_deregister_blocking(999, directives);
+    let directives = crate::Info::empty();
+    let result = iof_deregister_blocking(999, &directives);
     assert!(result.is_err());
 }
 

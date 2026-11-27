@@ -22,7 +22,7 @@ fn test_iof_deregister_accepts_closure() {
     // This should compile — the closure signature matches IoForwardDeregHandler.
     // We expect it to return an error since PMIx is not initialized,
     // but the important thing is that the types work.
-    let result = iof_deregister(0, &[], move |status: PmixStatus| {
+    let result = iof_deregister(0, &pmix::Info::empty(), move |status: PmixStatus| {
         let _ = status;
         called_clone.store(true, Ordering::SeqCst);
     });
@@ -42,7 +42,7 @@ fn test_iof_deregister_accepts_closure() {
 /// `iof_deregister_blocking` returns a Result without needing a callback.
 #[test]
 fn test_iof_deregister_blocking_signature() {
-    let result = iof_deregister_blocking(0, &[]);
+    let result = iof_deregister_blocking(0, &pmix::Info::empty());
     // Without a PMIx runtime, this should fail.
     assert!(
         result.is_err(),
@@ -62,7 +62,7 @@ fn test_iof_deregister_with_directives() {
     let called_clone = called.clone();
 
     // Empty directives — the important thing is the types compile.
-    let result = iof_deregister(42, &[], move |status: PmixStatus| {
+    let result = iof_deregister(42, &pmix::Info::empty(), move |status: PmixStatus| {
         let _ = status;
         called_clone.store(true, Ordering::SeqCst);
     });
@@ -78,7 +78,7 @@ fn test_iof_deregister_with_directives() {
 #[test]
 fn test_iof_deregister_blocking_various_handles() {
     for handle in [0, 1, 42, usize::MAX] {
-        let result = iof_deregister_blocking(handle, &[]);
+        let result = iof_deregister_blocking(handle, &pmix::Info::empty());
         assert!(
             result.is_err(),
             "iof_deregister_blocking(handle={}) should fail without PMIx runtime",
@@ -97,7 +97,7 @@ fn test_iof_deregister_callback_type() {
     let status_received = Arc::new(AtomicI32::new(999));
     let status_clone = status_received.clone();
 
-    let result = iof_deregister(0, &[], move |status: PmixStatus| {
+    let result = iof_deregister(0, &pmix::Info::empty(), move |status: PmixStatus| {
         status_clone.store(status.to_raw(), Ordering::SeqCst);
     });
 
