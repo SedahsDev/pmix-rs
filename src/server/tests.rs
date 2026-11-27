@@ -4,7 +4,7 @@ use super::*;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 
 // ── PmixServerModule tests ───────────────────────────────────────────────
 
@@ -3529,4 +3529,253 @@ fn test_client_connected_trampoline_invokes_real_layout() {
         1,
         "the op completion wrapper must bridge back to the C callback"
     );
+}
+
+// ─── Trampoline panic-path cbdata-ownership tests (#520 pass 3) ─────────
+
+/// C `pmix_op_cbfunc_t` mock for the panic-path tests: records every
+/// invocation and the status of the most recent one (never dereferences
+/// its cbdata).
+static PANIC_OP_CALLS: AtomicUsize = AtomicUsize::new(0);
+static PANIC_OP_STATUS: AtomicIsize = AtomicIsize::new(0);
+
+unsafe extern "C" fn panic_path_op_completion(status: i32, _cbdata: *mut std::os::raw::c_void) {
+    PANIC_OP_CALLS.fetch_add(1, Ordering::SeqCst);
+    PANIC_OP_STATUS.store(status as isize, Ordering::SeqCst);
+}
+
+/// Native `publish` upcall that panics WITHOUT completing.
+unsafe fn publish_panic_before_completion(
+    _proc: &crate::views::ProcView,
+    _info: &[crate::views::InfoView],
+    _completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    panic!("panic-path test: host upcall panics before completing");
+}
+
+/// A user-callback panic WITHOUT completing must NOT call the C cbfunc,
+/// and the trampoline must return `PMIX_ERROR`: PMIx treats the
+/// non-success return as "the host did not call cbfunc", so the caller
+/// releases cbdata itself and fails the request. Calling the cbfunc here
+/// as well would double-free cbdata.
+#[test]
+fn test_publish_trampoline_panic_before_completion_skips_cbfunc_and_errors() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        publish: Some(publish_panic_before_completion),
+        ..Default::default()
+    };
+    let trampoline = publish_trampoline(&module).expect("publish slot installed");
+
+    let data = RawUpcallData::new();
+    PANIC_OP_CALLS.store(0, Ordering::SeqCst);
+    PANIC_OP_STATUS.store(0, Ordering::SeqCst);
+    // SAFETY: `data` stays alive for the synchronous trampoline call;
+    // the completion mock records but never dereferences its cbdata.
+    let status = unsafe {
+        trampoline(
+            &data.proc,
+            data.infos.as_ptr(),
+            data.infos.len(),
+            Some(panic_path_op_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        )
+    };
+
+    assert_eq!(
+        PANIC_OP_CALLS.load(Ordering::SeqCst),
+        0,
+        "a panic before completion must NOT call the C cbfunc — the \
+         non-success return already tells PMIx to release cbdata itself"
+    );
+    assert_eq!(
+        status,
+        ffi::PMIX_ERROR,
+        "a panic before completion must return PMIX_ERROR so the PMIx \
+         caller releases cbdata and fails the request itself"
+    );
+}
+
+/// Native `publish` upcall that completes through the wrapper and THEN
+/// panics.
+unsafe fn publish_complete_then_panic(
+    _proc: &crate::views::ProcView,
+    _info: &[crate::views::InfoView],
+    completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    if let Some(completion) = completion {
+        completion.call(crate::PmixStatus::from_raw(0));
+    }
+    panic!("panic-path test: host upcall panics after completing");
+}
+
+/// A user callback that completes and THEN panics must leave the C cbfunc
+/// called exactly ONCE (by the host's own completion, carrying the host's
+/// status) and the trampoline must return `PMIX_SUCCESS`: the completion
+/// already released cbdata, and a non-success return would make the PMIx
+/// caller release it a second time.
+#[test]
+fn test_publish_trampoline_panic_after_completion_completes_once_and_succeeds() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        publish: Some(publish_complete_then_panic),
+        ..Default::default()
+    };
+    let trampoline = publish_trampoline(&module).expect("publish slot installed");
+
+    let data = RawUpcallData::new();
+    PANIC_OP_CALLS.store(0, Ordering::SeqCst);
+    PANIC_OP_STATUS.store(0, Ordering::SeqCst);
+    // SAFETY: `data` stays alive for the synchronous trampoline call;
+    // the completion mock records but never dereferences its cbdata.
+    let status = unsafe {
+        trampoline(
+            &data.proc,
+            data.infos.as_ptr(),
+            data.infos.len(),
+            Some(panic_path_op_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        )
+    };
+
+    assert_eq!(
+        PANIC_OP_CALLS.load(Ordering::SeqCst),
+        1,
+        "complete-then-panic must call the C cbfunc exactly once — the \
+         trampoline must not add a second, error completion"
+    );
+    assert_eq!(
+        PANIC_OP_STATUS.load(Ordering::SeqCst),
+        0,
+        "the single completion must carry the host's status (PMIX_SUCCESS)"
+    );
+    assert_eq!(
+        status,
+        ffi::PMIX_SUCCESS as i32,
+        "a panic after completing must return PMIX_SUCCESS — a non-success \
+         return would make the PMIx caller release the already-released cbdata"
+    );
+}
+
+/// Native `log` upcall (void slot) that panics WITHOUT completing.
+unsafe fn log_panic_before_completion(
+    _client: &crate::views::ProcView,
+    _data: &[crate::views::InfoView],
+    _directives: &[crate::views::InfoView],
+    _completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    panic!("panic-path test: void-slot host upcall panics before completing");
+}
+
+/// Native `log` upcall (void slot) that completes through the wrapper and
+/// THEN panics.
+unsafe fn log_complete_then_panic(
+    _client: &crate::views::ProcView,
+    _data: &[crate::views::InfoView],
+    _directives: &[crate::views::InfoView],
+    completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    if let Some(completion) = completion {
+        completion.call(crate::PmixStatus::from_raw(0));
+    }
+    panic!("panic-path test: void-slot host upcall panics after completing");
+}
+
+/// The void-returning `log` slot has no status to signal a failure with,
+/// so its C cbfunc is the only way to unblock the requester: a panic
+/// WITHOUT completing must complete the C cbfunc exactly once (with
+/// `PMIX_ERROR`), and a complete-THEN-panic must still leave the C
+/// cbfunc called exactly once (the host's own completion — a second,
+/// error completion would double-free cbdata).
+#[test]
+fn test_log_trampoline_void_slot_panic_calls_cbfunc_exactly_once() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let data = RawUpcallData::new();
+    let cbdata = std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
+
+    // Case 1: panic before completing → the trampoline completes the C
+    // cbfunc once, with the panic status.
+    {
+        let module = PmixServerModule {
+            log: Some(log_panic_before_completion),
+            ..Default::default()
+        };
+        let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+        // SAFETY: the module stays alive for the synchronous trampoline
+        // call; the slot holds the `log` trampoline with exactly the
+        // bindgen `pmix_server_log_fn_t` signature.
+        let trampoline = unsafe { (*raw).log }.expect("log slot installed");
+
+        PANIC_OP_CALLS.store(0, Ordering::SeqCst);
+        PANIC_OP_STATUS.store(0, Ordering::SeqCst);
+        // SAFETY: `data` stays alive for the synchronous trampoline call;
+        // the completion mock records but never dereferences its cbdata.
+        unsafe {
+            trampoline(
+                &data.proc,
+                data.infos.as_ptr(),
+                data.infos.len(),
+                data.infos.as_ptr(),
+                data.infos.len(),
+                Some(panic_path_op_completion),
+                cbdata,
+            )
+        };
+
+        assert_eq!(
+            PANIC_OP_CALLS.load(Ordering::SeqCst),
+            1,
+            "a void slot that panics before completing must still call the \
+             C cbfunc once — there is no status return to unblock with"
+        );
+        assert_eq!(
+            PANIC_OP_STATUS.load(Ordering::SeqCst),
+            ffi::PMIX_ERROR as isize,
+            "the trampoline-supplied panic completion must carry PMIX_ERROR"
+        );
+    }
+
+    // Case 2: complete then panic → still exactly one C cbfunc call,
+    // carrying the host's status.
+    {
+        let module = PmixServerModule {
+            log: Some(log_complete_then_panic),
+            ..Default::default()
+        };
+        let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+        // SAFETY: same as case 1.
+        let trampoline = unsafe { (*raw).log }.expect("log slot installed");
+
+        PANIC_OP_CALLS.store(0, Ordering::SeqCst);
+        PANIC_OP_STATUS.store(0, Ordering::SeqCst);
+        // SAFETY: same as case 1.
+        unsafe {
+            trampoline(
+                &data.proc,
+                data.infos.as_ptr(),
+                data.infos.len(),
+                data.infos.as_ptr(),
+                data.infos.len(),
+                Some(panic_path_op_completion),
+                cbdata,
+            )
+        };
+
+        assert_eq!(
+            PANIC_OP_CALLS.load(Ordering::SeqCst),
+            1,
+            "complete-then-panic on a void slot must leave the C cbfunc \
+             called exactly once — a second, error completion would \
+             double-free cbdata"
+        );
+        assert_eq!(
+            PANIC_OP_STATUS.load(Ordering::SeqCst),
+            0,
+            "the single completion must carry the host's status (PMIX_SUCCESS)"
+        );
+    }
 }

@@ -79,7 +79,8 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
 #[allow(dead_code)]
 struct RetainedServerData {
@@ -210,6 +211,7 @@ pub use native_callbacks::*;
 pub use callbacks::ServerFenceNbCallback;
 
 pub mod callbacks {
+    use super::CompletionTaken;
     pub use super::OpCallbackWrapper;
     pub use super::native_callbacks::*;
     use crate::{PmixStatus, ffi};
@@ -350,11 +352,28 @@ pub mod callbacks {
         }
     }
 
-    impl From<ffi::pmix_modex_cbfunc_t> for ModexCallback {
-        fn from(callback: ffi::pmix_modex_cbfunc_t) -> Self {
+    impl ModexCallback {
+        /// Wrap the optional C completion callback supplied by PMIx,
+        /// marking `taken` at the instant the wrapper invokes the C
+        /// completion (see [`CompletionTaken`]).
+        pub(crate) fn from_raw_tracked(
+            callback: ffi::pmix_modex_cbfunc_t,
+            taken: CompletionTaken,
+        ) -> Option<Self> {
+            if callback.is_some() {
+                Some(Self::wrap_raw(callback, Some(taken)))
+            } else {
+                None
+            }
+        }
+
+        fn wrap_raw(callback: RawModexCallback, taken: Option<CompletionTaken>) -> Self {
             Self(
                 Box::new(move |status, data, len, cbdata, release, release_cbdata| {
                     if let Some(callback) = callback {
+                        if let Some(taken) = &taken {
+                            taken.mark();
+                        }
                         // SAFETY: call requires the original callback contract.
                         unsafe {
                             callback(
@@ -370,6 +389,12 @@ pub mod callbacks {
                 }),
                 callback,
             )
+        }
+    }
+
+    impl From<ffi::pmix_modex_cbfunc_t> for ModexCallback {
+        fn from(callback: ffi::pmix_modex_cbfunc_t) -> Self {
+            Self::wrap_raw(callback, None)
         }
     }
 
@@ -506,17 +531,27 @@ pub mod callbacks {
     }
 
     impl LookupCallback {
-        /// Wrap the optional C completion callback supplied by PMIx.
-        pub(crate) fn from_raw(callback: ffi::pmix_lookup_cbfunc_t) -> Option<Self> {
-            callback.map(|callback| Self::from(Some(callback)))
+        /// Wrap the optional C completion callback supplied by PMIx,
+        /// marking `taken` at the instant the wrapper invokes the C
+        /// completion (see [`CompletionTaken`]).
+        pub(crate) fn from_raw(
+            callback: ffi::pmix_lookup_cbfunc_t,
+            taken: CompletionTaken,
+        ) -> Option<Self> {
+            if callback.is_some() {
+                Some(Self::wrap_raw(callback, Some(taken)))
+            } else {
+                None
+            }
         }
-    }
 
-    impl From<ffi::pmix_lookup_cbfunc_t> for LookupCallback {
-        fn from(callback: ffi::pmix_lookup_cbfunc_t) -> Self {
+        fn wrap_raw(callback: ffi::pmix_lookup_cbfunc_t, taken: Option<CompletionTaken>) -> Self {
             Self(
                 Box::new(move |status, data, cbdata| {
                     if let Some(callback) = callback {
+                        if let Some(taken) = &taken {
+                            taken.mark();
+                        }
                         // An empty slice must cross the FFI boundary as
                         // (NULL, 0): `slice::as_ptr` on `&[]` is a dangling
                         // non-null pointer, and PMIx null-checks the pointer
@@ -535,6 +570,12 @@ pub mod callbacks {
                 }),
                 callback,
             )
+        }
+    }
+
+    impl From<ffi::pmix_lookup_cbfunc_t> for LookupCallback {
+        fn from(callback: ffi::pmix_lookup_cbfunc_t) -> Self {
+            Self::wrap_raw(callback, None)
         }
     }
 
@@ -589,17 +630,27 @@ pub mod callbacks {
     }
 
     impl SpawnCallback {
-        /// Wrap the optional C completion callback supplied by PMIx.
-        pub(crate) fn from_raw(callback: ffi::pmix_spawn_cbfunc_t) -> Option<Self> {
-            callback.map(|callback| Self::from(Some(callback)))
+        /// Wrap the optional C completion callback supplied by PMIx,
+        /// marking `taken` at the instant the wrapper invokes the C
+        /// completion (see [`CompletionTaken`]).
+        pub(crate) fn from_raw(
+            callback: ffi::pmix_spawn_cbfunc_t,
+            taken: CompletionTaken,
+        ) -> Option<Self> {
+            if callback.is_some() {
+                Some(Self::wrap_raw(callback, Some(taken)))
+            } else {
+                None
+            }
         }
-    }
 
-    impl From<ffi::pmix_spawn_cbfunc_t> for SpawnCallback {
-        fn from(callback: ffi::pmix_spawn_cbfunc_t) -> Self {
+        fn wrap_raw(callback: ffi::pmix_spawn_cbfunc_t, taken: Option<CompletionTaken>) -> Self {
             Self(
                 Box::new(move |status, nspace, cbdata| {
                     if let Some(callback) = callback {
+                        if let Some(taken) = &taken {
+                            taken.mark();
+                        }
                         // The nspace copy lives in this closure frame, so it
                         // stays valid across the synchronous one-shot C call.
                         // SAFETY contract: the C callback copies the nspace
@@ -612,6 +663,12 @@ pub mod callbacks {
                 }),
                 callback,
             )
+        }
+    }
+
+    impl From<ffi::pmix_spawn_cbfunc_t> for SpawnCallback {
+        fn from(callback: ffi::pmix_spawn_cbfunc_t) -> Self {
+            Self::wrap_raw(callback, None)
         }
     }
 
@@ -756,17 +813,27 @@ pub mod callbacks {
     }
 
     impl InfoCallback {
-        /// Wrap the optional C completion callback supplied by PMIx.
-        pub(crate) fn from_raw(callback: ffi::pmix_info_cbfunc_t) -> Option<Self> {
-            callback.map(|callback| Self::from(Some(callback)))
+        /// Wrap the optional C completion callback supplied by PMIx,
+        /// marking `taken` at the instant the wrapper invokes the C
+        /// completion (see [`CompletionTaken`]).
+        pub(crate) fn from_raw(
+            callback: ffi::pmix_info_cbfunc_t,
+            taken: CompletionTaken,
+        ) -> Option<Self> {
+            if callback.is_some() {
+                Some(Self::wrap_raw(callback, Some(taken)))
+            } else {
+                None
+            }
         }
-    }
 
-    impl From<ffi::pmix_info_cbfunc_t> for InfoCallback {
-        fn from(callback: ffi::pmix_info_cbfunc_t) -> Self {
+        fn wrap_raw(callback: ffi::pmix_info_cbfunc_t, taken: Option<CompletionTaken>) -> Self {
             Self(
                 Box::new(move |status, info, cbdata, release, release_cbdata| {
                     if let Some(callback) = callback {
+                        if let Some(taken) = &taken {
+                            taken.mark();
+                        }
                         // An empty slice must cross the FFI boundary as
                         // (NULL, 0): `slice::as_ptr` on `&[]` is a dangling
                         // non-null pointer, and PMIx null-checks the pointer
@@ -794,6 +861,12 @@ pub mod callbacks {
                 }),
                 callback,
             )
+        }
+    }
+
+    impl From<ffi::pmix_info_cbfunc_t> for InfoCallback {
+        fn from(callback: ffi::pmix_info_cbfunc_t) -> Self {
+            Self::wrap_raw(callback, None)
         }
     }
 
@@ -846,17 +919,30 @@ pub mod callbacks {
     }
 
     impl CredentialCallback {
-        /// Wrap the optional C completion callback supplied by PMIx.
-        pub(crate) fn from_raw(callback: ffi::pmix_credential_cbfunc_t) -> Option<Self> {
-            callback.map(|callback| Self::from(Some(callback)))
+        /// Wrap the optional C completion callback supplied by PMIx,
+        /// marking `taken` at the instant the wrapper invokes the C
+        /// completion (see [`CompletionTaken`]).
+        pub(crate) fn from_raw(
+            callback: ffi::pmix_credential_cbfunc_t,
+            taken: CompletionTaken,
+        ) -> Option<Self> {
+            if callback.is_some() {
+                Some(Self::wrap_raw(callback, Some(taken)))
+            } else {
+                None
+            }
         }
-    }
 
-    impl From<ffi::pmix_credential_cbfunc_t> for CredentialCallback {
-        fn from(callback: ffi::pmix_credential_cbfunc_t) -> Self {
+        fn wrap_raw(
+            callback: ffi::pmix_credential_cbfunc_t,
+            taken: Option<CompletionTaken>,
+        ) -> Self {
             Self(
                 Box::new(move |status, credential, info, cbdata| {
                     if let Some(callback) = callback {
+                        if let Some(taken) = &taken {
+                            taken.mark();
+                        }
                         // A stack byte object mirrors the credential for the
                         // duration of the synchronous one-shot call. The C
                         // type takes `pmix_byte_object_t *` (mutable), but
@@ -898,6 +984,12 @@ pub mod callbacks {
                 }),
                 callback,
             )
+        }
+    }
+
+    impl From<ffi::pmix_credential_cbfunc_t> for CredentialCallback {
+        fn from(callback: ffi::pmix_credential_cbfunc_t) -> Self {
+            Self::wrap_raw(callback, None)
         }
     }
 
@@ -1043,17 +1135,30 @@ pub mod callbacks {
     }
 
     impl ToolConnectionCallback {
-        /// Wrap the optional C completion callback supplied by PMIx.
-        pub(crate) fn from_raw(callback: ffi::pmix_tool_connection_cbfunc_t) -> Option<Self> {
-            callback.map(|callback| Self::from(Some(callback)))
+        /// Wrap the optional C completion callback supplied by PMIx,
+        /// marking `taken` at the instant the wrapper invokes the C
+        /// completion (see [`CompletionTaken`]).
+        pub(crate) fn from_raw(
+            callback: ffi::pmix_tool_connection_cbfunc_t,
+            taken: CompletionTaken,
+        ) -> Option<Self> {
+            if callback.is_some() {
+                Some(Self::wrap_raw(callback, Some(taken)))
+            } else {
+                None
+            }
         }
-    }
 
-    impl From<ffi::pmix_tool_connection_cbfunc_t> for ToolConnectionCallback {
-        fn from(callback: ffi::pmix_tool_connection_cbfunc_t) -> Self {
+        fn wrap_raw(
+            callback: ffi::pmix_tool_connection_cbfunc_t,
+            taken: Option<CompletionTaken>,
+        ) -> Self {
             Self(
                 Box::new(move |status, nspace, rank, cbdata| {
                     if let Some(callback) = callback {
+                        if let Some(taken) = &taken {
+                            taken.mark();
+                        }
                         // Stack proc storage for the synchronous one-shot
                         // call; PMIx copies the identity before returning.
                         let mut proc: ffi::pmix_proc_t = unsafe { std::mem::zeroed() };
@@ -1069,6 +1174,12 @@ pub mod callbacks {
                 }),
                 callback,
             )
+        }
+    }
+
+    impl From<ffi::pmix_tool_connection_cbfunc_t> for ToolConnectionCallback {
+        fn from(callback: ffi::pmix_tool_connection_cbfunc_t) -> Self {
+            Self::wrap_raw(callback, None)
         }
     }
 
@@ -1122,17 +1233,30 @@ pub mod callbacks {
     }
 
     impl ValidationCallback {
-        /// Wrap the optional C completion callback supplied by PMIx.
-        pub(crate) fn from_raw(callback: ffi::pmix_validation_cbfunc_t) -> Option<Self> {
-            callback.map(|callback| Self::from(Some(callback)))
+        /// Wrap the optional C completion callback supplied by PMIx,
+        /// marking `taken` at the instant the wrapper invokes the C
+        /// completion (see [`CompletionTaken`]).
+        pub(crate) fn from_raw(
+            callback: ffi::pmix_validation_cbfunc_t,
+            taken: CompletionTaken,
+        ) -> Option<Self> {
+            if callback.is_some() {
+                Some(Self::wrap_raw(callback, Some(taken)))
+            } else {
+                None
+            }
         }
-    }
 
-    impl From<ffi::pmix_validation_cbfunc_t> for ValidationCallback {
-        fn from(callback: ffi::pmix_validation_cbfunc_t) -> Self {
+        fn wrap_raw(
+            callback: ffi::pmix_validation_cbfunc_t,
+            taken: Option<CompletionTaken>,
+        ) -> Self {
             Self(
                 Box::new(move |status, info, cbdata| {
                     if let Some(callback) = callback {
+                        if let Some(taken) = &taken {
+                            taken.mark();
+                        }
                         // An empty slice must cross the FFI boundary as
                         // (NULL, 0): `slice::as_ptr` on `&[]` is a dangling
                         // non-null pointer.
@@ -1150,6 +1274,12 @@ pub mod callbacks {
                 }),
                 callback,
             )
+        }
+    }
+
+    impl From<ffi::pmix_validation_cbfunc_t> for ValidationCallback {
+        fn from(callback: ffi::pmix_validation_cbfunc_t) -> Self {
+            Self::wrap_raw(callback, None)
         }
     }
 
@@ -1202,10 +1332,18 @@ impl OpCallbackWrapper {
 
     // SAFETY: The caller must ensure PMIx permits this completion callback
     // and its opaque data to be retained and invoked from another thread.
-    unsafe fn from_raw(callback: ffi::pmix_op_cbfunc_t, cbdata: *mut c_void) -> Option<Self> {
+    unsafe fn from_raw(
+        callback: ffi::pmix_op_cbfunc_t,
+        cbdata: *mut c_void,
+        taken: CompletionTaken,
+    ) -> Option<Self> {
         callback.map(|callback| {
             let cbdata = cbdata as usize;
             Self::new(move |status| unsafe {
+                // Mark the shared flag the instant the C completion is
+                // invoked: the trampoline's panic path must know that the
+                // completion released cbdata.
+                taken.mark();
                 callback(status.to_raw(), cbdata as *mut c_void);
             })
         })
@@ -1798,16 +1936,29 @@ server_op_upcalls! {
 // into native view types, wraps the completion callback, and forwards to
 // the user callback registered in `SERVER_OP_UPCALLS`.
 //
-// Status-return semantics (per the pmix_server.h contract):
+// Status-return semantics (per the pmix_server.h contract AND the
+// OpenPMIx callers — src/server/pmix_server_ops.c,
+// src/server/pmix_server_fence.c, src/mca/ptl/base/
+// ptl_base_connection_hdlr.c): a non-success return means "the host did
+// NOT call cbfunc" — the PMIx caller releases cbdata itself and fails
+// the request. Exactly one owner of cbdata on every path:
 // * `PMIX_SUCCESS` — the host callback accepted the request and will
-//   complete it via the supplied completion callback.
+//   complete it via the supplied completion callback, OR it completed
+//   through the wrapper and THEN panicked (the completion already
+//   released cbdata; a non-success return would make the PMIx caller
+//   release it a second time).
 // * `PMIX_ERR_NOT_SUPPORTED` — the field is `None`; cbdata is NOT touched
 //   (PMIx does not expect a completion in this case).
-// * `PMIX_ERROR` — the user callback panicked. The trampoline first
-//   completes the C cbfunc with `PMIX_ERROR` so the requester is not left
-//   blocked, then returns the error. (Caveat: if the host callback
-//   completed the request and THEN panicked, PMIx observes a second,
-//   error completion — do not panic after completing.)
+// * `PMIX_ERROR` — the user callback panicked WITHOUT completing. The
+//   trampoline does NOT call the C cbfunc: the PMIx caller releases
+//   cbdata itself and fails the request. Completing the cbfunc here as
+//   well would double-free it.
+// The choice is driven by the [`CompletionTaken`] flag each trampoline
+// shares with its completion wrapper (marked exactly when the wrapper
+// invokes the C cbfunc). Void-returning slots (`tool_connected`, `log`)
+// have no status to signal with: on a panic BEFORE completion they still
+// call the C cbfunc with the panic status — the only way to unblock the
+// requester — but never once the wrapper has already completed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// `PMIX_SUCCESS` for trampoline returns.
@@ -1820,14 +1971,79 @@ fn status_not_supported() -> ffi::pmix_status_t {
     PmixStatus::Known(PmixError::ErrNotSupported).to_raw()
 }
 
-/// `PMIX_ERROR` — the status a trampoline completes/returns when the user
-/// callback panicked.
+/// `PMIX_ERROR` — the status a status-returning trampoline returns when
+/// the user callback panicked without completing (the C cbfunc is NOT
+/// called in that case; the PMIx caller releases cbdata itself).
 fn status_panic() -> ffi::pmix_status_t {
     PmixStatus::Known(PmixError::Error).to_raw()
 }
 
-/// Complete a raw `pmix_op_cbfunc_t` chain with the panic status, after a
-/// user callback panicked without completing.
+/// One-shot completion-ownership flag shared between a server-module
+/// trampoline and the completion wrapper it hands to the host callback.
+///
+/// The wrapper marks the flag at the instant it invokes the C completion
+/// callback; the trampoline reads it on its panic path so the C `cbdata`
+/// has exactly one owner:
+///
+/// * **not taken** — the host never completed. A status-returning
+///   trampoline returns `PMIX_ERROR` WITHOUT calling the C completion:
+///   PMIx treats the non-success return as "the host did not call
+///   cbfunc", so the caller releases `cbdata` itself and fails the
+///   request. A void-returning trampoline (no status to signal with)
+///   instead completes the C callback with the panic status — the only
+///   way to unblock the requester.
+/// * **taken** — the host completed through the wrapper before panicking.
+///   The C completion already released `cbdata`: the trampoline must
+///   neither call the completion again nor return a non-success status
+///   (the PMIx caller would release `cbdata` a second time).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CompletionTaken(Arc<AtomicBool>);
+
+impl CompletionTaken {
+    /// A fresh, not-taken flag.
+    pub(crate) fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Mark the C completion as invoked. Called by the completion wrapper
+    /// immediately before it invokes the C callback.
+    pub(crate) fn mark(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether the C completion has been invoked through the wrapper.
+    pub(crate) fn is_taken(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// The return status for a status-returning trampoline after the user
+/// callback ran, keeping exactly one owner of the C `cbdata`:
+///
+/// * `ok` — the host accepted the request and will complete it:
+///   `PMIX_SUCCESS`.
+/// * panicked, `taken` — the host completed through the wrapper before
+///   panicking; the C completion already released `cbdata`. Also
+///   `PMIX_SUCCESS` — a non-success return would make the PMIx caller
+///   release `cbdata` a second time. (The wrapper is consumed, so the
+///   trampoline cannot complete a second time.)
+/// * panicked, not taken — the host never completed: `PMIX_ERROR`
+///   WITHOUT calling the C completion. The PMIx caller reads the
+///   non-success return as "the host did not call cbfunc", releases
+///   `cbdata` itself, and fails the request.
+fn status_after_panic(ok: bool, taken: &CompletionTaken) -> ffi::pmix_status_t {
+    if ok || taken.is_taken() {
+        status_success()
+    } else {
+        status_panic()
+    }
+}
+
+/// Complete a raw `pmix_op_cbfunc_t` chain with the panic status. Used by
+/// the void-returning slots only (`log`): they have no status return to
+/// signal a failure with, so a host callback that panics without
+/// completing leaves the C completion as the only way to unblock the
+/// requester.
 unsafe fn complete_op_on_panic(cbfunc: ffi::pmix_op_cbfunc_t, cbdata: *mut c_void) {
     if let Some(cbfunc) = cbfunc {
         // SAFETY: PMIx supplied this completion callback and its opaque
@@ -1836,80 +2052,9 @@ unsafe fn complete_op_on_panic(cbfunc: ffi::pmix_op_cbfunc_t, cbdata: *mut c_voi
     }
 }
 
-/// Complete a raw `pmix_modex_cbfunc_t` chain with the panic status.
-unsafe fn complete_modex_on_panic(cbfunc: ffi::pmix_modex_cbfunc_t, cbdata: *mut c_void) {
-    if let Some(cbfunc) = cbfunc {
-        // SAFETY: PMIx supplied this completion callback for exactly one
-        // completion; no host-owned blob or release function is pending.
-        unsafe {
-            cbfunc(
-                status_panic(),
-                ptr::null(),
-                0,
-                cbdata,
-                None,
-                ptr::null_mut(),
-            )
-        };
-    }
-}
-
-/// Complete a raw `pmix_lookup_cbfunc_t` chain with the panic status.
-unsafe fn complete_lookup_on_panic(cbfunc: ffi::pmix_lookup_cbfunc_t, cbdata: *mut c_void) {
-    if let Some(cbfunc) = cbfunc {
-        // SAFETY: PMIx supplied this completion callback for exactly one
-        // completion; a NULL pdata array reports "no results".
-        unsafe { cbfunc(status_panic(), ptr::null_mut(), 0, cbdata) };
-    }
-}
-
-/// Complete a raw `pmix_spawn_cbfunc_t` chain with the panic status.
-unsafe fn complete_spawn_on_panic(cbfunc: ffi::pmix_spawn_cbfunc_t, cbdata: *mut c_void) {
-    if let Some(cbfunc) = cbfunc {
-        // SAFETY: PMIx supplied this completion callback for exactly one
-        // completion; a NULL nspace reports failure to assign a job.
-        unsafe { cbfunc(status_panic(), ptr::null_mut(), cbdata) };
-    }
-}
-
-/// Complete a raw `pmix_info_cbfunc_t` chain with the panic status.
-unsafe fn complete_info_on_panic(cbfunc: ffi::pmix_info_cbfunc_t, cbdata: *mut c_void) {
-    if let Some(cbfunc) = cbfunc {
-        // SAFETY: PMIx supplied this completion callback for exactly one
-        // completion; no info array and no release function are pending.
-        unsafe {
-            cbfunc(
-                status_panic(),
-                ptr::null_mut(),
-                0,
-                cbdata,
-                None,
-                ptr::null_mut(),
-            )
-        };
-    }
-}
-
-/// Complete a raw `pmix_credential_cbfunc_t` chain with the panic status.
-unsafe fn complete_credential_on_panic(cbfunc: ffi::pmix_credential_cbfunc_t, cbdata: *mut c_void) {
-    if let Some(cbfunc) = cbfunc {
-        // SAFETY: PMIx supplied this completion callback for exactly one
-        // completion; no credential or info array is handed back.
-        unsafe { cbfunc(status_panic(), ptr::null_mut(), ptr::null_mut(), 0, cbdata) };
-    }
-}
-
-/// Complete a raw `pmix_validation_cbfunc_t` chain with the panic status.
-unsafe fn complete_validation_on_panic(cbfunc: ffi::pmix_validation_cbfunc_t, cbdata: *mut c_void) {
-    if let Some(cbfunc) = cbfunc {
-        // SAFETY: PMIx supplied this completion callback for exactly one
-        // completion; a NULL info array reports "no validation info".
-        unsafe { cbfunc(status_panic(), ptr::null_mut(), 0, cbdata) };
-    }
-}
-
 /// Complete a raw `pmix_tool_connection_cbfunc_t` chain with the panic
-/// status, so the connecting tool is not left blocked.
+/// status. Used by the void-returning `tool_connected` slot only, for
+/// the same reason as [`complete_op_on_panic`].
 unsafe fn complete_tool_connection_on_panic(
     cbfunc: ffi::pmix_tool_connection_cbfunc_t,
     cbdata: *mut c_void,
@@ -1969,17 +2114,12 @@ unsafe extern "C" fn client_connected(
     // of this upcall.
     let proc = unsafe { ProcView::from_raw_ptr(proc) };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, server_object, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        // The client stays blocked unless the chain is completed.
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `client_finalized` slot: `(proc, server_object, op_cbfunc, cbdata) ->
@@ -2000,16 +2140,12 @@ unsafe extern "C" fn client_finalized(
     // SAFETY: PMIx supplies the finalizing client's proc for this upcall.
     let proc = unsafe { ProcView::from_raw_ptr(proc) };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, server_object, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `abort` slot: `(proc, server_object, status, msg, procs, nprocs,
@@ -2042,16 +2178,12 @@ unsafe extern "C" fn abort(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, server_object, status, msg, procs, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `fence_nb` slot: `(procs, nprocs, info, ninfo, data, ndata,
@@ -2082,18 +2214,14 @@ unsafe extern "C" fn fence_nb(
             view_slice(info.cast::<InfoView>(), ninfo),
         )
     };
-    let completion = cbfunc.map(|cbfunc| ModexCallback::from(Some(cbfunc)));
+    let taken = CompletionTaken::new();
+    let completion = ModexCallback::from_raw_tracked(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         // SAFETY: raw arguments are converted to native views at the FFI
         // boundary; the completion callback is wrapped.
         callback(procs, info, data, ndata, completion, cbdata);
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_modex_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `direct_modex` slot: `(proc, info, ninfo, modex_cbfunc, cbdata) ->
@@ -2121,16 +2249,12 @@ unsafe extern "C" fn direct_modex(
             view_slice(info.cast::<InfoView>(), ninfo),
         )
     };
-    let completion = cbfunc.map(|cbfunc| ModexCallback::from(Some(cbfunc)));
+    let taken = CompletionTaken::new();
+    let completion = ModexCallback::from_raw_tracked(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_modex_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `publish` slot: `(proc, info, ninfo, op_cbfunc, cbdata) ->
@@ -2158,16 +2282,12 @@ unsafe extern "C" fn publish(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `lookup` slot: `(proc, keys, info, ninfo, lookup_cbfunc, cbdata) ->
@@ -2200,16 +2320,12 @@ unsafe extern "C" fn lookup(
         )
     };
     let keys = key_vec.as_slice();
-    let completion = callbacks::LookupCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::LookupCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, keys, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_lookup_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `unpublish` slot: `(proc, keys, info, ninfo, op_cbfunc, cbdata) ->
@@ -2242,16 +2358,12 @@ unsafe extern "C" fn unpublish(
     };
     let keys = key_vec.as_slice();
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, keys, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `spawn` slot: `(proc, job_info, ninfo, apps, napps, spawn_cbfunc,
@@ -2281,16 +2393,12 @@ unsafe extern "C" fn spawn(
             view_slice(apps.cast::<AppView>(), napps),
         )
     };
-    let completion = callbacks::SpawnCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::SpawnCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, job_info, apps, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_spawn_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `connect` slot: `(procs, nprocs, info, ninfo, op_cbfunc, cbdata) ->
@@ -2321,16 +2429,12 @@ unsafe extern "C" fn connect(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(procs, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `disconnect` slot: `(procs, nprocs, info, ninfo, op_cbfunc, cbdata) ->
@@ -2359,16 +2463,12 @@ unsafe extern "C" fn disconnect(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(procs, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `register_events` slot: `(codes, ncodes, info, ninfo, op_cbfunc,
@@ -2398,16 +2498,12 @@ unsafe extern "C" fn register_events(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(codes, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `deregister_events` slot: `(codes, ncodes, op_cbfunc, cbdata) ->
@@ -2429,16 +2525,12 @@ unsafe extern "C" fn deregister_events(
     // maps to an empty slice.
     let codes = unsafe { view_slice(codes.cast::<i32>().cast_const(), ncodes) };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(codes, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `listener` slot: `(listening_sd, connection_cbfunc, cbdata) ->
@@ -2501,16 +2593,12 @@ unsafe extern "C" fn notify_event(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(code, source, range, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `query` slot: `(proct, queries, nqueries, info_cbfunc, cbdata) ->
@@ -2537,16 +2625,12 @@ unsafe extern "C" fn query(
             view_slice(queries.cast::<QueryView>().cast_const(), nqueries),
         )
     };
-    let completion = callbacks::InfoCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::InfoCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, queries, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_info_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `tool_connected` slot: `(info, ninfo, tool_connection_cbfunc, cbdata)`
@@ -2568,13 +2652,17 @@ unsafe extern "C" fn tool_connected(
     // SAFETY: PMIx supplies the tool's info array for this upcall; null +
     // 0 maps to an empty slice.
     let info = unsafe { view_slice(info.cast::<InfoView>().cast_const(), ninfo) };
-    let completion = callbacks::ToolConnectionCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::ToolConnectionCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(info, completion, cbdata)
     });
-    if !ok {
-        // No status return on this slot; still unblock the tool with an
-        // error completion.
+    if !ok && !taken.is_taken() {
+        // No status return on this slot, so completing the C cbfunc is
+        // the only way to unblock the tool: the host panicked before
+        // completing, so complete with the panic status here. If the
+        // host already completed (flag taken), the completion released
+        // cbdata — completing a second time would double-free it.
         unsafe { complete_tool_connection_on_panic(cbfunc, cbdata) };
     }
 }
@@ -2607,11 +2695,18 @@ unsafe extern "C" fn log(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(client, data, directives, completion, cbdata)
     });
-    if !ok {
+    if !ok && !taken.is_taken() {
+        // No status return on this slot, so completing the C cbfunc is
+        // the only way to unblock the requester: the host panicked
+        // before completing, so complete with the panic status here. If
+        // the host already completed (flag taken), the completion
+        // released cbdata — completing a second time would double-free
+        // it.
         unsafe { complete_op_on_panic(cbfunc, cbdata) };
     }
 }
@@ -2641,16 +2736,12 @@ unsafe extern "C" fn allocate(
             view_slice(data.cast::<InfoView>(), ndata),
         )
     };
-    let completion = callbacks::InfoCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::InfoCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(client, directive, data, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_info_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `job_control` slot: `(requestor, targets, ntargets, directives, ndirs,
@@ -2681,16 +2772,12 @@ unsafe extern "C" fn job_control(
             view_slice(directives.cast::<InfoView>(), ndirs),
         )
     };
-    let completion = callbacks::InfoCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::InfoCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, targets, directives, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_info_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `monitor` slot: `(requestor, monitor, error, directives, ndirs,
@@ -2721,16 +2808,12 @@ unsafe extern "C" fn monitor(
             view_slice(directives.cast::<InfoView>(), ndirs),
         )
     };
-    let completion = callbacks::InfoCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::InfoCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, monitor, error, directives, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_info_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `get_credential` slot: `(proc, directives, ndirs, credential_cbfunc,
@@ -2757,16 +2840,12 @@ unsafe extern "C" fn get_credential(
             view_slice(directives.cast::<InfoView>(), ndirs),
         )
     };
-    let completion = callbacks::CredentialCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::CredentialCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, directives, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_credential_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `validate_credential` slot: `(proc, cred, directives, ndirs,
@@ -2798,16 +2877,12 @@ unsafe extern "C" fn validate_credential(
             view_slice(directives.cast::<InfoView>(), ndirs),
         )
     };
-    let completion = callbacks::ValidationCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::ValidationCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, cred, directives, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_validation_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `iof_pull` slot: `(procs, nprocs, directives, ndirs, channels,
@@ -2839,16 +2914,12 @@ unsafe extern "C" fn iof_pull(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(procs, directives, channels, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `push_stdin` slot: `(source, targets, ntargets, directives, ndirs, bo,
@@ -2882,16 +2953,12 @@ unsafe extern "C" fn push_stdin(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(source, targets, directives, bo, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `group` slot: `(op, grp, procs, nprocs, directives, ndirs,
@@ -2923,16 +2990,12 @@ unsafe extern "C" fn group(
             view_slice(directives.cast::<InfoView>(), ndirs),
         )
     };
-    let completion = callbacks::InfoCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::InfoCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(op as u32, grp, procs, directives, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_info_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `fabric` slot: `(requestor, op, directives, ndirs, info_cbfunc,
@@ -2960,16 +3023,12 @@ unsafe extern "C" fn fabric(
             view_slice(directives.cast::<InfoView>(), ndirs),
         )
     };
-    let completion = callbacks::InfoCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::InfoCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, op as u32, directives, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_info_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `client_connected2` slot: `(proc, server_object, info, ninfo,
@@ -2998,16 +3057,12 @@ unsafe extern "C" fn client_connected2(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, server_object, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `tool_connected2` slot (6.x-only): `(info, ninfo,
@@ -3029,16 +3084,12 @@ unsafe extern "C" fn tool_connected2(
     // SAFETY: PMIx supplies the tool's info array for this upcall; null +
     // 0 maps to an empty slice.
     let info = unsafe { view_slice(info.cast::<InfoView>().cast_const(), ninfo) };
-    let completion = callbacks::ToolConnectionCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::ToolConnectionCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_tool_connection_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `log2` slot (6.x-only): `(client, data, ndata, directives, ndirs,
@@ -3070,16 +3121,12 @@ unsafe extern "C" fn log2(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(client, data, directives, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `session_control` slot: `(requestor, sessionID, directives, ndirs,
@@ -3107,16 +3154,12 @@ unsafe extern "C" fn session_control(
             view_slice(directives.cast::<InfoView>(), ndirs),
         )
     };
-    let completion = callbacks::InfoCallback::from_raw(cbfunc);
+    let taken = CompletionTaken::new();
+    let completion = callbacks::InfoCallback::from_raw(cbfunc, taken.clone());
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, session_id, directives, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_info_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 /// `resource_block` slot (6.x-only): `(requestor, directive, block, units,
@@ -3152,16 +3195,12 @@ unsafe extern "C" fn resource_block(
         )
     };
     // SAFETY: PMIx supplies the completion callback and its opaque data.
-    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata) };
+    let taken = CompletionTaken::new();
+    let completion = unsafe { OpCallbackWrapper::from_raw(cbfunc, cbdata, taken.clone()) };
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, directive, block, units, info, completion, cbdata)
     });
-    if ok {
-        status_success()
-    } else {
-        unsafe { complete_op_on_panic(cbfunc, cbdata) };
-        status_panic()
-    }
+    status_after_panic(ok, &taken)
 }
 
 impl PmixServerModule {

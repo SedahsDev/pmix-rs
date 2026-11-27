@@ -449,8 +449,8 @@ impl AppView {
 ///   NULL terminator is undefined behavior on the C side and cannot be
 ///   recovered here. PMIx guarantees termination for `argv` / `env` /
 ///   `keys` arrays.
-/// * Entries that are null or not valid UTF-8 are skipped, and reading
-///   stops at the first such entry.
+/// * Reading stops at the first null or non-UTF-8 entry: that entry and
+///   everything after it is not returned (valid entries before it are).
 pub(crate) unsafe fn read_str_array<'a>(array: *mut *mut c_char) -> Vec<&'a str> {
     let mut out = Vec::new();
     if array.is_null() {
