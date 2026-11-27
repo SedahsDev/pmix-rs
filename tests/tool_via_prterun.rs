@@ -44,7 +44,7 @@ fn test_is_tool_initialized_false() {
     assert!(!pmix::tool::is_tool_initialized());
 }
 
-/// PmixToolHandle accessor works.
+/// PmixTool accessor works.
 #[test]
 fn test_tool_handle_exists() {
     // Just verify the type is accessible

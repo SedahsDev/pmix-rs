@@ -530,7 +530,7 @@ fn test_static_state_lazylock_initialized() {
 #[test]
 fn test_tool_handle_is_clone() {
     fn assert_clone<T: Clone>() {}
-    assert_clone::<PmixToolHandle>();
+    assert_clone::<PmixTool>();
 }
 
 #[test]
@@ -542,7 +542,7 @@ fn test_server_handle_is_clone() {
 #[test]
 fn test_tool_handle_is_debug() {
     fn assert_debug<T: std::fmt::Debug>() {}
-    assert_debug::<PmixToolHandle>();
+    assert_debug::<PmixTool>();
 }
 
 #[test]

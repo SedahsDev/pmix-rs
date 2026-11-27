@@ -1,4 +1,4 @@
-//! Tests for `PMIx_tool_init`, `PMIx_tool_finalize`, `PmixToolHandle`,
+//! Tests for `PMIx_tool_init`, `PMIx_tool_finalize`, `PmixTool`,
 //! `tool_init_minimal`, and `is_tool_initialized`.
 //!
 //! Tests that require a live PRRTE daemon connect via the `daemon_helper`
@@ -8,34 +8,34 @@
 mod daemon_helper;
 
 use pmix::tool::{
-    PmixServerHandle, PmixToolHandle, is_tool_initialized, tool_attach_to_server, tool_disconnect,
+    PmixServerHandle, PmixTool, is_tool_initialized, tool_attach_to_server, tool_disconnect,
     tool_init,
 };
 use pmix::{InfoBuilder, PmixStatus};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PmixToolHandle — structure and traits
+// PmixTool — structure and traits
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// PmixToolHandle implements Clone.
+/// PmixTool implements Clone.
 #[test]
 fn test_tool_handle_clone() {
     fn assert_clone<T: Clone>() {}
-    assert_clone::<PmixToolHandle>();
+    assert_clone::<PmixTool>();
 }
 
-/// PmixToolHandle implements Debug.
+/// PmixTool implements Debug.
 #[test]
 fn test_tool_handle_debug() {
     fn assert_debug<T: std::fmt::Debug>() {}
-    assert_debug::<PmixToolHandle>();
+    assert_debug::<PmixTool>();
 }
 
-/// PmixToolHandle implements Clone + Debug together.
+/// PmixTool implements Clone + Debug together.
 #[test]
 fn test_tool_handle_traits() {
     fn assert_clone_debug<T: Clone + std::fmt::Debug>() {}
-    assert_clone_debug::<PmixToolHandle>();
+    assert_clone_debug::<PmixTool>();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,19 +78,21 @@ fn test_tool_init_with_daemon() {
     );
 }
 
-/// tool_init returns a handle with a valid namespace and rank.
+/// tool_init returns a session with a valid namespace and rank.
 #[test]
 fn test_tool_init_returns_valid_handle() {
-    let handle = daemon_helper::get_tool_handle().expect("tool_init failed");
+    let tool = daemon_helper::get_tool_handle().expect("tool_init failed");
 
-    // Handle should have a non-empty namespace.
-    let nspace = handle.proc().nspace();
-    assert!(nspace.is_some(), "handle should have a namespace");
+    // Session should have a non-empty namespace.
+    let proc = tool.proc();
+    assert!(proc.is_some(), "session should have a process identity");
+    let nspace = proc.unwrap().nspace();
+    assert!(nspace.is_some(), "process identity should have a namespace");
     let nspace = nspace.unwrap();
     assert!(!nspace.is_empty(), "namespace should not be empty");
 
     // Rank should be a valid u32.
-    let _rank: u32 = handle.proc().rank();
+    let _rank: u32 = tool.rank().expect("session should have a rank");
 }
 
 /// tool_init_minimal succeeds with a running daemon.

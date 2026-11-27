@@ -1097,93 +1097,93 @@ fn test_info_flags_bitor_assign() {
 #[test]
 fn test_pmix_payload_type_tag_all_variants() {
     // Undef
-    assert_eq!(PmixPayload::Undef.type_tag(), PmixDataType::Undef as u16);
+    assert_eq!(PmixPayload::Undef.type_tag(), PmixDataType::Undef);
 
     // Bool
     assert_eq!(
         PmixPayload::Bool(true).type_tag(),
-        PmixDataType::Bool as u16
+        PmixDataType::Bool
     );
 
     // Byte
-    assert_eq!(PmixPayload::Byte(42).type_tag(), PmixDataType::Byte as u16);
+    assert_eq!(PmixPayload::Byte(42).type_tag(), PmixDataType::Byte);
 
     // String
     assert_eq!(
         PmixPayload::String(CString::new("hello").unwrap()).type_tag(),
-        PmixDataType::String as u16
+        PmixDataType::String
     );
 
     // Size
     assert_eq!(
         PmixPayload::Size(1024).type_tag(),
-        PmixDataType::Size as u16
+        PmixDataType::Size
     );
 
     // Pid
-    assert_eq!(PmixPayload::Pid(1234).type_tag(), PmixDataType::Pid as u16);
+    assert_eq!(PmixPayload::Pid(1234).type_tag(), PmixDataType::Pid);
 
     // Int
-    assert_eq!(PmixPayload::Int(-42).type_tag(), PmixDataType::Int as u16);
+    assert_eq!(PmixPayload::Int(-42).type_tag(), PmixDataType::Int);
 
     // Int8
-    assert_eq!(PmixPayload::Int8(-5).type_tag(), PmixDataType::Int8 as u16);
+    assert_eq!(PmixPayload::Int8(-5).type_tag(), PmixDataType::Int8);
 
     // Int16
     assert_eq!(
         PmixPayload::Int16(-100).type_tag(),
-        PmixDataType::Int16 as u16
+        PmixDataType::Int16
     );
 
     // Int32
     assert_eq!(
         PmixPayload::Int32(-1000).type_tag(),
-        PmixDataType::Int32 as u16
+        PmixDataType::Int32
     );
 
     // Int64
     assert_eq!(
         PmixPayload::Int64(-10000).type_tag(),
-        PmixDataType::Int64 as u16
+        PmixDataType::Int64
     );
 
     // Uint
-    assert_eq!(PmixPayload::Uint(42).type_tag(), PmixDataType::Uint as u16);
+    assert_eq!(PmixPayload::Uint(42).type_tag(), PmixDataType::Uint);
 
     // Uint8
     assert_eq!(
         PmixPayload::Uint8(255).type_tag(),
-        PmixDataType::Uint8 as u16
+        PmixDataType::Uint8
     );
 
     // Uint16
     assert_eq!(
         PmixPayload::Uint16(65535).type_tag(),
-        PmixDataType::Uint16 as u16
+        PmixDataType::Uint16
     );
 
     // Uint32
     assert_eq!(
         PmixPayload::Uint32(4294967295).type_tag(),
-        PmixDataType::Uint32 as u16
+        PmixDataType::Uint32
     );
 
     // Uint64
     assert_eq!(
         PmixPayload::Uint64(18446744073709551615).type_tag(),
-        PmixDataType::Uint64 as u16
+        PmixDataType::Uint64
     );
 
     // Float
     assert_eq!(
         PmixPayload::Float(3.14).type_tag(),
-        PmixDataType::Float as u16
+        PmixDataType::Float
     );
 
     // Double
     assert_eq!(
         PmixPayload::Double(2.718).type_tag(),
-        PmixDataType::Double as u16
+        PmixDataType::Double
     );
 
     // Timeval
@@ -1193,94 +1193,94 @@ fn test_pmix_payload_type_tag_all_variants() {
             tv_usec: 500
         })
         .type_tag(),
-        PmixDataType::Timeval as u16
+        PmixDataType::Timeval
     );
 
     // Status
     assert_eq!(
         PmixPayload::Status(0).type_tag(),
-        PmixDataType::Status as u16
+        PmixDataType::Status
     );
 
     // Rank
     assert_eq!(
         PmixPayload::Rank(0).type_tag(),
-        PmixDataType::ProcRank as u16
+        PmixDataType::ProcRank
     );
 
     // Persist
     assert_eq!(
         PmixPayload::Persist(0).type_tag(),
-        PmixDataType::Persist as u16
+        PmixDataType::Persist
     );
 
     // Scope
-    assert_eq!(PmixPayload::Scope(3).type_tag(), PmixDataType::Scope as u16);
+    assert_eq!(PmixPayload::Scope(3).type_tag(), PmixDataType::Scope);
 
     // DataRange
     assert_eq!(
         PmixPayload::DataRange(4).type_tag(),
-        PmixDataType::DataRange as u16
+        PmixDataType::DataRange
     );
 
     // ProcState
     assert_eq!(
         PmixPayload::ProcState(5).type_tag(),
-        PmixDataType::ProcState as u16
+        PmixDataType::ProcState
     );
 
     // AllocDirective
     assert_eq!(
         PmixPayload::AllocDirective(43).type_tag(),
-        PmixDataType::AllocDirective as u16
+        PmixDataType::AllocDirective
     );
 
     // IofChannel
     assert_eq!(
         PmixPayload::IofChannel(1).type_tag(),
-        PmixDataType::IofChannel as u16
+        PmixDataType::IofChannel
     );
 
     // InfoDirectives
     assert_eq!(
         PmixPayload::InfoDirectives(1).type_tag(),
-        PmixDataType::InfoDirectives as u16
+        PmixDataType::InfoDirectives
     );
 
     // Proc
     let proc = Proc::new("test", 0).unwrap();
     assert_eq!(
         PmixPayload::Proc(proc).type_tag(),
-        PmixDataType::Proc as u16
+        PmixDataType::Proc
     );
 
     // ByteObject
     assert_eq!(
         PmixPayload::ByteObject(vec![1, 2, 3]).type_tag(),
-        PmixDataType::ByteObject as u16
+        PmixDataType::ByteObject
     );
 
     // Envar
     let envar = PmixEnvar::new("FOO", "bar", '=').unwrap();
     assert_eq!(
         PmixPayload::Envar(envar).type_tag(),
-        PmixDataType::Envar as u16
+        PmixDataType::Envar
     );
 
     // Pointer
     assert_eq!(
         PmixPayload::Pointer(std::ptr::null_mut()).type_tag(),
-        PmixDataType::Pointer as u16
+        PmixDataType::Pointer
     );
 
     // DataArray
     assert_eq!(
         PmixPayload::DataArray {
-            elem_type: PmixDataType::Int as u16,
+            elem_type: PmixDataType::Int.to_raw(),
             elements: vec![],
         }
         .type_tag(),
-        PmixDataType::DataArray as u16
+        PmixDataType::DataArray
     );
 }
 
@@ -1291,61 +1291,61 @@ fn test_pmix_payload_type_tag_all_variants() {
 #[test]
 fn test_value_builder_undef() {
     let v = PmixValueBuilder::new().undef().build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Undef as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Undef);
 }
 
 #[test]
 fn test_value_builder_byte() {
     let v = PmixValueBuilder::new().byte(42).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Byte as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Byte);
 }
 
 #[test]
 fn test_value_builder_pid() {
     let v = PmixValueBuilder::new().pid(1234).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Pid as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Pid);
 }
 
 #[test]
 fn test_value_builder_int() {
     let v = PmixValueBuilder::new().int(-42).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Int as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Int);
 }
 
 #[test]
 fn test_value_builder_int8() {
     let v = PmixValueBuilder::new().int8(-5).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Int8 as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Int8);
 }
 
 #[test]
 fn test_value_builder_int16() {
     let v = PmixValueBuilder::new().int16(-100).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Int16 as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Int16);
 }
 
 #[test]
 fn test_value_builder_int64() {
     let v = PmixValueBuilder::new().int64(-10000).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Int64 as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Int64);
 }
 
 #[test]
 fn test_value_builder_uint() {
     let v = PmixValueBuilder::new().uint(42).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Uint as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Uint);
 }
 
 #[test]
 fn test_value_builder_uint8() {
     let v = PmixValueBuilder::new().uint8(255).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Uint8 as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Uint8);
 }
 
 #[test]
 fn test_value_builder_uint16() {
     let v = PmixValueBuilder::new().uint16(65535).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Uint16 as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Uint16);
 }
 
 #[test]
@@ -1354,13 +1354,13 @@ fn test_value_builder_uint64() {
         .uint64(18446744073709551615)
         .build()
         .unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Uint64 as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Uint64);
 }
 
 #[test]
 fn test_value_builder_float() {
     let v = PmixValueBuilder::new().float(3.14).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Float as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Float);
 }
 
 #[test]
@@ -1372,56 +1372,56 @@ fn test_value_builder_timeval() {
         })
         .build()
         .unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Timeval as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Timeval);
 }
 
 #[test]
 fn test_value_builder_status() {
     let v = PmixValueBuilder::new().status(0).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Status as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Status);
 }
 
 #[test]
 fn test_value_builder_rank() {
     let v = PmixValueBuilder::new().rank(42).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::ProcRank as u16);
+    assert_eq!(v.type_tag(), PmixDataType::ProcRank);
 }
 
 #[test]
 fn test_value_builder_persist() {
     let v = PmixValueBuilder::new().persist(0).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Persist as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Persist);
 }
 
 #[test]
 fn test_value_builder_proc_state() {
     let v = PmixValueBuilder::new().proc_state(5).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::ProcState as u16);
+    assert_eq!(v.type_tag(), PmixDataType::ProcState);
 }
 
 #[test]
 fn test_value_builder_alloc_directive() {
     let v = PmixValueBuilder::new().alloc_directive(43).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::AllocDirective as u16);
+    assert_eq!(v.type_tag(), PmixDataType::AllocDirective);
 }
 
 #[test]
 fn test_value_builder_iof_channel() {
     let v = PmixValueBuilder::new().iof_channel(1).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::IofChannel as u16);
+    assert_eq!(v.type_tag(), PmixDataType::IofChannel);
 }
 
 #[test]
 fn test_value_builder_info_directives() {
     let v = PmixValueBuilder::new().info_directives(1).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::InfoDirectives as u16);
+    assert_eq!(v.type_tag(), PmixDataType::InfoDirectives);
 }
 
 #[test]
 fn test_value_builder_proc() {
     let proc = Proc::new("test_nspace", 42).unwrap();
     let v = PmixValueBuilder::new().proc_(proc).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Proc as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Proc);
 }
 
 #[test]
@@ -1431,7 +1431,7 @@ fn test_value_builder_byte_object() {
         .unwrap()
         .build()
         .unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::ByteObject as u16);
+    assert_eq!(v.type_tag(), PmixDataType::ByteObject);
 }
 
 #[test]
@@ -1443,7 +1443,7 @@ fn test_value_builder_byte_object_empty_fails() {
 fn test_value_builder_envar() {
     let envar = PmixEnvar::new("FOO", "bar", '=').unwrap();
     let v = PmixValueBuilder::new().envar(envar).build().unwrap();
-    assert_eq!(v.type_tag(), PmixDataType::Envar as u16);
+    assert_eq!(v.type_tag(), PmixDataType::Envar);
 }
 
 #[test]
@@ -1465,7 +1465,7 @@ fn test_value_builder_build_raw() {
     // build_raw returns pmix_value_t (not accessible from outside crate).
     // Verify via PmixOwnedValue instead.
     let val = PmixValueBuilder::new().uint32(42).build().unwrap();
-    assert_eq!(val.type_tag(), PmixDataType::Uint32 as u16);
+    assert_eq!(val.type_tag(), PmixDataType::Uint32);
 }
 
 #[test]
@@ -1480,7 +1480,7 @@ fn test_value_builder_build_raw_missing() {
 #[test]
 fn test_value_builder_string_array() {
     let (val, keys) = PmixValueBuilder::string_array(&["pmix.timeout", "pmix.collect"]).unwrap();
-    assert_eq!(val.type_tag(), PmixDataType::DataArray as u16);
+    assert_eq!(val.type_tag(), PmixDataType::DataArray);
     let _ptr: *const *const std::ffi::c_char = keys.as_ptr();
 }
 
@@ -1515,7 +1515,7 @@ fn test_pmix_owned_value_as_raw_mut() {
 #[test]
 fn test_pmix_owned_value_type_tag() {
     let val = PmixValueBuilder::new().uint32(42).build().unwrap();
-    assert_eq!(val.type_tag(), PmixDataType::Uint32 as u16);
+    assert_eq!(val.type_tag(), PmixDataType::Uint32);
 }
 
 #[test]
@@ -1547,7 +1547,7 @@ fn test_pmix_owned_value_debug() {
 fn test_pmix_owned_value_into_raw() {
     let val = PmixValueBuilder::new().uint32(42).build().unwrap();
     // Verify type_tag before transferring ownership
-    assert_eq!(val.type_tag(), PmixDataType::Uint32 as u16);
+    assert_eq!(val.type_tag(), PmixDataType::Uint32);
     // Transfer ownership out — PmixOwnedValue is forgotten, Drop won't run
     let _raw = val.into_raw();
     // Intentionally leaked to avoid needing pmix_value_t from outside the crate.

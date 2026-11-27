@@ -67,10 +67,12 @@ fn test_tool_init_returns_valid_handle() {
     let _guard = daemon_helper::connect_to_daemon().expect("PMIx daemon not available");
     let info = InfoBuilder::new().build();
     let handle = pmix::tool::tool_init(None, &info).expect("tool_init failed");
-    let nspace = handle.proc().nspace();
+    let proc = handle.proc();
+    assert!(proc.is_some(), "session should have a process identity");
+    let nspace = proc.unwrap().nspace();
     assert!(nspace.is_some(), "handle should have a namespace");
     assert!(!nspace.unwrap().is_empty(), "namespace should not be empty");
-    let _rank: u32 = handle.proc().rank();
+    let _rank: u32 = handle.rank().expect("session should have a rank");
 }
 
 /// tool_init with Info succeeds.
@@ -410,9 +412,10 @@ fn test_pmix_payload_variants() {
 
 #[test]
 fn test_pmix_payload_type_tag() {
-    assert_eq!(PmixPayload::Bool(true).type_tag(), 1);
-    assert_eq!(PmixPayload::Int(42).type_tag(), 6);
-    assert_eq!(PmixPayload::Size(1024).type_tag(), 4);
+    use pmix::PmixDataType;
+    assert_eq!(PmixPayload::Bool(true).type_tag(), PmixDataType::Bool);
+    assert_eq!(PmixPayload::Int(42).type_tag(), PmixDataType::Int);
+    assert_eq!(PmixPayload::Size(1024).type_tag(), PmixDataType::Size);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -488,7 +491,7 @@ fn test_value_builder_new() {
 #[test]
 fn test_value_builder_bool() {
     let value = PmixValueBuilder::new().bool(true).build().unwrap();
-    assert_eq!(value.type_tag(), 1);
+    assert_eq!(value.type_tag().to_raw(), 1);
 }
 
 #[test]
@@ -499,35 +502,35 @@ fn test_value_builder_string() {
         .build()
         .unwrap();
     // PMIX_STRING
-    assert_eq!(value.type_tag(), 3);
+    assert_eq!(value.type_tag().to_raw(), 3);
 }
 
 #[test]
 fn test_value_builder_u32() {
     let value = PmixValueBuilder::new().uint32(42).build().unwrap();
     // PMIX_UINT32
-    assert_eq!(value.type_tag(), 14);
+    assert_eq!(value.type_tag().to_raw(), 14);
 }
 
 #[test]
 fn test_value_builder_i32() {
     let value = PmixValueBuilder::new().int32(-42).build().unwrap();
     // PMIX_INT32
-    assert_eq!(value.type_tag(), 9);
+    assert_eq!(value.type_tag().to_raw(), 9);
 }
 
 #[test]
 fn test_value_builder_f64() {
     let value = PmixValueBuilder::new().double(3.14).build().unwrap();
     // PMIX_DOUBLE
-    assert_eq!(value.type_tag(), 17);
+    assert_eq!(value.type_tag().to_raw(), 17);
 }
 
 #[test]
 fn test_value_builder_size() {
     let value = PmixValueBuilder::new().size(1024).build().unwrap();
     // PMIX_SIZE
-    assert_eq!(value.type_tag(), 4);
+    assert_eq!(value.type_tag().to_raw(), 4);
 }
 
 #[test]
@@ -538,7 +541,7 @@ fn test_value_builder_scope() {
         .build()
         .unwrap();
     // PMIX_SCOPE
-    assert_eq!(value.type_tag(), 32);
+    assert_eq!(value.type_tag().to_raw(), 32);
 }
 
 #[test]
@@ -549,7 +552,7 @@ fn test_value_builder_data_range() {
         .build()
         .unwrap();
     // PMIX_DATA_RANGE
-    assert_eq!(value.type_tag(), 33);
+    assert_eq!(value.type_tag().to_raw(), 33);
 }
 
 #[test]
@@ -560,7 +563,7 @@ fn test_value_builder_persistence() {
         .build()
         .unwrap();
     // PMIX_PERSISTENCE
-    assert_eq!(value.type_tag(), 30);
+    assert_eq!(value.type_tag().to_raw(), 30);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

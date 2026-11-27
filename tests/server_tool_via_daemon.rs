@@ -50,10 +50,10 @@ fn test_server_tool_attach_to_server_type_check() {
     > = server_tool_attach_to_server;
 }
 
-/// PmixToolHandle is constructible as a type reference.
+/// PmixTool is constructible as a type reference.
 #[test]
 fn test_pmix_tool_handle_type_exists() {
-    let _ = std::any::type_name::<pmix::tool::PmixToolHandle>();
+    let _ = std::any::type_name::<pmix::tool::PmixTool>();
 }
 
 /// PmixServerHandle (tool variant) is constructible as a type reference.

@@ -749,7 +749,7 @@ pub fn server_spawn_nb(
 /// * `info` — directives for the attach operation.
 ///
 /// # Returns
-/// * `Ok((Option<PmixToolHandle>, Option<PmixServerHandle>))` — tool and/or server handles.
+/// * `Ok((Option<PmixTool>, Option<PmixServerHandle>))` — tool and/or server handles.
 /// * `Err(PmixStatus)` — attach failed.
 ///
 /// # C API

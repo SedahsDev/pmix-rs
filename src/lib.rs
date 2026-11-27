@@ -4519,35 +4519,35 @@ mod tests {
 
     #[test]
     fn test_pmix_payload_type_tag_scalars() {
-        assert_eq!(PmixPayload::Undef.type_tag(), PMIX_UNDEF as u16);
-        assert_eq!(PmixPayload::Bool(true).type_tag(), PMIX_BOOL as u16);
-        assert_eq!(PmixPayload::Byte(42).type_tag(), PMIX_BYTE as u16);
-        assert_eq!(PmixPayload::Size(100).type_tag(), PMIX_SIZE as u16);
-        assert_eq!(PmixPayload::Pid(1234).type_tag(), PMIX_PID as u16);
-        assert_eq!(PmixPayload::Int(42).type_tag(), PMIX_INT as u16);
-        assert_eq!(PmixPayload::Int8(8).type_tag(), PMIX_INT8 as u16);
-        assert_eq!(PmixPayload::Int16(16).type_tag(), PMIX_INT16 as u16);
-        assert_eq!(PmixPayload::Int32(32).type_tag(), PMIX_INT32 as u16);
-        assert_eq!(PmixPayload::Int64(64).type_tag(), PMIX_INT64 as u16);
-        assert_eq!(PmixPayload::Uint(42).type_tag(), PMIX_UINT as u16);
-        assert_eq!(PmixPayload::Uint8(8).type_tag(), PMIX_UINT8 as u16);
-        assert_eq!(PmixPayload::Uint16(16).type_tag(), PMIX_UINT16 as u16);
-        assert_eq!(PmixPayload::Uint32(32).type_tag(), PMIX_UINT32 as u16);
-        assert_eq!(PmixPayload::Uint64(64).type_tag(), PMIX_UINT64 as u16);
-        assert_eq!(PmixPayload::Float(1.0).type_tag(), PMIX_FLOAT as u16);
-        assert_eq!(PmixPayload::Double(1.0).type_tag(), PMIX_DOUBLE as u16);
+        assert_eq!(PmixPayload::Undef.type_tag().to_raw(), PMIX_UNDEF as u16);
+        assert_eq!(PmixPayload::Bool(true).type_tag().to_raw(), PMIX_BOOL as u16);
+        assert_eq!(PmixPayload::Byte(42).type_tag().to_raw(), PMIX_BYTE as u16);
+        assert_eq!(PmixPayload::Size(100).type_tag().to_raw(), PMIX_SIZE as u16);
+        assert_eq!(PmixPayload::Pid(1234).type_tag().to_raw(), PMIX_PID as u16);
+        assert_eq!(PmixPayload::Int(42).type_tag().to_raw(), PMIX_INT as u16);
+        assert_eq!(PmixPayload::Int8(8).type_tag().to_raw(), PMIX_INT8 as u16);
+        assert_eq!(PmixPayload::Int16(16).type_tag().to_raw(), PMIX_INT16 as u16);
+        assert_eq!(PmixPayload::Int32(32).type_tag().to_raw(), PMIX_INT32 as u16);
+        assert_eq!(PmixPayload::Int64(64).type_tag().to_raw(), PMIX_INT64 as u16);
+        assert_eq!(PmixPayload::Uint(42).type_tag().to_raw(), PMIX_UINT as u16);
+        assert_eq!(PmixPayload::Uint8(8).type_tag().to_raw(), PMIX_UINT8 as u16);
+        assert_eq!(PmixPayload::Uint16(16).type_tag().to_raw(), PMIX_UINT16 as u16);
+        assert_eq!(PmixPayload::Uint32(32).type_tag().to_raw(), PMIX_UINT32 as u16);
+        assert_eq!(PmixPayload::Uint64(64).type_tag().to_raw(), PMIX_UINT64 as u16);
+        assert_eq!(PmixPayload::Float(1.0).type_tag().to_raw(), PMIX_FLOAT as u16);
+        assert_eq!(PmixPayload::Double(1.0).type_tag().to_raw(), PMIX_DOUBLE as u16);
     }
 
     #[test]
     fn test_pmix_payload_type_tag_composite() {
-        assert_eq!(PmixPayload::Status(0).type_tag(), PMIX_STATUS as u16);
-        assert_eq!(PmixPayload::Rank(0).type_tag(), PMIX_PROC_RANK as u16);
+        assert_eq!(PmixPayload::Status(0).type_tag().to_raw(), PMIX_STATUS as u16);
+        assert_eq!(PmixPayload::Rank(0).type_tag().to_raw(), PmixDataType::Proc.to_raw());
         assert_eq!(
-            PmixPayload::ByteObject(vec![1, 2, 3]).type_tag(),
+            PmixPayload::ByteObject(vec![1, 2, 3]).type_tag().to_raw(),
             PMIX_BYTE_OBJECT as u16
         );
         assert_eq!(
-            PmixPayload::Pointer(std::ptr::null_mut()).type_tag(),
+            PmixPayload::Pointer(std::ptr::null_mut()).type_tag().to_raw(),
             PMIX_POINTER as u16
         );
     }
@@ -4555,16 +4555,16 @@ mod tests {
     #[test]
     fn test_pmix_payload_type_tag_string() {
         let payload = PmixPayload::String(CString::new("hello").unwrap());
-        assert_eq!(payload.type_tag(), PMIX_STRING as u16);
+        assert_eq!(payload.type_tag().to_raw(), PMIX_STRING as u16);
     }
 
     #[test]
     fn test_pmix_payload_type_tag_data_array() {
         let payload = PmixPayload::DataArray {
-            elem_type: PMIX_INT as u16,
+            elem_type: PmixDataType::Int.to_raw(),
             elements: vec![],
         };
-        assert_eq!(payload.type_tag(), PMIX_DATA_ARRAY as u16);
+        assert_eq!(payload.type_tag().to_raw(), PMIX_DATA_ARRAY as u16);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -5005,7 +5005,7 @@ mod tests {
         let e2 = PmixValueBuilder::new().int32(2).build_raw().unwrap();
         let e3 = PmixValueBuilder::new().int32(3).build_raw().unwrap();
         let owned = PmixValueBuilder::new()
-            .data_array(PMIX_INT as u16, vec![e1, e2, e3])
+            .data_array(PmixDataType::Int.to_raw(), vec![e1, e2, e3])
             .unwrap()
             .build()
             .unwrap();
