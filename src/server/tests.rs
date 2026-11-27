@@ -3554,13 +3554,16 @@ unsafe fn publish_panic_before_completion(
     panic!("panic-path test: host upcall panics before completing");
 }
 
-/// A user-callback panic WITHOUT completing must NOT call the C cbfunc,
-/// and the trampoline must return `PMIX_ERROR`: PMIx treats the
-/// non-success return as "the host did not call cbfunc", so the caller
-/// releases cbdata itself and fails the request. Calling the cbfunc here
-/// as well would double-free cbdata.
+/// A user-callback panic WITHOUT completing follows the one-call-then-
+/// SUCCESS policy: the trampoline must invoke the C cbfunc exactly ONCE
+/// with `PMIX_ERROR` and return `PMIX_SUCCESS`. Returning non-success
+/// instead would be safe for the status-honoring callers
+/// (pmix_server_ops.c releases cbdata itself), but it hangs the
+/// status-IGNORING pmix_server_execute_collective path; completing AND
+/// returning non-success would double-free cbdata on the
+/// status-honoring path. One call + SUCCESS satisfies both.
 #[test]
-fn test_publish_trampoline_panic_before_completion_skips_cbfunc_and_errors() {
+fn test_publish_trampoline_panic_before_completion_calls_cbfunc_once_and_succeeds() {
     let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule {
         publish: Some(publish_panic_before_completion),
@@ -3585,15 +3588,113 @@ fn test_publish_trampoline_panic_before_completion_skips_cbfunc_and_errors() {
 
     assert_eq!(
         PANIC_OP_CALLS.load(Ordering::SeqCst),
-        0,
-        "a panic before completion must NOT call the C cbfunc — the \
-         non-success return already tells PMIx to release cbdata itself"
+        1,
+        "a panic before completion must call the C cbfunc exactly once — \
+         pmix_server_execute_collective ignores the returned status and \
+         hangs unless the host (or the trampoline on its behalf) completes"
+    );
+    assert_eq!(
+        PANIC_OP_STATUS.load(Ordering::SeqCst),
+        ffi::PMIX_ERROR as isize,
+        "the trampoline-supplied panic completion must carry PMIX_ERROR"
     );
     assert_eq!(
         status,
-        ffi::PMIX_ERROR,
-        "a panic before completion must return PMIX_ERROR so the PMIx \
-         caller releases cbdata and fails the request itself"
+        ffi::PMIX_SUCCESS as i32,
+        "a panic before completion must return PMIX_SUCCESS — a non-success \
+         return would make the status-honoring PMIx callers release the \
+         cbdata the panic completion already released"
+    );
+}
+
+/// C `pmix_modex_cbfunc_t` mock for the panic-path tests: records every
+/// invocation and the status of the most recent one (never dereferences
+/// its cbdata).
+static PANIC_MODEX_CALLS: AtomicUsize = AtomicUsize::new(0);
+static PANIC_MODEX_STATUS: AtomicIsize = AtomicIsize::new(0);
+
+unsafe extern "C" fn panic_path_modex_completion(
+    status: i32,
+    _data: *const std::os::raw::c_char,
+    _ndata: usize,
+    _cbdata: *mut std::os::raw::c_void,
+    _release_fn: Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+    _release_cbdata: *mut std::os::raw::c_void,
+) {
+    PANIC_MODEX_CALLS.fetch_add(1, Ordering::SeqCst);
+    PANIC_MODEX_STATUS.store(status as isize, Ordering::SeqCst);
+}
+
+/// Native `fence_nb` upcall that panics WITHOUT completing.
+unsafe fn fence_nb_panic_before_completion(
+    _procs: &[crate::views::ProcView],
+    _info: &[crate::views::InfoView],
+    _data: *mut std::os::raw::c_char,
+    _ndata: usize,
+    _cbfunc: Option<ModexCallback>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    panic!("panic-path test: fence_nb host upcall panics before completing");
+}
+
+/// The fence_nb trampoline follows the same one-call-then-SUCCESS policy
+/// on its modex completion: fence_nb is the slot behind
+/// pmix_server_execute_collective, which IGNORES the returned status
+/// and hangs unless the host calls the modex cbfunc, so a panic before
+/// completion must call the C cbfunc exactly once with `PMIX_ERROR` and
+/// still return `PMIX_SUCCESS` (pmix_server_fence.c and
+/// ptl_base_sendrecv.c honor the status and would double-release the
+/// tracker on a non-success return).
+#[test]
+fn test_fence_nb_trampoline_panic_before_completion_calls_modex_once_and_succeeds() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        fence_nb: Some(fence_nb_panic_before_completion),
+        ..Default::default()
+    };
+    let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+    // SAFETY: the module stays alive for the synchronous trampoline call;
+    // the slot holds the `fence_nb` trampoline with exactly the bindgen
+    // `pmix_server_fencenb_fn_t` signature.
+    let trampoline = unsafe { (*raw).fence_nb }.expect("fence_nb slot installed");
+
+    let data = RawUpcallData::new();
+    PANIC_MODEX_CALLS.store(0, Ordering::SeqCst);
+    PANIC_MODEX_STATUS.store(0, Ordering::SeqCst);
+    // SAFETY: `data` stays alive for the synchronous trampoline call; the
+    // completion mock records but never dereferences its cbdata. A null
+    // blob with zero length is the "no data collected" fence case.
+    let status = unsafe {
+        trampoline(
+            &data.proc,
+            1,
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            Some(panic_path_modex_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        )
+    };
+
+    assert_eq!(
+        PANIC_MODEX_CALLS.load(Ordering::SeqCst),
+        1,
+        "a panic before completion must call the C modex cbfunc exactly \
+         once — pmix_server_execute_collective discards the returned \
+         status and hangs unless the modex completion fires"
+    );
+    assert_eq!(
+        PANIC_MODEX_STATUS.load(Ordering::SeqCst),
+        ffi::PMIX_ERROR as isize,
+        "the trampoline-supplied panic completion must carry PMIX_ERROR"
+    );
+    assert_eq!(
+        status,
+        ffi::PMIX_SUCCESS as i32,
+        "a panic before completion must return PMIX_SUCCESS — a non-success \
+         return would make the status-honoring fence callers release the \
+         tracker the panic completion already completed"
     );
 }
 

@@ -298,7 +298,7 @@ pub mod callbacks {
     type RawModexCallback = ffi::pmix_modex_cbfunc_t;
 
     /// An owned, one-shot modex completion callback supplied by PMIx.
-    pub struct ModexCallback(Box<ModexClosure>, RawModexCallback);
+    pub struct ModexCallback(Box<ModexClosure>, RawModexCallback, Option<CompletionTaken>);
 
     impl ModexCallback {
         /// Wrap a Rust modex callback for invocation with [`Self::call`].
@@ -313,7 +313,7 @@ pub mod callbacks {
             ) + Send
             + 'static,
         ) -> Self {
-            Self(Box::new(callback), None)
+            Self(Box::new(callback), None, None)
         }
 
         /// Complete the modex operation, consuming this wrapper.
@@ -336,6 +336,11 @@ pub mod callbacks {
         /// Restore the original C callback, consuming this wrapper.
         ///
         /// Returns `None` for a Rust closure created with [`Self::new`].
+        /// For a tracked wrapper (server trampoline origin) this marks
+        /// the shared [`CompletionTaken`] flag on extract: the marking
+        /// closure is dropped and the bare C function pointer escapes,
+        /// so any completion through it must still be visible to the
+        /// trampoline's panic path.
         pub fn into_c_callback(
             self,
         ) -> Option<
@@ -348,13 +353,17 @@ pub mod callbacks {
                 *mut c_void,
             ),
         > {
-            self.1
+            let Self(_, callback, taken) = self;
+            if let Some(taken) = taken {
+                taken.mark();
+            }
+            callback
         }
     }
 
     impl ModexCallback {
         /// Wrap the optional C completion callback supplied by PMIx,
-        /// marking `taken` at the instant the wrapper invokes the C
+        /// claiming `taken` at the instant the wrapper invokes the C
         /// completion (see [`CompletionTaken`]).
         pub(crate) fn from_raw_tracked(
             callback: ffi::pmix_modex_cbfunc_t,
@@ -368,11 +377,22 @@ pub mod callbacks {
         }
 
         fn wrap_raw(callback: RawModexCallback, taken: Option<CompletionTaken>) -> Self {
+            let closure_taken = taken.clone();
             Self(
                 Box::new(move |status, data, len, cbdata, release, release_cbdata| {
                     if let Some(callback) = callback {
-                        if let Some(taken) = &taken {
-                            taken.mark();
+                        // Prepare the release function BEFORE claiming so
+                        // a later fallible prep can never take the
+                        // one-shot right without a call following it.
+                        let release_fn = release.into_c_callback();
+                        if let Some(taken) = &closure_taken {
+                            if !taken.claim() {
+                                // A racing trampoline panic path already
+                                // completed the chain — invoking the C
+                                // callback again would double-release
+                                // cbdata.
+                                return;
+                            }
                         }
                         // SAFETY: call requires the original callback contract.
                         unsafe {
@@ -381,13 +401,14 @@ pub mod callbacks {
                                 data,
                                 len,
                                 cbdata,
-                                release.into_c_callback(),
+                                release_fn,
                                 release_cbdata,
                             );
                         }
                     }
                 }),
                 callback,
+                taken,
             )
         }
     }
@@ -532,7 +553,7 @@ pub mod callbacks {
 
     impl LookupCallback {
         /// Wrap the optional C completion callback supplied by PMIx,
-        /// marking `taken` at the instant the wrapper invokes the C
+        /// claiming `taken` at the instant the wrapper invokes the C
         /// completion (see [`CompletionTaken`]).
         pub(crate) fn from_raw(
             callback: ffi::pmix_lookup_cbfunc_t,
@@ -549,9 +570,6 @@ pub mod callbacks {
             Self(
                 Box::new(move |status, data, cbdata| {
                     if let Some(callback) = callback {
-                        if let Some(taken) = &taken {
-                            taken.mark();
-                        }
                         // An empty slice must cross the FFI boundary as
                         // (NULL, 0): `slice::as_ptr` on `&[]` is a dangling
                         // non-null pointer, and PMIx null-checks the pointer
@@ -564,6 +582,15 @@ pub mod callbacks {
                                 data.len(),
                             )
                         };
+                        if let Some(taken) = &taken {
+                            if !taken.claim() {
+                                // A racing trampoline panic path already
+                                // completed the chain — invoking the C
+                                // callback again would double-release
+                                // cbdata.
+                                return;
+                            }
+                        }
                         // SAFETY: call requires the original callback contract.
                         unsafe { callback(status.to_raw(), data, ndata, cbdata) };
                     }
@@ -593,6 +620,7 @@ pub mod callbacks {
     pub struct SpawnCallback(
         Box<dyn FnOnce(PmixStatus, &crate::views::NspaceView, *mut c_void) + Send + 'static>,
         ffi::pmix_spawn_cbfunc_t,
+        Option<CompletionTaken>,
     );
 
     impl SpawnCallback {
@@ -600,7 +628,7 @@ pub mod callbacks {
         pub fn new(
             callback: impl FnOnce(PmixStatus, &crate::views::NspaceView, *mut c_void) + Send + 'static,
         ) -> Self {
-            Self(Box::new(callback), None)
+            Self(Box::new(callback), None, None)
         }
 
         /// Complete the spawn, consuming this wrapper, with the new job's
@@ -622,16 +650,25 @@ pub mod callbacks {
         /// Restore the original C callback, consuming this wrapper.
         ///
         /// Returns `None` for a Rust closure created with [`Self::new`].
+        /// For a tracked wrapper (server trampoline origin) this marks
+        /// the shared [`CompletionTaken`] flag on extract: the marking
+        /// closure is dropped and the bare C function pointer escapes,
+        /// so any completion through it must still be visible to the
+        /// trampoline's panic path.
         pub fn into_c_callback(
             self,
         ) -> Option<unsafe extern "C" fn(i32, *mut c_char, *mut c_void)> {
-            self.1
+            let Self(_, callback, taken) = self;
+            if let Some(taken) = taken {
+                taken.mark();
+            }
+            callback
         }
     }
 
     impl SpawnCallback {
         /// Wrap the optional C completion callback supplied by PMIx,
-        /// marking `taken` at the instant the wrapper invokes the C
+        /// claiming `taken` at the instant the wrapper invokes the C
         /// completion (see [`CompletionTaken`]).
         pub(crate) fn from_raw(
             callback: ffi::pmix_spawn_cbfunc_t,
@@ -645,23 +682,31 @@ pub mod callbacks {
         }
 
         fn wrap_raw(callback: ffi::pmix_spawn_cbfunc_t, taken: Option<CompletionTaken>) -> Self {
+            let closure_taken = taken.clone();
             Self(
                 Box::new(move |status, nspace, cbdata| {
                     if let Some(callback) = callback {
-                        if let Some(taken) = &taken {
-                            taken.mark();
-                        }
                         // The nspace copy lives in this closure frame, so it
                         // stays valid across the synchronous one-shot C call.
                         // SAFETY contract: the C callback copies the nspace
                         // into its own storage before returning; the borrow
                         // ends when this closure returns.
                         let mut nspace_copy = nspace.raw_copy();
+                        if let Some(taken) = &closure_taken {
+                            if !taken.claim() {
+                                // A racing trampoline panic path already
+                                // completed the chain — invoking the C
+                                // callback again would double-release
+                                // cbdata.
+                                return;
+                            }
+                        }
                         // SAFETY: call requires the original callback contract.
                         unsafe { callback(status.to_raw(), nspace_copy.as_mut_ptr(), cbdata) };
                     }
                 }),
                 callback,
+                taken,
             )
         }
     }
@@ -814,7 +859,7 @@ pub mod callbacks {
 
     impl InfoCallback {
         /// Wrap the optional C completion callback supplied by PMIx,
-        /// marking `taken` at the instant the wrapper invokes the C
+        /// claiming `taken` at the instant the wrapper invokes the C
         /// completion (see [`CompletionTaken`]).
         pub(crate) fn from_raw(
             callback: ffi::pmix_info_cbfunc_t,
@@ -831,9 +876,6 @@ pub mod callbacks {
             Self(
                 Box::new(move |status, info, cbdata, release, release_cbdata| {
                     if let Some(callback) = callback {
-                        if let Some(taken) = &taken {
-                            taken.mark();
-                        }
                         // An empty slice must cross the FFI boundary as
                         // (NULL, 0): `slice::as_ptr` on `&[]` is a dangling
                         // non-null pointer, and PMIx null-checks the pointer
@@ -846,6 +888,19 @@ pub mod callbacks {
                                 info.len(),
                             )
                         };
+                        // Prepare the release function BEFORE claiming so
+                        // a fallible prep can never take the one-shot
+                        // right without a call following it.
+                        let release_fn = release.into_c_callback();
+                        if let Some(taken) = &taken {
+                            if !taken.claim() {
+                                // A racing trampoline panic path already
+                                // completed the chain — invoking the C
+                                // callback again would double-release
+                                // cbdata.
+                                return;
+                            }
+                        }
                         // SAFETY: call requires the original callback contract.
                         unsafe {
                             callback(
@@ -853,7 +908,7 @@ pub mod callbacks {
                                 info,
                                 ninfo,
                                 cbdata,
-                                release.into_c_callback(),
+                                release_fn,
                                 release_cbdata,
                             )
                         };
@@ -920,7 +975,7 @@ pub mod callbacks {
 
     impl CredentialCallback {
         /// Wrap the optional C completion callback supplied by PMIx,
-        /// marking `taken` at the instant the wrapper invokes the C
+        /// claiming `taken` at the instant the wrapper invokes the C
         /// completion (see [`CompletionTaken`]).
         pub(crate) fn from_raw(
             callback: ffi::pmix_credential_cbfunc_t,
@@ -940,9 +995,6 @@ pub mod callbacks {
             Self(
                 Box::new(move |status, credential, info, cbdata| {
                     if let Some(callback) = callback {
-                        if let Some(taken) = &taken {
-                            taken.mark();
-                        }
                         // A stack byte object mirrors the credential for the
                         // duration of the synchronous one-shot call. The C
                         // type takes `pmix_byte_object_t *` (mutable), but
@@ -969,6 +1021,15 @@ pub mod callbacks {
                                 info.len(),
                             )
                         };
+                        if let Some(taken) = &taken {
+                            if !taken.claim() {
+                                // A racing trampoline panic path already
+                                // completed the chain — invoking the C
+                                // callback again would double-release
+                                // cbdata.
+                                return;
+                            }
+                        }
                         // SAFETY: call requires the original callback contract.
                         unsafe {
                             callback(
@@ -1136,7 +1197,7 @@ pub mod callbacks {
 
     impl ToolConnectionCallback {
         /// Wrap the optional C completion callback supplied by PMIx,
-        /// marking `taken` at the instant the wrapper invokes the C
+        /// claiming `taken` at the instant the wrapper invokes the C
         /// completion (see [`CompletionTaken`]).
         pub(crate) fn from_raw(
             callback: ffi::pmix_tool_connection_cbfunc_t,
@@ -1156,9 +1217,6 @@ pub mod callbacks {
             Self(
                 Box::new(move |status, nspace, rank, cbdata| {
                     if let Some(callback) = callback {
-                        if let Some(taken) = &taken {
-                            taken.mark();
-                        }
                         // Stack proc storage for the synchronous one-shot
                         // call; PMIx copies the identity before returning.
                         let mut proc: ffi::pmix_proc_t = unsafe { std::mem::zeroed() };
@@ -1168,6 +1226,15 @@ pub mod callbacks {
                         }
                         proc.nspace[end] = 0;
                         proc.rank = rank;
+                        if let Some(taken) = &taken {
+                            if !taken.claim() {
+                                // A racing trampoline panic path already
+                                // completed the chain — invoking the C
+                                // callback again would double-release
+                                // cbdata.
+                                return;
+                            }
+                        }
                         // SAFETY: call requires the original callback contract.
                         unsafe { callback(status.to_raw(), &mut proc, cbdata) };
                     }
@@ -1234,7 +1301,7 @@ pub mod callbacks {
 
     impl ValidationCallback {
         /// Wrap the optional C completion callback supplied by PMIx,
-        /// marking `taken` at the instant the wrapper invokes the C
+        /// claiming `taken` at the instant the wrapper invokes the C
         /// completion (see [`CompletionTaken`]).
         pub(crate) fn from_raw(
             callback: ffi::pmix_validation_cbfunc_t,
@@ -1254,9 +1321,6 @@ pub mod callbacks {
             Self(
                 Box::new(move |status, info, cbdata| {
                     if let Some(callback) = callback {
-                        if let Some(taken) = &taken {
-                            taken.mark();
-                        }
                         // An empty slice must cross the FFI boundary as
                         // (NULL, 0): `slice::as_ptr` on `&[]` is a dangling
                         // non-null pointer.
@@ -1268,6 +1332,15 @@ pub mod callbacks {
                                 info.len(),
                             )
                         };
+                        if let Some(taken) = &taken {
+                            if !taken.claim() {
+                                // A racing trampoline panic path already
+                                // completed the chain — invoking the C
+                                // callback again would double-release
+                                // cbdata.
+                                return;
+                            }
+                        }
                         // SAFETY: call requires the original callback contract.
                         unsafe { callback(status.to_raw(), info, ninfo, cbdata) };
                     }
@@ -1340,10 +1413,13 @@ impl OpCallbackWrapper {
         callback.map(|callback| {
             let cbdata = cbdata as usize;
             Self::new(move |status| unsafe {
-                // Mark the shared flag the instant the C completion is
-                // invoked: the trampoline's panic path must know that the
-                // completion released cbdata.
-                taken.mark();
+                // Claim the one-shot right to invoke the C completion the
+                // instant before the call: a trampoline panic path racing
+                // this (possibly async) completion must not invoke the
+                // C callback a second time.
+                if !taken.claim() {
+                    return;
+                }
                 callback(status.to_raw(), cbdata as *mut c_void);
             })
         })
@@ -1936,29 +2012,58 @@ server_op_upcalls! {
 // into native view types, wraps the completion callback, and forwards to
 // the user callback registered in `SERVER_OP_UPCALLS`.
 //
-// Status-return semantics (per the pmix_server.h contract AND the
-// OpenPMIx callers — src/server/pmix_server_ops.c,
-// src/server/pmix_server_fence.c, src/mca/ptl/base/
-// ptl_base_connection_hdlr.c): a non-success return means "the host did
-// NOT call cbfunc" — the PMIx caller releases cbdata itself and fails
-// the request. Exactly one owner of cbdata on every path:
+// Status-return semantics — the one-call-then-SUCCESS policy. OpenPMIx
+// has BOTH caller shapes for these upcalls (verified in the 5.x and the
+// 6.1.0 trees):
+//
+// * Callers that HONOR the returned status and release/complete the
+//   request themselves on any non-success return — src/server/
+//   pmix_server_ops.c (publish/lookup/unpublish/spawn/abort),
+//   src/server/pmix_server_fence.c (fence_nb calls trk->modexcbfunc
+//   itself), src/server/pmix_server_connect.c, src/mca/ptl/base/
+//   ptl_base_connection_hdlr.c, src/mca/ptl/base/ptl_base_sendrecv.c
+//   (fence/connect/disconnect PMIX_RELEASE(trk)), and src/server/
+//   pmix_server.c client_finalized (invokes op_cbfunc2 itself unless
+//   the return is PMIX_SUCCESS). For these, a host that both calls the
+//   C cbfunc AND returns non-success gets a double release.
+// * Callers that IGNORE the returned status and hang unless the host
+//   invokes the C cbfunc — src/server/pmix_server.c
+//   pmix_server_execute_collective, a LIVE path (nspace registration
+//   pushes completed trackers through PMIX_EXECUTE_COLLECTIVE) that
+//   calls fence_nb, connect, and disconnect and discards rc. For
+//   these, a host that returns non-success without calling the C
+//   cbfunc leaks the tracker and hangs the collective.
+//
+// One policy satisfies both lists: a trampoline panic BEFORE
+// completion invokes the C cbfunc exactly ONCE with PMIX_ERROR and
+// returns PMIX_SUCCESS. Status-checking callers treat PMIX_SUCCESS as
+// "the host owns the callback" and do not release or complete again;
+// execute_collective ignores the status but still gets the callback,
+// so the collective unblocks. A panic AFTER completion (the
+// [`CompletionTaken`] claim already won by the host's own completion)
+// calls nothing and also returns PMIX_SUCCESS — the completion already
+// released cbdata, and a non-success return would make the
+// status-checking callers release it a second time.
+//
 // * `PMIX_SUCCESS` — the host callback accepted the request and will
-//   complete it via the supplied completion callback, OR it completed
-//   through the wrapper and THEN panicked (the completion already
-//   released cbdata; a non-success return would make the PMIx caller
-//   release it a second time).
-// * `PMIX_ERR_NOT_SUPPORTED` — the field is `None`; cbdata is NOT touched
-//   (PMIx does not expect a completion in this case).
-// * `PMIX_ERROR` — the user callback panicked WITHOUT completing. The
-//   trampoline does NOT call the C cbfunc: the PMIx caller releases
-//   cbdata itself and fails the request. Completing the cbfunc here as
-//   well would double-free it.
-// The choice is driven by the [`CompletionTaken`] flag each trampoline
-// shares with its completion wrapper (marked exactly when the wrapper
-// invokes the C cbfunc). Void-returning slots (`tool_connected`, `log`)
-// have no status to signal with: on a panic BEFORE completion they still
-// call the C cbfunc with the panic status — the only way to unblock the
-// requester — but never once the wrapper has already completed.
+//   complete it via the supplied completion callback; OR it completed
+//   through the wrapper and THEN panicked; OR it panicked and the
+//   trampoline completed the C cbfunc with PMIX_ERROR itself. In
+//   every case the C cbfunc is invoked at most once and the PMIx
+//   caller treats the return as "the host owns the callback".
+// * `PMIX_ERR_NOT_SUPPORTED` — the field is `None`; cbdata is NOT
+//   touched (PMIx does not expect a completion in this case).
+//
+// The claim is a compare-exchange on the [`CompletionTaken`] flag each
+// trampoline shares with its completion wrapper: the wrapper invokes
+// the C cbfunc only when IT wins the claim, the trampoline's panic
+// path invokes it only when the wrapper has not claimed, and the
+// async-handoff race (completion running on another thread while the
+// upcall thread panics) still leaves exactly one winner. Void-returning
+// slots (`tool_connected`, `log`) have no status to signal with: on a
+// panic BEFORE completion they still complete the C cbfunc with the
+// panic status — the only way to unblock the requester — and never
+// once the claim is lost.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// `PMIX_SUCCESS` for trampoline returns.
@@ -1971,79 +2076,100 @@ fn status_not_supported() -> ffi::pmix_status_t {
     PmixStatus::Known(PmixError::ErrNotSupported).to_raw()
 }
 
-/// `PMIX_ERROR` — the status a status-returning trampoline returns when
-/// the user callback panicked without completing (the C cbfunc is NOT
-/// called in that case; the PMIx caller releases cbdata itself).
+/// `PMIX_ERROR` — the status a trampoline-supplied panic completion
+/// carries into the C completion callback (the trampoline still
+/// returns `PMIX_SUCCESS` afterwards; see the status-return policy
+/// above).
 fn status_panic() -> ffi::pmix_status_t {
     PmixStatus::Known(PmixError::Error).to_raw()
 }
 
-/// One-shot completion-ownership flag shared between a server-module
+/// One-shot completion-ownership claim shared between a server-module
 /// trampoline and the completion wrapper it hands to the host callback.
 ///
-/// The wrapper marks the flag at the instant it invokes the C completion
-/// callback; the trampoline reads it on its panic path so the C `cbdata`
-/// has exactly one owner:
+/// Both sides invoke the C completion callback only after winning the
+/// [`Self::claim`] compare-exchange, so the C `cbdata` has exactly one
+/// owner even when an asynchronous completion races a trampoline panic:
 ///
-/// * **not taken** — the host never completed. A status-returning
-///   trampoline returns `PMIX_ERROR` WITHOUT calling the C completion:
-///   PMIx treats the non-success return as "the host did not call
-///   cbfunc", so the caller releases `cbdata` itself and fails the
-///   request. A void-returning trampoline (no status to signal with)
-///   instead completes the C callback with the panic status — the only
-///   way to unblock the requester.
-/// * **taken** — the host completed through the wrapper before panicking.
-///   The C completion already released `cbdata`: the trampoline must
-///   neither call the completion again nor return a non-success status
-///   (the PMIx caller would release `cbdata` a second time).
+/// * **wrapper wins** — the host completed through the wrapper (or via
+///   the raw pointer extracted with `into_c_callback`, which marks the
+///   flag on extract). The trampoline's panic path loses the claim,
+///   calls nothing, and returns `PMIX_SUCCESS`: the completion already
+///   released `cbdata`, and a non-success return would make the PMIx
+///   caller release it a second time.
+/// * **trampoline wins** — the host panicked without completing. The
+///   trampoline completes the C callback exactly once with `PMIX_ERROR`
+///   and returns `PMIX_SUCCESS`: status-honoring PMIx callers treat
+///   SUCCESS as "the host owns the callback", while
+///   pmix_server_execute_collective ignores the status and hangs
+///   unless the callback fires.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CompletionTaken(Arc<AtomicBool>);
 
 impl CompletionTaken {
-    /// A fresh, not-taken flag.
+    /// A fresh, unclaimed flag.
     pub(crate) fn new() -> Self {
         Self(Arc::new(AtomicBool::new(false)))
     }
 
-    /// Mark the C completion as invoked. Called by the completion wrapper
-    /// immediately before it invokes the C callback.
+    /// Mark the completion as owned WITHOUT claiming the right to
+    /// invoke it. Used on the raw-pointer extraction path
+    /// (`into_c_callback`): the marking closure is dropped and the
+    /// bare C function pointer escapes, so completions through it are
+    /// invisible to the trampoline's panic path unless the flag is set
+    /// here. Blind store: the winner (if any) already invoked the C
+    /// callback, and a second store cannot manufacture a second call.
     pub(crate) fn mark(&self) {
         self.0.store(true, Ordering::SeqCst);
     }
 
-    /// Whether the C completion has been invoked through the wrapper.
-    pub(crate) fn is_taken(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+    /// Claim the one-shot right to invoke the C completion callback:
+    /// the first claim (or [`Self::mark`]) wins, every later caller
+    /// loses. The wrapper invokes the C callback only if it wins; the
+    /// trampoline's panic path invokes it only if it wins — the loser
+    /// never calls, closing the async-handoff double-completion window.
+    pub(crate) fn claim(&self) -> bool {
+        self.0
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
     }
 }
 
 /// The return status for a status-returning trampoline after the user
 /// callback ran, keeping exactly one owner of the C `cbdata`:
 ///
-/// * `ok` — the host accepted the request and will complete it:
-///   `PMIX_SUCCESS`.
-/// * panicked, `taken` — the host completed through the wrapper before
-///   panicking; the C completion already released `cbdata`. Also
-///   `PMIX_SUCCESS` — a non-success return would make the PMIx caller
-///   release `cbdata` a second time. (The wrapper is consumed, so the
-///   trampoline cannot complete a second time.)
-/// * panicked, not taken — the host never completed: `PMIX_ERROR`
-///   WITHOUT calling the C completion. The PMIx caller reads the
-///   non-success return as "the host did not call cbfunc", releases
-///   `cbdata` itself, and fails the request.
-fn status_after_panic(ok: bool, taken: &CompletionTaken) -> ffi::pmix_status_t {
-    if ok || taken.is_taken() {
-        status_success()
-    } else {
-        status_panic()
+/// * `ok` — the host accepted the request and will complete it (or has
+///   already completed it): `PMIX_SUCCESS`.
+/// * panicked — the trampoline tries to [`CompletionTaken::claim`] the
+///   one-shot completion right. If it wins (the host never completed),
+///   it invokes the C completion exactly once with `PMIX_ERROR` via
+///   `complete_on_panic`; if it loses (the host completed through the
+///   wrapper before or while panicking), it invokes nothing. Either
+///   way the return is `PMIX_SUCCESS`: status-honoring PMIx callers
+///   (pmix_server_ops.c, pmix_server_fence.c, pmix_server_connect.c,
+///   ptl_base_sendrecv.c) treat SUCCESS as "the host owns the
+///   callback" and do not release `cbdata` again, while the
+///   status-ignoring pmix_server_execute_collective still gets the
+///   callback it needs to unblock the collective.
+fn status_after_panic(
+    ok: bool,
+    taken: &CompletionTaken,
+    complete_on_panic: impl FnOnce(),
+) -> ffi::pmix_status_t {
+    if !ok && taken.claim() {
+        complete_on_panic();
     }
+    status_success()
 }
 
-/// Complete a raw `pmix_op_cbfunc_t` chain with the panic status. Used by
-/// the void-returning slots only (`log`): they have no status return to
-/// signal a failure with, so a host callback that panics without
-/// completing leaves the C completion as the only way to unblock the
-/// requester.
+/// Complete a raw `pmix_op_cbfunc_t` chain with the panic status. Used
+/// by every status-returning trampoline whose completion is an
+/// `pmix_op_cbfunc_t` (client_connected/finalized, abort, publish,
+/// unpublish, connect, disconnect, register/deregister_events,
+/// notify_event, iof_pull, push_stdin, log2, resource_block) and by the
+/// void-returning `log` slot. Callers must have WON the
+/// [`CompletionTaken`] claim first — this helper invokes the C
+/// completion unconditionally when the pointer is non-null.
 unsafe fn complete_op_on_panic(cbfunc: ffi::pmix_op_cbfunc_t, cbdata: *mut c_void) {
     if let Some(cbfunc) = cbfunc {
         // SAFETY: PMIx supplied this completion callback and its opaque
@@ -2052,17 +2178,124 @@ unsafe fn complete_op_on_panic(cbfunc: ffi::pmix_op_cbfunc_t, cbdata: *mut c_voi
     }
 }
 
+/// Complete a raw `pmix_modex_cbfunc_t` chain with the panic status: no
+/// blob and no release pair. `_mdxcbfunc` checks the status before it
+/// touches the data, so a (NULL, 0) payload is safe on the error path —
+/// pmix_server_fence.c makes the same call itself when fence_nb returns
+/// non-success. Callers must have WON the [`CompletionTaken`] claim.
+unsafe fn complete_modex_on_panic(cbfunc: ffi::pmix_modex_cbfunc_t, cbdata: *mut c_void) {
+    if let Some(cbfunc) = cbfunc {
+        // SAFETY: PMIx supplied this completion callback and its opaque
+        // data for exactly one completion.
+        unsafe {
+            cbfunc(
+                status_panic(),
+                ptr::null(),
+                0,
+                cbdata,
+                None,
+                ptr::null_mut(),
+            )
+        };
+    }
+}
+
+/// Complete a raw `pmix_lookup_cbfunc_t` chain with the panic status:
+/// no pdata array (`lookup_cbfunc` NULL-checks it before copying).
+/// Callers must have WON the [`CompletionTaken`] claim.
+unsafe fn complete_lookup_on_panic(cbfunc: ffi::pmix_lookup_cbfunc_t, cbdata: *mut c_void) {
+    if let Some(cbfunc) = cbfunc {
+        // SAFETY: PMIx supplied this completion callback and its opaque
+        // data for exactly one completion.
+        unsafe { cbfunc(status_panic(), ptr::null_mut(), 0, cbdata) };
+    }
+}
+
+/// Complete a raw `pmix_spawn_cbfunc_t` chain with the panic status: no
+/// nspace (`spawn_cbfunc` NULL-checks it before strdup). Callers must
+/// have WON the [`CompletionTaken`] claim.
+unsafe fn complete_spawn_on_panic(cbfunc: ffi::pmix_spawn_cbfunc_t, cbdata: *mut c_void) {
+    if let Some(cbfunc) = cbfunc {
+        // SAFETY: PMIx supplied this completion callback and its opaque
+        // data for exactly one completion.
+        unsafe { cbfunc(status_panic(), ptr::null_mut(), cbdata) };
+    }
+}
+
+/// Complete a raw `pmix_info_cbfunc_t` chain with the panic status: no
+/// info array and no release pair (`query_cbfunc` and siblings
+/// NULL-check before dereferencing). Used by query, allocate,
+/// job_control, monitor, group, fabric, and session_control. Callers
+/// must have WON the [`CompletionTaken`] claim.
+unsafe fn complete_info_on_panic(cbfunc: ffi::pmix_info_cbfunc_t, cbdata: *mut c_void) {
+    if let Some(cbfunc) = cbfunc {
+        // SAFETY: PMIx supplied this completion callback and its opaque
+        // data for exactly one completion.
+        unsafe {
+            cbfunc(
+                status_panic(),
+                ptr::null_mut(),
+                0,
+                cbdata,
+                None,
+                ptr::null_mut(),
+            )
+        };
+    }
+}
+
+/// Complete a raw `pmix_credential_cbfunc_t` chain with the panic
+/// status. The credential must be a VALID zeroed
+/// `pmix_byte_object_t`, not NULL: `cred_cbfunc` copies it
+/// unconditionally in both the 5.x and 6.1.0 trees. Callers must have
+/// WON the [`CompletionTaken`] claim.
+unsafe fn complete_credential_on_panic(cbfunc: ffi::pmix_credential_cbfunc_t, cbdata: *mut c_void) {
+    if let Some(cbfunc) = cbfunc {
+        let credential = ffi::pmix_byte_object_t {
+            bytes: ptr::null_mut(),
+            size: 0,
+        };
+        // SAFETY: PMIx supplied this completion callback and its opaque
+        // data for exactly one completion; the zeroed byte object is
+        // valid input for the copy cred_cbfunc performs.
+        unsafe {
+            cbfunc(
+                status_panic(),
+                &credential as *const _ as *mut _,
+                ptr::null_mut(),
+                0,
+                cbdata,
+            )
+        };
+    }
+}
+
+/// Complete a raw `pmix_validation_cbfunc_t` chain with the panic
+/// status: no info array (`validate_cbfunc` NULL-checks it). Callers
+/// must have WON the [`CompletionTaken`] claim.
+unsafe fn complete_validation_on_panic(cbfunc: ffi::pmix_validation_cbfunc_t, cbdata: *mut c_void) {
+    if let Some(cbfunc) = cbfunc {
+        // SAFETY: PMIx supplied this completion callback and its opaque
+        // data for exactly one completion.
+        unsafe { cbfunc(status_panic(), ptr::null_mut(), 0, cbdata) };
+    }
+}
+
 /// Complete a raw `pmix_tool_connection_cbfunc_t` chain with the panic
-/// status. Used by the void-returning `tool_connected` slot only, for
-/// the same reason as [`complete_op_on_panic`].
+/// status. Used by the void-returning `tool_connected` slot and the
+/// (6.x) status-returning `tool_connected2` slot. Callers must have WON
+/// the [`CompletionTaken`] claim.
 unsafe fn complete_tool_connection_on_panic(
     cbfunc: ffi::pmix_tool_connection_cbfunc_t,
     cbdata: *mut c_void,
 ) {
     if let Some(cbfunc) = cbfunc {
         // SAFETY: PMIx supplied this completion callback for exactly one
-        // completion; a NULL proc reports failure to assign an identity.
-        unsafe { cbfunc(status_panic(), ptr::null_mut(), cbdata) };
+        // completion. `cnct_cbfunc` (ptl_base_connection_hdlr.c) logs
+        // proc->nspace BEFORE its NULL check, so pass a zeroed
+        // pmix_proc_t — a NULL proc would crash under verbosity >= 2.
+        let mut proc: ffi::pmix_proc_t = unsafe { std::mem::zeroed() };
+        unsafe { cbfunc(status_panic(), &mut proc, cbdata) };
     }
 }
 
@@ -2119,7 +2352,12 @@ unsafe extern "C" fn client_connected(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, server_object, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `client_finalized` slot: `(proc, server_object, op_cbfunc, cbdata) ->
@@ -2145,7 +2383,12 @@ unsafe extern "C" fn client_finalized(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, server_object, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `abort` slot: `(proc, server_object, status, msg, procs, nprocs,
@@ -2183,7 +2426,12 @@ unsafe extern "C" fn abort(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, server_object, status, msg, procs, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `fence_nb` slot: `(procs, nprocs, info, ninfo, data, ndata,
@@ -2221,7 +2469,12 @@ unsafe extern "C" fn fence_nb(
         // boundary; the completion callback is wrapped.
         callback(procs, info, data, ndata, completion, cbdata);
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_modex_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `direct_modex` slot: `(proc, info, ninfo, modex_cbfunc, cbdata) ->
@@ -2254,7 +2507,12 @@ unsafe extern "C" fn direct_modex(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_modex_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `publish` slot: `(proc, info, ninfo, op_cbfunc, cbdata) ->
@@ -2287,7 +2545,12 @@ unsafe extern "C" fn publish(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `lookup` slot: `(proc, keys, info, ninfo, lookup_cbfunc, cbdata) ->
@@ -2325,7 +2588,12 @@ unsafe extern "C" fn lookup(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, keys, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_lookup_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `unpublish` slot: `(proc, keys, info, ninfo, op_cbfunc, cbdata) ->
@@ -2363,7 +2631,12 @@ unsafe extern "C" fn unpublish(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, keys, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `spawn` slot: `(proc, job_info, ninfo, apps, napps, spawn_cbfunc,
@@ -2398,7 +2671,12 @@ unsafe extern "C" fn spawn(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, job_info, apps, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_spawn_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `connect` slot: `(procs, nprocs, info, ninfo, op_cbfunc, cbdata) ->
@@ -2434,7 +2712,12 @@ unsafe extern "C" fn connect(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(procs, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `disconnect` slot: `(procs, nprocs, info, ninfo, op_cbfunc, cbdata) ->
@@ -2468,7 +2751,12 @@ unsafe extern "C" fn disconnect(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(procs, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `register_events` slot: `(codes, ncodes, info, ninfo, op_cbfunc,
@@ -2503,7 +2791,12 @@ unsafe extern "C" fn register_events(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(codes, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `deregister_events` slot: `(codes, ncodes, op_cbfunc, cbdata) ->
@@ -2530,7 +2823,12 @@ unsafe extern "C" fn deregister_events(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(codes, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `listener` slot: `(listening_sd, connection_cbfunc, cbdata) ->
@@ -2598,7 +2896,12 @@ unsafe extern "C" fn notify_event(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(code, source, range, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `query` slot: `(proct, queries, nqueries, info_cbfunc, cbdata) ->
@@ -2630,7 +2933,12 @@ unsafe extern "C" fn query(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, queries, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_info_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `tool_connected` slot: `(info, ninfo, tool_connection_cbfunc, cbdata)`
@@ -2657,12 +2965,14 @@ unsafe extern "C" fn tool_connected(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(info, completion, cbdata)
     });
-    if !ok && !taken.is_taken() {
+    if !ok && taken.claim() {
         // No status return on this slot, so completing the C cbfunc is
         // the only way to unblock the tool: the host panicked before
-        // completing, so complete with the panic status here. If the
-        // host already completed (flag taken), the completion released
-        // cbdata — completing a second time would double-free it.
+        // completing, so complete with the panic status here — but only
+        // when the claim is won. The claim is shared with the completion
+        // wrapper (and its raw-pointer extraction), so a host that
+        // completed first — or a completion racing this panic path from
+        // another thread — leaves the C cbfunc called exactly once.
         unsafe { complete_tool_connection_on_panic(cbfunc, cbdata) };
     }
 }
@@ -2700,13 +3010,15 @@ unsafe extern "C" fn log(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(client, data, directives, completion, cbdata)
     });
-    if !ok && !taken.is_taken() {
+    if !ok && taken.claim() {
         // No status return on this slot, so completing the C cbfunc is
         // the only way to unblock the requester: the host panicked
-        // before completing, so complete with the panic status here. If
-        // the host already completed (flag taken), the completion
-        // released cbdata — completing a second time would double-free
-        // it.
+        // before completing, so complete with the panic status here —
+        // but only when the claim is won. The claim is shared with the
+        // completion wrapper (and its raw-pointer extraction), so a
+        // host that completed first — or a completion racing this
+        // panic path from another thread — leaves the C cbfunc called
+        // exactly once.
         unsafe { complete_op_on_panic(cbfunc, cbdata) };
     }
 }
@@ -2741,7 +3053,12 @@ unsafe extern "C" fn allocate(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(client, directive, data, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_info_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `job_control` slot: `(requestor, targets, ntargets, directives, ndirs,
@@ -2777,7 +3094,12 @@ unsafe extern "C" fn job_control(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, targets, directives, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_info_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `monitor` slot: `(requestor, monitor, error, directives, ndirs,
@@ -2813,7 +3135,12 @@ unsafe extern "C" fn monitor(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, monitor, error, directives, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_info_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `get_credential` slot: `(proc, directives, ndirs, credential_cbfunc,
@@ -2845,7 +3172,12 @@ unsafe extern "C" fn get_credential(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, directives, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_credential_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `validate_credential` slot: `(proc, cred, directives, ndirs,
@@ -2882,7 +3214,12 @@ unsafe extern "C" fn validate_credential(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, cred, directives, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_validation_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `iof_pull` slot: `(procs, nprocs, directives, ndirs, channels,
@@ -2919,7 +3256,12 @@ unsafe extern "C" fn iof_pull(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(procs, directives, channels, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `push_stdin` slot: `(source, targets, ntargets, directives, ndirs, bo,
@@ -2958,7 +3300,12 @@ unsafe extern "C" fn push_stdin(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(source, targets, directives, bo, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `group` slot: `(op, grp, procs, nprocs, directives, ndirs,
@@ -2995,7 +3342,12 @@ unsafe extern "C" fn group(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(op as u32, grp, procs, directives, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_info_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `fabric` slot: `(requestor, op, directives, ndirs, info_cbfunc,
@@ -3028,7 +3380,12 @@ unsafe extern "C" fn fabric(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, op as u32, directives, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_info_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `client_connected2` slot: `(proc, server_object, info, ninfo,
@@ -3062,7 +3419,12 @@ unsafe extern "C" fn client_connected2(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(proc, server_object, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `tool_connected2` slot (6.x-only): `(info, ninfo,
@@ -3089,7 +3451,12 @@ unsafe extern "C" fn tool_connected2(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_tool_connection_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `log2` slot (6.x-only): `(client, data, ndata, directives, ndirs,
@@ -3126,7 +3493,12 @@ unsafe extern "C" fn log2(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(client, data, directives, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `session_control` slot: `(requestor, sessionID, directives, ndirs,
@@ -3159,7 +3531,12 @@ unsafe extern "C" fn session_control(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, session_id, directives, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_info_on_panic(cbfunc, cbdata) }
+    })
 }
 
 /// `resource_block` slot (6.x-only): `(requestor, directive, block, units,
@@ -3200,7 +3577,12 @@ unsafe extern "C" fn resource_block(
     let ok = invoke_user_callback("server", move || unsafe {
         callback(requestor, directive, block, units, info, completion, cbdata)
     });
-    status_after_panic(ok, &taken)
+    status_after_panic(ok, &taken, || {
+        // SAFETY: PMIx supplied this completion callback and its
+        // opaque data for exactly one completion; the claim was
+        // won above, so this is the single panic completion.
+        unsafe { complete_op_on_panic(cbfunc, cbdata) }
+    })
 }
 
 impl PmixServerModule {
