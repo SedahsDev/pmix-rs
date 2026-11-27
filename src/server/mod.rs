@@ -2054,8 +2054,9 @@ server_op_upcalls! {
 //
 // One policy satisfies both lists: a trampoline panic BEFORE
 // completion invokes the C cbfunc exactly ONCE with PMIX_ERROR and
-// returns PMIX_SUCCESS (when no C cbfunc was supplied at all, see the
-// PMIX_ERROR arm below). Status-checking callers treat PMIX_SUCCESS as
+// returns PMIX_SUCCESS. If no C cbfunc was supplied, nothing can be
+// invoked and the trampoline instead returns PMIX_ERROR (the bullet
+// below), so the status-honoring callers release `cbdata` themselves. Status-checking callers treat PMIX_SUCCESS as
 // "the host owns the callback" and do not release or complete again;
 // execute_collective ignores the status but still gets the callback,
 // so the collective unblocks. A panic AFTER completion (the
