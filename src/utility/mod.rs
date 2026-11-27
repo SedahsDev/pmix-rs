@@ -12,8 +12,9 @@
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 use crate::{
-    IOFChannelFlags, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType, PmixDeviceType,
-    PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope, PmixStatus, Proc, ffi,
+    IOFChannelFlags, Info, InfoFlags, PmixAllocDirective, PmixDataRange, PmixDataType,
+    PmixDeviceType, PmixJobState, PmixLinkState, PmixPersistence, PmixProcState, PmixScope,
+    PmixStatus, Proc, ffi,
 };
 use std::ffi::CStr;
 use std::ptr;
@@ -1085,7 +1086,8 @@ impl<F> IoForwardRegHandler for F where F: Fn(PmixStatus, usize) + Send + 'stati
 /// # Parameters
 /// * `procs` — process identifiers whose IO is being requested.
 ///   Use `PMIX_RANK_WILDCARD` for all processes in a namespace.
-/// * `directives` — optional `pmix_info_t` directives (buffering, tagging, etc.).
+/// * `directives` — optional directive entries (buffering, tagging, etc.);
+///   pass `&Info::empty()` for none.
 /// * `channel` — bitmask of IO channels to receive.
 /// * `cb` — Rust closure called for each IO event.
 /// * `regcb` — Rust closure called when registration completes.
@@ -1101,7 +1103,7 @@ impl<F> IoForwardRegHandler for F where F: Fn(PmixStatus, usize) + Send + 'stati
 ///     `pmix_hdlr_reg_cbfunc_t regcbfunc, void *regcbdata);`
 pub fn iof_pull<F, G>(
     procs: &[Proc],
-    directives: &[ffi::pmix_info_t],
+    directives: &Info,
     channel: IOFChannelFlags,
     cb: F,
     regcb: G,
@@ -1160,7 +1162,7 @@ where
 ///
 /// # Parameters
 /// * `procs` — process identifiers whose IO is being requested.
-/// * `directives` — optional `pmix_info_t` directives.
+/// * `directives` — optional directive entries; pass `&Info::empty()` for none.
 /// * `channel` — bitmask of IO channels to receive.
 /// * `cb` — Rust closure called for each IO event.
 ///
@@ -1173,7 +1175,7 @@ where
 /// internally to obtain the real registration handle.
 pub fn iof_pull_blocking<F>(
     procs: &[Proc],
-    directives: &[ffi::pmix_info_t],
+    directives: &Info,
     channel: IOFChannelFlags,
     cb: F,
 ) -> Result<usize, PmixStatus>
@@ -1294,7 +1296,8 @@ extern "C" fn dereg_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std
 /// # Parameters
 /// * `handle` — the registration handle returned by `iof_pull` or
 ///   `iof_pull_blocking`.
-/// * `directives` — optional `pmix_info_t` directives (e.g., timeout).
+/// * `directives` — optional directive entries (e.g., timeout);
+///   pass `&Info::empty()` for none.
 /// * `cb` — Rust closure called when deregistration completes. Receives
 ///   the final `PmixStatus` and the handle.
 ///
@@ -1313,11 +1316,7 @@ extern "C" fn dereg_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std
 /// `pmix_status_t PMIx_IOF_deregister(size_t iofhdlr,`
 ///     `const pmix_info_t directives[], size_t ndirs,`
 ///     `pmix_op_cbfunc_t cbfunc, void *cbdata);`
-pub fn iof_deregister<F>(
-    handle: usize,
-    directives: &[ffi::pmix_info_t],
-    cb: F,
-) -> Result<(), PmixStatus>
+pub fn iof_deregister<F>(handle: usize, directives: &Info, cb: F) -> Result<(), PmixStatus>
 where
     F: IoForwardDeregHandler,
 {
@@ -1369,7 +1368,7 @@ where
 /// # Parameters
 /// * `handle` — the registration handle returned by `iof_pull` or
 ///   `iof_pull_blocking`.
-/// * `directives` — optional `pmix_info_t` directives.
+/// * `directives` — optional directive entries; pass `&Info::empty()` for none.
 ///
 /// # Returns
 /// * `Ok(())` — deregistration completed successfully.
@@ -1377,10 +1376,7 @@ where
 ///
 /// # C API
 /// Same as `PMIx_IOF_deregister` with `cbfunc` set to NULL (blocking mode).
-pub fn iof_deregister_blocking(
-    handle: usize,
-    directives: &[ffi::pmix_info_t],
-) -> Result<(), PmixStatus> {
+pub fn iof_deregister_blocking(handle: usize, directives: &Info) -> Result<(), PmixStatus> {
     // Remove the handle from the global registry immediately.
     {
         let mut registry = IOF_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
@@ -1575,7 +1571,8 @@ extern "C" fn push_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std:
 /// * `targets` — process identifiers to which the data should be delivered.
 ///   Use `PMIX_RANK_WILDCARD` for all processes in a namespace.
 /// * `bo` — byte object containing the payload (e.g., stdin data).
-/// * `directives` — optional `pmix_info_t` directives (buffering, etc.).
+/// * `directives` — optional directive entries (buffering, etc.);
+///   pass `&Info::empty()` for none.
 /// * `cb` — Rust closure called when the push operation completes.
 ///
 /// # Returns
@@ -1589,7 +1586,7 @@ extern "C" fn push_callback_bridge(status: ffi::pmix_status_t, cbdata: *mut std:
 pub fn iof_push<F>(
     targets: &[Proc],
     bo: PmixByteObject,
-    directives: &[ffi::pmix_info_t],
+    directives: &Info,
     cb: F,
 ) -> Result<(), PmixStatus>
 where
@@ -1663,7 +1660,7 @@ where
 /// # Parameters
 /// * `targets` — process identifiers to which the data should be delivered.
 /// * `bo` — byte object containing the payload.
-/// * `directives` — optional `pmix_info_t` directives.
+/// * `directives` — optional directive entries; pass `&Info::empty()` for none.
 ///
 /// # Returns
 /// * `Ok(())` — push completed successfully.
@@ -1674,7 +1671,7 @@ where
 pub fn iof_push_blocking(
     targets: &[Proc],
     bo: PmixByteObject,
-    directives: &[ffi::pmix_info_t],
+    directives: &Info,
 ) -> Result<(), PmixStatus> {
     let targets: Vec<ffi::pmix_proc_t> = targets.iter().cloned().map(Into::into).collect();
 

@@ -195,7 +195,8 @@ impl InfoList {
     ///   explicitly documented as safe by the PMIx API.
     /// - The `prev` pointer must be either null or a valid pointer from a previous
     ///   call to this function on the same list.
-    pub unsafe fn get_info_iter(
+    #[allow(dead_code)]
+    pub(crate) unsafe fn get_info_iter(
         &self,
         prev: *mut std::ffi::c_void,
     ) -> *mut crate::ffi::pmix_info_t {
