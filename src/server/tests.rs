@@ -4,7 +4,7 @@ use super::*;
 #[cfg(any(test, feature = "mock_ffi"))]
 use crate::mock_ffi;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 
 // ── PmixServerModule tests ───────────────────────────────────────────────
 
@@ -72,6 +72,7 @@ macro_rules! callback_for_construction_test {
 
 #[test]
 fn test_direct_modex_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeDirectModexCallback);
     assert_eq!(
@@ -83,6 +84,7 @@ fn test_direct_modex_callback_construction() {
 
 #[test]
 fn test_connect_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeConnectCallback);
     assert_eq!(
@@ -94,6 +96,7 @@ fn test_connect_callback_construction() {
 
 #[test]
 fn test_disconnect_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeDisconnectCallback);
     assert_eq!(
@@ -105,6 +108,7 @@ fn test_disconnect_callback_construction() {
 
 #[test]
 fn test_spawn_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeSpawnCallback);
     assert_eq!(
@@ -116,6 +120,7 @@ fn test_spawn_callback_construction() {
 
 #[test]
 fn test_abort_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeAbortCallback);
     assert_eq!(
@@ -146,10 +151,10 @@ use super::NativeClientConnectedCallback;
 
 #[test]
 fn test_server_module_clear_callback() {
-    unsafe extern "C" fn client_connected(
-        _proc: *const ffi::pmix_proc_t,
-        _info: *const ffi::pmix_info_t,
-        _ninfo: usize,
+    unsafe fn client_connected(
+        _proc: &crate::views::ProcView,
+        _server_object: *mut std::os::raw::c_void,
+        _completion: Option<OpCallbackWrapper>,
         _cbdata: *mut std::os::raw::c_void,
     ) {
         unreachable!("clearing a callback must not invoke it")
@@ -165,6 +170,7 @@ fn test_server_module_clear_callback() {
 
 #[test]
 fn test_server_module_as_c_ptr_returns_non_null() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule::default();
     let ptr = module.as_c_ptr();
     assert!(
@@ -175,17 +181,17 @@ fn test_server_module_as_c_ptr_returns_non_null() {
 
 #[test]
 fn test_server_module_as_c_ptr() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule {
-        fence_nb: Some(
-            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
-                unreachable!("converting a callback must not invoke it")
-            },
-        ),
+        fence_nb: Some(|_procs, _info, _data, _ndata, _cbfunc, _cbdata| {
+            unreachable!("converting a callback must not invoke it")
+        }),
         ..Default::default()
     };
-    let module_ptr = module.as_c_ptr().cast::<PmixServerModule>();
+    let module_ptr = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
     assert!(!module_ptr.is_null());
-    // SAFETY: The pointer comes from the live module and is only read here.
+    // SAFETY: The pointer comes from the live module's pinned C table and is
+    // only read here.
     let c_module = unsafe { &*module_ptr };
     assert!(c_module.fence_nb.is_some());
     assert!(c_module.client_connected.is_none());
@@ -317,11 +323,9 @@ fn test_server_module_layout_matches_c() {
 fn test_server_module_typed_callbacks_convert_to_c() {
     #[allow(clippy::too_many_arguments)]
     let module = PmixServerModule {
-        fence_nb: Some(
-            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
-                unreachable!("converting a callback must not invoke it")
-            },
-        ),
+        fence_nb: Some(|_procs, _info, _data, _ndata, _cbfunc, _cbdata| {
+            unreachable!("converting a callback must not invoke it")
+        }),
         direct_modex: None,
         ..Default::default()
     };
@@ -358,22 +362,22 @@ fn test_server_module_with_wrapped_callbacks() {
 
 #[test]
 fn test_server_module_as_c_ptr_consistent() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule {
-        fence_nb: Some(
-            |_proc, _procs, _nprocs, _info, _ninfo, _data, _ndata, _cbfunc, _cbdata| {
-                unreachable!("converting a callback must not invoke it")
-            },
-        ),
+        fence_nb: Some(|_procs, _info, _data, _ndata, _cbfunc, _cbdata| {
+            unreachable!("converting a callback must not invoke it")
+        }),
         ..Default::default()
     };
-    let ptr1 = module.as_c_ptr().cast::<PmixServerModule>();
-    let ptr2 = module.as_c_ptr().cast::<PmixServerModule>();
+    let ptr1 = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+    let ptr2 = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
     assert_eq!(
         ptr1, ptr2,
         "as_c_ptr should return consistent pointer for same module"
     );
     assert!(!ptr1.is_null());
-    // SAFETY: Both pointers come from the live module and are only read here.
+    // SAFETY: Both pointers come from the live module's pinned C table and
+    // are only read here.
     let (module1, module2) = unsafe { (&*ptr1, &*ptr2) };
     assert!(module1.fence_nb.is_some());
     assert!(module2.fence_nb.is_some());
@@ -401,6 +405,7 @@ fn test_server_module_field_count() {
 
 #[test]
 fn test_log_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) = callback_for_construction_test!(super::callbacks::NativeLogCallback);
     assert_eq!(
         callback.as_c_ptr().map(|callback| callback as *const ()),
@@ -411,6 +416,7 @@ fn test_log_callback_construction() {
 
 #[test]
 fn test_log2_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeLog2Callback);
     assert_eq!(
@@ -422,6 +428,7 @@ fn test_log2_callback_construction() {
 
 #[test]
 fn test_query_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeQueryCallback);
     assert_eq!(
@@ -433,6 +440,7 @@ fn test_query_callback_construction() {
 
 #[test]
 fn test_listener_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeListenerCallback);
     assert_eq!(
@@ -444,6 +452,7 @@ fn test_listener_callback_construction() {
 
 #[test]
 fn test_monitor_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeMonitorCallback);
     assert_eq!(
@@ -1972,6 +1981,7 @@ fn test_register_nspace_callback_error_status() {
 
 #[test]
 fn test_server_module_as_c_ptr_different_calls_same_addr() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule::default();
     let ptr1 = module.as_c_ptr();
     let ptr2 = module.as_c_ptr();
@@ -1983,6 +1993,7 @@ fn test_server_module_as_c_ptr_different_calls_same_addr() {
 
 #[test]
 fn test_server_module_as_c_ptr_mutable_module() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let mut module = PmixServerModule::default();
     let ptr1 = module.as_c_ptr();
     let ptr2 = module.as_c_ptr();
@@ -2007,6 +2018,7 @@ fn test_mock_server_init_returns_err_when_disabled() {
 
 #[test]
 fn test_mock_server_init_with_module_ptr() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let _guard = crate::mock_ffi::MockGuard::new();
     let module = PmixServerModule::default();
     let module_ptr = module.as_c_ptr() as *mut std::ffi::c_void;
@@ -3141,5 +3153,793 @@ fn test_mock_wrapper_server_get_credential_returns_error_on_config() {
     assert!(
         result.is_err(),
         "server_get_credential should fail with configured error"
+    );
+}
+
+// ─── Native trampoline conversion tests (#520) ───────────────────────────
+
+/// Raw C data used by the trampoline conversion tests.
+struct RawUpcallData {
+    proc: ffi::pmix_proc_t,
+    infos: [ffi::pmix_info_t; 2],
+}
+
+impl RawUpcallData {
+    fn new() -> Self {
+        let mut data = RawUpcallData {
+            proc: unsafe { std::mem::zeroed() },
+            infos: [unsafe { std::mem::zeroed() }, unsafe { std::mem::zeroed() }],
+        };
+        for (slot, byte) in data.proc.nspace.iter_mut().zip(b"job.5".iter()) {
+            *slot = *byte as std::os::raw::c_char;
+        }
+        data.proc.rank = 2;
+        for (entry, key) in data.infos.iter_mut().zip(["pmix.alpha", "pmix.beta"]) {
+            for (slot, byte) in entry.key.iter_mut().zip(key.as_bytes().iter()) {
+                *slot = *byte as std::os::raw::c_char;
+            }
+        }
+        data
+    }
+}
+
+/// Records the completion callback invocation from the trampoline.
+static TRAMPOLINE_COMPLETION_STATUS: AtomicUsize = AtomicUsize::new(0);
+
+/// Serializes tests that install callbacks into the process-wide
+/// `SERVER_OP_UPCALLS` registry via `PmixServerModule::as_c_ptr()`. The
+/// registry holds one callback per slot, so two such tests running in
+/// parallel would overwrite each other's callbacks mid-flight (seen in CI:
+/// both publish trampoline tests failing under the default test-threads).
+static REGISTRY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+unsafe extern "C" fn trampoline_test_completion(status: i32, _cbdata: *mut std::os::raw::c_void) {
+    TRAMPOLINE_COMPLETION_STATUS.fetch_add(status as usize + 1, Ordering::SeqCst);
+}
+
+/// Records what the native `publish` callback observed, and proves the
+/// completion wrapper bridges back to the C callback.
+static PUBLISH_SEEN: Mutex<Vec<(String, u32, Vec<String>)>> = Mutex::new(Vec::new());
+
+/// Native `publish` callback for the trampoline tests (plain `unsafe fn` —
+/// module fields hold function pointers, not closures).
+unsafe fn publish_recorder(
+    proc: &crate::views::ProcView,
+    info: &[crate::views::InfoView],
+    completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    PUBLISH_SEEN.lock().unwrap().push((
+        proc.nspace().to_string(),
+        proc.rank(),
+        info.iter().map(|entry| entry.key().to_string()).collect(),
+    ));
+    // Prove the completion wrapper bridges back to the C callback.
+    if let Some(completion) = completion {
+        completion.call(crate::PmixStatus::from_raw(0));
+    }
+}
+
+/// Lengths observed by the null-slice `publish` callback.
+static PUBLISH_NULL_SEEN: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+unsafe fn publish_null_recorder(
+    _proc: &crate::views::ProcView,
+    info: &[crate::views::InfoView],
+    _completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    PUBLISH_NULL_SEEN.lock().unwrap().push(info.len());
+}
+
+/// Typed `publish` slot accessor: reads the trampoline straight out of the
+/// converted `ffi::pmix_server_module_t` with its exact bindgen type — if
+/// the trampoline's signature were wrong, `as_c_ptr`'s typed slot
+/// assignment would not have compiled in the first place.
+fn publish_trampoline(module: &PmixServerModule) -> ffi::pmix_server_publish_fn_t {
+    // Register the trampolines (this also fills SERVER_OP_UPCALLS).
+    let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+    // SAFETY: the module stays alive for the duration of this test; the
+    // slot holds the `publish` trampoline with exactly this C signature.
+    unsafe { (*raw).publish }
+}
+
+/// The `publish` trampoline converts raw C arguments into native views with
+/// the correct data and hands the user callback a working completion wrapper.
+#[test]
+fn test_publish_trampoline_converts_raw_args_to_views() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let data = RawUpcallData::new();
+    let module = PmixServerModule {
+        publish: Some(publish_recorder),
+        ..Default::default()
+    };
+    let trampoline = publish_trampoline(&module).expect("publish slot installed");
+
+    TRAMPOLINE_COMPLETION_STATUS.store(0, Ordering::SeqCst);
+    PUBLISH_SEEN.lock().unwrap().clear();
+    // SAFETY: `data` stays alive for the synchronous trampoline call.
+    let status = unsafe {
+        trampoline(
+            &data.proc,
+            data.infos.as_ptr(),
+            data.infos.len(),
+            Some(trampoline_test_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        )
+    };
+
+    let seen = PUBLISH_SEEN.lock().unwrap();
+    assert_eq!(seen.len(), 1, "the native publish callback must run");
+    assert_eq!(
+        seen[0],
+        (
+            "job.5".to_string(),
+            2,
+            vec!["pmix.alpha".to_string(), "pmix.beta".to_string()]
+        ),
+        "views must carry the raw C data (nspace, rank, keys)"
+    );
+    assert_eq!(
+        TRAMPOLINE_COMPLETION_STATUS.load(Ordering::SeqCst),
+        1,
+        "the completion wrapper must bridge back to the C callback"
+    );
+    assert_eq!(
+        status, 0,
+        "an accepted upcall must return PMIX_SUCCESS to PMIx"
+    );
+}
+
+/// The `publish` trampoline maps a null info pointer (with any length) to an
+/// empty slice instead of constructing a dangling reference.
+#[test]
+fn test_publish_trampoline_maps_null_to_empty_slice() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        publish: Some(publish_null_recorder),
+        ..Default::default()
+    };
+    let trampoline = publish_trampoline(&module).expect("publish slot installed");
+
+    PUBLISH_NULL_SEEN.lock().unwrap().clear();
+    let data = RawUpcallData::new();
+    // SAFETY: the info pointer/length pair is null + 0, which must map to an
+    // empty slice; the proc is a live stack object for the synchronous call.
+    let status = unsafe { trampoline(&data.proc, std::ptr::null(), 0, None, std::ptr::null_mut()) };
+
+    let seen = PUBLISH_NULL_SEEN.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(
+        seen[0], 0,
+        "null + 0 must reach the callback as an empty slice"
+    );
+    assert_eq!(status, 0, "the upcall is still accepted");
+}
+
+// ─── Real-layout slot invocation tests (#520 review) ─────────────────────
+
+/// C `pmix_modex_cbfunc_t` completion for the fence trampoline test:
+/// records the status PMIx would observe.
+static TRAMPOLINE_MODEX_STATUS: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "C" fn trampoline_test_modex_completion(
+    status: i32,
+    _data: *const std::os::raw::c_char,
+    _ndata: usize,
+    _cbdata: *mut std::os::raw::c_void,
+    _release_fn: Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+    _release_cbdata: *mut std::os::raw::c_void,
+) {
+    TRAMPOLINE_MODEX_STATUS.fetch_add(status as usize + 1, Ordering::SeqCst);
+}
+
+/// What the native `fence_nb` recorder observed.
+#[allow(clippy::type_complexity)]
+static FENCE_NB_SEEN: Mutex<Vec<(Vec<(String, u32)>, Vec<String>, usize, usize)>> =
+    Mutex::new(Vec::new());
+
+/// Native `fence_nb` host upcall for the real-layout test.
+unsafe fn fence_nb_recorder(
+    procs: &[crate::views::ProcView],
+    info: &[crate::views::InfoView],
+    data: *mut std::os::raw::c_char,
+    ndata: usize,
+    cbfunc: Option<ModexCallback>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    FENCE_NB_SEEN.lock().unwrap().push((
+        procs
+            .iter()
+            .map(|proc| (proc.nspace().to_string(), proc.rank()))
+            .collect(),
+        info.iter().map(|entry| entry.key().to_string()).collect(),
+        data as usize,
+        ndata,
+    ));
+    if let Some(cbfunc) = cbfunc {
+        // Prove the modex completion bridges back to the C callback.
+        unsafe {
+            cbfunc.call(
+                crate::PmixStatus::from_raw(0),
+                ptr::null(),
+                0,
+                ptr::null_mut(),
+                ReleaseCallback::default(),
+                ptr::null_mut(),
+            );
+        }
+    }
+}
+
+/// The `fence_nb` trampoline converts the REAL `pmix_server_fencenb_fn_t`
+/// argument layout — `(procs[], nprocs, info[], ninfo, data, ndata,
+/// modex_cbfunc, cbdata)` — into native views: the participants are a
+/// `pmix_proc_t` array (never a nspace list), and the collective payload is
+/// the modex blob.
+#[test]
+fn test_fence_nb_trampoline_converts_real_layout_to_views() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        fence_nb: Some(fence_nb_recorder),
+        ..Default::default()
+    };
+    let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+    // SAFETY: the module stays alive for the synchronous trampoline call;
+    // the slot holds the `fence_nb` trampoline with exactly the bindgen
+    // `pmix_server_fencenb_fn_t` signature.
+    let trampoline = unsafe { (*raw).fence_nb }.expect("fence_nb slot installed");
+
+    // Realistic C-side arrays: two participants and two info entries.
+    let mut procs: [ffi::pmix_proc_t; 2] = unsafe { std::mem::zeroed() };
+    for (slot, byte) in procs[0].nspace.iter_mut().zip(b"job.7".iter()) {
+        *slot = *byte as std::os::raw::c_char;
+    }
+    procs[0].rank = 0;
+    for (slot, byte) in procs[1].nspace.iter_mut().zip(b"job.7".iter()) {
+        *slot = *byte as std::os::raw::c_char;
+    }
+    procs[1].rank = 1;
+    let mut infos: [ffi::pmix_info_t; 2] = unsafe { std::mem::zeroed() };
+    for (entry, key) in infos.iter_mut().zip(["pmix.alpha", "pmix.beta"]) {
+        for (slot, byte) in entry.key.iter_mut().zip(key.as_bytes().iter()) {
+            *slot = *byte as std::os::raw::c_char;
+        }
+    }
+    let mut blob: [std::os::raw::c_char; 3] = [11, 22, 33];
+
+    TRAMPOLINE_MODEX_STATUS.store(0, Ordering::SeqCst);
+    FENCE_NB_SEEN.lock().unwrap().clear();
+    // SAFETY: `procs`, `infos`, and `blob` stay alive for the synchronous
+    // trampoline call; the completion callback checks but never
+    // dereferences its cbdata.
+    let status = unsafe {
+        trampoline(
+            procs.as_ptr(),
+            procs.len(),
+            infos.as_ptr(),
+            infos.len(),
+            blob.as_mut_ptr(),
+            blob.len(),
+            Some(trampoline_test_modex_completion),
+            ptr::null_mut(),
+        )
+    };
+
+    assert_eq!(status, 0, "the fence upcall must be accepted");
+    let seen = FENCE_NB_SEEN.lock().unwrap();
+    assert_eq!(seen.len(), 1, "the native fence_nb callback must run");
+    assert_eq!(
+        seen[0].0,
+        vec![("job.7".to_string(), 0), ("job.7".to_string(), 1)],
+        "procs must convert as a pmix_proc_t participant array"
+    );
+    assert_eq!(
+        seen[0].1,
+        vec!["pmix.alpha".to_string(), "pmix.beta".to_string()],
+        "info entries must convert as InfoView key/value pairs"
+    );
+    assert_eq!(
+        seen[0].2,
+        blob.as_ptr() as usize,
+        "the modex blob pointer must be forwarded verbatim"
+    );
+    assert_eq!(seen[0].3, 3, "the modex blob length must be forwarded");
+    assert_eq!(
+        TRAMPOLINE_MODEX_STATUS.load(Ordering::SeqCst),
+        1,
+        "the modex completion wrapper must bridge back to the C callback"
+    );
+}
+
+/// What the native `client_connected` recorder observed.
+static CLIENT_CONNECTED_SEEN: Mutex<Vec<(String, u32, usize)>> = Mutex::new(Vec::new());
+
+/// Native `client_connected` host upcall for the real-layout test.
+unsafe fn client_connected_recorder(
+    proc: &crate::views::ProcView,
+    server_object: *mut std::os::raw::c_void,
+    completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    CLIENT_CONNECTED_SEEN.lock().unwrap().push((
+        proc.nspace().to_string(),
+        proc.rank(),
+        server_object as usize,
+    ));
+    if let Some(completion) = completion {
+        // Prove the op completion bridges back to the C callback.
+        completion.call(crate::PmixStatus::from_raw(0));
+    }
+}
+
+/// The `client_connected` trampoline bridges the REAL
+/// `pmix_server_client_connected_fn_t` layout — `(proc, server_object,
+/// op_cbfunc, cbdata)` — including the server_object pointer and the
+/// `pmix_op_cbfunc_t` completion.
+#[test]
+fn test_client_connected_trampoline_invokes_real_layout() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        client_connected: Some(client_connected_recorder),
+        ..Default::default()
+    };
+    let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+    // SAFETY: the module stays alive for the synchronous trampoline call;
+    // the slot holds the `client_connected` trampoline with exactly the
+    // bindgen `pmix_server_client_connected_fn_t` signature.
+    let trampoline = unsafe { (*raw).client_connected }.expect("client_connected slot installed");
+
+    let mut proc: ffi::pmix_proc_t = unsafe { std::mem::zeroed() };
+    for (slot, byte) in proc.nspace.iter_mut().zip(b"job.5".iter()) {
+        *slot = *byte as std::os::raw::c_char;
+    }
+    proc.rank = 2;
+    let server_object = std::ptr::NonNull::<u8>::dangling()
+        .as_ptr()
+        .cast::<std::os::raw::c_void>();
+
+    TRAMPOLINE_COMPLETION_STATUS.store(0, Ordering::SeqCst);
+    CLIENT_CONNECTED_SEEN.lock().unwrap().clear();
+    // SAFETY: `proc` stays alive for the synchronous trampoline call; the
+    // completion callback checks but never dereferences its cbdata.
+    let status = unsafe {
+        trampoline(
+            &proc,
+            server_object,
+            Some(trampoline_test_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        )
+    };
+
+    assert_eq!(status, 0, "the connection upcall must be accepted");
+    let seen = CLIENT_CONNECTED_SEEN.lock().unwrap();
+    assert_eq!(
+        seen.len(),
+        1,
+        "the native client_connected callback must run"
+    );
+    assert_eq!(
+        seen[0],
+        ("job.5".to_string(), 2, server_object as usize),
+        "the proc view and the server_object pointer must be forwarded"
+    );
+    assert_eq!(
+        TRAMPOLINE_COMPLETION_STATUS.load(Ordering::SeqCst),
+        1,
+        "the op completion wrapper must bridge back to the C callback"
+    );
+}
+
+// ─── Trampoline panic-path cbdata-ownership tests (#520 pass 3) ─────────
+
+/// C `pmix_op_cbfunc_t` mock for the panic-path tests: records every
+/// invocation and the status of the most recent one (never dereferences
+/// its cbdata).
+static PANIC_OP_CALLS: AtomicUsize = AtomicUsize::new(0);
+static PANIC_OP_STATUS: AtomicIsize = AtomicIsize::new(0);
+
+unsafe extern "C" fn panic_path_op_completion(status: i32, _cbdata: *mut std::os::raw::c_void) {
+    PANIC_OP_CALLS.fetch_add(1, Ordering::SeqCst);
+    PANIC_OP_STATUS.store(status as isize, Ordering::SeqCst);
+}
+
+/// Native `publish` upcall that panics WITHOUT completing.
+unsafe fn publish_panic_before_completion(
+    _proc: &crate::views::ProcView,
+    _info: &[crate::views::InfoView],
+    _completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    panic!("panic-path test: host upcall panics before completing");
+}
+
+/// A user-callback panic WITHOUT completing follows the one-call-then-
+/// SUCCESS policy: the trampoline must invoke the C cbfunc exactly ONCE
+/// with `PMIX_ERROR` and return `PMIX_SUCCESS`. Returning non-success
+/// instead would be safe for the status-honoring callers
+/// (pmix_server_ops.c releases cbdata itself), but it hangs the
+/// status-IGNORING pmix_server_execute_collective path; completing AND
+/// returning non-success would double-free cbdata on the
+/// status-honoring path. One call + SUCCESS satisfies both.
+#[test]
+fn test_publish_trampoline_panic_before_completion_calls_cbfunc_once_and_succeeds() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        publish: Some(publish_panic_before_completion),
+        ..Default::default()
+    };
+    let trampoline = publish_trampoline(&module).expect("publish slot installed");
+
+    let data = RawUpcallData::new();
+    PANIC_OP_CALLS.store(0, Ordering::SeqCst);
+    PANIC_OP_STATUS.store(0, Ordering::SeqCst);
+    // SAFETY: `data` stays alive for the synchronous trampoline call;
+    // the completion mock records but never dereferences its cbdata.
+    let status = unsafe {
+        trampoline(
+            &data.proc,
+            data.infos.as_ptr(),
+            data.infos.len(),
+            Some(panic_path_op_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        )
+    };
+
+    assert_eq!(
+        PANIC_OP_CALLS.load(Ordering::SeqCst),
+        1,
+        "a panic before completion must call the C cbfunc exactly once — \
+         pmix_server_execute_collective ignores the returned status and \
+         hangs unless the host (or the trampoline on its behalf) completes"
+    );
+    assert_eq!(
+        PANIC_OP_STATUS.load(Ordering::SeqCst),
+        ffi::PMIX_ERROR as isize,
+        "the trampoline-supplied panic completion must carry PMIX_ERROR"
+    );
+    assert_eq!(
+        status,
+        ffi::PMIX_SUCCESS as i32,
+        "a panic before completion must return PMIX_SUCCESS — a non-success \
+         return would make the status-honoring PMIx callers release the \
+         cbdata the panic completion already released"
+    );
+}
+
+/// C `pmix_modex_cbfunc_t` mock for the panic-path tests: records every
+/// invocation and the status of the most recent one (never dereferences
+/// its cbdata).
+static PANIC_MODEX_CALLS: AtomicUsize = AtomicUsize::new(0);
+static PANIC_MODEX_STATUS: AtomicIsize = AtomicIsize::new(0);
+
+unsafe extern "C" fn panic_path_modex_completion(
+    status: i32,
+    _data: *const std::os::raw::c_char,
+    _ndata: usize,
+    _cbdata: *mut std::os::raw::c_void,
+    _release_fn: Option<unsafe extern "C" fn(*mut std::os::raw::c_void)>,
+    _release_cbdata: *mut std::os::raw::c_void,
+) {
+    PANIC_MODEX_CALLS.fetch_add(1, Ordering::SeqCst);
+    PANIC_MODEX_STATUS.store(status as isize, Ordering::SeqCst);
+}
+
+/// Native `fence_nb` upcall that panics WITHOUT completing.
+unsafe fn fence_nb_panic_before_completion(
+    _procs: &[crate::views::ProcView],
+    _info: &[crate::views::InfoView],
+    _data: *mut std::os::raw::c_char,
+    _ndata: usize,
+    _cbfunc: Option<ModexCallback>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    panic!("panic-path test: fence_nb host upcall panics before completing");
+}
+
+/// The fence_nb trampoline follows the same one-call-then-SUCCESS policy
+/// on its modex completion: fence_nb is the slot behind
+/// pmix_server_execute_collective, which IGNORES the returned status
+/// and hangs unless the host calls the modex cbfunc, so a panic before
+/// completion must call the C cbfunc exactly once with `PMIX_ERROR` and
+/// still return `PMIX_SUCCESS` (pmix_server_fence.c and
+/// ptl_base_sendrecv.c honor the status and would double-release the
+/// tracker on a non-success return).
+#[test]
+fn test_fence_nb_trampoline_panic_before_completion_calls_modex_once_and_succeeds() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        fence_nb: Some(fence_nb_panic_before_completion),
+        ..Default::default()
+    };
+    let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+    // SAFETY: the module stays alive for the synchronous trampoline call;
+    // the slot holds the `fence_nb` trampoline with exactly the bindgen
+    // `pmix_server_fencenb_fn_t` signature.
+    let trampoline = unsafe { (*raw).fence_nb }.expect("fence_nb slot installed");
+
+    let data = RawUpcallData::new();
+    PANIC_MODEX_CALLS.store(0, Ordering::SeqCst);
+    PANIC_MODEX_STATUS.store(0, Ordering::SeqCst);
+    // SAFETY: `data` stays alive for the synchronous trampoline call; the
+    // completion mock records but never dereferences its cbdata. A null
+    // blob with zero length is the "no data collected" fence case.
+    let status = unsafe {
+        trampoline(
+            &data.proc,
+            1,
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            Some(panic_path_modex_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        )
+    };
+
+    assert_eq!(
+        PANIC_MODEX_CALLS.load(Ordering::SeqCst),
+        1,
+        "a panic before completion must call the C modex cbfunc exactly \
+         once — pmix_server_execute_collective discards the returned \
+         status and hangs unless the modex completion fires"
+    );
+    assert_eq!(
+        PANIC_MODEX_STATUS.load(Ordering::SeqCst),
+        ffi::PMIX_ERROR as isize,
+        "the trampoline-supplied panic completion must carry PMIX_ERROR"
+    );
+    assert_eq!(
+        status,
+        ffi::PMIX_SUCCESS as i32,
+        "a panic before completion must return PMIX_SUCCESS — a non-success \
+         return would make the status-honoring fence callers release the \
+         tracker the panic completion already completed"
+    );
+}
+
+/// Native `publish` upcall that completes through the wrapper and THEN
+/// panics.
+unsafe fn publish_complete_then_panic(
+    _proc: &crate::views::ProcView,
+    _info: &[crate::views::InfoView],
+    completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    if let Some(completion) = completion {
+        completion.call(crate::PmixStatus::from_raw(0));
+    }
+    panic!("panic-path test: host upcall panics after completing");
+}
+
+/// A user callback that completes and THEN panics must leave the C cbfunc
+/// called exactly ONCE (by the host's own completion, carrying the host's
+/// status) and the trampoline must return `PMIX_SUCCESS`: the completion
+/// already released cbdata, and a non-success return would make the PMIx
+/// caller release it a second time.
+#[test]
+fn test_publish_trampoline_panic_after_completion_completes_once_and_succeeds() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let module = PmixServerModule {
+        publish: Some(publish_complete_then_panic),
+        ..Default::default()
+    };
+    let trampoline = publish_trampoline(&module).expect("publish slot installed");
+
+    let data = RawUpcallData::new();
+    PANIC_OP_CALLS.store(0, Ordering::SeqCst);
+    PANIC_OP_STATUS.store(0, Ordering::SeqCst);
+    // SAFETY: `data` stays alive for the synchronous trampoline call;
+    // the completion mock records but never dereferences its cbdata.
+    let status = unsafe {
+        trampoline(
+            &data.proc,
+            data.infos.as_ptr(),
+            data.infos.len(),
+            Some(panic_path_op_completion),
+            std::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+        )
+    };
+
+    assert_eq!(
+        PANIC_OP_CALLS.load(Ordering::SeqCst),
+        1,
+        "complete-then-panic must call the C cbfunc exactly once — the \
+         trampoline must not add a second, error completion"
+    );
+    assert_eq!(
+        PANIC_OP_STATUS.load(Ordering::SeqCst),
+        0,
+        "the single completion must carry the host's status (PMIX_SUCCESS)"
+    );
+    assert_eq!(
+        status,
+        ffi::PMIX_SUCCESS as i32,
+        "a panic after completing must return PMIX_SUCCESS — a non-success \
+         return would make the PMIx caller release the already-released cbdata"
+    );
+}
+
+/// Native `log` upcall (void slot) that panics WITHOUT completing.
+unsafe fn log_panic_before_completion(
+    _client: &crate::views::ProcView,
+    _data: &[crate::views::InfoView],
+    _directives: &[crate::views::InfoView],
+    _completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    panic!("panic-path test: void-slot host upcall panics before completing");
+}
+
+/// Native `log` upcall (void slot) that completes through the wrapper and
+/// THEN panics.
+unsafe fn log_complete_then_panic(
+    _client: &crate::views::ProcView,
+    _data: &[crate::views::InfoView],
+    _directives: &[crate::views::InfoView],
+    completion: Option<OpCallbackWrapper>,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    if let Some(completion) = completion {
+        completion.call(crate::PmixStatus::from_raw(0));
+    }
+    panic!("panic-path test: void-slot host upcall panics after completing");
+}
+
+/// The void-returning `log` slot has no status to signal a failure with,
+/// so its C cbfunc is the only way to unblock the requester: a panic
+/// WITHOUT completing must complete the C cbfunc exactly once (with
+/// `PMIX_ERROR`), and a complete-THEN-panic must still leave the C
+/// cbfunc called exactly once (the host's own completion — a second,
+/// error completion would double-free cbdata).
+#[test]
+fn test_log_trampoline_void_slot_panic_calls_cbfunc_exactly_once() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
+    let data = RawUpcallData::new();
+    let cbdata = std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
+
+    // Case 1: panic before completing → the trampoline completes the C
+    // cbfunc once, with the panic status.
+    {
+        let module = PmixServerModule {
+            log: Some(log_panic_before_completion),
+            ..Default::default()
+        };
+        let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+        // SAFETY: the module stays alive for the synchronous trampoline
+        // call; the slot holds the `log` trampoline with exactly the
+        // bindgen `pmix_server_log_fn_t` signature.
+        let trampoline = unsafe { (*raw).log }.expect("log slot installed");
+
+        PANIC_OP_CALLS.store(0, Ordering::SeqCst);
+        PANIC_OP_STATUS.store(0, Ordering::SeqCst);
+        // SAFETY: `data` stays alive for the synchronous trampoline call;
+        // the completion mock records but never dereferences its cbdata.
+        unsafe {
+            trampoline(
+                &data.proc,
+                data.infos.as_ptr(),
+                data.infos.len(),
+                data.infos.as_ptr(),
+                data.infos.len(),
+                Some(panic_path_op_completion),
+                cbdata,
+            )
+        };
+
+        assert_eq!(
+            PANIC_OP_CALLS.load(Ordering::SeqCst),
+            1,
+            "a void slot that panics before completing must still call the \
+             C cbfunc once — there is no status return to unblock with"
+        );
+        assert_eq!(
+            PANIC_OP_STATUS.load(Ordering::SeqCst),
+            ffi::PMIX_ERROR as isize,
+            "the trampoline-supplied panic completion must carry PMIX_ERROR"
+        );
+    }
+
+    // Case 2: complete then panic → still exactly one C cbfunc call,
+    // carrying the host's status.
+    {
+        let module = PmixServerModule {
+            log: Some(log_complete_then_panic),
+            ..Default::default()
+        };
+        let raw = module.as_c_ptr().cast::<ffi::pmix_server_module_t>();
+        // SAFETY: same as case 1.
+        let trampoline = unsafe { (*raw).log }.expect("log slot installed");
+
+        PANIC_OP_CALLS.store(0, Ordering::SeqCst);
+        PANIC_OP_STATUS.store(0, Ordering::SeqCst);
+        // SAFETY: same as case 1.
+        unsafe {
+            trampoline(
+                &data.proc,
+                data.infos.as_ptr(),
+                data.infos.len(),
+                data.infos.as_ptr(),
+                data.infos.len(),
+                Some(panic_path_op_completion),
+                cbdata,
+            )
+        };
+
+        assert_eq!(
+            PANIC_OP_CALLS.load(Ordering::SeqCst),
+            1,
+            "complete-then-panic on a void slot must leave the C cbfunc \
+             called exactly once — a second, error completion would \
+             double-free cbdata"
+        );
+        assert_eq!(
+            PANIC_OP_STATUS.load(Ordering::SeqCst),
+            0,
+            "the single completion must carry the host's status (PMIX_SUCCESS)"
+        );
+    }
+}
+
+/// The raw-pointer extraction path (`into_c_callback`) must respect a
+/// completion right the trampoline's panic path already claimed: the
+/// tracked wrapper yields `None` instead of handing out a pointer that
+/// would become a second completion (pass-5 review — the extract path
+/// cannot lose a claim; a blind store here re-opened the async-handoff
+/// double-completion window `claim()` exists to close).
+#[test]
+fn test_tracked_into_c_callback_respects_a_won_claim() {
+    // Fresh flag: extraction claims and hands out the single-owner pointer.
+    let taken = CompletionTaken::new();
+    let wrapper = ModexCallback::from_raw_tracked(Some(panic_path_modex_completion), taken.clone())
+        .expect("tracked wrapper around a real C callback");
+    assert!(
+        wrapper.into_c_callback().is_some(),
+        "an unclaimed tracked wrapper must still extract"
+    );
+
+    // Claimed the way the trampoline's panic path does: extraction must
+    // yield None — the completion right is already owned elsewhere.
+    let taken = CompletionTaken::new();
+    let wrapper = ModexCallback::from_raw_tracked(Some(panic_path_modex_completion), taken.clone())
+        .expect("tracked wrapper around a real C callback");
+    assert!(taken.claim(), "the trampoline wins the one-shot claim");
+    assert!(
+        wrapper.into_c_callback().is_none(),
+        "extracting after a won claim must yield None — the pointer would be a second completion"
+    );
+}
+
+/// C `pmix_spawn_cbfunc_t` mock for the extract-path test: records
+/// invocations, never dereferences its arguments.
+static SPAWN_EXTRACT_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "C" fn spawn_extract_completion(
+    _status: i32,
+    _nspace: *mut std::os::raw::c_char,
+    _cbdata: *mut std::os::raw::c_void,
+) {
+    SPAWN_EXTRACT_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// The `SpawnCallback` extract path is a separate copy of the `ModexCallback`
+/// one (pass-6 review): a Spawn-only revert would otherwise stay green.
+#[test]
+fn test_tracked_spawn_into_c_callback_respects_a_won_claim() {
+    let taken = CompletionTaken::new();
+    let wrapper = callbacks::SpawnCallback::from_raw(Some(spawn_extract_completion), taken.clone())
+        .expect("tracked wrapper around a real C callback");
+    assert!(
+        wrapper.into_c_callback().is_some(),
+        "an unclaimed tracked wrapper must still extract"
+    );
+
+    let taken = CompletionTaken::new();
+    let wrapper = callbacks::SpawnCallback::from_raw(Some(spawn_extract_completion), taken.clone())
+        .expect("tracked wrapper around a real C callback");
+    assert!(taken.claim(), "the trampoline wins the one-shot claim");
+    assert!(
+        wrapper.into_c_callback().is_none(),
+        "extracting after a won claim must yield None — the pointer would be a second completion"
     );
 }

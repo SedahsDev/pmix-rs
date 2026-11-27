@@ -2523,7 +2523,8 @@ impl PmixAppObject {
     ///
     /// # Safety
     /// The returned pointer must not be dereferenced after this object is mutated or dropped.
-    pub unsafe fn info_ptr(&self) -> *const ffi::pmix_info_t {
+    #[allow(dead_code)]
+    pub(crate) unsafe fn info_ptr(&self) -> *const ffi::pmix_info_t {
         self.raw().map_or(ptr::null(), |a| a.info)
     }
     fn strings(&self, p: *mut *mut c_char) -> Vec<String> {

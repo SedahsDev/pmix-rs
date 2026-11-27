@@ -17,31 +17,34 @@
 //! `InitOptions::bind_progress_thread` (see THREADING.md §4), not the
 //! `fence_nb` / `direct_modex` bodies themselves.
 //!
+//! The module fields take native callback signatures (#520): borrowed view
+//! types (`ProcView`, `InfoView`, …) instead of raw bindgen pointers, and
+//! owned completion-callback wrappers instead of raw C fn pointers.
+//!
 //! Shared hop-off helpers and client `_nb` / events counterpart:
 //! [`pmix::threading`], `examples/callback_hop.rs` (issue #51).
 //!
 //! # Running
 //!
-//! Compiles and runs standalone (no clients → no real upcalls). The example
-//! also **self-drives** the hop pattern once so the async `cbfunc` path is
-//! exercised without a full RM:
-//!
 //! ```text
 //! cargo run --example server_upcall_hop
 //! ```
 //!
-//! Under a real resource manager the same function pointers are installed on
-//! the module OpenPMIx copies at `PMIx_server_init`.
+//! Under a real resource manager the same native callbacks are installed on
+//! the module OpenPMIx copies at `PMIx_server_init`; the crate's C-ABI
+//! trampolines convert raw PMIx arguments into the views for you.
 
 use std::os::raw::c_void;
 use std::ptr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use pmix::InfoBuilder;
-use pmix::server::{PmixServer, PmixServerModule};
+use pmix::PmixStatus;
+use pmix::server::PmixServer;
+use pmix::server::PmixServerModule;
+use pmix::server::callbacks::{ModexCallback, ReleaseCallback};
 use pmix::threading::{CallbackChannel, ProgressContext, spawn_from_callback};
+use pmix::views::{InfoView, ProcView};
 
 /// Counts successful async completions from hopped-off upcall work.
 static COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
@@ -51,18 +54,17 @@ fn main() {
     println!("Pattern: progress upcall → spawn_from_callback → delayed cbfunc");
     println!();
 
-    // ── 1. Install typed host upcalls on the module ────────────────────────
+    // ── 1. Install native host upcalls on the module ───────────────────────
     //
-    // The module fields use OpenPMIx callback types with internal pointee types.
-    let mut module = PmixServerModule::default();
-    // SAFETY: the C ABI signatures match; only opaque pointer pointees differ.
-    #[allow(clippy::missing_transmute_annotations)]
-    unsafe {
-        module.fence_nb = Some(std::mem::transmute(host_fence_nb as *const ()));
-        module.direct_modex = Some(std::mem::transmute(host_direct_modex as *const ()));
-    }
+    // Since #520 the fields take native signatures: views + completion
+    // wrappers, no transmutes and no raw bindgen types.
+    let module = PmixServerModule {
+        fence_nb: Some(host_fence_nb),
+        direct_modex: Some(host_direct_modex),
+        ..Default::default()
+    };
 
-    let info = InfoBuilder::new().build().expect("build info");
+    let info = pmix::InfoBuilder::new().build().expect("build info");
     let server = match PmixServer::connect_new(Some(&module), &info) {
         Ok(s) => s,
         Err(e) => {
@@ -78,27 +80,37 @@ fn main() {
 
     // ── 2. Self-drive the hop pattern (no client fence required) ───────────
     //
-    // Mirrors what OpenPMIx does when a client fence/modex arrives: enter the
-    // upcall on a "progress" stand-in thread, hop, complete via cbfunc later.
+    // Mirrors what the crate's C-ABI trampoline does when a client
+    // fence/modex arrives: enter the upcall on a "progress" stand-in thread,
+    // hop, complete via the native completion wrapper later.
     let hop = CallbackChannel::<&'static str>::new();
     let tx = hop.sender();
+    let completion = ModexCallback::new(
+        move |status: PmixStatus, _data, _len, _cbdata, _rel, _rel_cbdata| {
+            COMPLETIONS.fetch_add(1, Ordering::SeqCst);
+            let _ = tx.send(if status.to_raw() == 0 {
+                "fence_nb hopped + cbfunc OK"
+            } else {
+                "fence_nb hopped + cbfunc error"
+            });
+        },
+    );
     let progress_stand_in = std::thread::Builder::new()
         .name("pmix-progress-standin".into())
         .spawn(move || {
-            // SAFETY: synthetic call with null procs/info and a real completion
+            // SAFETY: synthetic call with empty views and a real completion
             // path — demonstrates the hop rules without a full RM collective.
             unsafe {
                 host_fence_nb(
-                    ptr::null(),
-                    ptr::null(),
-                    0,
-                    ptr::null(),
-                    0,
+                    // The participant array (empty = all ranks in the nspace).
+                    &[],
+                    &[],
+                    // No modex blob in the demo.
                     ptr::null_mut(),
                     0,
-                    Some(demo_modex_complete),
-                    // Tag the cbdata so demo_modex_complete can signal the app.
-                    Box::into_raw(Box::new(tx)) as *mut c_void,
+                    Some(completion),
+                    // Tag the chain pointer (null in this self-drive).
+                    ptr::null_mut(),
                 )
             };
         })
@@ -129,94 +141,47 @@ fn main() {
     println!("server_upcall_hop example done");
 }
 
-/// OpenPMIx completion for fence / direct-modex upcalls.
-/// This is an internal FFI type; it is not exposed publicly by pmix-rs.
-type ModexCb = Option<
-    unsafe extern "C" fn(
-        i32,
-        *const i8,
-        usize,
-        *mut c_void,
-        Option<unsafe extern "C" fn(*mut c_void)>,
-        *mut c_void,
-    ),
->;
-
-/// Demo completion used by the self-driven path: signals the app channel.
-unsafe extern "C" fn demo_modex_complete(
-    status: i32,
-    _data: *const i8,
-    _ndata: usize,
-    cbdata: *mut c_void,
-    release_fn: Option<unsafe extern "C" fn(*mut c_void)>,
-    release_cbdata: *mut c_void,
-) {
-    COMPLETIONS.fetch_add(1, Ordering::SeqCst);
-    if !cbdata.is_null() {
-        // SAFETY: cbdata is the Box'd Sender we passed from main.
-        let tx = unsafe { Box::from_raw(cbdata as *mut std::sync::mpsc::Sender<&'static str>) };
-        let _ = tx.send(if status == 0 {
-            "fence_nb hopped + cbfunc OK"
-        } else {
-            "fence_nb hopped + cbfunc error"
-        });
-    }
-    if let Some(rel) = release_fn {
-        // SAFETY: release pair is whatever the host passed; null is fine.
-        unsafe { rel(release_cbdata) };
-    }
-}
-
 /// Host `fence_nb` upcall — **progress context**.
 ///
-/// Must not block on PMIx; hop and call `cbfunc` later.
-unsafe extern "C" fn host_fence_nb(
-    _requestor: *const c_void,
-    _procs: *const [i8; 256],
-    nprocs: usize,
-    _info: *const c_void,
-    _ninfo: usize,
-    data: *mut c_void,
-    ndata: usize,
-    cbfunc: ModexCb,
+/// Native signature (#520): `(procs[], info[], data, ndata, cbfunc, cbdata)`
+/// — the participant array, the collective directives, the modex blob, and
+/// the modex completion. Must not block on PMIx; hop and call `cbfunc`
+/// later.
+unsafe fn host_fence_nb(
+    procs: &[ProcView],
+    info: &[InfoView],
+    _data: *mut std::os::raw::c_char,
+    _ndata: usize,
+    cbfunc: Option<ModexCallback>,
     cbdata: *mut c_void,
 ) {
     let _ctx = ProgressContext;
 
-    // Copy contributed blob before return — C buffer lifetime ends with the
-    // upcall frame; the pointer is also !Send.
-    let blob: Arc<Vec<u8>> = Arc::new(if data.is_null() || ndata == 0 {
-        Vec::new()
-    } else {
-        // SAFETY: OpenPMIx guarantees `data` is ndata bytes for the call.
-        unsafe { std::slice::from_raw_parts(data as *const u8, ndata) }.to_vec()
-    });
+    // Copy what the hop thread needs before return — view borrows end with
+    // the upcall frame and raw pointers are !Send.
+    let nprocs = procs.len();
+    let ninfo = info.len();
 
     // *mut c_void is !Send — carry the chain address as usize across the hop.
     let chain_addr = cbdata as usize;
-    let nprocs = nprocs;
 
     let spawn_result = spawn_from_callback(move || {
         // Application / RM thread — blocking work and delayed completion are OK.
         println!(
-            "[app thread] fence_nb: nprocs={nprocs} blob_len={} — collective/RM work safe here",
-            blob.len()
+            "[app thread] fence_nb: nprocs={nprocs} ninfo={ninfo} — collective/RM work safe here"
         );
-        // Real RMs would exchange `blob` with peer daemons here, then complete.
+        // Real RMs would exchange the modex blob with peer daemons here,
+        // then complete. Return the chain pointer verbatim.
         if let Some(cb) = cbfunc {
             // SAFETY: complete the OpenPMIx fence chain. Return the chain
             // pointer verbatim; no host-owned release blob in this demo.
             unsafe {
-                cb(
-                    0, // PMIX_SUCCESS
-                    if blob.is_empty() {
-                        ptr::null()
-                    } else {
-                        blob.as_ptr() as *const i8
-                    },
-                    blob.len(),
+                cb.call(
+                    PmixStatus::from_raw(0), // PMIX_SUCCESS
+                    ptr::null(),             // no modex blob in the demo
+                    0,
                     chain_addr as *mut c_void,
-                    None,
+                    ReleaseCallback::default(),
                     ptr::null_mut(),
                 );
             }
@@ -234,13 +199,12 @@ unsafe extern "C" fn host_fence_nb(
 
 /// Host `direct_modex` upcall — **progress context**.
 ///
-/// Same hop-then-`cbfunc` rules as fence.
-unsafe extern "C" fn host_direct_modex(
-    _requestor: *const c_void,
-    _proc: *const [i8; 256],
-    _info: *const c_void,
-    _ninfo: usize,
-    cbfunc: Option<unsafe extern "C" fn(i32, *mut i8, usize, *mut c_void)>,
+/// Same hop-then-`cbfunc` rules as fence; the `direct_modex` slot also
+/// completes through a [`ModexCallback`] (the modex completion shape).
+unsafe fn host_direct_modex(
+    _proc: &ProcView,
+    _info: &[InfoView],
+    cbfunc: Option<ModexCallback>,
     cbdata: *mut c_void,
 ) {
     let _ctx = ProgressContext;
@@ -251,9 +215,17 @@ unsafe extern "C" fn host_direct_modex(
         // Standalone demo: empty blob success. Real RMs contact the remote
         // daemon, assemble the modex blob, then complete.
         if let Some(cb) = cbfunc {
+            // SAFETY: complete the direct-modex request with an empty blob.
             unsafe {
-                cb(0, ptr::null_mut(), 0, chain_addr as *mut c_void);
-            }
+                cb.call(
+                    PmixStatus::from_raw(0),
+                    ptr::null(),
+                    0,
+                    chain_addr as *mut c_void,
+                    ReleaseCallback::default(),
+                    ptr::null_mut(),
+                )
+            };
         }
         COMPLETIONS.fetch_add(1, Ordering::SeqCst);
     });

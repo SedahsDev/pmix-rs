@@ -93,18 +93,17 @@ fn init_options_external_progress_builds() {
     opts.external_progress(true);
     let info = opts.build().expect("build info");
     assert_eq!(info.len(), 1, "external_progress must emit one Info entry");
-    unsafe {
-        let ent = &*info.as_ptr();
-        let key = std::ffi::CStr::from_ptr(ent.key.as_ptr());
-        eprintln!(
-            "external_progress info: key={:?} type={} flag={}",
-            key, ent.value.type_, ent.value.data.flag
-        );
-        assert_eq!(key.to_bytes(), b"pmix.evext");
-        // PMIX_BOOL is type tag 1 in OpenPMIx.
-        assert_eq!(ent.value.type_, 1);
-        assert_ne!(ent.value.data.flag as u8, 0, "flag must be true");
-    }
+    let view = info.view(0).expect("one entry");
+    eprintln!(
+        "external_progress info: key={:?} type={:?} flag={:?}",
+        view.key(),
+        view.value_type(),
+        view.as_bool()
+    );
+    assert_eq!(view.key(), "pmix.evext");
+    // PMIX_BOOL is type tag 1 in OpenPMIx.
+    assert_eq!(view.value_type(), pmix::PmixDataType::Bool);
+    assert!(view.as_bool().expect("boolean entry"), "flag must be true");
     drop(info);
 }
 

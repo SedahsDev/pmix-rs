@@ -748,8 +748,35 @@ impl Info {
         self.len == 0
     }
 
+    /// An empty info array (no entries; FFI receives a null pointer).
+    ///
+    /// Use this where the C API takes `(NULL, 0)` directives, e.g. the
+    /// `iof_pull` / `iof_push` directive arrays.
+    pub fn empty() -> Self {
+        Info {
+            handle: std::ptr::null_mut(),
+            len: 0,
+            _not_thread_safe: std::marker::PhantomData,
+        }
+    }
+
+    /// Borrow entry `index` as a read-only view.
+    ///
+    /// Returns `None` when the index is out of bounds or the array handle
+    /// is null. The bounds check selects the element — `view(1)` on a
+    /// two-entry array returns the second entry.
+    pub fn view(&self, index: usize) -> Option<&crate::views::InfoView> {
+        if self.handle.is_null() || index >= self.len {
+            return None;
+        }
+        // SAFETY: handle points to `len` initialized PMIx entries and is
+        // non-null; `index` was bounds-checked above, so `add(index)` points
+        // at one initialized element for the lifetime of the borrow.
+        Some(unsafe { crate::views::InfoView::from_raw_ptr(self.handle.add(index)) })
+    }
+
     /// Raw pointer for FFI (valid for `len()` elements).
-    pub fn as_ptr(&self) -> *mut pmix_info_t {
+    pub(crate) fn as_ptr(&self) -> *mut pmix_info_t {
         self.handle
     }
 
@@ -757,7 +784,8 @@ impl Info {
     ///
     /// After this call, [`Drop`] will not free the handle — the caller must
     /// free it with `PMIx_Info_free` (or equivalent).
-    pub fn into_raw(self) -> (*mut pmix_info_t, usize) {
+    #[allow(dead_code)]
+    pub(crate) fn into_raw(self) -> (*mut pmix_info_t, usize) {
         let handle = self.handle;
         let len = self.len;
         std::mem::forget(self);

@@ -66,6 +66,8 @@ pub mod threading;
 mod threading_assert;
 pub mod tool;
 pub mod utility;
+/// Borrowed, zero-cost views over PMIx C structs (`InfoView`, `ProcView`, …).
+pub mod views;
 
 /// Dispatch a PMIx FFI call to the mock implementation when the `mock_ffi`
 /// feature (or `cfg(test)`) is active **and** mocks are enabled at runtime.

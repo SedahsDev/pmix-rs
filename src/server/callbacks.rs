@@ -3,18 +3,29 @@
 //! This module provides native Rust wrappers around PMIx callback types,
 //! preventing FFI types from leaking into public APIs.
 //!
-//! Registerable server callbacks use the `module` form of
-//! `native_server_callback!` to wrap a native function pointer and own a module
-//! containing that pointer. Unlike one-shot completion callbacks, server
-//! callbacks receive PMIx-owned completion data, not wrapper-owned context.
-//! Consequently, registration cannot adapt an arbitrary capturing closure.
+//! NOTE: this file is **not** an orphan — `src/server/mod.rs` includes it
+//! directly via `#[path = "callbacks.rs"] mod native_callbacks`, and
+//! re-exports its items both as `pmix::server::callbacks::*` and
+//! `pmix::server::native_callbacks::*`. The `PmixServerModule` host-upcall
+//! surface itself (the `Server*Callback` type aliases and the C-ABI slot
+//! trampolines) lives in `src/server/mod.rs` and is NOT defined by the
+//! macros below.
 //!
-//! The remaining 32 server callback types can follow this pattern by supplying
-//! their FFI typedef, module field, and exact C signature. Keep optional
-//! callbacks as `Option<Wrapper>` in `PmixServerModule`; borrow `Some` before
-//! calling `as_c_ptr()`, and represent an absent module with a null pointer.
-//! The extra ownership argument returned by `into_c_callback()` is only for
-//! one-shot use and must not be confused with the native callback's cbdata.
+//! What lives here:
+//!
+//! * `ServerFenceNbCallback` — a registerable native fence upcall that owns
+//!   a private `pmix_server_module_t` (the `module` form of
+//!   `native_server_callback!`), for hosts that install a single fence
+//!   upcall outside `PmixServerModule`.
+//! * The `Native*Callback` one-shot adapters (the closure and
+//!   function-pointer forms of `native_server_callback!`) and the
+//!   `native_rust_server_callback!` context wrappers. Unlike one-shot
+//!   completion callbacks, these registerable callbacks receive
+//!   PMIx-owned completion data, not wrapper-owned context; registration
+//!   cannot adapt an arbitrary capturing closure.
+//! * The `into_c_callback()` trailing ownership argument is for one-shot
+//!   use only and must not be confused with the native callback's cbdata.
+//! Release an unused adapter's data with its `free_*_cbdata` function.
 
 use crate::allocation::{JobControlResults, ResourceBlockDirective, SessionControlResults};
 use crate::data_serialization::PmixDataBuffer;
