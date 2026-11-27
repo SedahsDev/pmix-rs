@@ -53,6 +53,7 @@
 //! deregister_event_handler(handler_ref, None).expect("deregister failed");
 //! ```
 
+use crate::views::InfoView;
 use crate::{Info, PmixDataRange, PmixError, PmixStatus, Proc, ffi};
 use std::collections::{HashMap, HashSet};
 use std::os::raw::c_void;
@@ -71,16 +72,16 @@ pub trait NotificationFn: Send + 'static {
     ///
     /// # Parameters
     /// - `status`: The status of the notification operation
-    /// - `results`: Array of info structures with notification data (may be null)
-    /// - `nresults`: Number of results in the array
+    /// - `results`: Info entries produced by handlers that ran before this
+    ///   one (empty when there are none). Forward the array (possibly
+    ///   modified in place) through `cbfunc` to complete the event chain.
     /// - `cbfunc`: Optional continuation callback (may be null)
     /// - `cbdata`: Opaque data for the continuation callback
     /// - `notification_cbdata`: Opaque data for this notification callback
     fn on_notification(
         &mut self,
         status: PmixStatus,
-        results: *mut crate::ffi::pmix_info_t,
-        nresults: usize,
+        results: &mut [InfoView],
         cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
         cbdata: *mut c_void,
         notification_cbdata: *mut c_void,
@@ -90,22 +91,14 @@ pub trait NotificationFn: Send + 'static {
     fn call(
         mut self,
         status: PmixStatus,
-        results: *mut crate::ffi::pmix_info_t,
-        nresults: usize,
+        results: &mut [InfoView],
         cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
         cbdata: *mut c_void,
         notification_cbdata: *mut c_void,
     ) where
         Self: Sized,
     {
-        self.on_notification(
-            status,
-            results,
-            nresults,
-            cbfunc,
-            cbdata,
-            notification_cbdata,
-        );
+        self.on_notification(status, results, cbfunc, cbdata, notification_cbdata);
     }
 }
 
@@ -113,8 +106,7 @@ impl<F> NotificationFn for F
 where
     F: FnMut(
             PmixStatus,
-            *mut crate::ffi::pmix_info_t,
-            usize,
+            &mut [InfoView],
             Option<unsafe extern "C" fn(i32, *mut c_void)>,
             *mut c_void,
             *mut c_void,
@@ -124,20 +116,12 @@ where
     fn on_notification(
         &mut self,
         status: PmixStatus,
-        results: *mut crate::ffi::pmix_info_t,
-        nresults: usize,
+        results: &mut [InfoView],
         cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
         cbdata: *mut c_void,
         notification_cbdata: *mut c_void,
     ) {
-        self(
-            status,
-            results,
-            nresults,
-            cbfunc,
-            cbdata,
-            notification_cbdata,
-        );
+        self(status, results, cbfunc, cbdata, notification_cbdata);
     }
 }
 
@@ -165,20 +149,13 @@ impl NotificationFn for NotificationCallbackWrapper {
     fn on_notification(
         &mut self,
         status: PmixStatus,
-        results: *mut crate::ffi::pmix_info_t,
-        nresults: usize,
+        results: &mut [InfoView],
         cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
         cbdata: *mut c_void,
         notification_cbdata: *mut c_void,
     ) {
-        self.inner.on_notification(
-            status,
-            results,
-            nresults,
-            cbfunc,
-            cbdata,
-            notification_cbdata,
-        );
+        self.inner
+            .on_notification(status, results, cbfunc, cbdata, notification_cbdata);
     }
 }
 
@@ -213,10 +190,12 @@ extern "C" fn notification_callback_bridge(
         // notification_callback_into_c, transferred back exactly once.
         let mut bridge =
             unsafe { Box::from_raw(notification_cbdata as *mut NotificationCallbackBridge) };
+        // SAFETY: PMIx supplies the results array (null + 0 maps to an
+        // empty slice) for the duration of this delivery.
+        let results = unsafe { crate::views::view_slice_mut(results.cast::<InfoView>(), nresults) };
         bridge.wrapper.on_notification(
             PmixStatus::from_raw(status),
             results,
-            nresults,
             cbfunc,
             cbdata,
             ptr::null_mut(), // notification_cbdata is consumed
@@ -296,8 +275,7 @@ pub type EventHandlerRef = usize;
 /// if let Some(mut cbfunc) = cbfunc {
 ///     cbfunc.on_notification(
 ///         PmixStatus::from_raw(status),
-///         results.cast(),
-///         nresults,
+///         &mut [],
 ///         None,
 ///         null_mut(),
 ///         cbdata,
@@ -548,11 +526,21 @@ unsafe extern "C" fn notification_bridge(
             let completion = cbfunc.map(|callback| {
                 NotificationCallbackWrapper::new(
                     move |status: PmixStatus,
-                          results: *mut ffi::pmix_info_t,
-                          nresults: usize,
+                          results: &mut [InfoView],
                           continuation: Option<unsafe extern "C" fn(i32, *mut c_void)>,
                           continuation_cbdata: *mut c_void,
                           notification_cbdata: *mut c_void| {
+                        // Convert the native results slice back to the raw
+                        // pointer/length pair the C callback expects. An
+                        // empty slice maps to (NULL, 0).
+                        let (results, nresults) = if results.is_empty() {
+                            (ptr::null_mut::<ffi::pmix_info_t>(), 0)
+                        } else {
+                            (
+                                results.as_mut_ptr().cast::<ffi::pmix_info_t>(),
+                                results.len(),
+                            )
+                        };
                         callback(
                             status.to_raw(),
                             results,
@@ -1426,8 +1414,7 @@ mod tests {
                 // SAFETY: the test forwards the supplied chain callback once.
                 cbfunc.on_notification(
                     PmixStatus::from_raw(0),
-                    std::ptr::null_mut(),
-                    0,
+                    &mut [],
                     None,
                     std::ptr::null_mut(),
                     cbdata,
@@ -3651,15 +3638,18 @@ mod tests {
         // Cell is Send but not Sync; callbacks must not require Sync.
         let calls = std::cell::Cell::new(0);
         let wrapper = NotificationCallbackWrapper::new(
-            move |_status, _results, _nresults, _cbfunc, _cbdata, _notif_cbdata| {
+            move |_status: PmixStatus,
+                  _results: &mut [crate::views::InfoView],
+                  _cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+                  _cbdata: *mut c_void,
+                  _notif_cbdata: *mut c_void| {
                 calls.set(calls.get() + 1);
             },
         );
         assert_notification_fn(&wrapper);
         wrapper.call(
             PmixStatus::from_raw(0),
-            ptr::null_mut(),
-            0,
+            &mut [],
             None,
             ptr::null_mut(),
             ptr::null_mut(),
@@ -3672,14 +3662,12 @@ mod tests {
         let callback_called = called.clone();
         let wrapper = NotificationCallbackWrapper::new(
             move |status: PmixStatus,
-                  results: *mut ffi::pmix_info_t,
-                  nresults: usize,
+                  results: &mut [crate::views::InfoView],
                   cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
                   cbdata: *mut c_void,
                   notif_cbdata: *mut c_void| {
                 assert_eq!(status.to_raw(), -9999);
-                assert!(results.is_null());
-                assert_eq!(nresults, 0);
+                assert!(results.is_empty());
                 assert!(cbfunc.is_none());
                 assert!(!cbdata.is_null());
                 assert!(notif_cbdata.is_null());
@@ -3707,7 +3695,11 @@ mod tests {
     #[test]
     fn notification_callback_into_c() {
         let wrapper = NotificationCallbackWrapper::new(
-            |_status, _results, _nresults, _cbfunc, _cbdata, _notif_cbdata| {},
+            |_status: PmixStatus,
+             _results: &mut [crate::views::InfoView],
+             _cbfunc: Option<unsafe extern "C" fn(i32, *mut c_void)>,
+             _cbdata: *mut c_void,
+             _notif_cbdata: *mut c_void| {},
         );
         let (cb, cbdata) = super::notification_callback_into_c(wrapper);
 
