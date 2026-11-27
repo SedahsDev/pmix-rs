@@ -335,11 +335,10 @@ pub mod callbacks {
 
         /// Restore the original C callback, consuming this wrapper.
         ///
-        /// Returns `None` for a Rust closure created with [`Self::new`].
-        /// For a tracked wrapper (server trampoline origin) this marks
-        /// the shared [`CompletionTaken`] flag on extract: the marking
-        /// closure is dropped and the bare C function pointer escapes,
-        /// so the extract CLAIMS the one-shot completion right here.
+        /// For a tracked wrapper (server trampoline origin) the extract
+        /// CLAIMS the shared [`CompletionTaken`] one-shot completion
+        /// right: the tracking closure is dropped and the bare C
+        /// function pointer escapes as the single owner.
         ///
         /// Returns `None` for a Rust closure created with [`Self::new`]
         /// and when the claim is lost (the trampoline's panic path or an
@@ -659,11 +658,10 @@ pub mod callbacks {
 
         /// Restore the original C callback, consuming this wrapper.
         ///
-        /// Returns `None` for a Rust closure created with [`Self::new`].
-        /// For a tracked wrapper (server trampoline origin) this marks
-        /// the shared [`CompletionTaken`] flag on extract: the marking
-        /// closure is dropped and the bare C function pointer escapes,
-        /// so the extract CLAIMS the one-shot completion right here.
+        /// For a tracked wrapper (server trampoline origin) the extract
+        /// CLAIMS the shared [`CompletionTaken`] one-shot completion
+        /// right: the tracking closure is dropped and the bare C
+        /// function pointer escapes as the single owner.
         ///
         /// Returns `None` for a Rust closure created with [`Self::new`]
         /// and when the claim is lost (the trampoline's panic path or an
@@ -2056,7 +2054,8 @@ server_op_upcalls! {
 //
 // One policy satisfies both lists: a trampoline panic BEFORE
 // completion invokes the C cbfunc exactly ONCE with PMIX_ERROR and
-// returns PMIX_SUCCESS. Status-checking callers treat PMIX_SUCCESS as
+// returns PMIX_SUCCESS (when no C cbfunc was supplied at all, see the
+// PMIX_ERROR arm below). Status-checking callers treat PMIX_SUCCESS as
 // "the host owns the callback" and do not release or complete again;
 // execute_collective ignores the status but still gets the callback,
 // so the collective unblocks. A panic AFTER completion (the
@@ -2071,6 +2070,13 @@ server_op_upcalls! {
 //   trampoline completed the C cbfunc with PMIX_ERROR itself. In
 //   every case the C cbfunc is invoked at most once and the PMIx
 //   caller treats the return as "the host owns the callback".
+// * `PMIX_ERROR` — the host panicked, the trampoline won the
+//   [`CompletionTaken`] claim, but no C completion callback was
+//   supplied, so `complete_*_on_panic` invoked nothing. Returning
+//   SUCCESS here would leak `cbdata` (the status-honoring callers
+//   would read it as "host owns the callback" and never release);
+//   PMIX_ERROR makes them release it themselves. This arm cannot
+//   double-release: nothing was invoked.
 // * `PMIX_ERR_NOT_SUPPORTED` — the field is `None`; cbdata is NOT
 //   touched (PMIx does not expect a completion in this case).
 //
@@ -2112,8 +2118,8 @@ fn status_panic() -> ffi::pmix_status_t {
 /// owner even when an asynchronous completion races a trampoline panic:
 ///
 /// * **wrapper wins** — the host completed through the wrapper (or via
-///   the raw pointer extracted with `into_c_callback`, which marks the
-///   flag on extract). The trampoline's panic path loses the claim,
+///   the raw pointer extracted with `into_c_callback`, which CLAIMS the
+///   right on extract). The trampoline's panic path loses the claim,
 ///   calls nothing, and returns `PMIX_SUCCESS`: the completion already
 ///   released `cbdata`, and a non-success return would make the PMIx
 ///   caller release it a second time.
@@ -2122,7 +2128,9 @@ fn status_panic() -> ffi::pmix_status_t {
 ///   and returns `PMIX_SUCCESS`: status-honoring PMIx callers treat
 ///   SUCCESS as "the host owns the callback", while
 ///   pmix_server_execute_collective ignores the status and hangs
-///   unless the callback fires.
+///   unless the callback fires. If NO C callback was supplied, nothing
+///   can be invoked and the trampoline returns `PMIX_ERROR` instead,
+///   so the status-honoring callers release `cbdata` themselves.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CompletionTaken(Arc<AtomicBool>);
 
