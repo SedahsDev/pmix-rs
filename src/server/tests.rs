@@ -72,6 +72,7 @@ macro_rules! callback_for_construction_test {
 
 #[test]
 fn test_direct_modex_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeDirectModexCallback);
     assert_eq!(
@@ -83,6 +84,7 @@ fn test_direct_modex_callback_construction() {
 
 #[test]
 fn test_connect_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeConnectCallback);
     assert_eq!(
@@ -94,6 +96,7 @@ fn test_connect_callback_construction() {
 
 #[test]
 fn test_disconnect_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeDisconnectCallback);
     assert_eq!(
@@ -105,6 +108,7 @@ fn test_disconnect_callback_construction() {
 
 #[test]
 fn test_spawn_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeSpawnCallback);
     assert_eq!(
@@ -116,6 +120,7 @@ fn test_spawn_callback_construction() {
 
 #[test]
 fn test_abort_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeAbortCallback);
     assert_eq!(
@@ -165,6 +170,7 @@ fn test_server_module_clear_callback() {
 
 #[test]
 fn test_server_module_as_c_ptr_returns_non_null() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule::default();
     let ptr = module.as_c_ptr();
     assert!(
@@ -175,6 +181,7 @@ fn test_server_module_as_c_ptr_returns_non_null() {
 
 #[test]
 fn test_server_module_as_c_ptr() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule {
         fence_nb: Some(|_procs, _info, _data, _ndata, _cbfunc, _cbdata| {
             unreachable!("converting a callback must not invoke it")
@@ -355,6 +362,7 @@ fn test_server_module_with_wrapped_callbacks() {
 
 #[test]
 fn test_server_module_as_c_ptr_consistent() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule {
         fence_nb: Some(|_procs, _info, _data, _ndata, _cbfunc, _cbdata| {
             unreachable!("converting a callback must not invoke it")
@@ -397,6 +405,7 @@ fn test_server_module_field_count() {
 
 #[test]
 fn test_log_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) = callback_for_construction_test!(super::callbacks::NativeLogCallback);
     assert_eq!(
         callback.as_c_ptr().map(|callback| callback as *const ()),
@@ -407,6 +416,7 @@ fn test_log_callback_construction() {
 
 #[test]
 fn test_log2_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeLog2Callback);
     assert_eq!(
@@ -418,6 +428,7 @@ fn test_log2_callback_construction() {
 
 #[test]
 fn test_query_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeQueryCallback);
     assert_eq!(
@@ -429,6 +440,7 @@ fn test_query_callback_construction() {
 
 #[test]
 fn test_listener_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeListenerCallback);
     assert_eq!(
@@ -440,6 +452,7 @@ fn test_listener_callback_construction() {
 
 #[test]
 fn test_monitor_callback_construction() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let (callback, original) =
         callback_for_construction_test!(super::callbacks::NativeMonitorCallback);
     assert_eq!(
@@ -1968,6 +1981,7 @@ fn test_register_nspace_callback_error_status() {
 
 #[test]
 fn test_server_module_as_c_ptr_different_calls_same_addr() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule::default();
     let ptr1 = module.as_c_ptr();
     let ptr2 = module.as_c_ptr();
@@ -1979,6 +1993,7 @@ fn test_server_module_as_c_ptr_different_calls_same_addr() {
 
 #[test]
 fn test_server_module_as_c_ptr_mutable_module() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let mut module = PmixServerModule::default();
     let ptr1 = module.as_c_ptr();
     let ptr2 = module.as_c_ptr();
@@ -2003,6 +2018,7 @@ fn test_mock_server_init_returns_err_when_disabled() {
 
 #[test]
 fn test_mock_server_init_with_module_ptr() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let _guard = crate::mock_ffi::MockGuard::new();
     let module = PmixServerModule::default();
     let module_ptr = module.as_c_ptr() as *mut std::ffi::c_void;
@@ -3170,6 +3186,13 @@ impl RawUpcallData {
 /// Records the completion callback invocation from the trampoline.
 static TRAMPOLINE_COMPLETION_STATUS: AtomicUsize = AtomicUsize::new(0);
 
+/// Serializes tests that install callbacks into the process-wide
+/// `SERVER_OP_UPCALLS` registry via `PmixServerModule::as_c_ptr()`. The
+/// registry holds one callback per slot, so two such tests running in
+/// parallel would overwrite each other's callbacks mid-flight (seen in CI:
+/// both publish trampoline tests failing under the default test-threads).
+static REGISTRY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 unsafe extern "C" fn trampoline_test_completion(status: i32, _cbdata: *mut std::os::raw::c_void) {
     TRAMPOLINE_COMPLETION_STATUS.fetch_add(status as usize + 1, Ordering::SeqCst);
 }
@@ -3225,6 +3248,7 @@ fn publish_trampoline(module: &PmixServerModule) -> ffi::pmix_server_publish_fn_
 /// the correct data and hands the user callback a working completion wrapper.
 #[test]
 fn test_publish_trampoline_converts_raw_args_to_views() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let data = RawUpcallData::new();
     let module = PmixServerModule {
         publish: Some(publish_recorder),
@@ -3271,6 +3295,7 @@ fn test_publish_trampoline_converts_raw_args_to_views() {
 /// empty slice instead of constructing a dangling reference.
 #[test]
 fn test_publish_trampoline_maps_null_to_empty_slice() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule {
         publish: Some(publish_null_recorder),
         ..Default::default()
@@ -3354,6 +3379,7 @@ unsafe fn fence_nb_recorder(
 /// the modex blob.
 #[test]
 fn test_fence_nb_trampoline_converts_real_layout_to_views() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule {
         fence_nb: Some(fence_nb_recorder),
         ..Default::default()
@@ -3453,6 +3479,7 @@ unsafe fn client_connected_recorder(
 /// `pmix_op_cbfunc_t` completion.
 #[test]
 fn test_client_connected_trampoline_invokes_real_layout() {
+    let _registry_guard = REGISTRY_TEST_LOCK.lock().unwrap();
     let module = PmixServerModule {
         client_connected: Some(client_connected_recorder),
         ..Default::default()
